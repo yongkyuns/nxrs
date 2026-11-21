@@ -2,8 +2,9 @@
 #![forbid(unsafe_code)]
 pub use crate::fixtures::devices;
 
-type MockSession = acquisition::mock::Session<DeviceError>;
+use crate::session;
 use crate::{DeviceError, Event, GnssFix, Session};
+use acquisition::mock::Timer;
 
 #[derive(Default)]
 struct SyntheticGnss {
@@ -28,29 +29,17 @@ impl SyntheticGnss {
     }
 }
 
-impl Session for MockSession {
-    fn request_stop(&mut self) -> Result<(), DeviceError> {
-        MockSession::request_stop(self)
-    }
-    fn join(&mut self) -> Result<(), DeviceError> {
-        MockSession::join(self)
-    }
-    fn is_finished(&self) -> bool {
-        MockSession::is_finished(self)
-    }
-    fn dropped(&self) -> u32 {
-        MockSession::dropped(self)
-    }
-}
 pub fn open<S: FnMut(Event) -> messaging::DeliveryResult<Event> + Send + 'static>(
     sink: S,
 ) -> Result<impl Session + Send + 'static, DeviceError> {
     let mut model = SyntheticGnss::default();
-    MockSession::start(
-        sink,
-        std::time::Duration::from_millis(200),
-        DeviceError::Io,
-        Event::Failed,
-        move |now| Event::Fix(model.fix(now).expect("synthetic sample")),
-    )
+    let timer = Timer::default();
+    session::start(16_384, timer.clone(), (sink, ()), move |stop, emit| {
+        timer
+            .run(stop, std::time::Duration::from_millis(200), |now| {
+                emit(Event::Fix(model.fix(now).expect("synthetic sample")))
+            })
+            .map_err(|_| DeviceError::Io)
+    })
+    .map_err(|_| DeviceError::Io)
 }

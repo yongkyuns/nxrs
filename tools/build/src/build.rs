@@ -349,6 +349,7 @@ pub fn prepare_output(root: &Path, out: &Path) -> Result<PathBuf> {
         || resolved.starts_with(repo.join("external"))
         || resolved.starts_with(repo.join("platform"))
         || resolved.starts_with(repo.join("hal"))
+        || resolved.starts_with(repo.join("shared/acquisition"))
         || resolved.starts_with(repo.join("app"))
         || resolved.starts_with(repo.join(".git"))
     {

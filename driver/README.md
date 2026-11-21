@@ -36,6 +36,6 @@ glue. Capability-specific native adapters, such as BLE and Wi-Fi control, remain
 inside their owning HALs. Ordinary files, sockets and threads use Rust `std`
 directly; they do not require another driver layer.
 
-Shared acquisition execution lives in [`hal/acquisition`](../hal/acquisition/README.md).
+Shared acquisition execution lives in [`shared/acquisition`](../shared/acquisition/README.md).
 Execution resources are an explicit implementation choice, not a requirement of
 every driver. The current chip contracts are synchronous and create no workers.

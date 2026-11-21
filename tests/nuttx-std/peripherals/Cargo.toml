@@ -6,7 +6,7 @@ publish = false
 
 [dependencies]
 embedded-hal = "=1.0.0"
-nxrs-acquisition = { path = "../../../hal/acquisition" }
+nxrs-acquisition = { path = "../../../shared/acquisition" }
 nxrs-adc = { path = "../../../driver/adc" }
 nxrs-boot = { path = "../../../hal/boot" }
 nxrs-flash = { path = "../../../hal/flash" }

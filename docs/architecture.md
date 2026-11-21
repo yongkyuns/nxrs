@@ -344,12 +344,15 @@ Portable app/service code depends on capability crates, not split API or
 implementation packages. HAL roots own provider selection and expose no
 provider module as a public namespace.
 
-For example:
-
 | Consumer | Public Rust namespace | Cargo package | Implementation |
 | --- | --- | --- | --- |
 | `ImuService` | `imu` | `nxrs-imu` | Private provider selected by the profile |
 | `app/home-cam` | `camera` | `nxrs-camera` | Private provider selected by the profile |
+| `app/home-cam` | `config` | `nxrs-config` | Settings storage for Wi-Fi and gateway enrollment, backed by NuttX named records |
+
+IMU, GNSS and audio use `shared/acquisition` internally to start, wake and join
+workers. Their HALs own sample delivery, overload behavior and resource cleanup.
+Applications work with the capability's session or stream.
 
 For host/test Cargo invocations, one `NXRS_PLATFORM` value selects the profile's
 provider bindings. NuttX builds use `cargo nxrs build`, which supplies the

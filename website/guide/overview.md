@@ -49,13 +49,17 @@ If the storage operation can block longer than the controller permits, give stor
 
 Applications have handwritten `main()` functions. An active component can own a thread, mutable state, and a bounded inbox. It waits for events, handles them synchronously, and supports explicit shutdown. Components that do not need independent execution remain ordinary objects or functions.
 
-The application creates and connects owners explicitly. Queue admission, completed work and externally committed results are separate events: successful enqueueing alone does not prove a command ran or a record reached durable storage. Each interface specifies the guarantee its caller needs.
+The application creates and connects owners explicitly. Streaming HALs can reuse `shared/acquisition` for worker lifetimes and readiness. Each HAL decides how samples are delivered, what happens under load and when its device can be reopened.
+
+Queue admission, completed work and externally committed results are separate events: successful enqueueing alone does not prove a command ran or a record reached durable storage. Each interface specifies the guarantee its caller needs.
 
 [Services and concurrency](services.md) explains this with a small command-processing example. The [event communication reference](../../docs/concurrency-event-communication.md) records delivery and lifecycle conventions.
 
 ## Platform configuration
 
 Profiles and overlays select implementations, device instances, resources, and logical names at build time. This borrows the declarative configuration approach of device trees while retaining NuttX's BSP and native configuration.
+
+At runtime, an application can use `config::Store` for persistent settings. Home-cam saves Wi-Fi settings and gateway enrollment this way; the product profile selects the backing store.
 
 Application behavior stays in Rust; board wiring stays in the profile and platform integration. Cargo manifests remain the dependency graph. The build tools resolve configuration, prepare native inputs and invoke Cargo and NuttX; they do not generate an application's service graph. [Profiles and overlays](profiles.md) explains the build inputs.
 

@@ -20,9 +20,14 @@ records the migration and qualification gates.
 it is not a vendor register HAL. There is no mandatory driver/HAL/service chain.
 Use Rust `std` directly where it already supplies the portable operation. Add
 device adapters and execution resources only for requirements it cannot express.
-The [`acquisition`](acquisition/README.md) package is shared implementation support
-with no profile binding. `imu::Session` and `gnss::Session` name acquisition
-lifetimes.
+The [shared acquisition package](../shared/acquisition/README.md) provides
+worker lifetimes, cancellation and readiness for IMU, GNSS and audio. The
+owning HAL defines delivery and overload handling. `imu::Session` and
+`gnss::Session` name acquisition lifetimes.
+
+`config::Store` persists small settings records such as Wi-Fi credentials
+and gateway enrollment. The NuttX provider uses named records; each
+application owns its record formats.
 
 OS implementations live in each HAL's `src/platform/`, named `linux`,
 `macos`, `windows`, or `nuttx`, matching the profile bindings in the root
@@ -71,9 +76,8 @@ Wi-Fi association and BLE discovery/GATT require OS radio-control APIs that
 controllers/workers and ordinary resource handling. Linux Wi-Fi and BLE share
 the `nxrs-linux-gio` package in `driver/linux/gio/`, which owns one native ABI
 archive; NetworkManager/BlueZ schemas, radio ownership and capability errors stay
-in their respective providers. IMU and GNSS use the `nxrs-acquisition` package
-for their identical worker, cancellation and scripted-session mechanics. These
-are ordinary Cargo dependencies; HALs do not source-include sibling packages.
+in their respective providers. Shared implementation packages are ordinary
+Cargo dependencies; HALs do not source-include sibling packages.
 
 ## Public surface conventions
 

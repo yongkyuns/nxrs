@@ -20,7 +20,7 @@ or NuttX-specific error values.
 This is a capability boundary, not a rule that all native code must move into
 drivers. Wi-Fi/BLE adapters remain with their owning HALs. Ordinary networking
 uses `std::net` without a second socket driver. Shared acquisition mechanics
-live in `hal/acquisition`; reusable I²C/GPIO resource access lives in `driver/`.
+live in `shared/acquisition`; reusable I²C/GPIO resource access lives in `driver/`.
 
 The [peripheral composition design](peripheral-composition.md) and its
 [migration steps](peripheral-composition-plan.md) extend this boundary to
@@ -271,8 +271,9 @@ transaction timing through the embedded-hal interface. Its device owner holds
 the sensor and wake resources through acquisition and joined cleanup.
 `driver/gpio` owns the GPIO descriptor, registration/rollback and target ioctls;
 its task-context cleanup-failure hook lets IMU retain quarantine on all failure
-paths. Shared `nxrs-acquisition` owns the NuttX poll/pipe ABI used by both IMU and
-GNSS. IMU retains readiness mode, cadence, sample admission and teardown ordering.
+paths. The NuttX poll/pipe ABI used by IMU, GNSS and audio lives in
+`shared/acquisition`. IMU owns readiness mode, cadence, sample admission and
+teardown ordering.
 
 For a complete NuttX device driver, the capability can consume that registered
 interface directly. A resource must have one active driver owner. The CoreS3
@@ -401,8 +402,9 @@ the HAL retains descriptor ownership, termios rollback and per-receiver faults.
 - `boot::reset_cause()` reports the preceding reset on boards that implement
   NuttX's reset-cause query. It works without an update slot or a boot-control
   owner. A chip-wide reset code may have several hardware causes.
-- Use `std::fs` for filesystem-backed storage and `config::Store` for product
-  records. `flash::open()` gives an exclusive Nxrs lease on a dedicated,
+- Use `std::fs` for filesystem-backed storage. `config::Store` persists named
+  settings records on NuttX through the `/dev/config` device controls.
+  `flash::open()` gives an exclusive Nxrs lease on a dedicated,
   unmounted NOR partition. It uses `File` for seek, read and synchronous direct
   programming. Geometry, erase and cache invalidation use target ioctls. The
   partition must be separate from firmware slots, boot metadata, and other

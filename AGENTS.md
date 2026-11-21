@@ -49,10 +49,14 @@ portability, dependency, native-boundary and lifecycle coverage. The OS/provider
   and `driver/gpio` support NuttX only and own their descriptors and embedded-hal
   implementations. GPIO owns registration/rollback and reports teardown failures
   through a task-context hook; the consuming HAL retains quarantine policy.
-  `hal/acquisition` is shared worker/readiness implementation support, with one
-  NuttX poll/pipe binding used by IMU and GNSS. It has no profile binding and
-  shares worker code, not an executor. `imu::Session` and `gnss::Session` describe
-  acquisition lifetimes; synchronous chip operations remain driver contracts.
+  `shared/acquisition` supplies task lifetimes, cancellation and one NuttX
+  poll/pipe binding for IMU, GNSS and audio. It has no profile binding. The
+  owning HAL defines event admission, overload, terminal delivery and cleanup.
+  Applications use the owning capability API. `imu::Session` and `gnss::Session`
+  describe acquisition lifetimes; synchronous chip operations remain driver
+  contracts.
+  `hal/config` is settings storage for small persistent application records.
+  Applications own their record formats; build settings live in product profiles.
   Catalogues supply concrete resource configuration; sensor HALs own acquisition policy; chip drivers
   consume bus traits without depending on the concrete adapter. Do not add speculative OS
   backends, host stubs or another logical profile alias. Host witnesses inject

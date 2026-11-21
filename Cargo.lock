@@ -642,7 +642,6 @@ version = "0.1.0"
 dependencies = [
  "embedded-hal",
  "nxrs-build-support",
- "nxrs-messaging",
 ]
 
 [[package]]
@@ -671,7 +670,6 @@ dependencies = [
  "cfg-if",
  "nxrs-acquisition",
  "nxrs-build-support",
- "nxrs-messaging",
 ]
 
 [[package]]

@@ -161,7 +161,7 @@ class DeviceClosureFixture(unittest.TestCase):
                    "product_manifest": manifest, "data": data, "graph": graph, "semantic_digest": semantic,
                    "raw_fingerprint": sha(case.encode()), "dependencies": dependencies}
         write_json(out / "resolved-profile.json", receipt)
-        sources = {app_package: app_path, "nxrs-composition": "platform", "nxrs-acquisition": "hal/acquisition"}
+        sources = {app_package: app_path, "nxrs-composition": "platform", "nxrs-acquisition": "shared/acquisition"}
         if "imu" in caps:
             sources.update({"nxrs-imu": "hal/imu", "nxrs-i2c": "driver/i2c", "nxrs-gpio": "driver/gpio"})
         if "gnss" in caps:

@@ -23,7 +23,7 @@
         {"package": "nxrs-imu", "crate": "imu", "path": "hal/imu", "summary": "IMU device configuration, samples, and acquisition sessions."},
         {"package": "nxrs-gnss", "crate": "gnss", "path": "hal/gnss", "summary": "GNSS devices, fixes, events, and acquisition sessions."},
         {"package": "nxrs-tls", "crate": "tls", "path": "hal/tls", "summary": "Device TLS identity, certificates, time leases, and connection ownership."},
-        {"package": "nxrs-config", "crate": "config", "path": "hal/config", "summary": "Small persistent product records with explicit capacity and errors."},
+        {"package": "nxrs-config", "crate": "config", "path": "hal/config", "summary": "Settings storage for small persistent records, such as Wi-Fi settings and device enrollment."},
         {"package": "nxrs-boot", "crate": "boot", "path": "hal/boot", "summary": "Reset diagnostics, image staging, trial requests, confirmation, and reboot control."},
         {"package": "nxrs-watchdog", "crate": "watchdog", "path": "hal/watchdog", "summary": "Inherited watchdog cancellation and explicit runtime watchdog control."},
         {"package": "nxrs-display", "crate": "display", "path": "hal/display", "summary": "Exclusive display ownership and synchronous RGB565 rectangle output."},

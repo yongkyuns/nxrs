@@ -1,4 +1,7 @@
-//! Small persistent product records, separate from frame recording.
+//! Settings storage for small persistent application records.
+//!
+//! Applications define the keys and record formats. On NuttX, the profile
+//! binds this API to the named record store at `/dev/config`.
 #![no_std]
 #![deny(unsafe_code)]
 
