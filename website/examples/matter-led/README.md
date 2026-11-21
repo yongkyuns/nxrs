@@ -36,6 +36,11 @@ prints the pairing information and `LED off`. The pairing window lasts three
 minutes. If it expires before pairing, stop with Ctrl+C and repeat the
 command to get a fresh code.
 
+If you see `LED off` during setup but the pairing code is missing, your
+`RUST_LOG` filter may be hiding it. Press Ctrl+C and rerun the command with
+`RUST_LOG=info` before `NXRS_PLATFORM=mock` to show the QR code and manual
+code for that run.
+
 ## Pair and switch the light
 
 1. Open the Home Assistant Companion app. Go to **Settings → Connectivity →
@@ -59,8 +64,13 @@ development attestation to pair this light.
 
 Press Ctrl+C to close the Matter service, switch the simulated LED off,
 and join the worker. To reuse the pairing, run the same command with the
-same state directory and omit `--pair`. The light starts off. Give Home
-Assistant a moment to reconnect before switching it.
+same state directory and omit `--pair`. The terminal prints `LED off` before
+the Matter connection is ready.
+
+With `RUST_LOG=info`, wait for `CASE session established` before switching the
+light in Home Assistant. If the switch fails or the light shows
+**Unavailable**, give it a few seconds to reconnect, then retry on the same
+device page using the existing pairing.
 
 To pair again with a fresh identity, remove the old light from Home
 Assistant and choose a new state-directory path.
