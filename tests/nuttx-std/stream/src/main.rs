@@ -622,7 +622,7 @@ pub(crate) mod device {
         };
         stage("credential_reader");
         let mut profile_store = if startup_mode {
-            Some(config::open().map_err(|error| format!("config open {error:?}"))?)
+            Some(settings::open().map_err(|error| format!("settings open {error:?}"))?)
         } else {
             None
         };

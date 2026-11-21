@@ -261,7 +261,7 @@ No hardware protection setting or eFuse is changed.
 
 One-time commissioning stores the gateway's last-known private IPv4 endpoint, exact
 certificate SHA-256 pin, per-camera token and approved camera/site/gateway names
-in `hal/config`, beside the saved Wi-Fi profile. Device signing keys stay volatile
+in `hal/settings`, beside the saved Wi-Fi profile. Device signing keys stay volatile
 and non-exportable. No USB certificate or clock service runs after commissioning.
 The existing Rust ingest process owns one TLS1.3 bootstrap listener, signs a
 verified P-256 CSR with server-assigned names/usages, and joins old ingest workers

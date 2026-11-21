@@ -159,7 +159,7 @@ path = "hal/detector/src/platform/nuttx/ffi/context.c"
 kind = "abi"
 reason = "NuttX target-header cop_ai state and CPU/affinity ABI. Rust owns serialization, placement/context leases and restoration; no native thread creation or detector policy."
 [[bridge]]
-path = "hal/config/src/platform/nuttx/ffi/config.c"
+path = "hal/settings/src/platform/nuttx/ffi/config.c"
 kind = "abi"
 reason = "NuttX config-data ioctl layout and errno translation. Rust owns files, keys, bounds and product-record validation."
 

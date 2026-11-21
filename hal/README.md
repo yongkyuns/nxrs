@@ -25,7 +25,7 @@ worker lifetimes, cancellation and readiness for IMU, GNSS and audio. The
 owning HAL defines delivery and overload handling. `imu::Session` and
 `gnss::Session` name acquisition lifetimes.
 
-`config::Store` persists small settings records such as Wi-Fi credentials
+`settings::Store` persists small settings records such as Wi-Fi credentials
 and gateway enrollment. The NuttX provider uses named records; each
 application owns its record formats.
 

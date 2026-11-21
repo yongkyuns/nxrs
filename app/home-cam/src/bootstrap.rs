@@ -1,6 +1,6 @@
 //! Camera policy for a commissioned gateway; TLS and crypto remain in the HAL.
 use crate::{RefreshStep, TimeChannel, TlsIdentity};
-use config::Store;
+use settings::Store;
 pub use enrollment::Commission;
 use std::{
     io::{self, Read, Write},
@@ -25,25 +25,25 @@ pub type TimeSource = Box<
     ) -> Result<tls::TimeLease, tls::Error>,
 >;
 
-pub fn load(store: &mut impl Store) -> Result<Option<Commission>, config::Error> {
+pub fn load(store: &mut impl Store) -> Result<Option<Commission>, settings::Error> {
     let mut bytes = [0; Commission::MAX_BYTES];
     store
         .get(KEY, &mut bytes)?
         .map(|n| {
-            let value = bytes.get(..n).ok_or(config::Error::BufferTooSmall)?;
-            Commission::decode(value).map_err(|_| config::Error::InvalidInput)
+            let value = bytes.get(..n).ok_or(settings::Error::BufferTooSmall)?;
+            Commission::decode(value).map_err(|_| settings::Error::InvalidInput)
         })
         .transpose()
 }
 /// Commission before network startup, with no radio/camera resources active.
-pub fn provision(store: &mut impl Store, bytes: &[u8]) -> Result<Commission, config::Error> {
-    let commission = Commission::decode(bytes).map_err(|_| config::Error::InvalidInput)?;
+pub fn provision(store: &mut impl Store, bytes: &[u8]) -> Result<Commission, settings::Error> {
+    let commission = Commission::decode(bytes).map_err(|_| settings::Error::InvalidInput)?;
     store.set(KEY, bytes)?;
     let mut observed = [0; Commission::MAX_BYTES];
     if store.get(KEY, &mut observed)? != Some(bytes.len())
         || observed.get(..bytes.len()) != Some(bytes)
     {
-        return Err(config::Error::Io);
+        return Err(settings::Error::Io);
     }
     Ok(commission)
 }

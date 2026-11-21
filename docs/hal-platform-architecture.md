@@ -1,7 +1,7 @@
 # HAL and platform architecture
 
 Each capability is one Rust crate. Applications use `wifi`, `ble`, `led`,
-`imu`, `gnss`, `camera`, `storage`, `config` and `transport`; Cargo package names
+`imu`, `gnss`, `camera`, `storage`, `settings` and `transport`; Cargo package names
 retain the `nxrs-` prefix.
 
 ## Capability boundaries and execution
@@ -16,7 +16,7 @@ may use their native OS or SDK. Native code does not all belong in `driver/`.
 | Reusable chip protocols and hardware-resource adapters | `driver/<device-or-resource>` |
 | Managed capability behavior and private OS/SDK adapters | Owning `hal/<capability>` |
 | Task lifetimes, cancellation and native readiness | `shared/acquisition`, an internal dependency of the acquiring HALs |
-| Small persistent settings records | `hal/config` supplies storage; the application owns the record formats |
+| Small persistent settings records | `hal/settings` supplies storage; the application owns the record formats |
 | Device selection, resource bindings and execution budgets | Product profiles and build wiring |
 
 Use a capability-specific contract with explicit supported configuration,
@@ -109,10 +109,11 @@ delivery contracts do not imply a shared device-error enum. Generic channels and
 owned delivery results live in `shared/messaging`, below HAL and services. A
 producer accepts a typed callback; it never depends on a service inbox type.
 
-`config::Store` is the settings storage API. Home-cam uses it for Wi-Fi settings
+`settings::Store` is the settings storage API. Home-cam uses it for Wi-Fi settings
 and gateway enrollment. NuttX provides named records through `/dev/config`;
 the Rust provider owns the descriptor and validates keys and buffer lengths.
 The application controls record encoding and when to read or commit a record.
+Product profiles bind this capability with `settings = "nuttx"` in `[hal]`.
 Use `std::fs` for ordinary files and product profiles for build configuration.
 
 Use ordinary qualified `std::fs`, `std::io`, `std::net`, `std::thread`, and

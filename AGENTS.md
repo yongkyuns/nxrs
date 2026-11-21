@@ -55,7 +55,7 @@ portability, dependency, native-boundary and lifecycle coverage. The OS/provider
   Applications use the owning capability API. `imu::Session` and `gnss::Session`
   describe acquisition lifetimes; synchronous chip operations remain driver
   contracts.
-  `hal/config` is settings storage for small persistent application records.
+  `hal/settings` is settings storage for small persistent application records.
   Applications own their record formats; build settings live in product profiles.
   Catalogues supply concrete resource configuration; sensor HALs own acquisition policy; chip drivers
   consume bus traits without depending on the concrete adapter. Do not add speculative OS
