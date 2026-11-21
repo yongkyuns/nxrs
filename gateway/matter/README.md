@@ -3,6 +3,7 @@
 The Matter gateway exposes one existing Nxrs camera and its occupancy sensor.
 It uses the gateway's durable identity store, detection subscription and
 shared encoded video input. [Host qualification](../tests/matter/README.md).
+[Architecture and application integration guide](integration.md).
 
 The current ESP32 camera uses a video-only media stream. Its Matter Camera
 configuration is for development testing. Production use requires qualified
