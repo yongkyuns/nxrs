@@ -1,0 +1,298 @@
+Subject: [PATCH] esp32s3: add opt-in CoreS3 ES7210 microphone bring-up
+
+Reuse the native ES7210 and I2S drivers. Preserve unrelated power rails,
+probe the codec before registration, and retain native boot lifetimes.
+Physical capture and target ABI qualification remain separate gates.
+
+diff --git a/boards/xtensa/esp32s3/esp32s3-m5-cores3/Kconfig b/boards/xtensa/esp32s3/esp32s3-m5-cores3/Kconfig
+--- a/boards/xtensa/esp32s3/esp32s3-m5-cores3/Kconfig
++++ b/boards/xtensa/esp32s3/esp32s3-m5-cores3/Kconfig
+@@ -9,3 +9,20 @@
+ 	---help---
+ 		Bring up the panel rails and register SPI2 for the write-only LCD.
+ 		GPIO35 is LCD D/C in this mode, so SD card SPI is unavailable.
++
++config ESP32S3_M5_CORES3_MIC
++	bool "Register the built-in CoreS3 microphones (qualification)"
++	depends on BOARD_LATE_INITIALIZE && ESP32S3_I2C0_MASTER_MODE
++	depends on AUDIO_ES7210 && ESPRESSIF_I2S0
++	depends on ESPRESSIF_I2S0_RX && !ESPRESSIF_I2S0_TX
++	depends on ESPRESSIF_I2S0_MCLK && ESPRESSIF_I2S0_ROLE_MASTER
++	depends on ESP32S3_I2C0_SDAPIN = 12 && ESP32S3_I2C0_SCLPIN = 11
++	depends on ESPRESSIF_I2S0_MCLKPIN = 0
++	depends on ESPRESSIF_I2S0_BCLKPIN = 34
++	depends on ESPRESSIF_I2S0_WSPIN = 33 && ESPRESSIF_I2S0_DINPIN = 14
++	default n
++	---help---
++		Enable the ALDO2 microphone rail, probe ES7210 at address 0x40,
++		and register /dev/audio/pcm_in0. The speaker is not enabled.
++		Use two-channel, 16-bit PCM. Physical capture needs qualification.
++		This endpoint and its native bus references live until reset.
+diff --git a/boards/xtensa/esp32s3/esp32s3-m5-cores3/src/Make.defs b/boards/xtensa/esp32s3/esp32s3-m5-cores3/src/Make.defs
+--- a/boards/xtensa/esp32s3/esp32s3-m5-cores3/src/Make.defs
++++ b/boards/xtensa/esp32s3/esp32s3-m5-cores3/src/Make.defs
+@@ -6,3 +6,7 @@
+ ifeq ($(CONFIG_ESP32S3_M5_CORES3_LCD),y)
+   CSRCS += esp32s3_lcd_bus.c
+ endif
++
++ifeq ($(CONFIG_ESP32S3_M5_CORES3_MIC),y)
++  CSRCS += esp32s3_microphone.c
++endif
+diff --git a/boards/xtensa/esp32s3/esp32s3-m5-cores3/src/esp32s3_boot.c b/boards/xtensa/esp32s3/esp32s3-m5-cores3/src/esp32s3_boot.c
+--- a/boards/xtensa/esp32s3/esp32s3-m5-cores3/src/esp32s3_boot.c
++++ b/boards/xtensa/esp32s3/esp32s3-m5-cores3/src/esp32s3_boot.c
+@@ -9,6 +9,9 @@
+ #include "esp32s3_i2c.h"
+ #ifdef CONFIG_ESP32S3_M5_CORES3_LCD
+ int cores3_lcd_bus_initialize(void);
++#endif
++#ifdef CONFIG_ESP32S3_M5_CORES3_MIC
++int cores3_microphone_initialize(void);
+ #endif
+ void esp32s3_board_initialize(void) {}
+ #ifdef CONFIG_BOARD_LATE_INITIALIZE
+@@ -26,6 +29,10 @@
+   int lcd = cores3_lcd_bus_initialize();
+   if (lcd < 0) syslog(LOG_ERR, "CoreS3 LCD bus registration failed: %d\n", lcd);
+ #endif
++#ifdef CONFIG_ESP32S3_M5_CORES3_MIC
++  int mic = cores3_microphone_initialize();
++  if (mic < 0) syslog(LOG_ERR, "CoreS3 microphone registration failed: %d\n", mic);
++#endif
+ }
+ #endif
+ #ifdef CONFIG_BOARDCTL_RESET
+diff --git a/boards/xtensa/esp32s3/esp32s3-m5-cores3/src/esp32s3_microphone.c b/boards/xtensa/esp32s3/esp32s3-m5-cores3/src/esp32s3_microphone.c
+new file mode 100644
+--- /dev/null
++++ b/boards/xtensa/esp32s3/esp32s3-m5-cores3/src/esp32s3_microphone.c
+@@ -0,0 +1,228 @@
++/* SPDX-License-Identifier: Apache-2.0 */
++/* CoreS3 K128 microphone board wiring. NuttX owns the audio/DMA driver. */
++
++#include <nuttx/config.h>
++#include <nuttx/arch.h>
++#include <nuttx/audio/audio.h>
++#include <nuttx/audio/es7210.h>
++#include <nuttx/audio/i2s.h>
++#include <nuttx/i2c/i2c_master.h>
++#include <stdbool.h>
++#include <stdint.h>
++#include <errno.h>
++#include <syslog.h>
++
++#include "esp32s3_i2c.h"
++#include "espressif/esp_i2s.h"
++
++#if CONFIG_ESP32S3_I2C0_SDAPIN != 12 || \
++    CONFIG_ESP32S3_I2C0_SCLPIN != 11 || \
++    CONFIG_ESPRESSIF_I2S0_MCLKPIN != 0 || \
++    CONFIG_ESPRESSIF_I2S0_BCLKPIN != 34 || \
++    CONFIG_ESPRESSIF_I2S0_WSPIN != 33 || \
++    CONFIG_ESPRESSIF_I2S0_DINPIN != 14
++#  error "CoreS3 microphone pins do not match the K128 board"
++#endif
++
++#if !defined(CONFIG_ESPRESSIF_I2S0_RX) || \
++    !defined(CONFIG_ESPRESSIF_I2S0_MCLK) || \
++    !defined(CONFIG_ESPRESSIF_I2S0_ROLE_MASTER) || \
++    defined(CONFIG_ESPRESSIF_I2S0_TX)
++#  error "CoreS3 microphone requires RX-only I2S0 master with MCLK"
++#endif
++
++#define PMIC_ADDR       0x34
++#define CODEC_ADDR      0x40
++#define LDO_ENABLE      0x90
++#define ALDO2_VOLTAGE   0x93
++#define ALDO2_ENABLE    0x02
++#define ALDO2_MASK      0x1f
++#define ALDO2_3V3       28
++
++static int read_reg(struct i2c_master_s *bus, uint8_t address,
++                    uint8_t reg, uint8_t *value)
++{
++  const struct i2c_config_s config =
++    {
++      .frequency = I2C_SPEED_STANDARD,
++      .address = address,
++      .addrlen = 7,
++    };
++
++  return i2c_writeread(bus, &config, &reg, 1, value, 1);
++}
++
++static int update_bits(struct i2c_master_s *bus, uint8_t reg,
++                       uint8_t mask, uint8_t bits)
++{
++  const struct i2c_config_s config =
++    {
++      .frequency = I2C_SPEED_STANDARD,
++      .address = PMIC_ADDR,
++      .addrlen = 7,
++    };
++  uint8_t data[2] = {reg, 0};
++  int ret = read_reg(bus, PMIC_ADDR, reg, &data[1]);
++
++  if (ret < 0)
++    {
++      return ret;
++    }
++
++  uint8_t next = (data[1] & ~mask) | (bits & mask);
++  if (next == data[1])
++    {
++      return 0;
++    }
++
++  data[1] = next;
++  return i2c_write(bus, &config, data, sizeof(data));
++}
++
++int cores3_microphone_initialize(void)
++{
++  /* Boot-thread-only entry. Cache failure as well as success: the pinned
++   * I2S/ES7210 drivers do not provide a board-level destruction API.
++   * A failed native registration must not allocate another driver on retry.
++   */
++
++  static bool attempted;
++  static int result = -EINPROGRESS;
++  const struct es7210_lower_s lower =
++    {
++      .frequency = I2C_SPEED_STANDARD,
++      .address = CODEC_ADDR,
++    };
++  struct audio_lowerhalf_s *codec = NULL;
++  struct i2c_master_s *bus;
++  struct i2s_dev_s *i2s;
++  uint8_t enabled;
++  uint8_t voltage;
++  uint8_t probe;
++  bool changed = false;
++  int ret;
++
++  if (attempted)
++    {
++      return result;
++    }
++
++  attempted = true;
++  bus = esp32s3_i2cbus_initialize(0);
++  if (bus == NULL)
++    {
++      result = -ENODEV;
++      return result;
++    }
++
++  ret = read_reg(bus, PMIC_ADDR, LDO_ENABLE, &enabled);
++  if (ret < 0)
++    {
++      goto failed;
++    }
++
++  ret = read_reg(bus, PMIC_ADDR, ALDO2_VOLTAGE, &voltage);
++  if (ret < 0)
++    {
++      goto failed;
++    }
++
++  if ((enabled & ALDO2_ENABLE) != 0)
++    {
++      /* Do not change the voltage of a rail already used by another owner. */
++
++      if ((voltage & ALDO2_MASK) != ALDO2_3V3)
++        {
++          ret = -EINVAL;
++          goto failed;
++        }
++    }
++  else
++    {
++      /* ALDO2 feeds VDDA_3V3, including the ES7210. AW9523 P0_2 controls
++       * the speaker, not the microphone. Leave it and all other rails alone.
++       * A failed I2C write may still have reached the PMIC: mark first.
++       */
++
++      changed = true;
++      ret = update_bits(bus, ALDO2_VOLTAGE, ALDO2_MASK, ALDO2_3V3);
++      if (ret < 0)
++        {
++          goto failed;
++        }
++
++      ret = update_bits(bus, LDO_ENABLE, ALDO2_ENABLE, ALDO2_ENABLE);
++      if (ret < 0)
++        {
++          goto failed;
++        }
++    }
++
++  up_mdelay(10);
++
++  /* Upstream es7210_initialize() defers I2C access until recording starts.
++   * Check address acknowledgement here; this is not a chip-ID or PCM test.
++   */
++
++  ret = read_reg(bus, CODEC_ADDR, 0x00, &probe);
++  if (ret < 0)
++    {
++      goto failed;
++    }
++
++  i2s = esp_i2sbus_initialize(0);
++  if (i2s == NULL)
++    {
++      ret = -ENODEV;
++      goto failed;
++    }
++
++  codec = es7210_initialize(bus, i2s, &lower);
++  if (codec == NULL)
++    {
++      ret = -ENOMEM;
++      goto failed;
++    }
++
++  ret = audio_register("pcm_in0", codec);
++  if (ret < 0)
++    {
++      goto failed;
++    }
++
++  /* Registered native drivers retain bus references for the boot lifetime.
++   * Recording is explicit; registration itself does not start a session.
++   */
++
++  result = 0;
++  return result;
++
++failed:
++  if (changed)
++    {
++      int restore = update_bits(bus, LDO_ENABLE, ALDO2_ENABLE, 0);
++      if (restore >= 0)
++        {
++          restore = update_bits(bus, ALDO2_VOLTAGE, ALDO2_MASK, voltage);
++        }
++
++      if (restore < 0)
++        {
++          syslog(LOG_ERR, "CoreS3 microphone rail restore failed: %d\n",
++                 restore);
++        }
++    }
++
++  /* Once allocated, the codec retains the I2C pointer even if registration
++   * failed. Keep that reference rather than creating a dangling pointer.
++   * These boot-lifetime native objects are reclaimed only by reset.
++   */
++
++  if (codec == NULL)
++    {
++      esp32s3_i2cbus_uninitialize(bus);
++    }
++
++  result = ret;
++  return result;
++}
