@@ -315,7 +315,7 @@ otherwise block without a reader. Rust opens `/dev/ttyACM0` only for missing
 commissioning/Wi-Fi input, restores its termios and closes it before networking.
 The tool also resumes Wi-Fi-only input after an interrupted first setup.
 Firmware erasure of the
-reserved config partition resets both records; keep ROM recovery available.
+reserved settings partition resets both records. Keep ROM recovery available.
 With hardware flash encryption off, stored Wi-Fi/token data is readable from
 flash. This change performs no eFuse or protection provisioning.
 

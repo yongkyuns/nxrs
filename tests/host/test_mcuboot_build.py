@@ -43,7 +43,7 @@ class BootWiringTests(unittest.TestCase):
         for changed in ({"scratch-offset": 0, "scratch-size": 0x1000},
                         {"scratch-offset": 0xfc0000},
                         {"scratch-offset": 0x10000, "scratch-size": 0x10000}):
-            with self.subTest(changed=changed), self.assertRaisesRegex(ValueError, "config partition"):
+            with self.subTest(changed=changed), self.assertRaisesRegex(ValueError, "settings partition"):
                 BOOT.application_config({**profile, "mcuboot": {**profile["mcuboot"], **changed}})
         self.assertFalse(BOOT.protected(profile))
         self.assertNotEqual(profile["image-class"], resolve("esp32s3-camera-stream-mcuboot")["image-class"])
