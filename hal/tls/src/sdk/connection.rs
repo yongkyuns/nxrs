@@ -909,17 +909,16 @@ mod tests {
     use super::*;
     #[test]
     fn actual_native_clock_uses_only_call_scoped_signed64_observation() {
-        unsafe extern "C" {
-            fn tls_test_clock_probe(expected: i64) -> c_int;
-        }
         let _serial = super::super::tests::serial();
         let identity = crate::open().unwrap();
         let epoch = 1_i64 << 34;
         assert_eq!(
-            timed(&identity, epoch, || unsafe { tls_test_clock_probe(epoch) }),
+            timed(&identity, epoch, || unsafe {
+                ffi::tls_test_clock_probe(epoch)
+            }),
             Ok(0)
         );
-        assert_eq!(unsafe { tls_test_clock_probe(-1) }, 0);
+        assert_eq!(unsafe { ffi::tls_test_clock_probe(-1) }, 0);
         assert_eq!(
             identity.request("device", &mut [0; 1024]),
             Err(Error::Poisoned)

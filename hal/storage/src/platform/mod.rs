@@ -1,4 +1,7 @@
 //! Select one implementation from the validated profile binding.
+#[cfg(not(platform = "nuttx"))]
+mod unbound;
+
 cfg_if::cfg_if! {
     if #[cfg(platform = "nuttx")] {
         mod nuttx;
@@ -8,7 +11,6 @@ cfg_if::cfg_if! {
         use mock as selected;
         pub use selected::{MockStorage, StoredFrame};
     } else {
-        mod unbound;
         use unbound as selected;
     }
 }

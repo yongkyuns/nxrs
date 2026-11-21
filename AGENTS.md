@@ -126,7 +126,9 @@ portability, dependency, native-boundary and lifecycle coverage. The OS/provider
   C exports needed only by SDK witnesses belong under `tests/`, enabled only
   for those tests. Actual SDK callbacks still use the required native ABI.
 - Keep private ABI glue beside its owning Rust provider in that provider's
-  `ffi/` directory. Do not create a parallel `hal/<capability>/ffi/<platform>`
+  `ffi/` directory, including the Rust foreign declarations. Shared SDK bindings
+  keep those declarations beside their shared native adapter. Do not create a
+  parallel `hal/<capability>/ffi/<platform>`
   tree or impose one C HAL API across platforms. Each provider consumes only
   the SDK/target operations it needs; shared behavior and contracts stay in Rust.
 - Avoid redundant `nxrs_` prefixes on private functions, native ABI symbols,
@@ -155,10 +157,14 @@ portability, dependency, native-boundary and lifecycle coverage. The OS/provider
   Keep OS selection in target configuration and physical resource instances in
   explicit configuration/ownership. Optional diagnostic instrumentation uses
   the explicit `probe` feature. The detector product/model rules below still apply.
-- Group capability admission and acquisition selection in each HAL's
-  `src/platform/mod.rs`. Select modules as `selected`, using ordinary named
-  modules and conditional `as selected` exports where practical. Group each
-  declaration and alias in one `cfg_if` branch rather than repeating its condition.
+- Use one `cfg_if::cfg_if!` block for provider selection in each HAL's
+  `src/platform/mod.rs`. Declare named provider modules and alias the active
+  module as `selected`. Keep local providers, including mock and simulation,
+  under `src/platform/<binding>/mod.rs` and the unavailable fallback in
+  `src/platform/unbound.rs`.
+  BLE and Wi-Fi keep every `platform` condition in that selector, including the
+  admission of shared Rust support modules. `hal/radio-types` is dependency-free
+  and used directly only by BLE and Wi-Fi.
   Keep constructors and unavailable stubs in those implementations, and host source-injection
   witnesses in separate test wiring. Prefer fixed named exports. The selector
   must not contain implementation bodies or force its entire public namespace

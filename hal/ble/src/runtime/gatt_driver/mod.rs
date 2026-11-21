@@ -29,7 +29,7 @@ pub(crate) fn open_with<
     if N > CAPACITY {
         return Err(Error::Unsupported);
     }
-    let session = crate::worker::new_session()?;
+    let session = crate::platform::runtime::worker::new_session()?;
     B::open(session, N, Wake::new(wake))?;
     Ok(Native {
         session,

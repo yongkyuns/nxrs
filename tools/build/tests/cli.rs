@@ -84,6 +84,10 @@ fn editor_switch_preserves_project_settings_on_invalid_build() {
     let settings: Value = serde_json::from_slice(&before).unwrap();
     assert!(settings["lsp"]["clangd"].is_object());
     assert_eq!(
+        settings["lsp"]["rust-analyzer"]["binary"]["ignore_system_version"],
+        true
+    );
+    assert_eq!(
         settings["lsp"]["rust-analyzer"]["initialization_options"]["cargo"]["extraEnv"]
             ["NXRS_PLATFORM"],
         "host"

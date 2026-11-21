@@ -43,7 +43,7 @@ Ordinary execution timekeeping continues to use `std::time`.
 ## Source and dependency boundaries
 
 `src/api.rs` owns the portable contract and `camera::DeviceError`. Storage and
-transport own separate error types. Camera does not depend on `hal/common`,
+transport own separate error types. Camera does not depend on `hal/radio-types`,
 which holds radio request identities and bounded payload storage.
 
 `src/platform/mod.rs` maps the configured acquisition to one source module and

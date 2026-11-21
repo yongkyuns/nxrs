@@ -1,10 +1,10 @@
 [package]
-name = "nxrs-hal-common"
+name = "nxrs-radio-types"
 version.workspace = true
 edition.workspace = true
 
 [lib]
-name = "hal_common"
+name = "radio_types"
 
 [dependencies]
 

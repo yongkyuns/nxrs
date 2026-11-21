@@ -148,18 +148,16 @@ Platform/provider flags are allowed at build selection and module/factory
 wiring boundaries. Shared APIs, controllers, workers, and I/O algorithms must
 not branch on `target_os`, `platform`, or platform environment
 variables. Rust model features select model code, never an OS.
-Each HAL's `src/platform/mod.rs` selects source modules as `selected` and
-re-exports only selected items. Prefer fixed named factory exports; do not
-require a wildcard or let backend exports implicitly define the crate's public
-API. Keep constructors and unavailable stubs in those selected modules, not
-inline in the selector. Prefer ordinary named modules and conditional
-`as selected` exports; source-path redirection is not required for selection.
-Group a declaration and its alias in one `cfg_if` branch. An item-level
-`#[cfg]` with a path can select the module directly as `selected` and lets
-rust-analyzer mark inactive declarations. A branch may select a shared crate
-module directly; do not add OS wrappers that only re-export it.
+Each HAL's `src/platform/mod.rs` uses one `cfg_if::cfg_if!` block to alias a named
+provider as `selected`. Re-export specific items and keep constructors in the
+providers. Local providers, including mock and simulation, use
+`src/platform/<binding>/mod.rs`; the unavailable fallback uses
+`src/platform/unbound.rs`. A branch can select a shared crate module directly
+when platforms use the same implementation.
 Identical Rust implementations remain ordinary shared modules outside
-`platform/`; selecting acquisition does not duplicate them per OS. Native source
+`platform/`; selecting acquisition does not duplicate them per OS. Wi-Fi and
+BLE selectors also admit their shared support modules, keeping all binding
+conditions out of their crate roots and implementations. Native source
 injection for host unit tests belongs in separate test wiring. Test private
 behavior through its owning modules where possible, replacing native operations
 at that boundary rather than recompiling the API and acquisition sources.
@@ -280,14 +278,14 @@ SDK through the shared build support; embedded builds use their own NuttX helper
 | `src/lib.rs` | Public interface and selected exports |
 | `src/api.rs` | Portable traits, commands, events and errors |
 | `src/controller.rs` | Shared operation and lifecycle logic |
-| `src/worker.rs` | Private std execution for blocking adapters |
+| `src/worker/mod.rs` | Private std execution for blocking adapters |
 | `src/shared/` | Reusable Rust station ownership and contract |
 | `src/platform/mod.rs` | Capability admission and acquisition wiring |
 | `src/platform/nuttx/` | NuttX Rust implementation |
-| `src/platform/nuttx/ffi/` | Minimal target-header C helpers |
+| `src/platform/nuttx/ffi/` | Minimal target-header C helpers and their Rust declarations |
 | `src/platform/linux/` | Linux Rust implementation using `nxrs-linux-gio` |
 | `src/platform/macos/` | macOS Rust implementation |
-| `src/platform/macos/ffi/` | Minimal Objective-C SDK binding |
+| `src/platform/macos/ffi/` | Minimal Objective-C SDK binding and its Rust declarations |
 
 HALs own managed capability contracts and acquisition implementations.
 HALs and peripheral drivers may use Rust `std`; portability requires clean OS
@@ -340,7 +338,9 @@ each HAL retains its schemas and device policy. IMU, GNSS and audio depend on
 dependencies. Capability errors and delivery decisions stay local.
 
 Private FFI is owned by the provider that consumes it and lives beside that
-provider's Rust implementation. There is no parallel capability-level FFI tree.
+provider's Rust implementation. Keep Rust foreign declarations in the same
+`ffi/` directory as the native glue. `hal/radio-types` supplies request
+identities and bounded payloads to Wi-Fi and BLE. Each HAL owns its errors.
 These are implementation details, not a second cross-platform HAL: CoreBluetooth,
 GLib and NuttX bindings may expose different operations. Share contracts and
 behavior in Rust when their consumers intentionally implement the same protocol;

@@ -7,7 +7,6 @@ on:
       - 'hal/camera/**'
       - 'hal/storage/**'
       - 'hal/transport/**'
-      - 'hal/common/**'
       - 'tools/build-support/**'
       - 'platform/*/profile.toml'
       - 'platform/*/profiles/**'

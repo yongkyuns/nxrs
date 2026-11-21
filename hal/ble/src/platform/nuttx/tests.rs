@@ -1,5 +1,5 @@
 use super::*;
-use crate::worker::{ScanReport, Scanner, Worker};
+use crate::platform::runtime::worker::{ScanReport, Scanner, Worker};
 use crate::*;
 use crate::{OperationId, RequestId};
 use std::collections::VecDeque;

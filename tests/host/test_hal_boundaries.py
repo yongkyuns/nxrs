@@ -50,6 +50,33 @@ class HalBoundariesTests(unittest.TestCase):
         self.write('hal/demo/src/api.rs', '#[cfg(test)] fn platform() {}')
         self.assertEqual(self.errors(), [])
 
+    def test_radio_selection_stays_in_the_selector(self):
+        self.write('hal/wifi/src/lib.rs', '#![cfg_attr(target_os = "none", no_std)]\nmod platform;')
+        selector = self.write('hal/wifi/src/platform/mod.rs', '''
+            #[cfg(platform = "nuttx")]
+            #[path = "../worker/mod.rs"]
+            mod worker;
+            cfg_if::cfg_if! {
+                if #[cfg(platform = "nuttx")] { mod nuttx; use nuttx as selected; }
+                else { mod unbound; use unbound as selected; }
+            }
+            pub(crate) use selected::open;
+        ''')
+        self.assertEqual(self.errors(), [])
+        path = self.write('hal/wifi/src/lib.rs', '#[cfg(platform = "nuttx")] mod worker;')
+        self.assertTrue(any('radio platform selection belongs' in error for error in self.errors()))
+        path.write_text('mod platform;')
+        selector.write_text(selector.read_text().replace('mod nuttx;', '#[path = "../nuttx.rs"] mod nuttx;'))
+        self.assertTrue(self.errors())
+
+    def test_rust_foreign_declarations_require_the_owning_ffi_directory(self):
+        bindings = 'unsafe extern "C" { fn device(); }'
+        source = self.write('hal/demo/src/platform/nuttx/mod.rs', bindings)
+        self.assertTrue(any('Rust FFI declarations' in error for error in self.errors()))
+        source.write_text('mod ffi; pub extern "C" fn native_callback() {}')
+        self.write('hal/demo/src/platform/nuttx/ffi/mod.rs', bindings)
+        self.assertEqual(self.errors(), [])
+
     def write_declarative_imu(self):
         self.write('platform/src/nuttx/imu.rs', '''
             include!(concat!(env!("OUT_DIR"), "/imu_config.rs"));
@@ -328,20 +355,16 @@ def capabilities(root):
 
 class WiringNegativeControls(unittest.TestCase):
     ROOT = 'mod api; mod platform; pub use api::*; pub use platform::open;'
-    SELECTOR = '#[path = "unbound.rs"] mod selected; pub use selected::open;'
+    SELECTOR = ('cfg_if::cfg_if! { if #[cfg(platform = "nuttx")] '
+                '{ mod nuttx; use nuttx as selected; } else '
+                '{ mod unbound; use unbound as selected; } } pub use selected::open;')
 
     def test_explicit_api_and_named_selected_exports_are_allowed(self):
         self.assertEqual(wiring_errors(self.ROOT, self.SELECTOR), [])
         self.assertEqual(wiring_errors('mod platform; pub use platform::construction;',
-                                       'pub mod selected; pub use selected as construction;'), [])
-        self.assertEqual(wiring_errors(self.ROOT,
-                                       'mod unbound; pub use unbound as selected; pub use selected::open;'), [])
-        self.assertEqual(wiring_errors(self.ROOT,
-                                       'cfg_if::cfg_if! { if #[cfg(platform = "nuttx")] '
-                                       '{ mod nuttx; use nuttx as selected; } else '
-                                       '{ mod unbound; use unbound as selected; } } pub use selected::open;'), [])
+                                       self.SELECTOR.replace('selected::open', 'selected as construction')), [])
         self.assertEqual(wiring_errors(self.ROOT + 'mod model;',
-                                       'use crate::model as selected; pub use selected::open;'), [])
+                                       self.SELECTOR.replace('mod nuttx; use nuttx as selected;', 'use crate::model as selected;')), [])
         self.assertEqual(wiring_errors(self.ROOT, self.SELECTOR + '\n#[cfg(platform = "mock")] pub use selected::{Mock, FORMAT};'), [])
 
     def test_backend_globs_in_roots_are_rejected(self):
@@ -397,7 +420,8 @@ class RepositoryHalOrganization(unittest.TestCase):
                 self.assertEqual(wiring_errors(root.read_text(), selector.read_text()), [])
                 support = directory / 'src/test_support.rs'
                 if support.exists():
-                    self.assertRegex(code(root.read_text()), r'#\[cfg\(test\)\]\s*mod test_support;')
+                    wiring = code(root.read_text()) + code(selector.read_text())
+                    self.assertRegex(wiring, r'#\[cfg\(test\)\]\s*(?:#\[path = "\.\./test_support\.rs"\]\s*)?mod test_support;')
         print(f'HAL organization: {len(directories)} capabilities checked')
 
 

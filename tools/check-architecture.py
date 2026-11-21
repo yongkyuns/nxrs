@@ -65,7 +65,7 @@ def layer(path: Path) -> str:
     if parts == ('shared', 'acquisition'):
         return 'support'
     if parts[0] == 'hal':
-        if parts == ('hal', 'common'):
+        if parts == ('hal', 'radio-types'):
             return 'api'
         if len(parts) == 2 and parts[1] not in {'common', 'support', 'platform'}:
             return 'hal'
@@ -100,29 +100,28 @@ def inspect(metadata: dict, root: Path) -> list[str]:
     for identity, role in roles.items():
         package = packages[identity]
         for dep in package['dependencies']:
-            # Cargo resolves aliases/workspace inheritance to the actual package.
-            # Optional, target cfg and build edges are NOT exempted.
-            if dep.get('kind') == 'dev':
-                dep_path = dep.get('path')
-                destination = by_path.get(Path(dep_path).resolve()) if dep_path else None
-                if destination and ((role in {'app', 'service'} and roles[destination] in {'platform', 'build', 'build-support'})
-                                    or (role in {'platform', 'build'} and roles[destination] == 'app')):
-                    errors.append(f"{package['name']}: test dependencies cannot bypass the app/platform boundary")
-                if (destination and role in {'hal', 'driver', 'build-support'}
-                        and paths[destination] == Path('tools/build')):
-                    errors.append(f"{package['name']}: HAL and driver tooling must not depend on the build controller")
-                if destination and role in {'hal', 'driver'} and roles[destination] == 'build-support':
-                    errors.append(f"{package['name']}: HAL and driver build helpers must be build dependencies")
-                continue
             context = f"{package['name']} ({paths[identity]}) -> {dep['name']}"
             dep_path = dep.get('path')
             target = by_path.get(Path(dep_path).resolve()) if dep_path else None
+            source = paths[identity].parts
+            destination = paths[target].parts if target is not None else ()
+            if source == ('hal', 'radio-types'):
+                errors.append(f'{context}: shared radio types must remain dependency-free')
+            if destination == ('hal', 'radio-types') and source not in {('hal', 'wifi'), ('hal', 'ble')}:
+                errors.append(f'{context}: only Wi-Fi and BLE may depend directly on radio types')
+            # Cargo resolves aliases/workspace inheritance to the actual package.
+            # Optional, target cfg and build edges are NOT exempted.
+            if dep.get('kind') == 'dev':
+                if target and ((role in {'app', 'service'} and roles[target] in {'platform', 'build', 'build-support'})
+                               or (role in {'platform', 'build'} and roles[target] == 'app')):
+                    errors.append(f"{package['name']}: test dependencies cannot bypass the app/platform boundary")
+                if (target and role in {'hal', 'driver', 'build-support'}
+                        and destination == ('tools', 'build')):
+                    errors.append(f"{package['name']}: HAL and driver tooling must not depend on the build controller")
+                if target and role in {'hal', 'driver'} and roles[target] == 'build-support':
+                    errors.append(f"{package['name']}: HAL and driver build helpers must be build dependencies")
+                continue
             if target is not None:
-                source, destination = paths[identity].parts, paths[target].parts
-                if source == ('hal', 'common'):
-                    errors.append(f'{context}: shared radio identities must remain dependency-free')
-                if destination == ('hal', 'common') and role == 'hal' and source[-1] not in {'wifi', 'ble'}:
-                    errors.append(f'{context}: common contains radio identities and bounded payloads only')
                 # A HAL/driver can use generic host helpers or its own SDK build
                 # package. These are build edges only, never target libraries.
                 if (role in {'hal', 'driver', 'devices', 'support'} and dep.get('kind') == 'build'
@@ -567,6 +566,7 @@ def inspect_hal_boundaries(root: Path) -> list[str]:
     code review; scalar declarations do not certify a mechanical boundary.
     """
     errors = inspect_generated_imu_factory(root)
+    radio_selectors = {f'hal/{name}/src/platform/mod.rs' for name in ('ble', 'wifi')}
     for path in (root / 'hal').glob('*/src/platform/mod.rs'):
         text = re.sub(r'//[^\n]*|/\*.*?\*/', '', path.read_text(), flags=re.S)
         exports = re.findall(r'\bpub(?:\([^)]*\))?\s+use\s+([^;]+);', text)
@@ -575,7 +575,32 @@ def inspect_hal_boundaries(root: Path) -> list[str]:
         crate_source = re.sub(r'//[^\n]*|/\*.*?\*/', '', (path.parent.parent / 'lib.rs').read_text(), flags=re.S)
         crate_modules = set(re.findall(r'\bmod\s+(\w+)\s*;', crate_source))
         aliases.update(f'crate::{name} as selected' for name in crate_modules)
-        selected_aliases = re.findall(r'\buse\s+((?:crate::)?\w+\s+as\s+selected)\s*;', text)
+        alias_pattern = r'\buse\s+((?:crate::)?\w+\s+as\s+selected)\s*;'
+        selected_aliases = re.findall(alias_pattern, text)
+        macros = list(re.finditer(r'\bcfg_if::cfg_if!\s*\{', text))
+        grouped_aliases = []
+        if len(macros) == 1:
+            body = text[macros[0].end():]
+            depth = 1
+            for brace in re.finditer(r'[{}]', body):
+                depth += 1 if brace[0] == '{' else -1
+                if depth == 0:
+                    grouped_aliases = re.findall(alias_pattern, body[:brace.start()])
+                    break
+        path_attr = r'#\s*\[\s*path\s*='
+        provider_wiring = text
+        if path.relative_to(root).as_posix() in radio_selectors:
+            # Radio selectors also admit shared Rust support modules from src/.
+            shared_module = r'#\s*\[\s*path\s*=\s*"\.\./(\w+)(?:\.rs|/mod\.rs)"\s*\]\s*mod\s+\1\s*;'
+            provider_wiring = re.sub(shared_module, '', text)
+            aliases = {alias for alias in aliases if alias.startswith('crate::')
+                       or re.search(r'\bmod\s+' + alias.split()[0] + r'\s*;', provider_wiring)}
+        if (not grouped_aliases or grouped_aliases != selected_aliases
+                or re.search(path_attr, provider_wiring) or 'selected' in modules):
+            errors.append(f'{path.relative_to(root)}: select named providers in one cfg_if::cfg_if! block')
+        for module in sorted(modules - {'unbound'}):
+            if path.with_name(f'{module}.rs').is_file():
+                errors.append(f'{path.relative_to(root)}: put provider {module} in {module}/mod.rs')
         # Check the selection boundary, not a mandatory wildcard spelling.
         # Exact exports prevent backend internals from accidentally reaching
         # public namespaces. No platform selector may wildcard-reexport.
@@ -583,7 +608,7 @@ def inspect_hal_boundaries(root: Path) -> list[str]:
         if (not exports
                 or any(not (re.fullmatch(selected_export, export.strip()) or export.strip() == 'selected as construction' or export.strip() in aliases) for export in exports)
                 or any(alias not in aliases for alias in selected_aliases)
-                or not ('selected' in modules or any(alias in aliases for alias in selected_aliases))
+                or not selected_aliases
                 or re.search(r'\b(?:fn|impl|struct|enum|trait)\b|\bmod\s+\w+\s*\{', text)):
             errors.append(f'{path.relative_to(root)}: select source modules and re-export selected items only; factories belong in the selected implementation')
     for path in (root / 'hal').glob('*/src/lib.rs'):
@@ -606,18 +631,25 @@ def inspect_hal_boundaries(root: Path) -> list[str]:
     shared = {'api.rs', 'controller.rs', 'worker.rs', 'events.rs', 'record.rs',
               'udp.rs', 'file.rs', 'recording.rs', 'replay.rs', 'client.rs',
               'gatt_backend.rs', 'gatt_driver.rs', 'std.rs'}
-    for path in (root / 'hal').rglob('*.rs'):
+    for path in (root / 'hal').glob('*/src/**/*.rs'):
         relative = path.relative_to(root).as_posix()
         # SDK callbacks are ABI operations. These retired high-level symbols
         # instead connected Rust modules to Rust modules through a C protocol.
         text = re.sub(r'//[^\n]*|/\*.*?\*/', '', path.read_text(), flags=re.S)
+        if (relative.startswith(('hal/ble/', 'hal/wifi/')) and relative not in radio_selectors
+                and re.search(r'(?:#\s*\[\s*cfg(?:_attr)?\s*\(|\bcfg!\s*\()[^\];{}]*\bplatform\s*=', text)):
+            errors.append(f'{relative}: radio platform selection belongs in src/platform/mod.rs')
+        if (re.search(r'\bextern\s+"(?:C|system)(?:-unwind)?"\s*\{', text)
+                and not re.fullmatch(r'hal/[^/]+/src/platform/[^/]+/ffi/.+'
+                                     r'|hal/tls/src/sdk/ffi/.+|hal/detector/src/compute/esp_dl/ffi/.+', relative)):
+            errors.append(f'{relative}: Rust FFI declarations belong in the owning ffi directory')
         if re.search(r'\b(?:hal_enabled|hal_mock|hal_provider)\b', text):
             errors.append(f'{relative}: use the resolved platform selector')
         if re.search(r'\bfn\s+(?:(?:nxrs_)?host_wifi_\w+|(?:nxrs_)?host_ble_scan_\w+|'
                      r'(?:nxrs_)?ble_gatt_(?:open|submit|poll|recover|close)|'
                      r'(?:nxrs_)?ble_peer_lookup(?:_rust)?)\s*\(', text):
             errors.append(f'{relative}: internal HAL calls must use typed Rust, not a C protocol')
-        if (path.name not in shared and '/shared/' not in relative
+        if (path.name not in shared and '/shared/' not in relative and '/runtime/' not in relative
                 and '/model/' not in relative
                 and '/replay/' not in relative
                 and '/recording/' not in relative

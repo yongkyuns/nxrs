@@ -1,6 +1,6 @@
 //! Private Rust scan contract; SDK field translation stays in each backend.
 use crate::{Error, Uuid};
-pub(crate) type Report = crate::worker::ScanReport<[u8; 16]>;
+pub(crate) type Report = crate::platform::runtime::worker::ScanReport<[u8; 16]>;
 pub(crate) trait ScanBackend: Send + 'static + Sized {
     fn open() -> Result<Self, Error>;
     fn start(&mut self, service: Option<Uuid>) -> Result<(), Error>;

@@ -1,9 +1,7 @@
 //! BLE contracts and OS-selected acquisition.
-#![no_std]
+#![cfg_attr(target_os = "none", no_std)]
 #![deny(unsafe_code)]
 
-#[cfg(any(platform = "nuttx", platform = "linux", platform = "macos", test))]
-extern crate std;
 mod api;
 pub use api::{
     Ble, Capabilities, Command, Completion, DeliveryError, Error, Event, EventKind, OperationId,
@@ -12,21 +10,6 @@ pub use api::{
 mod controller;
 pub use controller::{Controller, ControllerError, Outcome, Update};
 pub mod gatt;
-cfg_if::cfg_if! {
-    if #[cfg(any(
-        platform = "nuttx",
-        platform = "linux",
-        platform = "macos",
-        all(test, unix)
-    ))] {
-        mod gatt_backend;
-        mod gatt_driver;
-        mod worker;
-    }
-}
-#[cfg(any(platform = "linux", platform = "macos", all(test, unix)))]
-mod shared;
-
 mod platform;
 
 /// Open the selected BLE provider, or return `Unsupported` when unbound.
@@ -36,6 +19,3 @@ where
 {
     platform::open(sink).map(Controller::new)
 }
-
-#[cfg(test)]
-mod test_support;
