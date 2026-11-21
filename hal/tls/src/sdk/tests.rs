@@ -326,11 +326,6 @@ fn fallible_rust_allocations_retire_sources_and_preserve_healthy_key() {
 #[cfg(feature = "probe")]
 mod witness {
     use super::*;
-    unsafe extern "C" {
-        fn psa_export_key(key: u32, output: *mut u8, size: usize, length: *mut usize) -> c_int;
-        fn tls_test_export_usage() -> u32;
-        fn tls_test_entropy_probe(bits: *mut usize, output: *mut u8, size: usize) -> c_int;
-    }
     #[test]
     fn actual_c_callback_clears_partial_entropy_and_estimate() {
         let _serial = serial();

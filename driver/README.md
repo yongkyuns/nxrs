@@ -20,7 +20,7 @@ capability integration and physical qualification gates.
 
 The synthetic NuttX sensor and syscall fault injectors are qualification-only
 fixtures in `tests/nuttx/c`, not production drivers. Scripted HAL substitutes live
-in each capability's `src/platform/mock.rs`. Board pin assignments, registration
+in each capability's `src/platform/mock/mod.rs`. Board pin assignments, registration
 and configuration belong in `platform`, while OS-device adaptation belongs in
 `hal/<capability>/src/platform/<os>`.
 

@@ -1,4 +1,19 @@
 //! Select one implementation from the validated profile binding.
+#[cfg(any(
+    platform = "nuttx",
+    platform = "linux",
+    platform = "macos",
+    all(test, unix)
+))]
+#[path = "../runtime/mod.rs"]
+mod runtime;
+#[cfg(any(platform = "linux", platform = "macos", all(test, unix)))]
+#[path = "../shared/mod.rs"]
+mod shared;
+#[cfg(test)]
+#[path = "../test_support.rs"]
+mod test_support;
+
 cfg_if::cfg_if! {
     if #[cfg(platform = "linux")] {
         #[allow(unsafe_code)]

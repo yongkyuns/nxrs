@@ -109,7 +109,7 @@ def oracle(name):
 
 
 def self_test():
-    names = {"hal": "nxrs-camera", "common": "nxrs-hal-common", "bad": "retired-provider",
+    names = {"hal": "nxrs-camera", "radio-types": "nxrs-radio-types", "bad": "retired-provider",
              "registry-driver": "driver", "registry-build-dependency": "build-support"}
     directory = Path(tempfile.gettempdir()).resolve() / "hal-isolation-fixture"
     target = "fixture-target"
@@ -126,7 +126,7 @@ def self_test():
     actual = check(fixture(["hal"], host), names, expected, host, directory, target)
     assert actual["host"] == host, "host dependency was omitted from the evidence"
     check_selection(fixture(["hal"]), names, "nxrs-camera", "none")
-    for value in (fixture(["common"]), fixture(["hal", "common"]), fixture(["hal", "bad"]),
+    for value in (fixture(["radio-types"]), fixture(["hal", "radio-types"]), fixture(["hal", "bad"]),
                   fixture(["hal", "registry-driver"]), fixture(["hal", "registry-build-dependency"]),
                   fixture(["hal", "unknown"]), fixture(["hal"], ["registry-driver"]),
                   fixture(["hal"], success=False), ""):
@@ -153,7 +153,7 @@ def run(out, capabilities=CAPABILITIES):
         ["cargo", "metadata", "--locked", "--format-version=1"], cwd=ROOT, text=True))
     names = {p["id"]: p["name"] for p in metadata["packages"]}
     workspace = {names[identity]: identity for identity in metadata["workspace_members"]}
-    # Grouped selectors use this pinned macro dependency. IMU uses item cfgs.
+    # All HAL selectors use this pinned macro dependency.
     conditional, = (p["id"] for p in metadata["packages"]
                     if p["name"] == "cfg-if" and p["version"] == "1.0.5")
     compiler = subprocess.check_output([os.environ.get("RUSTC", "rustc"), "-vV"], text=True)
@@ -170,7 +170,7 @@ def run(out, capabilities=CAPABILITIES):
         if capability in {"wifi", "ble", "imu", "gnss"}:
             expected.add("nxrs-messaging")
             if capability in {"wifi", "ble"}:
-                expected.add("nxrs-hal-common")
+                expected.add("nxrs-radio-types")
         if capability == "storage":
             expected.add("nxrs-camera")
         if capability == "imu":
@@ -196,8 +196,7 @@ def run(out, capabilities=CAPABILITIES):
             if capability in {"imu", "gnss"} and target is None:
                 expected.add("nxrs-simulation")
             expected = {workspace[name] for name in expected}
-            if capability != "imu":
-                expected.add(conditional)
+            expected.add(conditional)
             host = host_dependencies(metadata, expected)
             label = f"{capability}-{label}"
             target = target or host_target

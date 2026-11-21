@@ -199,7 +199,7 @@ const DELIVERY_RETRY: Duration = Duration::from_millis(5);
 const STOP_RETRY_INITIAL: Duration = Duration::from_millis(250);
 const STOP_RETRY_MAX: Duration = Duration::from_secs(30);
 
-pub(super) trait Scanner: Send + 'static {
+pub(crate) trait Scanner: Send + 'static {
     /// Opaque adapter-local identity; desktop stacks need not expose MAC addresses.
     type Peer: Copy + Default + Eq + Send;
     fn check(&mut self) -> Result<(), Error>;
@@ -231,18 +231,18 @@ pub(super) trait Scanner: Send + 'static {
 }
 
 #[derive(Clone, Copy, Debug, Default)]
-pub(super) struct ScanReport<K> {
+pub(crate) struct ScanReport<K> {
     pub peer: K,
     pub rssi_dbm: Option<i16>,
     pub matches_filter: bool,
 }
 
-pub(super) struct Slot {
+pub(in crate::platform) struct Slot {
     pub request: Option<Request>,
     pub busy: bool,
 }
 
-pub(super) struct Shared {
+pub(in crate::platform) struct Shared {
     pub slot: Mutex<Slot>,
     pub stopping: AtomicBool,
     pub abandoned: AtomicBool,
@@ -295,7 +295,7 @@ impl Shared {
     pub fn stop_requested(&self) -> bool {
         self.stopping.load(Ordering::Acquire)
     }
-    pub(super) fn mark_stopping_unless_terminal(&self) {
+    pub(in crate::platform) fn mark_stopping_unless_terminal(&self) {
         loop {
             let old = self.status.load(Ordering::Acquire);
             if old == encode_status(ProviderStatus::Stopped)

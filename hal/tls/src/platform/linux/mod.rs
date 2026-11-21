@@ -1,10 +1,8 @@
 #![allow(unsafe_code)]
 use crate::sdk::{Entropy, EntropyUnavailable};
 use std::ffi::c_void;
-unsafe extern "C" {
-    fn getrandom(buffer: *mut c_void, size: usize, flags: u32) -> isize;
-    fn tls_nonblocking_entropy_flag() -> u32;
-}
+mod ffi;
+use self::ffi::{getrandom, tls_nonblocking_entropy_flag};
 pub(crate) struct Source;
 impl Entropy for Source {
     fn fill(&mut self, output: &mut [u8]) -> Result<(), EntropyUnavailable> {

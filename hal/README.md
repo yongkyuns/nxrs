@@ -36,8 +36,9 @@ available environment, not a platform or provider choice. Reusable code lives
 in ordinary modules outside `platform/`, with no OS flags or copied OS wrappers.
 The root tree owns configuration and build wiring; HAL code stays in its crate.
 Rust's target selects the OS; profiles enable capabilities at module/factory
-boundaries. One internal `platform` cfg names the exact validated binding at
-each selector; there are no per-platform Cargo features.
+boundaries. Each `src/platform/mod.rs` uses one `cfg_if::cfg_if!` to select the
+validated binding. Local providers use `src/platform/<binding>/mod.rs` and the
+unavailable fallback uses `src/platform/unbound.rs`.
 
 Rust owns validation, ownership, queues, synchronization, retries, cancellation,
 recovery, deadlines, and error policy. Use ordinary qualified `std::fs`,
@@ -55,7 +56,7 @@ Calls between Rust modules stay typed Rust. Wi-Fi stations and BLE scan/GATT
 executors use private Rust contracts; C-facing SDK witness adapters live only
 under `tests/host/radio_shims` and are excluded from production builds.
 
-`common` contains radio request identities and bounded payload storage. The
+`radio-types` contains request identities and bounded payloads shared by Wi-Fi and BLE. The
 `shared/messaging` crate owns event delivery and rejection. Neither owns device
 errors. The old core-only camera/storage providers and their C/POSIX wrappers live under
 `tests/nuttx/`; production providers do not depend on them. NuttX storage uses

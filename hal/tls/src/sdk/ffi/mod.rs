@@ -181,3 +181,20 @@ unsafe extern "C" {
     pub(super) fn mbedtls_x509_crt_is_revoked(crt: *const c_void, crl: *const c_void) -> c_int;
     pub(super) fn mbedtls_pk_check_pair(public: *const c_void, private: *const c_void) -> c_int;
 }
+
+#[cfg(all(test, feature = "probe"))]
+unsafe extern "C" {
+    pub(super) fn psa_export_key(
+        key: u32,
+        output: *mut u8,
+        size: usize,
+        length: *mut usize,
+    ) -> c_int;
+    pub(super) fn tls_test_export_usage() -> u32;
+    pub(super) fn tls_test_entropy_probe(bits: *mut usize, output: *mut u8, size: usize) -> c_int;
+}
+
+#[cfg(all(test, feature = "probe", not(target_os = "nuttx")))]
+unsafe extern "C" {
+    pub(super) fn tls_test_clock_probe(expected: i64) -> c_int;
+}

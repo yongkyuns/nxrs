@@ -6,7 +6,6 @@ on:
       - 'refactor/**'
     paths:
       - 'hal/transport/**'
-      - 'hal/common/**'
       - 'app/**'
       - 'service/**'
       - 'shared/messaging/**'

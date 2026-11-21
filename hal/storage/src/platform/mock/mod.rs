@@ -4,9 +4,7 @@ use crate::{Capture, DeviceError, Frame, Storage};
 use alloc::collections::VecDeque;
 use alloc::vec::Vec;
 
-#[path = "unbound.rs"]
-mod unbound;
-pub use unbound::create_record_file;
+pub use super::unbound::create_record_file;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct StoredFrame {

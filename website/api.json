@@ -51,7 +51,7 @@
       "title": "Contracts and delivery",
       "packages": [
         {"package": "nxrs-messaging", "crate": "messaging", "path": "shared/messaging", "summary": "Typed delivery results and bounded task-context channels."},
-        {"package": "nxrs-hal-common", "crate": "hal_common", "path": "hal/common", "summary": "Supporting radio request identities and bounded payload types."},
+        {"package": "nxrs-radio-types", "crate": "radio_types", "path": "hal/radio-types", "summary": "Supporting radio request identities and bounded payload types."},
         {"package": "nxrs-peripheral", "crate": "peripheral", "path": "driver/peripheral", "summary": "Synchronous IMU and GNSS contracts shared by chip drivers and consumers."}
       ]
     },

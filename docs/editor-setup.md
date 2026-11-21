@@ -19,9 +19,13 @@ and used custom Cargo options. The application must be in the Nxrs workspace.
 The task reads and writes standard JSON project settings. It only changes
 rust-analyzer configuration.
 
-To verify the selection, use Go to Definition on `selected` in a HAL's
-`src/platform/mod.rs`. Zed can dim code that rust-analyzer reports as
-inactive. Some branches inside `cfg_if!` still use ordinary syntax highlighting.
+The editor command defaults to Zed's managed rust-analyzer for inactive
+`cfg_if::cfg_if!` branch dimming. Rust 1.90's rust-analyzer misses macro
+branches, and newer versions can miss or partly dim branches in longer
+selectors. To confirm the active provider, use Go to Definition on `selected`
+in the HAL's `src/platform/mod.rs`. Run the editor command for your profile
+again to apply the default to an existing checkout.
+See [Zed's Rust language server settings](https://zed.dev/docs/languages/rust#binary).
 
 The WROOM camera profiles leave IMU unbound. For the NuttX IMU provider, choose
 **WROOM IMU (DevKit qualification)** after preparing its editor build:

@@ -85,7 +85,7 @@ only when multiple implementations actually need the same operations.
 | `driver/ubx/` | Reusable M9 protocol driver |
 | `hal/imu/src/api.rs` | Application-facing IMU contract |
 | `hal/imu/src/session.rs` | Session contract implemented on the shared worker |
-| `hal/imu/src/platform/simulation.rs` | Adapter to a coordinated simulation session |
+| `hal/imu/src/platform/simulation/mod.rs` | Adapter to a coordinated simulation session |
 | `hal/imu/src/platform/mod.rs` | Selected acquisition exports |
 | `hal/imu/src/platform/nuttx/mod.rs` | Normalized acquisition and construction API |
 | `hal/imu/src/platform/nuttx/device.rs` | Ownership, stream metadata and acquisition |
