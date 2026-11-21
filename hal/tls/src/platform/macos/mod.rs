@@ -1,6 +1,5 @@
 #![allow(unsafe_code)]
 use crate::sdk::{Entropy, EntropyUnavailable};
-use std::ffi::c_void;
 mod ffi;
 use self::ffi::getentropy;
 pub(crate) struct Source;

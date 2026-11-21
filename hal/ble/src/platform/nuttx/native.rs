@@ -8,6 +8,8 @@ use crate::platform::runtime::worker::{ScanReport, Scanner};
 use crate::Error;
 use crate::Uuid;
 #[cfg(not(test))]
+use core::ffi::c_int;
+#[cfg(not(test))]
 use std::io;
 #[cfg(not(test))]
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
