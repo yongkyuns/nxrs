@@ -59,7 +59,7 @@ Queue admission, completed work and externally committed results are separate ev
 
 Profiles and overlays select implementations, device instances, resources, and logical names at build time. This borrows the declarative configuration approach of device trees while retaining NuttX's BSP and native configuration.
 
-At runtime, an application can use `config::Store` for persistent settings. Home-cam saves Wi-Fi settings and gateway enrollment this way; the product profile selects the backing store.
+At runtime, an application can use `settings::Store` for persistent settings. Home-cam saves Wi-Fi settings and gateway enrollment this way; the product profile selects the backing store.
 
 Application behavior stays in Rust; board wiring stays in the profile and platform integration. Cargo manifests remain the dependency graph. The build tools resolve configuration, prepare native inputs and invoke Cargo and NuttX; they do not generate an application's service graph. [Profiles and overlays](profiles.md) explains the build inputs.
 

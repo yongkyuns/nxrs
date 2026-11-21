@@ -19,7 +19,7 @@ Device configuration, ioctls, cancellable readiness, and radio-control operation
 | Operation | Appropriate boundary | What stays below the application |
 | --- | --- | --- |
 | Read or write an ordinary file | `std::fs` and `std::io` | Filesystem mount and native device setup |
-| Save small named settings records | `config::Store` | NuttX named record controls and descriptor ownership |
+| Save small named settings records | `settings::Store` | NuttX named record controls and descriptor ownership |
 | Exchange IP packets | `std::net` or an intentional packet-output contract | Interface and radio configuration |
 | Configure a peripheral bus transaction | Resource adapter using a Rust bus trait | Native request layout and bus descriptor |
 | Read or configure a particular chip | Chip driver | Register protocol and device-specific conversion |

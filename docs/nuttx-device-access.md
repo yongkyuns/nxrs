@@ -402,7 +402,7 @@ the HAL retains descriptor ownership, termios rollback and per-receiver faults.
 - `boot::reset_cause()` reports the preceding reset on boards that implement
   NuttX's reset-cause query. It works without an update slot or a boot-control
   owner. A chip-wide reset code may have several hardware causes.
-- Use `std::fs` for filesystem-backed storage. `config::Store` persists named
+- Use `std::fs` for filesystem-backed storage. `settings::Store` persists named
   settings records on NuttX through the `/dev/config` device controls.
   `flash::open()` gives an exclusive Nxrs lease on a dedicated,
   unmounted NOR partition. It uses `File` for seek, read and synchronous direct

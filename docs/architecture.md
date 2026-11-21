@@ -348,7 +348,7 @@ provider module as a public namespace.
 | --- | --- | --- | --- |
 | `ImuService` | `imu` | `nxrs-imu` | Private provider selected by the profile |
 | `app/home-cam` | `camera` | `nxrs-camera` | Private provider selected by the profile |
-| `app/home-cam` | `config` | `nxrs-config` | Settings storage for Wi-Fi and gateway enrollment, backed by NuttX named records |
+| `app/home-cam` | `settings` | `nxrs-settings` | Settings storage for Wi-Fi and gateway enrollment, backed by NuttX named records |
 
 IMU, GNSS and audio use `shared/acquisition` internally to start, wake and join
 workers. Their HALs own sample delivery, overload behavior and resource cleanup.

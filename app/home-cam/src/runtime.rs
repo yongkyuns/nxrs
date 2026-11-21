@@ -248,7 +248,7 @@ pub(crate) fn run() -> Result<(), String> {
     let mut trial =
         home_cam::startup::Trial::begin(boot, watchdog).map_err(|e| format!("startup {e:?}"))?;
     let budget = detector::execution_budget();
-    let mut store = Some(config::open().map_err(|e| format!("config open {e:?}"))?);
+    let mut store = Some(settings::open().map_err(|e| format!("settings open {e:?}"))?);
     let mut settings = commissioning::load(store.as_mut().ok_or("missing store")?, console::open)?;
     if !settings.save_wifi {
         drop(store.take());

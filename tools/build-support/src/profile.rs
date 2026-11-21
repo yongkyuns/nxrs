@@ -19,7 +19,7 @@ pub const CAPABILITIES: &[&str] = &[
     "detector",
     "camera",
     "audio",
-    "config",
+    "settings",
     "storage",
     "transport",
     "led",

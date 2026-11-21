@@ -162,7 +162,7 @@ pub fn application_config(p: &Profile) -> Result<BTreeMap<String, String>> {
         v.insert("BOOT_MCUBOOT".into(), "y".into());
         v.insert("MCUBOOT_VERSION".into(), format!("\"{MCUBOOT_REVISION}\""));
     }
-    if p.binding("config") == "nuttx" {
+    if p.binding("settings") == "nuttx" {
         let offset = b.scratch + b.scratch_size;
         if p.binding("boot") != "nuttx"
             || protected
@@ -172,7 +172,7 @@ pub fn application_config(p: &Profile) -> Result<BTreeMap<String, String>> {
                 .iter()
                 .any(|start| offset.max(*start) < (offset + 0x2000).min(start + b.slot))
         {
-            return Err("config partition requires separate unencrypted MCUboot storage".into());
+            return Err("settings partition requires separate unencrypted MCUboot storage".into());
         }
         for (k, value) in [
             ("MTD_CONFIG_NVS", "y"),

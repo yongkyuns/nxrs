@@ -1,5 +1,5 @@
 //! One versioned Wi-Fi profile. Load/save only with the radio and camera idle.
-use config::Store;
+use settings::Store;
 use wifi::{Command, Credentials, Passphrase, Ssid};
 
 const KEY: &str = "camera.wifi";
@@ -8,7 +8,7 @@ const MAX_RECORD: usize = 4 + 2 + 32 + 63;
 #[derive(Debug, PartialEq, Eq)]
 pub enum Error {
     InvalidProfile,
-    Store(config::Error),
+    Store(settings::Error),
 }
 
 pub struct Profile {
@@ -79,7 +79,7 @@ impl Profile {
         let mut observed = [0; MAX_RECORD];
         let length = store.get(KEY, &mut observed).map_err(Error::Store)?;
         if length != Some(value.len()) || &observed[..value.len()] != value {
-            return Err(Error::Store(config::Error::Io));
+            return Err(Error::Store(settings::Error::Io));
         }
         Ok(())
     }
@@ -89,9 +89,9 @@ impl Profile {
 mod tests {
     use super::*;
     #[derive(Default)]
-    struct Memory(Option<Vec<u8>>, Option<config::Error>, usize);
+    struct Memory(Option<Vec<u8>>, Option<settings::Error>, usize);
     impl Store for Memory {
-        fn get(&mut self, _: &str, out: &mut [u8]) -> Result<Option<usize>, config::Error> {
+        fn get(&mut self, _: &str, out: &mut [u8]) -> Result<Option<usize>, settings::Error> {
             if let Some(error) = self.1 {
                 return Err(error);
             }
@@ -99,14 +99,14 @@ mod tests {
                 .as_ref()
                 .map(|v| {
                     if v.len() > out.len() {
-                        return Err(config::Error::BufferTooSmall);
+                        return Err(settings::Error::BufferTooSmall);
                     }
                     out[..v.len()].copy_from_slice(v);
                     Ok(v.len())
                 })
                 .transpose()
         }
-        fn set(&mut self, _: &str, value: &[u8]) -> Result<(), config::Error> {
+        fn set(&mut self, _: &str, value: &[u8]) -> Result<(), settings::Error> {
             if let Some(error) = self.1 {
                 return Err(error);
             }
@@ -114,7 +114,7 @@ mod tests {
             self.0 = Some(value.to_vec());
             Ok(())
         }
-        fn remove(&mut self, _: &str) -> Result<(), config::Error> {
+        fn remove(&mut self, _: &str) -> Result<(), settings::Error> {
             self.0 = None;
             Ok(())
         }
@@ -149,7 +149,7 @@ mod tests {
         ] {
             assert!(Profile::load(&mut Memory(Some(bytes), None, 0)).is_err());
         }
-        for error in [config::Error::Io, config::Error::Full] {
+        for error in [settings::Error::Io, settings::Error::Full] {
             let mut store = Memory(None, Some(error), 0);
             assert!(matches!(Profile::load(&mut store), Err(Error::Store(e)) if e == error));
             assert_eq!(

@@ -261,7 +261,7 @@ No hardware protection setting or eFuse is changed.
 
 One-time commissioning stores the gateway's last-known private IPv4 endpoint, exact
 certificate SHA-256 pin, per-camera token and approved camera/site/gateway names
-in `hal/config`, beside the saved Wi-Fi profile. Device signing keys stay volatile
+in `hal/settings`, beside the saved Wi-Fi profile. Device signing keys stay volatile
 and non-exportable. No USB certificate or clock service runs after commissioning.
 The existing Rust ingest process owns one TLS1.3 bootstrap listener, signs a
 verified P-256 CSR with server-assigned names/usages, and joins old ingest workers
@@ -315,7 +315,7 @@ otherwise block without a reader. Rust opens `/dev/ttyACM0` only for missing
 commissioning/Wi-Fi input, restores its termios and closes it before networking.
 The tool also resumes Wi-Fi-only input after an interrupted first setup.
 Firmware erasure of the
-reserved config partition resets both records; keep ROM recovery available.
+reserved settings partition resets both records. Keep ROM recovery available.
 With hardware flash encryption off, stored Wi-Fi/token data is readable from
 flash. This change performs no eFuse or protection provisioning.
 

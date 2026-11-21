@@ -17,7 +17,7 @@ nxrs-ssh = { path = "../../hal/ssh" }
 nxrs-detector = { path = "../../hal/detector" }
 nxrs-connectivity-service = { path = "../../service/connectivity" }
 nxrs-enrollment = { path = "../../service/enrollment" }
-nxrs-config = { path = "../../hal/config" }
+nxrs-settings = { path = "../../hal/settings" }
 nxrs-camera = { path = "../../hal/camera" }
 nxrs-audio = { path = "../../hal/audio" }
 nxrs-capture-wire = { path = "../../service/capture-wire" }
@@ -32,7 +32,7 @@ nxrs-watchdog = { path = "../../hal/watchdog" }
 nxrs-wifi = { path = "../../hal/wifi" }
 
 [package.metadata.nxrs]
-required-capabilities = ["camera", "wifi", "tls", "config", "boot", "watchdog", "console", "execution"]
+required-capabilities = ["camera", "wifi", "tls", "settings", "boot", "watchdog", "console", "execution"]
 
 [package.metadata.nxrs.firmware]
 bin = "home-cam"

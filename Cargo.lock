@@ -791,14 +791,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "nxrs-config"
-version = "0.1.0"
-dependencies = [
- "cfg-if",
- "nxrs-build-support",
-]
-
-[[package]]
 name = "nxrs-connectivity-service"
 version = "0.1.0"
 dependencies = [
@@ -961,7 +953,6 @@ dependencies = [
  "nxrs-camera",
  "nxrs-camera-service",
  "nxrs-capture-wire",
- "nxrs-config",
  "nxrs-connectivity-service",
  "nxrs-console",
  "nxrs-detection-service",
@@ -970,6 +961,7 @@ dependencies = [
  "nxrs-enrollment",
  "nxrs-execution",
  "nxrs-firmware-update",
+ "nxrs-settings",
  "nxrs-ssh",
  "nxrs-stream-service",
  "nxrs-tls",
@@ -1151,6 +1143,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "nxrs-settings"
+version = "0.1.0"
+dependencies = [
+ "cfg-if",
+ "nxrs-build-support",
+]
+
+[[package]]
 name = "nxrs-simulation"
 version = "0.1.0"
 
@@ -1243,7 +1243,6 @@ dependencies = [
  "nxrs-boot",
  "nxrs-build-support",
  "nxrs-camera",
- "nxrs-config",
  "nxrs-connectivity-service",
  "nxrs-console",
  "nxrs-detection-service",
@@ -1251,6 +1250,7 @@ dependencies = [
  "nxrs-enrollment",
  "nxrs-execution",
  "nxrs-home-cam",
+ "nxrs-settings",
  "nxrs-std-wifi",
  "nxrs-stream-service",
  "nxrs-tls",

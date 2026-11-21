@@ -1,11 +1,11 @@
 [package]
-name = "nxrs-config"
+name = "nxrs-settings"
 version.workspace = true
 edition.workspace = true
 build = "../../tools/build-support/cargo/hal.rs"
 
 [lib]
-name = "config"
+name = "settings"
 
 [package.metadata.nxrs]
 kind = "hal-capability"
