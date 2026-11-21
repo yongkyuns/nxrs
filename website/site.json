@@ -45,6 +45,7 @@
     ["rtos-comparison.md", "RTOS comparison results"]
   ],
   "reference_sources": {
+    "website/examples/matter-led/README.md": "matter/led-example",
     "gateway/matter/integration.md": "matter/integration",
     "gateway/matter/README.md": "matter/gateway",
     "gateway/tests/matter/README.md": "matter/validation",
@@ -59,9 +60,10 @@
     {"title": "Camera applications and clients", "pages": ["camera-detection-delivery.md", "camera-detector-alternatives.md", "client-camera-architecture.md", "ios-home-experience.md", "camera-pico-performance.md", "camera-smp.md"], "description": "Media, detection and client behavior, with separate device and model evidence."},
     {"title": "Historical measurements", "pages": ["history/nuttx-std-integration.md", "history/std-channel-campaign.md", "history/native-rtos-study.md", "rtos-comparison-accounting.md", "history/rust-footprint-study.md", "history/camera-pico-study.md", "history/detector-screening-study.md", "rtos-benchmarking.md", "camera-detection-qualification.md", "camera-pico-qualification.md"], "description": "Original experiments and accounting. These retain their tested revisions and do not describe every later build."},
     {"title": "Design history and implementation plans", "pages": ["architecture-and-roadmap.md", "component-cleanup.md", "peripheral-composition-plan.md", "remote-monitoring.md", "nuttx-wifi-issue.md", "ESP32S3_Camera_Driver_Changes.md"], "description": "Earlier decisions, resolved investigations and migration plans. Use the maintained references for current behavior."},
-    {"title": "Matter camera integration", "pages": ["gateway/matter/integration.md", "gateway/matter/README.md", "gateway/tests/matter/README.md", "gateway/tests/matter/conformance.md"], "description": "Connect an Nxrs camera to Home Assistant or your own application and see what has been qualified."}
+    {"title": "Matter camera integration", "pages": ["gateway/matter/integration.md", "website/examples/matter-led/README.md", "gateway/matter/README.md", "gateway/tests/matter/README.md", "gateway/tests/matter/conformance.md"], "description": "Connect an Nxrs camera to Home Assistant or your own application and see what has been qualified."}
   ],
   "reference_guides": {
+    "website/examples/matter-led/README.md": "controller",
     "architecture.md": "overview",
     "build-system.md": "build-system",
     "nuttx-std.md": "standard-library",
@@ -91,6 +93,7 @@
     "history/detector-screening-study.md": "performance"
   },
   "reference_descriptions": {
+    "website/examples/matter-led/README.md": "Switch a simulated Nxrs LED through Home Assistant and adapt the light to your own output.",
     "gateway/matter/integration.md": "Architecture, playback signaling, and integration with Home Assistant, Matter controllers and custom apps.",
     "gateway/matter/README.md": "Build, configure, commission and run the gateway bridge on Linux or macOS.",
     "gateway/tests/matter/README.md": "Compatibility, recovery and endurance evidence, with reproduction steps and test boundaries.",

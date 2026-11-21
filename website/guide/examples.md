@@ -9,6 +9,7 @@ Use the small examples to learn a particular API or pattern. Larger applications
 | The application/source/build workflow | `basic-firmware` greeting | Yes, as host Rust and in the firmware tutorial |
 | A bounded worker and joined shutdown | `basic-firmware` worker | Yes, using the same tutorial workspace |
 | Command admission, completion and output ownership | `controller` tutorial | Yes, with the explicit LED mock on the host and in QEMU |
+| Control an Nxrs output from Home Assistant over Matter | [Simulated LED](../examples/matter-led/README.md) | Yes, with the same LED mock and a Matter controller |
 | Rust collections, ownership, channels, and deadlines | `std-demo` recipes | Yes |
 | Overload, owner progress, and repeated lifetimes | `ao-stress` | Yes; host measurements describe the host |
 | Existing replay, recording, and UDP implementations | Feature-selected package examples and tests | Yes, subject to their file/network prerequisites |
