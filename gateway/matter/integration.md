@@ -1,8 +1,56 @@
 # Use an Nxrs camera in your application
 
-Nxrs captures video and detects people on the camera. A gateway publishes the
-video and confirmed presence to enrolled viewers. Its optional Matter bridge
-makes the same camera and occupancy sensor available to a Matter controller.
+Start with one device on your home network and one app that uses it. The
+camera below is a working Nxrs example. You can follow the same development
+steps for a sensor or a device that controls something.
+
+## From a room to an app
+
+A connected device reads sensors or controls hardware and communicates over a
+network. This is commonly called the Internet of Things (IoT). **Firmware**
+is the program that runs on the board. In this example it captures video and
+checks whether someone is in the room.
+
+A **gateway** is a computer that receives updates from the board and shares
+them with apps. **Matter** defines how devices are added to a home and how
+controllers read their state or send commands. The **Matter bridge** runs on
+the gateway and presents the Nxrs camera and its room occupancy sensor to a
+**controller** such as the Home Assistant server. Adding a device to the
+controller is called *commissioning*.
+
+<figure>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="../../docs/assets/nxrs-matter-room-to-app-dark.svg">
+    <img src="../../docs/assets/nxrs-matter-room-to-app.svg" alt="The camera board sends video and person updates to the gateway computer. Its Matter bridge lets Home Assistant add the camera and read room occupancy. Live video goes directly from the bridge to the phone or browser.">
+  </picture>
+  <figcaption>Follow the camera from the board to the screen. Home Assistant arranges playback and runs automations. The phone or browser receives the video directly from the bridge. <a href="../../docs/assets/nxrs-matter-room-to-app.svg">Open diagram</a>.</figcaption>
+</figure>
+
+## Build your first connected project
+
+1. **Run a program on your computer.** Follow [Your first application](../../website/guide/first-application.md#build-and-run-on-the-host)
+   to see `Hello from NXRS`. The [controller tutorial](../../website/guide/controller.md#run-the-controller-on-your-host)
+   then lets you turn a simulated LED on and off and read its state.
+2. **Try the camera integration.** With a working camera and gateway, follow
+   [Connect Home Assistant](#connect-home-assistant). Without a camera board,
+   use the [phone pairing fixture](../tests/matter/README.md#pair-from-a-phone-on-the-lan),
+   which supplies generated video. Pair on the same home network, open and close
+   the live view, and find the occupancy sensor on the camera’s device page.
+3. **Add one behavior.** Set a Home Assistant automation to notify you when
+   the room changes from clear to occupied. In the fixture terminal, enter
+   `clear` and then `occupied` to test the rule. Enter `unavailable` to
+   check that Home Assistant reports missing updates separately from a
+   clear room.
+4. **Adapt the pattern.** For your own board, use a
+   [hardware profile](../../website/guide/profiles.md) to select its resources.
+   Give the application a small, testable job and report its state through the
+   interface your users need. A custom viewer can use the
+   [Nxrs gateway API](#use-the-nxrs-gateway-api). To expose a different kind of
+   device through Matter, implement its device type and the groups of states
+   and commands it requires, called *clusters*. Pair it and check each
+   advertised operation with the controller you plan to support.
+
+## Choose an integration path
 
 | If you want to… | Start here |
 | --- | --- |

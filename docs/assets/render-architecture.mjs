@@ -394,6 +394,34 @@ function cameraPipeline(p) {
 `);
 }
 
+function matterRoomToApp(p) {
+  return guideFigure(p, 'From a room to an app',
+    'The camera board runs Nxrs firmware. It sends video and person updates to the gateway computer. The gateway’s Matter bridge presents a camera and a room sensor. The Home Assistant server adds the device, opens the video session, and runs automations. The phone or browser receives live video directly from the bridge.', 810, `
+  ${panel({ id: 'board', x: 24, y: 24, w: 752, h: 94, title: 'Camera board in the room',
+    lines: ['Nxrs firmware captures video and detects people'], accent: p.blue })}
+  ${group(p, 'host', 24, 171, 752, 315, 'Gateway computer')}
+  ${edge('board', 'gateway', 'M298 118 V224')}
+  ${label(314, 149, 'Video and person updates', 'start')}
+  ${panel({ id: 'gateway', x: 52, y: 226, w: 492, h: 82, title: 'Nxrs gateway',
+    lines: ['Shares live video and room occupancy'] })}
+  ${edge('gateway', 'bridge', 'M298 308 V365')}
+  ${label(314, 342, 'Camera feed and room status', 'start')}
+  ${panel({ id: 'bridge', x: 52, y: 367, w: 492, h: 88, title: 'Matter bridge',
+    lines: ['Presents a camera and a room occupancy sensor'], accent: p.blue })}
+  ${edge('home-assistant', 'bridge', 'M298 538 V457')}
+  ${label(314, 515, 'Pairing and camera commands', 'start')}
+  ${panel({ id: 'home-assistant', x: 52, y: 538, w: 492, h: 88, title: 'Home Assistant server',
+    lines: ['Adds the device, opens live view and runs rules'], accent: p.orange })}
+  ${edge('bridge', 'app', 'M544 411 H669 V697')}
+  ${label(655, 565, 'Live video', 'end')}
+  ${label(655, 588, 'direct to app', 'end')}
+  ${edge('home-assistant', 'app', 'M298 626 V697')}
+  ${label(314, 664, 'Controls and room status', 'start')}
+  ${panel({ id: 'app', x: 52, y: 699, w: 696, h: 87, title: 'Phone app or web dashboard',
+    lines: ['See the live image and check whether the room is occupied'], accent: p.blue })}
+`);
+}
+
 function matterArchitecture(p) {
   return guideFigure(p, 'Nxrs camera and Matter gateway',
     'The ESP32 sends one authenticated feed to gateway ingest. MediaMTX serves Nxrs viewers and a shared RTSP reader in the Matter bridge. Gateway control feeds a separate detection subscription. The bridge serves snapshots and occupancy through Matter commands, and streams WebRTC media directly to each receiver.', 970, `
@@ -606,6 +634,7 @@ const guideDiagrams = [
   ['nxrs-service-dependencies', serviceDependencies],
   ['nxrs-ao-stress', aoStress],
   ['nxrs-camera-pipeline', cameraPipeline],
+  ['nxrs-matter-room-to-app', matterRoomToApp],
   ['nxrs-matter-architecture', matterArchitecture],
   ['nxrs-matter-playback', matterPlayback],
   ['nxrs-device-access', deviceAccess],
