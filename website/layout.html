@@ -123,7 +123,7 @@
       {% set grouped = namespace(sources=[]) %}
       {% for group in config.reference_groups %}
       <section class="reference-category"><h2 id="reference-group-{{ loop.index }}">{{ group.title }}</h2>{% if group.description is defined %}<p>{{ group.description }}</p>{% endif %}<div class="reference-list">
-        {% for name in group.pages %}{% for item in all_references if item.source == 'docs/' ~ name %}
+        {% for name in group.pages %}{% for item in all_references if item.source.removeprefix('docs/') == name %}
         {% set grouped.sources = grouped.sources + [item.source] %}
         <a href="{{ url(item.route) }}"><strong>{{ item.title }}</strong><span>{{ config.get('reference_descriptions', {}).get(name, item.source) }}</span></a>
         {% endfor %}{% endfor %}

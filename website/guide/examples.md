@@ -110,6 +110,10 @@ A connected logger or controller commonly needs device access, processing, persi
 
 The existing [home-cam application](../../app/home-cam/) combines capture, detection, streaming, and gateway/client integration. Its [delivery reference](../../docs/camera-detection-delivery.md) describes the end-to-end protocol and ownership. Model-specific [evaluation results](../../docs/camera-detection-qualification.md) include streaming, accuracy, memory, and recovery tests.
 
+For a Matter integration, follow the [camera integration guide](../../gateway/matter/integration.md)
+for architecture diagrams and steps for Home Assistant, a custom Matter
+controller, or a client using the Nxrs gateway API.
+
 Read this material when working on a camera application. It is not required for learning the build system, service model, or hardware interfaces.
 
 ## Other repository applications

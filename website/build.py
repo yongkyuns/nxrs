@@ -141,6 +141,8 @@ class Site:
                 + quote(source, safe='/') + (f'#{fragment}' if fragment else ''))
 
     def register(self, source: str, route: str, section: str, title: str = '') -> None:
+        if source in self.pages:
+            raise ValueError(f'duplicate source: {source}')
         if route in self.routes.values():
             raise ValueError(f'duplicate route: {route}')
         file = self.root / source
@@ -165,6 +167,12 @@ class Site:
                 raise ValueError(f'linked document: {path}')
             relative = path.relative_to(self.root / 'docs').as_posix()
             self.register('docs/' + relative, 'reference/' + relative[:-3] + '/', 'Reference')
+        for source, route in self.config.get('reference_sources', {}).items():
+            if not re.fullmatch(r'(?:[A-Za-z0-9_-]+/)+[A-Za-z0-9_-]+\.md', source):
+                raise ValueError(f'invalid repository reference: {source}')
+            if not re.fullmatch(r'[a-z0-9-]+(?:/[a-z0-9-]+)*', route):
+                raise ValueError(f'invalid reference route: {route}')
+            self.register(source, f'reference/{route}/', 'Reference')
         for path in sorted((self.root / 'docs').rglob('*')):
             if path.suffix.lower() in MEDIA and path.is_file():
                 if path.is_symlink():
