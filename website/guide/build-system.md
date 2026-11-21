@@ -1,8 +1,6 @@
 # Build workflow
 
-Use Cargo to describe your application and its dependencies. Use `cargo nxrs build` when that application needs a selected NXRS target, native configuration, and firmware image. The frontend connects those inputs to Cargo and NuttX; application startup and component connections remain in your Rust source.
-
-This guide explains the commands you will use after [building your first firmware](firmware.md), where the outputs come from, and which input to change when your product changes.
+Cargo describes your application and its dependencies. `cargo nxrs build` combines that application with a selected NuttX profile to produce firmware. If you’re building for the first time, start with the [firmware walkthrough](firmware.md). Use this page to inspect the inputs, understand the outputs, or decide what to rebuild.
 
 ## Choose the right command
 

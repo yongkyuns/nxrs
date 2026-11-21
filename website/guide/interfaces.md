@@ -1,6 +1,6 @@
 # Interfaces and APIs
 
-NXRS has several interfaces with different jobs: Cargo and the build frontend on your computer, the NuttX shell on the device, and Rust APIs inside the application. This guide helps you choose the right one and understand the result it promises.
+Use Cargo or the firmware builder to run a build, the NuttX shell to run the application on the device, and Rust APIs inside the application. This guide shows where to find each interface and how to read its contract.
 
 ## Development commands
 
@@ -14,7 +14,7 @@ Run these from the NXRS checkout unless a guide says otherwise. Its Cargo config
 | Understand build inputs and outputs | `cargo nxrs build --help` and a build's retained files | [Build system](build-system.md) |
 | Look up a Rust type, function, or method | [Rust API reference](../api.md), or local `cargo doc` | The library catalog, symbol search, and source |
 
-The application is an ordinary Cargo package. `cargo nxrs` adds the target preparation and NuttX integration needed to produce firmware. It does not replace Cargo's dependency resolver or define a separate application programming language.
+`cargo nxrs` prepares the target and integrates the Cargo package into the NuttX image.
 
 ## The device shell and application console
 
@@ -72,7 +72,7 @@ Cargo reports the output location. The published reference includes the explicit
 
 ## Availability, features and acquisition
 
-Three questions are separate:
+Check these in order when a capability is unavailable.
 
 1. **Is the software compiled?** Cargo dependencies and features select available code.
 2. **Does this configuration bind the hardware capability?** The profile selects supported implementations and resources.
@@ -95,6 +95,6 @@ Before calling an unfamiliar API, answer these questions from its contract:
 | What happens after a fault? | Retryable error, terminal retained failure or an unavailable resource |
 | How does it stop? | Cancellation, wakeup, draining, joining and the precise meaning of `Drop` |
 
-Similar error variant names across capabilities do not make their contracts identical. For example, a recorder's `Busy` can mean that its caller should retry a flush later, while an acquisition's `Busy` can mean another owner holds the resource. Keep those meanings visible in the caller.
+Check the meaning of errors in the specific API. A recorder’s `Busy` may call for retrying a flush. In an acquisition API, it may mean another caller owns the resource.
 
 Continue with [Designing an application](designing-applications.md) to choose the boundaries, then [Build a controller](controller.md) to run a complete command, output and shutdown path. The controller's completion tickets demonstrate the distinction between admission and a handled result using the existing LED contract.

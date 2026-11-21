@@ -119,6 +119,11 @@ def run(site: Path, prefix: str, output: Path) -> dict:
             assert page.locator('#experimental-iot-camera').count() == 1
             assert page.locator('#navigation-and-service-composition').count() == 1
             report['checks'].append('primary navigation, grouped sidebar, breadcrumbs, pagination and existing example anchors')
+            page.get_by_role('link', name='Simulated Matter light', exact=True).click()
+            expect(page).to_have_url(url + 'reference/matter/led-example/')
+            expect(page.locator('h1')).to_have_text('Switch an Nxrs LED from Home Assistant')
+            expect(page.locator('#adapt-it-to-your-own-project')).to_be_visible()
+            report['checks'].append('examples lead directly to the standalone Matter light tutorial')
 
             main_nav.get_by_role('link', name='Getting started', exact=True).click()
             expect(page).to_have_url(url + 'guide/getting-started/')
@@ -143,7 +148,8 @@ def run(site: Path, prefix: str, output: Path) -> dict:
             report['checks'].append('neutral onboarding, new subsystem guides, code controls and source-backed example')
             report['checks'].append('guide pagination crosses section boundaries')
 
-            page.locator('#sidebar').get_by_role('link', name='Build a controller', exact=True).click()
+            page.locator('#sidebar').get_by_role('link', name='Services and concurrency', exact=True).click()
+            page.locator('.page-navigation a[rel="next"]').click()
             expect(page).to_have_url(url + 'guide/controller/')
             expect(page.locator('h1')).to_have_text('Build a controller')
             controller_figure = page.locator('.architecture-art').first

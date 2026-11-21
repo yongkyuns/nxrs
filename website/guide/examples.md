@@ -1,24 +1,24 @@
 # NXRS examples
 
-Use the small examples to learn a particular API or pattern. Larger applications show how several components fit together and are optional reading.
+Run a small Rust program to learn an API, or pick an integration that matches the project you want to build.
 
 ## Choose an example by task
 
-| I want to learn… | Example | Runs without a board? |
+| I want to… | Example | Runs without a board? |
 | --- | --- | --- |
-| The application/source/build workflow | `basic-firmware` greeting | Yes, as host Rust and in the firmware tutorial |
-| A bounded worker and joined shutdown | `basic-firmware` worker | Yes, using the same tutorial workspace |
-| Command admission, completion and output ownership | `controller` tutorial | Yes, with the explicit LED mock on the host and in QEMU |
-| Control an Nxrs output from Home Assistant over Matter | [Simulated LED](../examples/matter-led/README.md) | Yes, with the same LED mock and a Matter controller |
-| Rust collections, ownership, channels, and deadlines | `std-demo` recipes | Yes |
-| Overload, owner progress, and repeated lifetimes | `ao-stress` | Yes; host measurements describe the host |
-| Existing replay, recording, and UDP implementations | Feature-selected package examples and tests | Yes, subject to their file/network prerequisites |
+| Build and run a Rust application | [Basic firmware](#basic-firmware) | Yes, as host Rust and in the firmware tutorial |
+| Send messages to a worker and stop it cleanly | [Basic firmware worker](#basic-firmware) | Yes, using the same tutorial workspace |
+| Switch an output and confirm each command | [Controller application](#controller-application) | Yes, with the explicit LED mock on the host and in QEMU |
+| Switch a light from Home Assistant | [Simulated Matter light](../examples/matter-led/README.md) | Yes, with the same LED mock and a Matter controller |
+| Use Rust collections, channels, and deadlines | [Standard-library recipes](#standard-library-recipes) | Yes |
+| Test overload and repeated shutdown | [Stress example](#exercise-overload-and-shutdown) | Yes; host measurements describe the host |
+| Try replay, recording, or UDP output | [Software capability tests](#test-a-reusable-software-capability) | Yes, subject to their file/network prerequisites |
 | Open a maintenance shell and run a Rust command over SSH | [Dropbear and NSH](io.md#optional-remote-shell) | The ESP32-S3 terminal example needs a board |
-| Several services connected by an application | `event-demo` | Yes with its documented mock or simulation setup |
-| Named physical instances sharing a bus | `dual-imu-demo` | Build inspection is local; acquisition needs the configured devices |
-| A larger connected camera application | `home-cam` | Parts run on the host; full capture and delivery need the relevant hardware/services |
+| Connect several services in one application | [Event-driven demo](../../docs/event-driven-demo.md) | Yes with its documented mock or simulation setup |
+| Use two devices on a shared bus | [CoreS3 second-sensor example](#add-a-second-sensor-on-cores3) | Build inspection is local; acquisition needs the configured devices |
+| Follow a working camera pipeline | [IoT camera](#iot-camera) | Parts run on the host; full capture and delivery need the relevant hardware/services |
 
-Commands below run from the NXRS root. Finish [Getting started](getting-started.md) first. Use [Build workflow](build-system.md) to distinguish a host run, a firmware build, and a command entered in NSH.
+Complete the [host setup](getting-started.md) and run the commands below from the NXRS root.
 
 ## Basic firmware
 
@@ -31,13 +31,11 @@ cargo run --locked --manifest-path website/examples/basic-firmware/Cargo.toml --
 
 `hello` prints a greeting. `worker` sends typed commands to a bounded inbox and joins the worker after shutdown. It uses no hardware-specific service or driver.
 
-Expected final output is `Hello from NXRS` for `hello` and `Processed total: 6` for `worker`. The checked-in package is useful for running the examples directly; the tutorial teaches you to create your own source package with the same behavior.
+The greeting prints `Hello from NXRS`. The worker finishes with `Processed total: 6`.
 
 ## Controller application
 
-[Build a controller](controller.md) takes the next step from a counter worker to an application that accepts `on`, `off` and `status` commands through a bounded inbox. A completion ticket reports the handled result. `stop` closes the sole sender, drains accepted commands, requests the output off and joins the owner.
-
-The [controller package](../examples/controller/) uses the existing LED capability and an explicit mock binding for its host and QEMU exercises. Its reported state tracks command results; it does not measure a physical LED. The tutorial includes the complete entry point, source-checked library excerpts, target commands and failure tests.
+[Build a controller](controller.md) adds `on`, `off`, and `status` commands to a bounded worker. Run it on your computer or in QEMU with the mock LED, then follow the [Matter light example](../examples/matter-led/README.md) to control the same output from Home Assistant.
 
 ## Standard-library recipes
 

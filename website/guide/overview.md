@@ -1,8 +1,6 @@
 # Architecture overview
 
-NXRS is a general-purpose Rust firmware development environment built on NuttX. NuttX supplies the RTOS and board support; NXRS supplies the Rust integration, reusable components, and platform configuration used by applications.
-
-This chapter explains where code and configuration belong. Read it after [Your first application](first-application.md), or use it to orient yourself before exploring the source.
+NuttX supplies the operating system and board support. NXRS connects Rust to that foundation and provides reusable firmware components. Read this page to find where application code, device protocols, and board configuration belong.
 
 <figure class="architecture-art">
   <img class="theme-light" src="../../docs/assets/nxrs-architecture.svg" alt="Platform profiles configure reusable Rust firmware. Ordinary Rust APIs and peripheral access both use the NuttX foundation." loading="lazy">
@@ -14,7 +12,7 @@ This chapter explains where code and configuration belong. Read it after [Your f
 
 NuttX's C/POSIX environment supplies scheduling, synchronization, files, sockets, controller drivers, and hardware resource registration. A Rust standard library compiled for the target exposes the corresponding Rust APIs.
 
-Application code uses ordinary Rust functions and libraries. A `File`, socket, collection, or thread is still the corresponding Rust type. The target build connects those APIs to the selected NuttX configuration and the repository's maintained Rust integration. This requires the pinned target tools and patches; it is not a claim that every upstream crate or operating-system API works unchanged.
+Use Rust’s ordinary file, socket, collection, and thread APIs. The target build connects them to the selected NuttX configuration through the pinned Rust integration. Read [Using third-party crates](standard-library.md#using-third-party-crates) before adding a dependency that assumes particular OS features.
 
 NuttX remains responsible for scheduling and board initialization. Native bindings handle operations that Rust APIs cannot express, such as a device-specific control or SDK callback. The [Rust std reference](../../docs/nuttx-std.md) documents the integration and its qualification scope.
 
@@ -32,7 +30,7 @@ NuttX remains responsible for scheduling and board initialization. Native bindin
 
 Use the layers that the operation needs. A file write or socket exchange can use `std` directly. An application can use a capability directly when it is the natural owner. Extract a service when the behavior has a useful interface, lifecycle or reuse boundary.
 
-A capability HAL is a subsystem interface, not a requirement to wrap every ordinary Rust operation. A simple synchronous output may be a small object. Streaming acquisition can need a session, worker and cancellation path. Both belong behind APIs appropriate to their operation. [Choose an interface](interfaces.md) maps those choices to the current public APIs.
+A synchronous output can be a small object. Streaming acquisition may need a session with its own worker and cancellation path. [Interfaces and APIs](interfaces.md) shows both kinds of capability.
 
 ## Follow one operation through the system
 

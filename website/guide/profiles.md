@@ -1,8 +1,6 @@
 # Profiles and overlays
 
-A platform profile describes the configuration used for a host or firmware build. It selects hardware resources, device instances, implementations, and target settings outside reusable application code.
-
-Use this guide when changing where an application runs, adding a supported device, or making a product variant. Start from a profile that already builds for the intended target. The [first firmware tutorial](firmware.md) supplies a working emulator baseline; the [build workflow](build-system.md) explains how the frontend consumes the configuration.
+A profile selects the target settings, devices, and resources available to your application. Start from a working profile when adding a device, changing boards, or creating a product variant. The [firmware walkthrough](firmware.md) uses a profile you can try in QEMU.
 
 ## Application and platform are separate inputs
 

@@ -1,8 +1,6 @@
 # Performance and memory
 
-Existing NXRS evaluations cover event delivery, channel storage, thread stacks, code size and heap use. These measurements help track the cost of using Rust `std` and reusable components within an application's resource budget.
-
-Start with a concrete application requirement: how much useful work must finish, by when, and within which memory budget? Then choose a fixture that exercises the same transport, ownership, and scheduling behavior. The presence of a measurement in the repository does not make it representative of every application.
+Start with the amount of work your application must finish, its deadline, and the memory available. Then choose a test that uses the same kind of transport, buffering, and scheduling. The reports below give you measured comparisons and methods for testing your own workload.
 
 ## Existing evaluations
 

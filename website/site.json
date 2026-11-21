@@ -12,9 +12,9 @@
     ["overview", "Architecture overview", "NuttX, Rust and component responsibilities"],
     ["interfaces", "Interfaces and APIs", "Choose development commands and Rust component APIs"],
     ["designing-applications", "Designing an application", "Connect owners, define delivery and manage lifetimes"],
-    ["controller", "Build a controller", "Run typed commands, observe completion and join shutdown"],
     ["standard-library", "Standard-library APIs", "Threads, time, collections, files and sockets"],
     ["services", "Services and concurrency", "Typed commands, event loops and shutdown"],
+    ["controller", "Build a controller", "Switch a simulated LED and confirm the result of each command"],
     ["hardware", "Drivers and HALs", "Resources, devices and capability interfaces"],
     ["io", "Networking and storage", "Communication, files and I/O ownership"],
     ["build-system", "Build workflow", "Understand planning, Cargo, native preparation and artifacts"],
@@ -28,7 +28,7 @@
   "sections": [
     {"title": "Getting started", "pages": ["start-here", "getting-started", "first-application", "firmware"]},
     {"title": "Understand NXRS", "pages": ["motivation", "overview", "interfaces"]},
-    {"title": "Develop firmware", "pages": ["designing-applications", "controller", "standard-library", "services", "hardware", "io"]},
+    {"title": "Develop firmware", "pages": ["designing-applications", "standard-library", "services", "controller", "hardware", "io"]},
     {"title": "Configure and build", "pages": ["build-system", "profiles"]},
     {"title": "Test and debug", "pages": ["testing", "performance", "troubleshooting"]},
     {"title": "Examples and status", "pages": ["examples", "status"]}
@@ -60,7 +60,7 @@
     {"title": "Camera applications and clients", "pages": ["camera-detection-delivery.md", "camera-detector-alternatives.md", "client-camera-architecture.md", "ios-home-experience.md", "camera-pico-performance.md", "camera-smp.md"], "description": "Media, detection and client behavior, with separate device and model evidence."},
     {"title": "Historical measurements", "pages": ["history/nuttx-std-integration.md", "history/std-channel-campaign.md", "history/native-rtos-study.md", "rtos-comparison-accounting.md", "history/rust-footprint-study.md", "history/camera-pico-study.md", "history/detector-screening-study.md", "rtos-benchmarking.md", "camera-detection-qualification.md", "camera-pico-qualification.md"], "description": "Original experiments and accounting. These retain their tested revisions and do not describe every later build."},
     {"title": "Design history and implementation plans", "pages": ["architecture-and-roadmap.md", "component-cleanup.md", "peripheral-composition-plan.md", "remote-monitoring.md", "nuttx-wifi-issue.md", "ESP32S3_Camera_Driver_Changes.md"], "description": "Earlier decisions, resolved investigations and migration plans. Use the maintained references for current behavior."},
-    {"title": "Matter camera integration", "pages": ["gateway/matter/integration.md", "website/examples/matter-led/README.md", "gateway/matter/README.md", "gateway/tests/matter/README.md", "gateway/tests/matter/conformance.md"], "description": "Connect an Nxrs camera to Home Assistant or your own application and see what has been qualified."}
+    {"title": "Matter and smart home integration", "pages": ["website/examples/matter-led/README.md", "gateway/matter/integration.md", "gateway/matter/README.md", "gateway/tests/matter/README.md", "gateway/tests/matter/conformance.md"], "description": "Try a simulated light in Home Assistant, connect a camera, or look up the bridge setup and compatibility tests."}
   ],
   "reference_guides": {
     "website/examples/matter-led/README.md": "controller",
