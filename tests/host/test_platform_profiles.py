@@ -25,6 +25,7 @@ _SPEC.loader.exec_module(PLATFORM_CONFIG)
 # Keep exact equality so missing, duplicate and unexpected apps cannot pass.
 FIRMWARE_APPS = {
     "home-cam": ("nxrs-home-cam", "home-cam", "home_cam"),
+    "motion-tracker": ("nxrs-motion-tracker", "motion-tracker", "motion_tracker"),
     "event-demo": ("nxrs-event-demo", "event-demo", "event_demo"),
     "dual-imu-demo": ("nxrs-dual-imu-demo", "dual-imu-demo", "dual_imu_demo"),
     "std-demo": ("nxrs-std-demo", "std-demo", "std_demo"),
@@ -143,6 +144,7 @@ class FirmwareFrontendTests(unittest.TestCase):
                 # Hardware qualification does not implicitly select sensor mocks.
                 expected = {"m5stack-cores3-gnss": {"gnss": "nuttx", "imu": "nuttx"},
                             "m5stack-cores3-display": {"display": "nuttx"},
+                            "m5stack-cores3-dual-imu": {"imu": "nuttx", "gnss": "nuttx", "display": "nuttx", "touch": "nuttx", "settings": "nuttx", "ble": "nuttx", "tls": "nuttx"},
                             "cores3-imu-qualification": {"gnss": "nuttx", "imu": "nuttx"},
                             "cores3-protected-qualification": {"gnss": "nuttx", "imu": "nuttx"},
                             "esp32s3-devkit-imu-qualification": {"imu": "nuttx"},
@@ -227,6 +229,18 @@ class FirmwareFrontendTests(unittest.TestCase):
                 record[path[-1]] = value
                 with self.assertRaises(ValueError):
                     PLATFORM_CONFIG.composition_config(invalid)
+
+    def test_cores3_dual_imu_selects_two_distinct_board_endpoints(self):
+        data = PLATFORM_CONFIG.resolve("m5stack-cores3-dual-imu")
+        graph = data["resolved-composition"]["graph"]
+        primary = graph["devices"][graph["aliases"]["imu"]]
+        secondary = graph["devices"][graph["aliases"]["imu_secondary"]]
+        self.assertEqual((primary["address"], secondary["address"]), (0x69, 0x68))
+        self.assertEqual(primary["bus"], secondary["bus"])
+        self.assertEqual(graph["devices"][graph["aliases"]["gnss"]]["bus"], "receiver_uart")
+        self.assertEqual(data["display"]["device"], "/dev/spi2")
+        self.assertEqual(data["touch"]["device"], "/dev/input0")
+        self.assertIn("CONFIG_MTD_CONFIG_NAMED=y", data["kconfig"]["require"])
 
     def test_camera_profiles_share_smp_budget_and_keep_a_single_core_control(self):
         signed = PLATFORM_CONFIG.resolve('esp32s3-camera-stream-startup')
@@ -441,8 +455,14 @@ class FirmwareFrontendTests(unittest.TestCase):
                     self.assertIn("CONFIG_" + setting, config["require"])
 
     def test_cargo_frontend_resolves_app_and_profile_without_a_shell_backend(self):
+        profiles = {
+            "home-cam": "esp32s3-camera-stream-startup",
+            "motion-tracker": "m5stack-cores3-dual-imu",
+        }
         for app,(package,binary,command) in FIRMWARE_APPS.items():
-            output=json.loads(self.cargo_firmware("build","--app",app,"--profile",("esp32s3-camera-stream-startup" if app=="home-cam" else "pico2-mock"),"--dry-run").stdout)
+            output = json.loads(self.cargo_firmware(
+                "build", "--app", app, "--profile", profiles.get(app, "pico2-mock"), "--dry-run",
+            ).stdout)
             self.assertEqual(output["deployment"]["app_package"],package)
             self.assertEqual(output["bin"],binary)
             self.assertEqual(output["command"],command)

@@ -24,6 +24,8 @@ pub use api::{CertificatePolicy, Certificates, TimeLease};
 #[cfg(platform = "nuttx")]
 mod entropy;
 mod platform;
+mod stream;
+pub use stream::Stream;
 #[cfg(any(platform = "linux", platform = "macos", platform = "nuttx"))]
 #[allow(unsafe_code)]
 mod sdk;

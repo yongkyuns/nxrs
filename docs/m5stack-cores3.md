@@ -77,6 +77,13 @@ completes synchronously. The ILI9342C Rust driver uses a 640-byte scanline
 buffer. The BSP owns the SPI pins, AW9523B reset and AXP2101 backlight.
 NuttX owns SPI transaction locking and the `/dev/spi2` endpoint.
 
+The [motion tracker profile](../app/motion-tracker/README.md) also enables the
+FT6336 touchscreen on I²C0. The BSP registers it with NuttX's FT5x06 driver,
+which samples the shared bus only while the device is open. The touch HAL emits
+single-contact events in display coordinates. The tracker receives those
+events in its sensor inbox and owns gesture recognition, hit testing, plots
+and pairing controls.
+
 ~~~sh
 cargo nxrs build --manifest-path tests/nuttx-std/display/Cargo.toml \
   --platform cores3 --profile m5stack-cores3-display \

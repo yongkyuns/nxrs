@@ -5,6 +5,7 @@ struct HomeSettingsView: View {
     @ObservedObject var model: MonitorModel
     @ObservedObject var settings: HomeSettings
     @State private var showSetup = false
+    @State private var showTracker = false
     @State private var showForget = false
     @State private var showDetails = false
 
@@ -34,6 +35,9 @@ struct HomeSettingsView: View {
                     Button { model.reload(); model.showToast("Checking your home connection…") } label: {
                         Label(model.busy ? "Checking connection…" : "Check connection", systemImage: "arrow.clockwise")
                     }.disabled(model.busy || model.isPreview)
+                }.listRowBackground(HomeTheme.surface)
+                Section {
+                    Button { showTracker = true } label: { Label("Motion Tracker", systemImage: "waveform") }
                 }.listRowBackground(HomeTheme.surface)
                 Section("Make it yours") {
                     Picker(selection: $settings.preferences.appearance) {
@@ -69,6 +73,7 @@ struct HomeSettingsView: View {
                 }.listRowBackground(HomeTheme.surface)
             }.scrollContentBackground(.hidden).background(HomeTheme.canvas)
                 .navigationTitle("Settings").foregroundStyle(HomeTheme.ink)
+                .sheet(isPresented: $showTracker) { TrackerView() }
                 .sheet(isPresented: $showSetup) { HomeSetupView(model: model, replacing: true) }
                 .sheet(isPresented: $showDetails) { ConnectionDetailsView(model: model) }
                 .confirmationDialog("Forget this home?", isPresented: $showForget, titleVisibility: .visible) {

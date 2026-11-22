@@ -678,9 +678,9 @@ version = "0.1.0"
 dependencies = [
  "cfg-if",
  "nxrs-build-support",
- "nxrs-radio-types",
  "nxrs-linux-gio",
  "nxrs-messaging",
+ "nxrs-radio-types",
 ]
 
 [[package]]
@@ -941,10 +941,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "nxrs-radio-types"
-version = "0.1.0"
-
-[[package]]
 name = "nxrs-home-cam"
 version = "0.1.0"
 dependencies = [
@@ -1044,6 +1040,22 @@ name = "nxrs-messaging"
 version = "0.1.0"
 
 [[package]]
+name = "nxrs-motion-tracker"
+version = "0.1.0"
+dependencies = [
+ "nxrs-ble",
+ "nxrs-composition",
+ "nxrs-display",
+ "nxrs-gnss",
+ "nxrs-imu",
+ "nxrs-messaging",
+ "nxrs-settings",
+ "nxrs-tls",
+ "nxrs-touch",
+ "qrcodegen",
+]
+
+[[package]]
 name = "nxrs-native-integration"
 version = "0.1.0"
 dependencies = [
@@ -1120,6 +1132,10 @@ dependencies = [
  "embedded-hal",
  "nxrs-build-support",
 ]
+
+[[package]]
+name = "nxrs-radio-types"
+version = "0.1.0"
 
 [[package]]
 name = "nxrs-recording-service"
@@ -1327,6 +1343,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "nxrs-touch"
+version = "0.1.0"
+dependencies = [
+ "cfg-if",
+ "nxrs-acquisition",
+ "nxrs-build-support",
+]
+
+[[package]]
 name = "nxrs-transport"
 version = "0.1.0"
 dependencies = [
@@ -1356,9 +1381,9 @@ version = "0.1.0"
 dependencies = [
  "cfg-if",
  "nxrs-build-support",
- "nxrs-radio-types",
  "nxrs-linux-gio",
  "nxrs-messaging",
+ "nxrs-radio-types",
 ]
 
 [[package]]
@@ -1467,6 +1492,12 @@ checksum = "985e7ec9bb745e6ce6535b544d84d6cd6f7ad8bd711c398938ae983b91a766d9"
 dependencies = [
  "unicode-ident",
 ]
+
+[[package]]
+name = "qrcodegen"
+version = "1.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4339fc7a1021c9c1621d87f5e3505f2805c8c105420ba2f2a4df86814590c142"
 
 [[package]]
 name = "quote"

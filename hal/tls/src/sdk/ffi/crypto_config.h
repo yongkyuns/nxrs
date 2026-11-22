@@ -20,6 +20,9 @@ time_t tls_platform_time(time_t *output);
 /* One identity plus the enrolled media and short bootstrap TLS contexts. */
 #define MBEDTLS_PSA_KEY_SLOT_COUNT 16
 #define PSA_WANT_ALG_SHA_256 1
+#ifdef NXRS_TLS_PAIRING
+#define PSA_WANT_ALG_TLS12_PSK_TO_MS 1
+#endif
 #define PSA_WANT_ALG_ECDSA 1
 #define PSA_WANT_ALG_ECDH 1
 #define PSA_WANT_ALG_GCM 1

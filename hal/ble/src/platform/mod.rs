@@ -13,6 +13,9 @@ mod shared;
 #[cfg(test)]
 #[path = "../test_support.rs"]
 mod test_support;
+#[cfg(all(feature = "peripheral", any(not(platform = "nuttx"), test)))]
+#[path = "../unavailable_peripheral.rs"]
+mod unavailable_peripheral;
 
 cfg_if::cfg_if! {
     if #[cfg(platform = "linux")] {
@@ -34,3 +37,6 @@ cfg_if::cfg_if! {
 }
 
 pub(crate) use selected::{gatt_driver, open};
+
+#[cfg(feature = "peripheral")]
+pub(crate) use selected::open_peripheral;

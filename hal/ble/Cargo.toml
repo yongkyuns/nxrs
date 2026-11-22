@@ -6,6 +6,7 @@ build = "../../tools/build-support/cargo/hal.rs"
 
 [features]
 probe = []
+peripheral = []
 
 [lib]
 name = "ble"
