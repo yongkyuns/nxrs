@@ -72,6 +72,49 @@ boots with the original QEMU build and 20 with the patched build.
 The patched wall-clock control also passed. The timings above used the
 RUNSTALL patch before the UART receive-timeout patch was added.
 
+## Headless one-IMU tracker
+
+Use the production app with its dashboard feature disabled. The qualification
+profile registers one modeled BMI270 on NuttX's I²C driver and exposes NSH over
+UART0. The headless JSON stream is version 2 with one IMU entry. The verifier
+checks live readings, a successful exit, and reacquisition in the same boot.
+
+```sh
+cargo nxrs build --app motion-tracker --no-default-features \
+  --profile esp32s3-qemu-tracker-headless \
+  --target-c-source tests/nuttx-std/tracker-sim/devices.c \
+  --target-c-source tests/nuttx-std/tracker-sim/native_init.c \
+  --out target/tracker-headless
+node tests/nuttx-std/tracker-sim/headless.mjs \
+  target/tracker-headless/nuttx/nuttx.merged.bin target/tracker-headless/report.json
+```
+
+### Route system logs to a rotating file
+
+The logging qualification profile extends the one-IMU profile. Its boot
+fixture mounts TMPFS and starts the Rust archive as a separate NuttX task
+before starting NSH. The task installs the Rust `log` adapter for NuttX
+`syslog` and drains RAMLOG at `/dev/kmsg` using a blocking file read. The same
+headless tracker runs as a separate NSH invocation.
+
+```sh
+cargo nxrs build --manifest-path tests/nuttx-std/tracker-sim/logging/Cargo.toml \
+  --profile esp32s3-qemu-tracker-logging \
+  --target-c-source tests/nuttx-std/tracker-sim/devices.c \
+  --target-c-source tests/nuttx-std/tracker-sim/logging/init.c \
+  --out target/tracker-logging
+node tests/nuttx-std/tracker-sim/headless.mjs \
+  target/tracker-logging/nuttx/nuttx.merged.bin target/tracker-logging/report.json
+```
+
+The archive keeps `/logs/system.log` and one rotated `system.log.1`, up to 512
+bytes each. Rotation preserves byte order and can split a log line. TMPFS is
+volatile, and the kernel RAMLOG can overwrite unread data during a burst.
+The verifier checks the boot SYSLOG marker before the tracker runs, the
+modeled driver’s SYSLOG markers, the observation service's Rust log records
+during two tracker runs, and retention after repeated rotations. Tracker
+measurements use the typed snapshot stream. [Desktop and browser qualification](../../logging/README.md)
+
 ## Full dashboard and BLE/TLS
 
 Build the production `motion-tracker` app for the simulator. Python 3.13

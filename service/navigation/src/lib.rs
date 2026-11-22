@@ -12,6 +12,7 @@ mod fusion;
 mod gnss;
 mod health;
 mod imu;
+pub mod observations;
 
 #[cfg(test)]
 mod transcript_tests;

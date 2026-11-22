@@ -55,6 +55,10 @@ PORTABLE_EXTERNAL_BY_PACKAGE = {
     'nxrs-motion-tracker': {'qrcodegen'},
     # Fixed-buffer PPP framing and negotiation with no host/native runtime.
     'nxrs-cellular': {'ppproto'},
+    # Diagnostics use the safe Rust facade. Host/OS delivery is installed
+    # at product startup and stays outside these portable services.
+    'nxrs-navigation-services': {'log'},
+    'nxrs-log-router': {'log'},
 }
 
 

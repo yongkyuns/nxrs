@@ -1097,6 +1097,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "nxrs-log-adapters"
+version = "0.1.0"
+dependencies = [
+ "log",
+ "nxrs-log-router",
+]
+
+[[package]]
+name = "nxrs-log-qualification"
+version = "0.1.0"
+dependencies = [
+ "log",
+ "nxrs-log-adapters",
+ "nxrs-log-router",
+ "nxrs-navigation-services",
+]
+
+[[package]]
+name = "nxrs-log-router"
+version = "0.1.0"
+dependencies = [
+ "log",
+]
+
+[[package]]
 name = "nxrs-lsm6dso"
 version = "0.1.0"
 dependencies = [
@@ -1127,6 +1152,7 @@ dependencies = [
  "nxrs-gnss",
  "nxrs-imu",
  "nxrs-messaging",
+ "nxrs-navigation-services",
  "nxrs-settings",
  "nxrs-tls",
  "nxrs-touch",
@@ -1149,6 +1175,7 @@ dependencies = [
 name = "nxrs-navigation-services"
 version = "0.1.0"
 dependencies = [
+ "log",
  "nxrs-composition",
  "nxrs-gnss",
  "nxrs-imu",
@@ -1431,6 +1458,17 @@ dependencies = [
  "cfg-if",
  "nxrs-acquisition",
  "nxrs-build-support",
+]
+
+[[package]]
+name = "nxrs-tracker-log-qualification"
+version = "0.1.0"
+dependencies = [
+ "log",
+ "nxrs-composition",
+ "nxrs-log-adapters",
+ "nxrs-log-router",
+ "nxrs-motion-tracker",
 ]
 
 [[package]]

@@ -1,5 +1,20 @@
 # Motion tracker
 
+## Headless portability
+
+The headless build uses the profile's primary IMU and emits version 2 JSON.
+The desktop smoke test builds and runs the application with one mock IMU.
+The NuttX QEMU profile runs the same headless application with a modeled
+BMI270 on I²C. Both checks require fresh IMU telemetry and a clean exit.
+
+```sh
+python3 tests/native/motion_tracker.py
+```
+
+[Headless NuttX build and verification](../../tests/nuttx-std/tracker-sim/README.md#headless-one-imu-tracker)
+
+## Dashboard
+
 The CoreS3 opens on the graph. Swipe down to show **IMU 1**, **IMU 2**,
 **GNSS** and the pairing control in one row. Select a view, swipe up, or tap
 outside the row to hide it.
