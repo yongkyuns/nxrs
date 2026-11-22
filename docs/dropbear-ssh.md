@@ -355,6 +355,15 @@ viewer sample per case measured:
 The longest two-core gap with an active shell was 844 ms. These short samples
 measure decoded video through the gateway.
 
+A follow-up on the physical WROOM used the shared buffered TCP settings.
+The signed lab image passed three host-key-pinned interactive sessions and nine
+rekeys, with fresh logins after both a clean logout and a forced disconnect.
+During the ten-second SSH sample, the gateway received 153 timestamped frames
+with zero source retirements or freshness rejections. Firmware `0.0.6` was
+restored and the full flash matched its pre-test backup. The disposable
+credentials were erased and the camera resumed streaming.
+[Shared TCP profile change](https://github.com/yongkyuns/nxrs/pull/401)
+
 ## Qualification still required on hardware
 
 The automated fixture is a starting point for this matrix. Preserve failures and
