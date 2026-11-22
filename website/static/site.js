@@ -121,3 +121,27 @@ async function search() {
   }
 }
 input.addEventListener('input', () => { clearTimeout(timer); generation++; timer = setTimeout(search, 120); });
+const tracker = document.querySelector('.tracker-demo');
+if (tracker) {
+  const frame = tracker.querySelector('iframe');
+  const summary = tracker.querySelector('summary');
+  let resize;
+  frame.addEventListener('load', () => {
+    resize?.disconnect();
+    const content = frame.contentDocument?.querySelector('main');
+    if (!tracker.open || !content) return;
+    resize = new ResizeObserver(() => {
+      frame.style.height = `${Math.ceil(content.getBoundingClientRect().height) + 28}px`;
+    });
+    resize.observe(content);
+  });
+  tracker.addEventListener('toggle', () => {
+    summary.textContent = tracker.open ? 'Close browser demo' : 'Start browser demo';
+    if (tracker.open) frame.src = frame.dataset.src;
+    else {
+      resize?.disconnect();
+      frame.removeAttribute('src');
+      frame.style.removeProperty('height');
+    }
+  });
+}

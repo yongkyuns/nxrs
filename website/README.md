@@ -103,7 +103,7 @@ Add a guide to `site.json` and exactly one section. Add curated references to `r
 
 The guide order also defines previous/next navigation across sections. A `reference_guides` entry connects an engineering reference to its practical introduction without duplicating its source. Keep the guide index's task map and homepage reading paths aligned with that organization.
 
-The site loads no external application or embedded runtime. Its content security policy uses `frame-src 'none'`.
+The Motion Tracker guide opens a same-origin iframe only when a reader starts the demo. Its assets are packaged into the static output by `tracker_demo.py`. The guide permits same-origin frames. Other site pages use `frame-src 'none'`.
 
 ## GitHub Pages
 
