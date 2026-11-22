@@ -90,10 +90,12 @@ def collector(directory, *, close_first=True, idle_timeout=3):
 def network(directory, qemu, port):
     """Use a restricted QEMU user network solely as the peer TCP stack."""
     path = directory / 'ethernet'
+    log_path = directory / 'network.log'
     nc = shlex.quote(shutil.which('nc') or 'nc')
-    network = ('user,id=host,net=192.0.2.0/24,host=192.0.2.1,ipv6=off,restrict=on,'
+    # Older libslirp reserves the default DNS address (.3) against guest forwarding.
+    network = ('user,id=host,net=192.0.2.0/24,host=192.0.2.1,dns=192.0.2.53,ipv6=off,restrict=on,'
                f'guestfwd=tcp:{COLLECTOR}:{port}-cmd:{nc} 127.0.0.1 {port}')
-    with listener(path) as ethernet, (directory / 'network.log').open('wb') as log:
+    with listener(path) as ethernet, log_path.open('wb') as log:
         process = subprocess.Popen([
             qemu, '-machine', 'none', '-nodefaults', '-display', 'none', '-monitor', 'none',
             '-serial', 'none', '-netdev', network,
@@ -102,7 +104,13 @@ def network(directory, qemu, port):
             '-netdev', 'hubport,id=toguest,hubid=0,netdev=ppp',
         ], stdout=log, stderr=subprocess.STDOUT)
         try:
-            wire, _ = ethernet.accept()
+            try:
+                wire, _ = ethernet.accept()
+            except TimeoutError as error:
+                detail = log_path.read_text(errors='replace').strip()
+                raise RuntimeError(
+                    f'QEMU network peer did not connect (exit status {process.poll()}): {detail}'
+                ) from error
             with wire:
                 wire.settimeout(1)
                 yield wire
