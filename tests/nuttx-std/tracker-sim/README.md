@@ -194,8 +194,9 @@ target/tracker-peer/bin/python tests/nuttx-std/tracker-sim/coexist.py \
   --qemu /path/to/patched/qemu-system-xtensa --network-qemu qemu-system-xtensa
 ```
 
-The simulated phone scans the dashboard QR code and keeps one authenticated
-BLE connection open. After both links deliver live data, the Stamp terminates
+The simulated phone scans the dashboard QR code, authenticates and receives
+its first BLE record while a cellular TCP payload is held. It keeps that
+authenticated BLE connection open through the rest of the test. After both links deliver live data, the Stamp terminates
 PPP and refuses redial until the phone has received at least four fresh records
 with both IMUs and GNSS live. The local collector must then receive fresh
 records on a new TLS connection while the original BLE stream continues.

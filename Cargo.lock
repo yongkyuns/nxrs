@@ -1154,6 +1154,7 @@ dependencies = [
  "nxrs-messaging",
  "nxrs-navigation-services",
  "nxrs-settings",
+ "nxrs-telemetry-service",
  "nxrs-tls",
  "nxrs-touch",
  "qrcodegen",

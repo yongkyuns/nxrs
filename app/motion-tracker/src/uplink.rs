@@ -1,7 +1,7 @@
 //! Reconnect policy for live tracker telemetry. The modem task owns blocking I/O.
 use crate::{text::Text, tracker::Snapshot, wire};
 use cellular::Session as _;
-use std::io::{self, Read, Write};
+use std::io::{self, Read};
 use std::net::{SocketAddr, SocketAddrV4, TcpStream};
 use std::sync::{
     atomic::{AtomicBool, Ordering},
@@ -9,6 +9,7 @@ use std::sync::{
 };
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
+use telemetry_service::stream::Publisher;
 
 const LINK_POLL: Duration = Duration::from_millis(100);
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(3);
@@ -63,6 +64,7 @@ pub struct Config {
 }
 
 struct Signals {
+    link_worker: thread::Thread,
     stopping: AtomicBool,
     exchange: Mutex<Exchange>,
 }
@@ -81,6 +83,7 @@ pub struct Modem {
 impl Modem {
     pub fn start(config: Config) -> io::Result<Self> {
         let signals = Arc::new(Signals {
+            link_worker: thread::current(),
             stopping: AtomicBool::new(false),
             exchange: Mutex::new(Exchange {
                 generation: 0,
@@ -108,6 +111,8 @@ impl Modem {
         let mut exchange = self.signals.exchange.lock().unwrap();
         if exchange.generation == generation && exchange.socket.is_none() {
             exchange.requested = true;
+            drop(exchange);
+            self.task.as_ref().unwrap().thread().unpark();
         }
     }
 
@@ -188,6 +193,8 @@ fn supervise(config: Config, signals: &Signals) -> io::Result<()> {
                                             let mut exchange = signals.exchange.lock().unwrap();
                                             exchange.requested = false;
                                             exchange.socket = Some(socket);
+                                            drop(exchange);
+                                            signals.link_worker.unpark();
                                             socket_retry = Retry::new();
                                         }
                                         Ok(_) => {}
@@ -214,6 +221,7 @@ fn supervise(config: Config, signals: &Signals) -> io::Result<()> {
                     exchange.socket.take()
                 };
                 drop(socket);
+                signals.link_worker.unpark();
                 let result = session.stop();
                 if signals.stopping.load(Ordering::Acquire) {
                     // Expected network failures have already been handed to the retry policy.
@@ -246,7 +254,6 @@ fn fatal(error: cellular::Error) -> bool {
 
 pub struct Upload<'a> {
     connection: tls::Connection<'a>,
-    pending: Option<(Text<768>, usize, Instant)>,
     ready: bool,
 }
 
@@ -261,12 +268,15 @@ impl<'a> Upload<'a> {
             .map_err(|error| io::Error::other(format!("collector TLS: {error:?}")))?;
         Ok(Self {
             connection,
-            pending: None,
             ready: false,
         })
     }
 
-    pub fn service(&mut self, latest: &mut Option<Snapshot>) -> io::Result<bool> {
+    pub fn service(
+        &mut self,
+        publication: &mut Publisher<Snapshot, Text<768>>,
+        now: Instant,
+    ) -> io::Result<bool> {
         if !self.ready {
             if !self
                 .connection
@@ -278,7 +288,7 @@ impl<'a> Upload<'a> {
             self.ready = true;
             eprintln!("motion-tracker collector TLS online");
         }
-        if self.pending.is_none() {
+        if !publication.in_flight() {
             // Detect a closed peer even with no sample waiting. Finish any
             // pending write before invoking another TLS operation.
             match self.connection.read(&mut [0]) {
@@ -287,33 +297,12 @@ impl<'a> Upload<'a> {
                 Err(error) if error.kind() == io::ErrorKind::WouldBlock => {}
                 Err(error) => return Err(error),
             }
-            if let Some(snapshot) = latest.take() {
-                self.pending = Some((wire::frame(&snapshot)?, 0, Instant::now() + CONNECT_TIMEOUT));
-            }
         }
-        if let Some((frame, sent, deadline)) = &mut self.pending {
-            if Instant::now() >= *deadline {
-                return Err(io::ErrorKind::TimedOut.into());
-            }
-            if *sent != frame.bytes().len() {
-                match self.connection.write(&frame.bytes()[*sent..]) {
-                    Ok(0) => return Err(io::ErrorKind::WriteZero.into()),
-                    Ok(count) => *sent += count,
-                    Err(error) if error.kind() == io::ErrorKind::WouldBlock => return Ok(false),
-                    Err(error) => return Err(error),
-                }
-            }
-            if *sent == frame.bytes().len() {
-                match self.connection.flush() {
-                    Ok(()) => {
-                        self.pending = None;
-                        return Ok(true);
-                    }
-                    Err(error) if error.kind() == io::ErrorKind::WouldBlock => {}
-                    Err(error) => return Err(error),
-                }
-            }
-        }
-        Ok(false)
+        publication.service(
+            &mut self.connection,
+            now,
+            now + CONNECT_TIMEOUT,
+            wire::frame,
+        )
     }
 }

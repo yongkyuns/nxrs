@@ -121,6 +121,11 @@ TLS configuration. Each decrypted record is the same v1 NDJSON frame used by
 USB. Frame readers handle split or joined lines and reject records longer
 than 768 bytes including the newline. Cellular upload uses the same frames.
 
+BLE and cellular share the telemetry stream publisher. Each connection keeps
+one frame in progress and coalesces waiting snapshots to the latest value.
+The communications worker posts link changes to the dashboard inbox. Pairing,
+wire encoding and transport-specific connection policy stay with the tracker.
+
 ## Stamp CatM cellular
 
 The `m5stack-cores3-stamp-catm` profile adds the M5Stack S003 (SIM7080G) to

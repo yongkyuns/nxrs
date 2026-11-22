@@ -66,7 +66,7 @@ class OutageStamp(TcpStamp):
         super().__init__(modem, ethernet, port)
         self.hold = True
         self.denied = 0
-        self.recovery_port = None
+        self.tcp_port = None
         self.hold_tcp = False
         self.held_tcp = None
         self.held_at = None
@@ -83,21 +83,26 @@ class OutageStamp(TcpStamp):
             super().command(line)
 
     def ipv4(self, body):
-        if self.lost_dial is not None and self.dials > self.lost_dial:
-            ip_length = (body[0] & 0xf) * 4
-            tcp_length = (body[ip_length + 12] >> 4) * 4
-            src, _, sequence = struct.unpack_from('!HHI', body, ip_length)
-            if body[ip_length + 13] & 0x12 == 0x02:  # SYN without ACK
-                self.recovery_port = src
-            if self.hold_tcp and src == self.recovery_port and len(body) > ip_length + tcp_length:
-                if self.held_tcp is None:
-                    self.held_tcp = (sequence, body)
-                    self.held_at = time.monotonic()
-                    return
-                if sequence == self.held_tcp[0]:
-                    self.retransmissions += 1
-                    return
+        ip_length = (body[0] & 0xf) * 4
+        tcp_length = (body[ip_length + 12] >> 4) * 4
+        src, _, sequence = struct.unpack_from('!HHI', body, ip_length)
+        if body[ip_length + 13] & 0x12 == 0x02:  # SYN without ACK
+            self.tcp_port = src
+        if self.hold_tcp and src == self.tcp_port and len(body) > ip_length + tcp_length:
+            if self.held_tcp is None:
+                self.held_tcp = (sequence, body)
+                self.held_at = time.monotonic()
+                return
+            if sequence == self.held_tcp[0]:
+                self.retransmissions += 1
+                return
         super().ipv4(body)
+
+    def begin_hold(self):
+        assert not self.hold_tcp
+        self.held_tcp = self.held_at = self.released_at = None
+        self.retransmissions = 0
+        self.hold_tcp = True
 
     def release_tcp(self):
         _, body = self.held_tcp
@@ -156,6 +161,8 @@ class Scenario:
             f'--cellular-apn nxrs.test --collector {COLLECTOR}:{stamp.port} --collector-pin {self.pin}')
         key = await panel.pairing_key()
         await wait_until(lambda: self.collector_live(1), 'initial cellular TLS telemetry', 12)
+        stamp.begin_hold()
+        await wait_until(lambda: stamp.held_tcp, 'cellular TLS data to stall before pairing')
         connection, rx, tx = await connect(phone)
         disconnected = asyncio.Event()
         connection.once(connection.EVENT_DISCONNECTION, lambda _: disconnected.set())
@@ -178,7 +185,11 @@ class Scenario:
             timestamps.append(reading['imu'][0]['received_ms'])
             arrivals.append(time.monotonic())
 
-        for _ in range(4):
+        await sample()
+        assert stamp.held_at < arrivals[-1] and stamp.released_at is None
+        stamp.release_tcp()
+        print('PASS: BLE paired and received live telemetry while cellular data was held', flush=True)
+        for _ in range(3):
             await sample()
         assert stamp.dials == 2 and stamp.data_mode and stamp.ipcp
         before = len(timestamps)
@@ -205,7 +216,7 @@ class Scenario:
         assert self.collector_samples[2]['imu'][0]['received_ms'] > floor
         await guest.wait_text(b'collector TLS online', outage_offset)
         recovered = len(timestamps)
-        stamp.hold_tcp = True
+        stamp.begin_hold()
 
         def source_time():
             return guest.samples[-1]['imu'][0].get('received_ms', 0)

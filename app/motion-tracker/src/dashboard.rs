@@ -1,4 +1,4 @@
-use crate::{ReportOptions, charts, communications, screen, tracker, uplink, wire};
+use crate::{charts, communications, screen, tracker, uplink, wire, ReportOptions};
 use battery::Device as _;
 use charts::{History, SAMPLE_INTERVAL};
 use communications::{Communications, Pairing, View};
@@ -9,7 +9,7 @@ use std::io::{self, Write};
 use std::sync::mpsc::{RecvTimeoutError, TrySendError};
 use std::time::Instant;
 use touch::Session as _;
-use tracker::{FIX_FRESH, IMU_FRESH, Snapshot, report_fault};
+use tracker::{report_fault, Snapshot, FIX_FRESH, IMU_FRESH};
 
 struct Options {
     reports: ReportOptions,
@@ -76,6 +76,7 @@ impl Options {
 
 enum Event {
     Sensor(Observation),
+    LinkChanged,
     Touch { event: touch::Event, missed: bool },
 }
 
@@ -90,12 +91,19 @@ pub(super) fn run(args: impl Iterator<Item = String>) -> io::Result<()> {
     let mut screen = Screen::new(display::open().map_err(display_error)?).map_err(display_error)?;
     let mut dashboard = Dashboard::default();
     let mut history = History::new();
+    let (events, inbox) = bounded(32);
+    let notify_links = {
+        let events = events.clone();
+        move || {
+            // The current view remains available if the inbox is full.
+            let _ = events.try_send(Event::LinkChanged);
+        }
+    };
     let mut communications = (options.ble || options.cellular.is_some())
-        .then(|| Communications::start(options.ble, options.cellular))
+        .then(|| Communications::start(options.ble, options.cellular, notify_links.clone()))
         .transpose()?;
     let mut view = View::default();
     let mut sensors = ObservationService::<2>::new(IMU_FRESH, Some(FIX_FRESH));
-    let (events, inbox) = bounded(32);
     for result in [
         sensors.start_imu(
             0,
@@ -137,24 +145,28 @@ pub(super) fn run(args: impl Iterator<Item = String>) -> io::Result<()> {
     let mut next = Instant::now();
     let mut next_plot = next;
     let mut redraw = true;
+    let mut links_changed = false;
     let result = loop {
         let now = Instant::now();
-        if let Some(links) = &communications {
-            let update = links.view(view);
-            if update != view {
-                redraw = true;
-                if let Some(key) = update.key {
-                    if let Err(error) = dashboard.show_code(&key) {
-                        break Err(display_error(error));
-                    }
-                } else {
-                    dashboard.hide_code();
-                }
-                view = update;
-            }
-        }
         let report_due = now >= next;
         let plot_due = now >= next_plot;
+        if links_changed || report_due || plot_due {
+            links_changed = false;
+            if let Some(links) = &communications {
+                let update = links.view(view);
+                if update != view {
+                    redraw = true;
+                    if let Some(key) = update.key {
+                        if let Err(error) = dashboard.show_code(&key) {
+                            break Err(display_error(error));
+                        }
+                    } else {
+                        dashboard.hide_code();
+                    }
+                    view = update;
+                }
+            }
+        }
         if report_due {
             if serial.is_some() {
                 let ([primary, secondary], gnss) = sensors.dropped();
@@ -233,6 +245,7 @@ pub(super) fn run(args: impl Iterator<Item = String>) -> io::Result<()> {
         }
         let wake = next.min(next_plot);
         match inbox.wait(Some(wake.saturating_duration_since(Instant::now()))) {
+            Ok(Event::LinkChanged) => links_changed = true,
             Ok(Event::Sensor(event)) => {
                 if let Some(fault) = sensors.observe(event) {
                     report_fault(fault);
@@ -245,7 +258,7 @@ pub(super) fn run(args: impl Iterator<Item = String>) -> io::Result<()> {
                 match screen.input(&mut dashboard, view.link, event) {
                     Some(Action::Pair) => match &communications {
                         Some(links) => links.pair(Pairing::Start),
-                        None => match Communications::start(true, None) {
+                        None => match Communications::start(true, None, notify_links.clone()) {
                             Ok(links) => communications = Some(links),
                             Err(error) => eprintln!("motion-tracker pairing: {error}"),
                         },
@@ -260,10 +273,8 @@ pub(super) fn run(args: impl Iterator<Item = String>) -> io::Result<()> {
                 }
             }
             Err(RecvTimeoutError::Timeout) => {}
-            // With every source faulted, retain diagnostics on screen and keep
-            // the requested display cadence without spinning on a closed inbox.
             Err(RecvTimeoutError::Disconnected) => {
-                std::thread::sleep(wake.saturating_duration_since(Instant::now()));
+                break Err(io::Error::other("tracker event inbox closed"));
             }
         }
     };
@@ -364,13 +375,11 @@ mod tests {
             .collector
             .unwrap();
         assert_eq!(collector.pin, [0xab; 32]);
-        assert!(
-            parse(&["--cellular-apn", "example"])
-                .unwrap()
-                .cellular
-                .unwrap()
-                .collector
-                .is_none()
-        );
+        assert!(parse(&["--cellular-apn", "example"])
+            .unwrap()
+            .cellular
+            .unwrap()
+            .collector
+            .is_none());
     }
 }

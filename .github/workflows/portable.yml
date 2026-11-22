@@ -132,6 +132,7 @@ jobs:
         run: |
           python tests/native/motion_tracker.py
           cargo test --locked -p nxrs-log-qualification --test file -- --nocapture
+          cargo test --locked -p nxrs-telemetry-service --no-default-features --features stream
       - name: Portable applications, mocks and actual native adapters
         run: |
           cargo test --locked
