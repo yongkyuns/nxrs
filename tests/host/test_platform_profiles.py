@@ -244,6 +244,8 @@ class FirmwareFrontendTests(unittest.TestCase):
             self.assertIn('SMP', config['enable'])
             self.assertNotIn('SMP', config['disable'])
             self.assertIn('CONFIG_SMP_NCPUS=2', config['require'])
+            self.assertIn('ESP32S3_SYSTIMER_CLOCK', config['enable'])
+            self.assertIn('# CONFIG_ESP32S3_TICKLESS is not set', config['require'])
             for counter in ('ARCH_PERF_EVENTS', 'PERF_OVERFLOW_CORRECTION'):
                 self.assertNotIn(counter, config['enable'])
                 self.assertRegex('CONFIG_' + counter + '=y', config['forbid-regex'])
