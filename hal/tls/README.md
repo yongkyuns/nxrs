@@ -128,3 +128,20 @@ stopped-radio refusal have been observed. Controlled physical TLS, playback and
 recording measurements are in [resource qualification](../../docs/esp32s3-tls-resources.md).
 This does not establish an autonomous shipping device. See
 [Espressif's RNG requirements](https://docs.espressif.com/projects/esp-idf/en/stable/esp32s3/api-reference/system/random.html).
+## Physically commissioned pairing
+
+The additive `pairing` feature supplies a TLS 1.2 PSK server with the single
+`TLS_PSK_WITH_AES_128_GCM_SHA256` cipher. Applications obtain a fresh 256-bit
+key from the guarded SDK source and convey it via a physically trusted path.
+This isolated mode has a one-hour connection limit and no forward secrecy.
+Enrolled and pinned connections keep their own peer authorization policy.
+`Stream` adapts reliable, nonblocking transports without exposing native BIO
+callbacks. Its TCP implementation retains the existing socket behavior. The
+PSK witness exercises matching and wrong keys over bounded 20-byte fragments.
+
+On the ESP32-S3, a Bluetooth-only profile can use the guarded random device
+with the Bluetooth PHY active. A Wi-Fi-enabled profile retains Wi-Fi-specific
+admission. Both reject inactive or busy PHY state and exclude unsupported power
+management configurations. Host and link checks establish software behavior.
+Physical entropy and BLE radio qualification are separate.
+[Espressif RNG requirements](https://docs.espressif.com/projects/esp-idf/en/stable/esp32s3/api-reference/system/random.html)

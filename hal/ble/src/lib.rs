@@ -19,3 +19,6 @@ where
 {
     platform::open(sink).map(Controller::new)
 }
+
+#[cfg(feature = "peripheral")]
+pub mod peripheral;

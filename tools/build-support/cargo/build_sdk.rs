@@ -42,6 +42,9 @@ pub fn build(here: &Path, out: &Path, target: &str) -> Result<()> {
     let mut archiver = env::var("AR").unwrap_or("ar".into());
     let mut flags = nxrs_build_support::split_flags(&env::var("CFLAGS").unwrap_or_default())?;
     flags.extend(["-ffunction-sections".into(), "-fdata-sections".into()]);
+    if env::var_os("CARGO_FEATURE_PAIRING").is_some() {
+        flags.push("-DNXRS_TLS_PAIRING".into());
+    }
     let mut cross = vec![];
     if target.contains("nuttx") {
         let (prefix, cpu) = if target.starts_with("thumbv8m.main-") {

@@ -198,3 +198,14 @@ unsafe extern "C" {
 unsafe extern "C" {
     pub(super) fn tls_test_clock_probe(expected: i64) -> c_int;
 }
+
+#[cfg(feature = "pairing")]
+unsafe extern "C" {
+    pub(super) fn psa_generate_random(output: *mut u8, length: usize) -> c_int;
+    pub(super) fn tls_configure_pairing(
+        config: *mut c_void,
+        key: *const u8,
+        length: usize,
+    ) -> c_int;
+    pub(super) fn tls_pairing_cipher(ssl: *mut c_void) -> bool;
+}

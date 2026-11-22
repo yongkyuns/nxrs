@@ -5,6 +5,7 @@ private enum HomeTab: Hashable { case home, library, settings }
 struct MonitorView: View {
     @ObservedObject var model: MonitorModel
     @ObservedObject private var settings: HomeSettings
+    @State private var showTracker = false
     @State private var tab: HomeTab = .home
 
     init(model: MonitorModel) {
@@ -15,8 +16,14 @@ struct MonitorView: View {
     var body: some View {
         Group {
             if model.enrolled { tabs }
-            else { HomeSetupView(model: model, replacing: false) }
+            else {
+                HomeSetupView(model: model, replacing: false)
+                    .safeAreaInset(edge: .bottom) {
+                        Button("Motion Tracker") { showTracker = true }.padding(.vertical, 8)
+                    }
+            }
         }
+        .sheet(isPresented: $showTracker) { TrackerView() }
         .tint(HomeTheme.forest)
         .preferredColorScheme(settings.colorScheme)
         .overlay(alignment: .top) {

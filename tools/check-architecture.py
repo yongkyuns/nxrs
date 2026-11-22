@@ -51,6 +51,8 @@ PORTABLE_EXTERNAL_BY_PACKAGE = {
     # serde is safe Rust; serde_json uses the already-required Rust std I/O.
     # The actual NuttX publisher is qualified with the camera product image.
     'nxrs-detection-wire': {'serde', 'serde_json'},
+    # QR encoding is safe Rust with no native dependencies, exercised on CoreS3.
+    'nxrs-motion-tracker': {'qrcodegen'},
 }
 
 

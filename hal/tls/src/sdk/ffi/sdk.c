@@ -1,3 +1,4 @@
+#include <stdbool.h>
 /* Actual SDK header layouts, constants and inline attribute operations only. */
 #include <stddef.h>
 #include <stdint.h>
@@ -155,3 +156,23 @@ const unsigned char *tls_peer_raw(void *p, size_t *size)
   *size = peer == NULL ? 0 : peer->raw.len;
   return peer == NULL ? NULL : peer->raw.p;
 }
+
+#ifdef NXRS_TLS_PAIRING
+int tls_configure_pairing(void *config, const uint8_t *key, size_t length)
+{
+  static const unsigned char identity[] = "nxrs-tracker-v1";
+  static const int suites[] = { MBEDTLS_TLS_PSK_WITH_AES_128_GCM_SHA256, 0 };
+
+  mbedtls_ssl_conf_min_tls_version(config, MBEDTLS_SSL_VERSION_TLS1_2);
+  mbedtls_ssl_conf_max_tls_version(config, MBEDTLS_SSL_VERSION_TLS1_2);
+  mbedtls_ssl_conf_ciphersuites(config, suites);
+  return mbedtls_ssl_conf_psk(config, key, length, identity,
+                             sizeof(identity) - 1);
+}
+
+bool tls_pairing_cipher(void *ssl)
+{
+  return mbedtls_ssl_get_ciphersuite_id_from_ssl(ssl) ==
+         MBEDTLS_TLS_PSK_WITH_AES_128_GCM_SHA256;
+}
+#endif

@@ -72,3 +72,6 @@ mod tests {
         ));
     }
 }
+
+#[cfg(feature = "peripheral")]
+pub(crate) use crate::platform::unavailable_peripheral::open as open_peripheral;

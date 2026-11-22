@@ -2,6 +2,11 @@
 # Every entry requires semantic review; scalar interfaces do not prove thin glue.
 
 [[bridge]]
+path = "hal/touch/src/platform/nuttx/ffi/layout.c"
+kind = "abi"
+reason = "Target touchscreen sample offsets, event masks and nonblocking open flag. Rust owns the descriptor, reads and press delivery."
+
+[[bridge]]
 path = "driver/pwm/src/platform/nuttx/ffi/pwm.c"
 kind = "abi"
 reason = "NuttX single-channel PWM layout and individual configure, start and stop ioctls."
@@ -203,3 +208,8 @@ reason = "Translate a borrowed command and bytes into the NuttX SPI command/data
 path = "hal/audio/src/platform/nuttx/ffi/audio.c"
 kind = "abi"
 reason = "NuttX queued audio ioctls, message queue layout and aligned APB fields. Rust owns descriptor admission, submission, buffer identities, deadlines, sample conversion and retirement."
+
+[[bridge]]
+path = "hal/ble/src/platform/nuttx/ffi/peripheral.c"
+kind = "abi"
+reason = "Bluetooth host GATT layouts, advertising and synchronous SDK callback translations"

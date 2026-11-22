@@ -1,0 +1,29 @@
+[package]
+name = "nxrs-motion-tracker"
+version.workspace = true
+edition.workspace = true
+
+[package.metadata.nxrs]
+required-capabilities = ["imu", "gnss", "display", "touch", "settings", "ble", "tls"]
+
+[package.metadata.nxrs.firmware]
+bin = "motion-tracker"
+command = "motion_tracker"
+priority = 100
+stack-size = 32768
+
+[[bin]]
+name = "motion-tracker"
+path = "src/main.rs"
+
+[dependencies]
+nxrs-composition = { path = "../../platform", features = ["imu", "gnss"] }
+nxrs-display = { path = "../../hal/display" }
+nxrs-touch = { path = "../../hal/touch" }
+nxrs-gnss = { path = "../../hal/gnss" }
+nxrs-imu = { path = "../../hal/imu" }
+nxrs-messaging = { path = "../../shared/messaging", features = ["channels"] }
+nxrs-settings = { path = "../../hal/settings" }
+nxrs-ble = { path = "../../hal/ble", features = ["peripheral"] }
+nxrs-tls = { path = "../../hal/tls", features = ["pairing"] }
+qrcodegen = "1.8"

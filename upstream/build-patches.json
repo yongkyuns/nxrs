@@ -113,7 +113,10 @@
       "0126-espressif-i2s-rx-enqueue-ownership.patch",
       "0127-esp32s3-i2s-rx-interrupt-route.patch",
       "0128-esp32s3-i2s-rx-stop-ownership.patch",
-      "0131-esp32s3-read-systimer-with-periodic-scheduler.patch"
+      "0129-esp32s3-cores3-register-settings-storage.patch",
+      "0130-esp32s3-cores3-ble-and-guarded-entropy.patch",
+      "0131-esp32s3-read-systimer-with-periodic-scheduler.patch",
+      "0132-esp32s3-cores3-touchscreen.patch"
     ]
   },
   "mcuboot": {
