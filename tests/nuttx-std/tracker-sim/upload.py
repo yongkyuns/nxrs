@@ -30,9 +30,11 @@ ROUTER_MAC = bytes.fromhex('5255c0000203')
 class Collector(socketserver.ThreadingTCPServer):
     daemon_threads = True
 
-    def __init__(self, context):
+    def __init__(self, context, close_first, idle_timeout):
         super().__init__(('127.0.0.1', 0), Receive)
         self.context = context
+        self.close_first = close_first
+        self.idle_timeout = idle_timeout
         self.events = queue.Queue()
         self.connections = 0
         self.lock = threading.Lock()
@@ -47,6 +49,7 @@ class Receive(socketserver.BaseRequestHandler):
         try:
             with self.server.context.wrap_socket(self.request, server_side=True) as secure:
                 assert secure.version() == 'TLSv1.3'
+                secure.settimeout(self.server.idle_timeout)
                 self.server.events.put((connection, 'secure', None))
                 with secure.makefile('rb') as stream:
                     for raw in iter(stream.readline, b''):
@@ -54,7 +57,7 @@ class Receive(socketserver.BaseRequestHandler):
                         sample = json.loads(raw)
                         self.server.events.put((connection, 'frame', (raw, sample)))
                         # First collector connection closes after its first usable fix.
-                        if connection == 1 and is_live(sample):
+                        if self.server.close_first and connection == 1 and is_live(sample):
                             secure.shutdown(socket.SHUT_RDWR)
                             return
         except (ssl.SSLError, OSError) as error:
@@ -62,7 +65,7 @@ class Receive(socketserver.BaseRequestHandler):
 
 
 @contextmanager
-def collector(directory):
+def collector(directory, *, close_first=True, idle_timeout=3):
     key = directory / 'key.pem'
     certificate = directory / 'cert.pem'
     subprocess.run([
@@ -73,7 +76,7 @@ def collector(directory):
     context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
     context.minimum_version = ssl.TLSVersion.TLSv1_3
     context.load_cert_chain(certificate, key)
-    with Collector(context) as server:
+    with Collector(context, close_first, idle_timeout) as server:
         task = threading.Thread(target=server.serve_forever, kwargs={'poll_interval': 0.05})
         task.start()
         try:

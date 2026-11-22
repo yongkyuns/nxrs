@@ -106,10 +106,9 @@ took a median of 5.66 seconds. The wall-clock control passed separately. The
 `shift=7` stress run exceeded the application's IMU freshness budget during
 panel rendering, so the full-dashboard scenario uses `shift=5`.
 
-Each scenario uses UART2 for one external peer. The modem/PPP and full
-dashboard/BLE runs provide separate coverage. The simulator models the panel,
-touch, controller and flash. Physical RF, native phone behavior and persistence
-across power cycles require hardware.
+The standalone modem and dashboard/BLE scenarios each use UART2. The combined
+scenario below uses a separate RAM UART for BLE. Physical RF, native phone
+behavior and persistence across power cycles require hardware.
 
 ## Full tracker and TLS upload over PPP
 
@@ -139,4 +138,38 @@ uploaded records.
 
 The **ESP32-S3 QEMU** CI workflow builds the patched emulator with
 `tools/build-tracker-qemu.sh` and runs both scenarios with `--wall-clock`.
-BLE pairing runs in a separate simulator profile because both peers use UART2.
+
+## BLE telemetry during PPP loss and reconnect
+
+This profile keeps the Stamp model on UART2 and connects the virtual BLE
+controller through NuttX's RAM UART. The tracker runs both TLS connections
+with its existing production code.
+
+```sh
+cargo nxrs build --app motion-tracker --profile esp32s3-qemu-tracker-coexist \
+  --target-c-source tests/nuttx-std/tracker-sim/devices.c \
+  --target-c-source tests/nuttx-std/tracker-sim/dashboard_init.c \
+  --out target/tracker-coexist-sim
+target/tracker-peer/bin/python tests/nuttx-std/tracker-sim/coexist.py \
+  target/tracker-coexist-sim/nuttx/nuttx.merged.bin \
+  --qemu /path/to/patched/qemu-system-xtensa --network-qemu qemu-system-xtensa
+```
+
+The simulated phone scans the dashboard QR code and keeps one authenticated
+BLE connection open. After both links deliver live data, the Stamp terminates
+PPP and refuses redial until the phone has received at least four fresh records
+with both IMUs and GNSS live. The local collector must then receive fresh
+records on a new TLS connection while the original BLE stream continues.
+
+After TLS delivery resumes, the Stamp model withholds a data segment and its
+retransmissions for at least 3.2 seconds measured by the independent USB
+stream. The default wall-clock run requires BLE delivery during that wait,
+rejects gaps above 2.5 seconds between BLE records, and checks that the
+collector receives fresh data again. Use `--shift 3` for a faster continuity
+check. Accelerated timings include the effect of QEMU's virtual clock on the
+host-driven BLE controller.
+
+On the unbuffered TCP build, this control reproduced a 4.02-second BLE gap and
+zero records during the hold. With bounded TCP writes enabled, three
+wall-clock boots each delivered BLE records during the hold. The longest
+receiver gap was 1.55 seconds and TLS telemetry resumed after release.

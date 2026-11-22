@@ -139,6 +139,9 @@ reconnects over the existing link when possible. Retry delays increase from one
 to at most 30 seconds. The tracker keeps the latest snapshot and one record
 in flight. Samples superseded during an outage are skipped. BLE and cellular
 share one TLS owner task while acquisition and the dashboard continue independently.
+The Stamp profile uses bounded NuttX TCP write buffering. The unbuffered sender
+waits for acknowledgments even on a nonblocking socket, which can delay BLE
+when TCP retransmits. The buffered sender queues writes in a fixed kernel pool.
 A modem that cannot recover command mode reports the fault and stops redialing.
 
 The [simulator qualification](../../tests/nuttx-std/tracker-sim/README.md)

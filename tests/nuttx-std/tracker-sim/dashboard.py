@@ -122,10 +122,12 @@ class Panel:
         self.reader = reader
         self.writer = writer
         self.addresses = addresses
+        self.command_lock = asyncio.Lock()
 
     async def query(self, command):
-        self.writer.write((command + '\n').encode())
-        response = await asyncio.wait_for(self.reader.readline(), 2)
+        async with self.command_lock:
+            self.writer.write((command + '\n').encode())
+            response = await asyncio.wait_for(self.reader.readline(), 2)
         assert response.startswith(b'OK'), response[:128]
         return response[2:].strip()
 
@@ -370,7 +372,7 @@ async def scenario(guest, panel, phone, args):
     print('PASS: orderly release, restart and persisted report interval', flush=True)
 
 
-async def run(args, log):
+async def run(args, log, exercise=scenario, attach_controller=None):
     output = subprocess.check_output([args.nm, args.image.with_name('nuttx')], text=True)
     addresses = {}
     for line in output.splitlines():
@@ -379,10 +381,11 @@ async def run(args, log):
             addresses[fields[2]] = int(fields[0], 16)
     with tempfile.TemporaryDirectory(prefix='nxrs-dashboard-', dir='/tmp') as folder:
         path = Path(folder)
-        with listener(path / 'gps') as gps, listener(path / 'hci') as hci:
+        peer_path = path / ('hci' if attach_controller is None else 'modem')
+        with listener(path / 'gps') as gps, listener(peer_path) as peer:
             command = [args.qemu, '-machine', 'esp32s3', '-smp', '2', '-display', 'none',
                        '-serial', 'stdio', '-serial', f'unix:{path / "gps"}',
-                       '-serial', f'unix:{path / "hci"}', '-monitor', 'none', '-nic', 'none',
+                       '-serial', f'unix:{peer_path}', '-monitor', 'none', '-nic', 'none',
                        '-no-reboot', '-snapshot', '-qtest-log', '/dev/null',
                        '-qtest', f'unix:{path / "qtest"},server=on,wait=off',
                        '-drive', f'file={args.image},if=mtd,format=raw']
@@ -397,28 +400,33 @@ async def run(args, log):
             try:
                 loop = asyncio.get_running_loop()
                 gps.setblocking(False)
-                hci.setblocking(False)
-                (gps_socket, _), (hci_socket, _) = await asyncio.wait_for(
-                    asyncio.gather(loop.sock_accept(gps), loop.sock_accept(hci)), 8)
+                peer.setblocking(False)
+                (gps_socket, _), (peer_socket, _) = await asyncio.wait_for(
+                    asyncio.gather(loop.sock_accept(gps), loop.sock_accept(peer)), 8)
                 gps_reader, gps_writer = await asyncio.open_connection(sock=gps_socket)
-                hci_reader, hci_writer = await asyncio.open_connection(sock=hci_socket)
+                peer_reader, peer_writer = await asyncio.open_connection(sock=peer_socket)
                 q_reader, q_writer = await asyncio.open_unix_connection(path / 'qtest')
+                panel = Panel(q_reader, q_writer, addresses)
                 guest.gnss = NeoM9n(Stream(gps_writer))
                 tasks.append(asyncio.create_task(pump(gps_reader, guest.gnss.receive)))
                 link = BluetoothLink()
                 source = ParserSource()
-                H4Controller('NuttX H4', source, Stream(hci_writer), link=link,
-                             public_address=TRACKER)
-                tasks.append(asyncio.create_task(pump(hci_reader, source.parser.feed_data)))
+                if attach_controller is None:
+                    controller_wire = Stream(peer_writer)
+                    tasks.append(asyncio.create_task(pump(peer_reader, source.parser.feed_data)))
+                else:
+                    controller_wire = await attach_controller(
+                        panel, peer_reader, peer_writer, source.parser.feed_data, tasks)
+                H4Controller('NuttX H4', source, controller_wire, link=link, public_address=TRACKER)
                 central = Controller('test phone', link=link, public_address='F0:F1:F2:F3:F4:02')
                 phone = Device.with_hci('test phone', Address('F0:F1:F2:F3:F4:A2'), central, central)
                 await phone.power_on()
                 start = time.monotonic()
-                test = asyncio.create_task(scenario(guest, Panel(q_reader, q_writer, addresses), phone, args))
+                test = asyncio.create_task(exercise(guest, panel, phone, args))
                 tasks.append(test)
                 done, _ = await asyncio.wait(tasks, timeout=args.timeout, return_when=asyncio.FIRST_COMPLETED)
                 if not done:
-                    raise TimeoutError('full tracker scenario')
+                    raise TimeoutError('tracker scenario')
                 for task in done:
                     task.result()
                 assert test in done, 'guest console or UART terminated during the test'
