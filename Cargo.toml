@@ -132,6 +132,8 @@ version = "0.1.0"
 # provenance and regression witnesses are recorded under upstream/microflow. The macro compiler
 # and other dependencies remain registry-pinned in Cargo.lock.
 microflow = { path = "vendor/microflow" }
+# Keep the published PPP implementation with the RustSec-fixed heapless release.
+ppproto = { path = "vendor/ppproto" }
 
 [profile.release.package.nxrs-detector]
 opt-level = 3

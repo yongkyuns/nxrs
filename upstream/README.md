@@ -10,6 +10,7 @@ not vendored source trees.
 | `nuttx/patches` | Ordered NuttX kernel and driver patchset |
 | `nuttx-apps/patches` | Ordered NuttX-apps patchset |
 | [qemu/patches](../tests/nuttx-std/tracker-sim/README.md) | ESP32-S3 core 1 RUNSTALL and UART receive-timeout simulation fixes |
+| [ppproto](ppproto/README.md) | PPP source provenance and the patched heapless dependency pin |
 | `mediamtx/` | Pinned recording-only queue drain; built by `tools/build-recording-media.py` |
 | [rust-llvm](rust-llvm/README.md) | Pinned compiler patchset, opt-in proposals and local/CI build instructions |
 | [rust-std](rust-std/README.md) | Separate opt-in standard-library proposal and pinned inputs |

@@ -365,22 +365,24 @@ def inspect_sources(metadata: dict, root: Path) -> list[str]:
 
 def inspect_dependency_capsule(root: Path) -> list[str]:
     """A small patched runtime is reviewable only with complete source identity."""
-    capsule = root / 'vendor/microflow'
-    if not capsule.exists():
-        return []
-    try:
-        record = json.loads((root / 'upstream/microflow/source.json').read_text())
-        expected = record['files']
-        files = {p.relative_to(root).as_posix(): p for p in capsule.rglob('*') if p.is_file()}
-        if set(expected) != set(files):
-            return ['microflow: vendored source inventory differs from its reviewed ledger']
-        errors = []
-        for name, path in files.items():
-            if path.is_symlink() or hashlib.sha256(path.read_bytes()).hexdigest() != expected[name]:
-                errors.append(f'{name}: vendored source hash differs from its reviewed ledger')
-        return errors
-    except (OSError, ValueError, KeyError, TypeError):
-        return ['microflow: missing or malformed source provenance ledger']
+    errors = []
+    for crate in ('microflow', 'ppproto'):
+        capsule = root / 'vendor' / crate
+        if not capsule.exists():
+            continue
+        try:
+            record = json.loads((root / 'upstream' / crate / 'source.json').read_text())
+            expected = record['files']
+            files = {p.relative_to(root).as_posix(): p for p in capsule.rglob('*') if p.is_file()}
+            if set(expected) != set(files):
+                errors.append(f'{crate}: vendored source inventory differs from its reviewed ledger')
+                continue
+            for name, path in files.items():
+                if path.is_symlink() or hashlib.sha256(path.read_bytes()).hexdigest() != expected[name]:
+                    errors.append(f'{name}: vendored source hash differs from its reviewed ledger')
+        except (OSError, ValueError, KeyError, TypeError):
+            errors.append(f'{crate}: missing or malformed source provenance ledger')
+    return errors
 
 
 def declared_binding_catalogs(package: Path, stack=(), capability=None) -> list[Path]:
