@@ -1,4 +1,4 @@
-use cellular::{Session, Status};
+use cellular::{Error, Session, Status};
 use std::{
     io,
     net::UdpSocket,
@@ -146,31 +146,43 @@ fn events<E: Send>(
     }
 }
 
+fn wait_for(link: &impl Session, expected: Status) -> io::Result<()> {
+    let until = Instant::now() + Duration::from_secs(20);
+    loop {
+        let actual = link.status();
+        if actual == expected {
+            return Ok(());
+        }
+        if matches!(actual, Status::Failed(_) | Status::Stopped) || Instant::now() >= until {
+            return Err(io::Error::other(format!(
+                "cellular status {actual:?}, expected {expected:?}"
+            )));
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+}
+
 fn main() -> io::Result<()> {
     let start = Instant::now();
     std::thread::sleep(Duration::from_secs(10));
     assert!(start.elapsed() >= Duration::from_secs(10));
     println!("CELLULAR_CLOCK {}", start.elapsed().as_millis());
     devices()?;
+    let mut rejected = cellular::connect("nxrs.test").map_err(io::Error::other)?;
+    wait_for(&rejected, Status::Failed(Error::Rejected))?;
+    assert_eq!(rejected.stop(), Err(Error::Rejected));
+    assert_eq!(rejected.status(), Status::Failed(Error::Rejected));
+    println!("CELLULAR REJECTED PASS");
+
     for cycle in 1..=2 {
         let mut link = cellular::connect("nxrs.test").map_err(io::Error::other)?;
-        assert!(matches!(
-            cellular::connect("nxrs.test"),
-            Err(cellular::Error::Busy)
-        ));
-        let until = Instant::now() + Duration::from_secs(20);
-        loop {
-            match link.status() {
-                Status::Online { address } => {
-                    assert_eq!(address.octets(), [192, 0, 2, 2]);
-                    break;
-                }
-                Status::Connecting if Instant::now() < until => {
-                    std::thread::sleep(Duration::from_millis(100))
-                }
-                status => return Err(io::Error::other(format!("cellular status {status:?}"))),
-            }
-        }
+        assert!(matches!(cellular::connect("nxrs.test"), Err(Error::Busy)));
+        wait_for(
+            &link,
+            Status::Online {
+                address: std::net::Ipv4Addr::new(192, 0, 2, 2),
+            },
+        )?;
         let packet = [b'n', b'x', b'r', b's', cycle];
         let udp = UdpSocket::bind((std::net::Ipv4Addr::UNSPECIFIED, 0))?;
         udp.set_read_timeout(Some(Duration::from_secs(3)))?;
@@ -179,9 +191,17 @@ fn main() -> io::Result<()> {
         let (len, source) = udp.recv_from(&mut returned)?;
         assert_eq!(&returned[..len], &packet);
         assert_eq!(source.to_string(), "192.0.2.1:9090");
-        link.stop().map_err(io::Error::other)?;
-        assert_eq!(link.status(), Status::Stopped);
         println!("CELLULAR_UDP {cycle} PASS");
+        if cycle == 1 {
+            // The host PPP peer terminates the established link at this point.
+            wait_for(&link, Status::Failed(Error::LinkLost))?;
+            assert_eq!(link.stop(), Err(Error::LinkLost));
+            assert_eq!(link.status(), Status::Failed(Error::LinkLost));
+            println!("CELLULAR LINK LOST PASS");
+        } else {
+            link.stop().map_err(io::Error::other)?;
+            assert_eq!(link.status(), Status::Stopped);
+        }
     }
     Ok(())
 }

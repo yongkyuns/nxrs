@@ -16,6 +16,7 @@ from sensors import NeoM9n
 FLAG = 0x7E
 ADDRESS = bytes((192, 0, 2, 2))
 PEER = bytes((192, 0, 2, 1))
+TERMINATE_ID = 203
 
 
 def fcs(data):
@@ -61,6 +62,9 @@ class Stamp:
         self.negotiation = []
         self.dropped = None
         self.retried = False
+        self.dials = 0
+        self.terminated = False
+        self.terminate_ack = False
 
     def receive(self, chunk):
         for byte in chunk:
@@ -91,6 +95,10 @@ class Stamp:
     def command(self, line):
         self.commands.append(line)
         if line == b'ATD*99#':
+            self.dials += 1
+            if self.dials == 1:
+                self.wire.sendall(b'\r\nNO CARRIER\r\n')
+                return
             self.lcp = self.ipcp = False
             self.data_mode = True
             self.wire.sendall(b'\r\nCONNECT\r\n')
@@ -104,7 +112,7 @@ class Stamp:
         protocol = int.from_bytes(packet[2:4], 'big')
         body = packet[4:-2]
         if protocol == 0x0021:
-            self.echo(body)
+            self.ipv4(body)
             return
         code, identifier, length = struct.unpack('!BBH', body[:4])
         assert length == len(body), body.hex()
@@ -128,10 +136,18 @@ class Stamp:
                 self.wire.sendall(control(protocol, 2, identifier, options))
             else:
                 self.wire.sendall(control(protocol, 3, identifier, b'\x03\x06' + ADDRESS))
+        elif protocol == 0xc021 and code == 6:
+            assert self.terminated and identifier == TERMINATE_ID and not self.terminate_ack
+            self.terminate_ack = True
         else:
             assert code == 2 and protocol in (0xc021, 0x8021), packet.hex()
 
-    def echo(self, body):
+    def terminate_link(self):
+        assert self.data_mode and not self.terminated
+        self.terminated = True
+        self.wire.sendall(control(0xc021, 5, TERMINATE_ID))
+
+    def ipv4(self, body):
         assert body[0] == 0x45 and body[9] == 17 and body[12:20] == ADDRESS + PEER, body.hex()
         src, dst, size, _ = struct.unpack('!HHHH', body[20:28])
         payload = body[28:]
@@ -155,7 +171,7 @@ def listener(path):
     return server
 
 
-def run(args):
+def run(args, scenario=None):
     transcript = bytearray()
     args.log.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix='nxrs-sim-', dir='/tmp') as folder:
@@ -178,7 +194,7 @@ def run(args):
                     modem_wire, _ = modem_socket.accept()
                     with modem_wire:
                         with args.log.open("wb") as log:
-                            run_guest(process, modem_wire, gnss_wire, transcript, args.shift, log)
+                            (scenario or run_guest)(process, modem_wire, gnss_wire, transcript, args.shift, log)
             finally:
                 process.terminate()
                 try:
@@ -218,6 +234,9 @@ def run_guest(process, modem_wire, gnss_wire, transcript, shift, log):
                     if not data:
                         raise RuntimeError('QEMU UART closed')
                     model.receive(data)
+            if not stamp.terminated and b'\nCELLULAR_UDP 1 PASS\n' in transcript:
+                assert stamp.echoes == [b'nxrs\x01']
+                stamp.terminate_link()
             # The provider consumes UART bytes while reading back its setup.
             # Send the test fix once the guest has opened the event stream.
             if not gnss.fix_sent and b'\nTRACKER_GNSS_READY\n' in transcript:
@@ -241,19 +260,20 @@ def run_guest(process, modem_wire, gnss_wire, transcript, shift, log):
     assert not re.search(rb'PANIC|panicked at|Assertion failed', transcript), transcript
     assert re.findall(rb'^TRACKER_DEVICES PASS$', transcript, re.M) == [b'TRACKER_DEVICES PASS']
     assert re.findall(rb'^CELLULAR_UDP (\d) PASS$', transcript, re.M) == [b'1', b'2']
-    assert stamp.retried, stamp.negotiation
+    assert re.findall(rb'^CELLULAR (.+) PASS$', transcript, re.M) == [b'REJECTED', b'LINK LOST']
+    assert stamp.retried and stamp.terminate_ack, stamp.negotiation
     assert stamp.echoes == [b'nxrs\x01', b'nxrs\x02'], stamp.echoes
     expected = [b'AT', b'ATE0', b'AT+CGDCONT=1,"IP","nxrs.test"', b'ATD*99#', b'ATH']
-    assert stamp.commands == expected * 2, stamp.commands
+    assert stamp.commands == expected[:-1] + expected * 2, stamp.commands
     assert gnss.fix_sent and gnss.writes == [1, 7], gnss.writes
     if shift is not None:
         assert elapsed < int(guest_ms) / 1000, (guest_ms, elapsed)
-    print(f'PASS: tracker devices and two PPP/UDP sessions in {suite_elapsed:.3f} s on host '
+    print(f'PASS: tracker devices, refused dial, PPP link loss and reconnection in {suite_elapsed:.3f} s on host '
           f'({int(guest_ms)} ms NuttX sleep in {elapsed:.3f} s)')
 
 
-def main():
-    parser = argparse.ArgumentParser(description=__doc__)
+def parser(description):
+    parser = argparse.ArgumentParser(description=description)
     parser.add_argument('image', type=Path)
     parser.add_argument('--qemu', default='qemu-system-xtensa')
     parser.add_argument('--qemu-data', type=Path, help='QEMU firmware directory for a source build')
@@ -261,7 +281,11 @@ def main():
     clock.add_argument('--shift', type=int, choices=range(11), default=7)
     clock.add_argument('--wall-clock', action='store_true')
     parser.add_argument('--log', type=Path, default=Path('target/tracker-sim/console.log'))
-    args = parser.parse_args()
+    return parser
+
+
+def main():
+    args = parser(__doc__).parse_args()
     if args.wall_clock:
         args.shift = None
     run(args)

@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 
 [package.metadata.nxrs]
-required-capabilities = ["imu", "gnss", "display", "touch", "settings", "ble", "tls"]
+required-capabilities = ["imu", "gnss", "display", "touch", "settings", "tls"]
 
 [package.metadata.nxrs.firmware]
 bin = "motion-tracker"

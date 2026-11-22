@@ -2,25 +2,26 @@
 #![forbid(unsafe_code)]
 
 mod charts;
+mod communications;
 mod preferences;
 mod radio;
 mod screen;
 mod text;
 mod tracker;
+mod uplink;
 mod wire;
 
 use battery::Device as _;
-use ble::peripheral::Listener;
 use charts::{History, SAMPLE_INTERVAL};
+use communications::{Communications, Pairing, View};
 use gnss::{Device as _, Session as _};
 use imu::Device as _;
 use messaging::bounded;
 use preferences::Interval;
-use screen::{Action, Dashboard, LinkStatus, Screen};
-use std::cell::OnceCell;
+use screen::{Action, Dashboard, Screen};
 use std::io::{self, Write};
 use std::sync::mpsc::{RecvTimeoutError, TrySendError};
-use std::time::{Duration, Instant};
+use std::time::Instant;
 use touch::Session as _;
 use tracker::{sink, Input, Tracker};
 
@@ -30,7 +31,7 @@ struct Options {
     usb_stream: bool,
     ble: bool,
     battery: bool,
-    cellular_apn: Option<String>,
+    cellular: Option<uplink::Config>,
 }
 
 impl Options {
@@ -41,8 +42,11 @@ impl Options {
             usb_stream: false,
             ble: false,
             battery: false,
-            cellular_apn: None,
+            cellular: None,
         };
+        let mut apn = None;
+        let mut collector = None;
+        let mut pin = None;
         while let Some(arg) = args.next() {
             let value = |args: &mut dyn Iterator<Item = String>| {
                 args.next().ok_or(io::ErrorKind::InvalidInput)
@@ -68,17 +72,32 @@ impl Options {
                 }
                 "--stream-usb" => options.usb_stream = true,
                 "--ble" => options.ble = true,
-                "--cellular-apn" => options.cellular_apn = Some(value(&mut args)?),
+                "--cellular-apn" => apn = Some(value(&mut args)?),
+                "--collector" => collector = Some(value(&mut args)?),
+                "--collector-pin" => pin = Some(value(&mut args)?),
                 "--battery" => options.battery = true,
                 _ => return Err(io::Error::new(io::ErrorKind::InvalidInput, arg)),
             }
         }
+        let collector = match (collector, pin) {
+            (None, None) => None,
+            (Some(address), Some(pin)) if apn.is_some() => {
+                Some(uplink::Collector::parse(&address, &pin)?)
+            }
+            _ => {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "--collector and --collector-pin require each other and --cellular-apn",
+                ))
+            }
+        };
+        options.cellular = apn.map(|apn| uplink::Config { apn, collector });
         if options.battery
             && (options.interval.is_some()
                 || options.frames.is_some()
                 || options.usb_stream
                 || options.ble
-                || options.cellular_apn.is_some())
+                || options.cellular.is_some())
         {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
@@ -124,45 +143,18 @@ enum Event {
     Touch { event: touch::Event, missed: bool },
 }
 
-fn link_status(output: Option<&radio::Output<'_, impl Listener>>, failed: bool) -> LinkStatus {
-    match output {
-        Some(output) if output.live() => LinkStatus::Connected,
-        Some(output) if output.paired() => LinkStatus::Paired,
-        Some(_) => LinkStatus::Pairing,
-        None if failed => LinkStatus::Unavailable,
-        None => LinkStatus::Idle,
-    }
-}
-
-fn service_radio(output: Option<&mut radio::Output<'_, impl Listener>>, deadline: &mut Instant) {
-    let now = Instant::now();
-    if let Some(output) = output.filter(|_| now >= *deadline) {
-        output.service();
-        *deadline = now + Duration::from_millis(15);
-    }
-}
-
 fn run(options: Options) -> io::Result<()> {
     if options.battery {
         return report_battery();
     }
     let interval = preferences(options.interval)?.duration();
-    let mut cellular = options
-        .cellular_apn
-        .as_deref()
-        .map(cellular::connect)
-        .transpose()
-        .map_err(io::Error::other)?;
-    let mut reported_cellular = None;
     let mut screen = Screen::new(display::open().map_err(display_error)?).map_err(display_error)?;
     let mut dashboard = Dashboard::default();
     let mut history = History::new();
-    let identity = OnceCell::new();
-    let mut radio = options.ble.then(|| radio::pair(&identity)).transpose()?;
-    let mut pairing_failed = false;
-    if let Some(output) = &radio {
-        dashboard.show_code(output.key()).map_err(display_error)?;
-    }
+    let mut communications = (options.ble || options.cellular.is_some())
+        .then(|| Communications::start(options.ble, options.cellular))
+        .transpose()?;
+    let mut view = View::default();
     let mut tracker = Tracker::new();
     let (events, inbox) = bounded(32);
     let mut primary = composition::imu::primary_imu()
@@ -201,31 +193,26 @@ fn run(options: Options) -> io::Result<()> {
     let mut rendered = 0_u32;
     let mut next = Instant::now();
     let mut next_plot = next;
-    let mut next_radio = next;
-    let mut shown_link = None;
     let mut redraw = true;
     let result = loop {
         let now = Instant::now();
-        if radio.as_ref().is_some_and(|output| output.expired(now)) {
-            radio = None;
-        }
-        service_radio(radio.as_mut(), &mut next_radio);
-        let link = link_status(radio.as_ref(), pairing_failed);
-        if shown_link != Some(link) {
-            redraw = true;
-            if link != LinkStatus::Pairing {
-                dashboard.hide_code();
+        if let Some(links) = &communications {
+            let update = links.view(view);
+            if update != view {
+                redraw = true;
+                if let Some(key) = update.key {
+                    if let Err(error) = dashboard.show_code(&key) {
+                        break Err(display_error(error));
+                    }
+                } else {
+                    dashboard.hide_code();
+                }
+                view = update;
             }
         }
         let report_due = now >= next;
         let plot_due = now >= next_plot;
         if report_due {
-            if let Some(status) = cellular.as_ref().map(cellular::Session::status) {
-                if reported_cellular != Some(status) {
-                    eprintln!("motion-tracker cellular {status:?}");
-                    reported_cellular = Some(status);
-                }
-            }
             // A full inbox can reject the terminal event; the join still reports it.
             imu_status(&mut primary, 0, &mut tracker);
             imu_status(&mut secondary, 1, &mut tracker);
@@ -240,9 +227,6 @@ fn run(options: Options) -> io::Result<()> {
         }
         if report_due {
             let snapshot = tracker.snapshot(now);
-            if let Some(output) = &mut radio {
-                output.offer(&snapshot, now);
-            }
             if let Some(serial) = &mut serial {
                 let mut writer = serial.lock();
                 let written = wire::frame(&snapshot)
@@ -251,6 +235,9 @@ fn run(options: Options) -> io::Result<()> {
                 if let Err(error) = written {
                     break Err(error);
                 }
+            }
+            if let Some(links) = &communications {
+                links.offer(snapshot);
             }
             if options.frames.is_some() {
                 rendered += 1;
@@ -282,13 +269,10 @@ fn run(options: Options) -> io::Result<()> {
                 history.record(&snapshot, now);
                 next_plot = now + SAMPLE_INTERVAL;
             }
-            if let Err(error) = screen.render(&dashboard, link, &snapshot, &history, now, || {
-                service_radio(radio.as_mut(), &mut next_radio);
-            }) {
+            if let Err(error) = screen.render(&dashboard, view.link, &snapshot, &history, now) {
                 break Err(display_error(error));
             }
             redraw = false;
-            shown_link = Some(link);
             let finished = Instant::now();
             if finished >= next_plot {
                 // Skip the missed paint and leave time to receive sensor and touch events.
@@ -296,40 +280,24 @@ fn run(options: Options) -> io::Result<()> {
             }
         }
         let wake = next.min(next_plot);
-        let wake = if radio.is_some() {
-            wake.min(next_radio)
-        } else {
-            wake
-        };
         match inbox.wait(Some(wake.saturating_duration_since(Instant::now()))) {
             Ok(Event::Sensor(event)) => tracker.observe(event),
             Ok(Event::Touch { event, missed }) => {
                 if missed {
                     dashboard.cancel_touch();
                 }
-                let link = link_status(radio.as_ref(), pairing_failed);
-                match screen.input(&mut dashboard, link, event) {
-                    Some(Action::Pair) => {
-                        match radio::pair(&identity) {
-                            Ok(output) => {
-                                if let Err(error) = dashboard.show_code(output.key()) {
-                                    break Err(display_error(error));
-                                }
-                                radio = Some(output);
-                                next_radio = Instant::now();
-                                pairing_failed = false;
-                            }
-                            Err(error) => {
-                                eprintln!("motion-tracker pairing: {error}");
-                                pairing_failed = true;
-                            }
-                        }
-                        redraw = true;
-                    }
+                match screen.input(&mut dashboard, view.link, event) {
+                    Some(Action::Pair) => match &communications {
+                        Some(links) => links.pair(Pairing::Start),
+                        None => match Communications::start(true, None) {
+                            Ok(links) => communications = Some(links),
+                            Err(error) => eprintln!("motion-tracker pairing: {error}"),
+                        },
+                    },
                     Some(Action::CancelPairing) => {
-                        radio = None;
-                        dashboard.hide_code();
-                        redraw = true;
+                        if let Some(links) = &communications {
+                            links.pair(Pairing::Cancel);
+                        }
                     }
                     Some(Action::Redraw) => redraw = true,
                     None => {}
@@ -353,7 +321,7 @@ fn run(options: Options) -> io::Result<()> {
     let join_b = secondary.as_mut().map(imu::Session::join);
     let join_gnss = receiver.as_mut().map(gnss::Session::join);
     let join_touch = touch.as_mut().map(touch::Session::join);
-    let stop_cellular = cellular.as_mut().map(cellular::Session::stop);
+    let stop_links = communications.as_mut().map(Communications::stop);
     for (operation, failed) in [
         ("stop IMU 1", failed(stop_a)),
         ("stop IMU 2", failed(stop_b)),
@@ -363,7 +331,7 @@ fn run(options: Options) -> io::Result<()> {
         ("join IMU 2", failed(join_b)),
         ("join GNSS", failed(join_gnss)),
         ("join touch", failed(join_touch)),
-        ("stop cellular", failed(stop_cellular)),
+        ("stop communications", failed(stop_links)),
     ] {
         if failed {
             eprintln!("motion-tracker: {operation} failed");
@@ -415,9 +383,50 @@ fn main() -> std::process::ExitCode {
         Ok(()) => std::process::ExitCode::SUCCESS,
         Err(error) => {
             eprintln!(
-                "motion_tracker [--interval-ms 100..2000] [--frames N] [--stream-usb] [--ble] [--cellular-apn APN] or motion_tracker --battery: {error}"
+                "motion_tracker [--interval-ms 100..2000] [--frames N] [--stream-usb] [--ble] [--cellular-apn APN [--collector IPv4:PORT --collector-pin SHA256]] or motion_tracker --battery: {error}"
             );
             std::process::ExitCode::FAILURE
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cellular_collector_requires_an_address_pin_and_apn() {
+        let pin = "aB".repeat(32);
+        let parse = |args: &[&str]| Options::parse(args.iter().map(ToString::to_string));
+        assert!(parse(&["--collector", "192.0.2.3:1234", "--collector-pin", &pin]).is_err());
+        assert!(parse(&["--cellular-apn", "example", "--collector", "192.0.2.3:1234"]).is_err());
+        assert!(parse(&["--cellular-apn", "example", "--collector-pin", &pin]).is_err());
+
+        let launch = |address: &str, pin: &str| {
+            parse(&[
+                "--cellular-apn",
+                "example",
+                "--collector",
+                address,
+                "--collector-pin",
+                pin,
+            ])
+        };
+        assert!(launch("192.0.2.3:0", &pin).is_err());
+        assert!(launch("192.0.2.3:1234", &"00".repeat(32)).is_err());
+        assert!(launch("192.0.2.3:1234", &"é".repeat(32)).is_err());
+        let collector = launch("192.0.2.3:1234", &pin)
+            .unwrap()
+            .cellular
+            .unwrap()
+            .collector
+            .unwrap();
+        assert_eq!(collector.pin, [0xab; 32]);
+        assert!(parse(&["--cellular-apn", "example"])
+            .unwrap()
+            .cellular
+            .unwrap()
+            .collector
+            .is_none());
     }
 }
