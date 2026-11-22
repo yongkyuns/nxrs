@@ -29,7 +29,8 @@ cargo nxrs build --app home-cam --platform wroom \
 Install it locally with a [matching MCUboot loader and confirmed factory
 image](../../docs/firmware-updates.md). Its image class differs from the regular
 camera's, so the regular loader and updater will reject it. The maintenance
-image runs on both cores and uses unbuffered TCP for the interactive shell.
+image runs on both cores and shares the regular camera profile's fixed TCP
+write pool.
 
 Provision a unique native Dropbear ECDSA host key and NuttX password database
 on the 64 KiB LittleFS volume at `0xf00000` using the
