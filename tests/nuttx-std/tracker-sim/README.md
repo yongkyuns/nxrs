@@ -129,10 +129,14 @@ python3 tests/nuttx-std/tracker-sim/upload.py \
   --qemu /path/to/patched/qemu-system-xtensa --network-qemu qemu-system-xtensa
 ```
 
-The first dial is rejected. The following cases close the collector socket and
-terminate PPP while IMU and GNSS reports continue. The collector compares its
-decrypted records byte for byte with the app’s USB output and checks that a newer
-live snapshot arrives after each disruption. A fresh boot with a wrong pin
-exercises repeated TLS attempts and requires zero uploaded records. Use
-`--wall-clock` to run both scenarios without clock acceleration. BLE pairing
-runs in its own simulator profile because both virtual peers use UART2.
+The first dial is rejected. The runner then closes the collector socket and
+terminates PPP. It checks that both IMUs and GNSS keep producing fresh USB
+reports between the PPP termination acknowledgement and modem redial. The
+collector compares its decrypted records byte for byte with the app’s USB
+output and requires a newer snapshot after recovery in the same app run. A
+fresh boot with a wrong pin exercises repeated TLS attempts and requires zero
+uploaded records.
+
+The **ESP32-S3 QEMU** CI workflow builds the patched emulator with
+`tools/build-tracker-qemu.sh` and runs both scenarios with `--wall-clock`.
+BLE pairing runs in a separate simulator profile because both peers use UART2.

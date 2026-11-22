@@ -20,7 +20,7 @@ import threading
 import time
 
 from run import ADDRESS, Stamp, frame, listener, parser, run
-from sensors import NeoM9n, check_live
+from sensors import NeoM9n, check_live, check_progress
 
 COLLECTOR = '192.0.2.3'
 MAC = bytes.fromhex('525400000002')
@@ -166,6 +166,8 @@ def qualify(process, modem, gnss_wire, transcript, log, ethernet, server, pin, r
     reached_shell = False
     started = False
     dropped_at_usb = None
+    offline_from = None
+    redial_at_usb = None
     started_at = time.monotonic()
     for wire in (modem, gnss_wire):
         wire.settimeout(1)
@@ -204,6 +206,11 @@ def qualify(process, modem, gnss_wire, transcript, log, ethernet, server, pin, r
                 data = wire.recv(4096)
                 assert data, 'simulated device connection closed'
                 receive(data)
+                if wire is modem and stamp.terminate_ack:
+                    if offline_from is None:
+                        offline_from = len(usb)
+                    if stamp.dials > stamp.lost_dial and redial_at_usb is None:
+                        redial_at_usb = len(usb)
         while not server.events.empty():
             connection, event, value = server.events.get_nowait()
             if event == 'secure':
@@ -244,8 +251,17 @@ def qualify(process, modem, gnss_wire, transcript, log, ethernet, server, pin, r
         assert set(records) <= set(usb), "collector received a frame absent from USB"
         positions = [usb.index(raw) for _, raw in received]
         assert positions[0] < positions[1] < positions[2], positions
-        assert positions[2] > dropped_at_usb + 2, "reconnected stream replayed a buffered snapshot"
+        assert offline_from is not None and redial_at_usb is not None
+        assert dropped_at_usb <= offline_from and positions[2] >= redial_at_usb, positions
+        offline = [json.loads(raw) for raw in usb[offline_from:redial_at_usb]]
+        # The model sends a GNSS fix every four reports. Observe at least one
+        # new fix, with both IMUs live, while the modem is still offline.
+        assert len(offline) >= 5, f'only {len(offline)} USB reports while PPP was down'
+        for sample in offline:
+            check_live(sample)
+        check_progress([offline[0], offline[-1], json.loads(received[2][1])])
         assert transcript.count(b'motion-tracker collector TLS online') == 3
+        print(f'PASS: {len(offline)} live USB reports while PPP was down, with advancing IMU and GNSS samples')
         print(f'PASS: TLS 1.3 uploads matched console frames {positions} before and after collector/PPP loss '
               f'({time.monotonic() - started_at:.2f} s host time)')
 
