@@ -194,7 +194,8 @@ class HalBoundariesTests(unittest.TestCase):
         for relative in ("platform/Cargo.toml", "tools/build-support/cargo/composition.rs",
                          "platform/src/nuttx/gnss.rs", "driver/ubx/Cargo.toml",
                          "driver/ubx/bindings.toml", "driver/bmi270/Cargo.toml",
-                         "driver/lsm6dso/Cargo.toml", "hal/gnss/Cargo.toml",
+                         "driver/lsm6dso/Cargo.toml", "driver/axp2101/Cargo.toml",
+                         "hal/gnss/Cargo.toml",
                          "hal/gnss/src/platform/nuttx/mod.rs"):
             self.write(relative, (ROOT / relative).read_text())
         self.assertEqual(CHECK.inspect_generated_imu_factory(self.root), [])

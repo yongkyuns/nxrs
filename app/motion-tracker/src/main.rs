@@ -9,6 +9,7 @@ mod text;
 mod tracker;
 mod wire;
 
+use battery::Device as _;
 use ble::peripheral::Listener;
 use charts::{History, SAMPLE_INTERVAL};
 use gnss::{Device as _, Session as _};
@@ -28,6 +29,8 @@ struct Options {
     frames: Option<u32>,
     usb_stream: bool,
     ble: bool,
+    battery: bool,
+    cellular_apn: Option<String>,
 }
 
 impl Options {
@@ -37,6 +40,8 @@ impl Options {
             frames: None,
             usb_stream: false,
             ble: false,
+            battery: false,
+            cellular_apn: None,
         };
         while let Some(arg) = args.next() {
             let value = |args: &mut dyn Iterator<Item = String>| {
@@ -63,8 +68,22 @@ impl Options {
                 }
                 "--stream-usb" => options.usb_stream = true,
                 "--ble" => options.ble = true,
+                "--cellular-apn" => options.cellular_apn = Some(value(&mut args)?),
+                "--battery" => options.battery = true,
                 _ => return Err(io::Error::new(io::ErrorKind::InvalidInput, arg)),
             }
+        }
+        if options.battery
+            && (options.interval.is_some()
+                || options.frames.is_some()
+                || options.usb_stream
+                || options.ble
+                || options.cellular_apn.is_some())
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "--battery must be used on its own",
+            ));
         }
         Ok(options)
     }
@@ -124,7 +143,17 @@ fn service_radio(output: Option<&mut radio::Output<'_, impl Listener>>, deadline
 }
 
 fn run(options: Options) -> io::Result<()> {
+    if options.battery {
+        return report_battery();
+    }
     let interval = preferences(options.interval)?.duration();
+    let mut cellular = options
+        .cellular_apn
+        .as_deref()
+        .map(cellular::connect)
+        .transpose()
+        .map_err(io::Error::other)?;
+    let mut reported_cellular = None;
     let mut screen = Screen::new(display::open().map_err(display_error)?).map_err(display_error)?;
     let mut dashboard = Dashboard::default();
     let mut history = History::new();
@@ -191,6 +220,12 @@ fn run(options: Options) -> io::Result<()> {
         let report_due = now >= next;
         let plot_due = now >= next_plot;
         if report_due {
+            if let Some(status) = cellular.as_ref().map(cellular::Session::status) {
+                if reported_cellular != Some(status) {
+                    eprintln!("motion-tracker cellular {status:?}");
+                    reported_cellular = Some(status);
+                }
+            }
             // A full inbox can reject the terminal event; the join still reports it.
             imu_status(&mut primary, 0, &mut tracker);
             imu_status(&mut secondary, 1, &mut tracker);
@@ -203,26 +238,8 @@ fn run(options: Options) -> io::Result<()> {
                 eprintln!("motion-tracker touch stopped: {:?}", finished.join());
             }
         }
-        if report_due || plot_due || redraw {
+        if report_due {
             let snapshot = tracker.snapshot(now);
-            if plot_due {
-                history.record(&snapshot, now);
-                next_plot = now + SAMPLE_INTERVAL;
-            }
-            if plot_due || redraw {
-                if let Err(error) =
-                    screen.render(&dashboard, link, &snapshot, &history, now, || {
-                        service_radio(radio.as_mut(), &mut next_radio);
-                    })
-                {
-                    break Err(display_error(error));
-                }
-                redraw = false;
-                shown_link = Some(link);
-            }
-            if !report_due {
-                continue;
-            }
             if let Some(output) = &mut radio {
                 output.offer(&snapshot, now);
             }
@@ -258,6 +275,25 @@ fn run(options: Options) -> io::Result<()> {
                 }
             }
             next = now + interval;
+        }
+        if plot_due || redraw {
+            let snapshot = tracker.snapshot(now);
+            if plot_due {
+                history.record(&snapshot, now);
+                next_plot = now + SAMPLE_INTERVAL;
+            }
+            if let Err(error) = screen.render(&dashboard, link, &snapshot, &history, now, || {
+                service_radio(radio.as_mut(), &mut next_radio);
+            }) {
+                break Err(display_error(error));
+            }
+            redraw = false;
+            shown_link = Some(link);
+            let finished = Instant::now();
+            if finished >= next_plot {
+                // Skip the missed paint and leave time to receive sensor and touch events.
+                next_plot = finished + SAMPLE_INTERVAL;
+            }
         }
         let wake = next.min(next_plot);
         let wake = if radio.is_some() {
@@ -317,6 +353,7 @@ fn run(options: Options) -> io::Result<()> {
     let join_b = secondary.as_mut().map(imu::Session::join);
     let join_gnss = receiver.as_mut().map(gnss::Session::join);
     let join_touch = touch.as_mut().map(touch::Session::join);
+    let stop_cellular = cellular.as_mut().map(cellular::Session::stop);
     for (operation, failed) in [
         ("stop IMU 1", failed(stop_a)),
         ("stop IMU 2", failed(stop_b)),
@@ -326,6 +363,7 @@ fn run(options: Options) -> io::Result<()> {
         ("join IMU 2", failed(join_b)),
         ("join GNSS", failed(join_gnss)),
         ("join touch", failed(join_touch)),
+        ("stop cellular", failed(stop_cellular)),
     ] {
         if failed {
             eprintln!("motion-tracker: {operation} failed");
@@ -345,12 +383,39 @@ fn display_error(error: display::Error) -> io::Error {
     io::Error::other(format!("tracker display: {error:?}"))
 }
 
+fn report_battery() -> io::Result<()> {
+    let status = composition::battery::primary_battery()
+        .status()
+        .map_err(|error| io::Error::other(format!("battery status: {error:?}")))?;
+    let input = if status.external_power {
+        "external power present"
+    } else {
+        "external power absent"
+    };
+    let mut output = io::stdout().lock();
+    match status.battery {
+        Some(battery) => match battery.percent {
+            Some(percent) => writeln!(
+                output,
+                "Battery {percent}% ({:?}, {input})",
+                battery.charge_state
+            ),
+            None => writeln!(
+                output,
+                "Battery estimate unavailable ({:?}, {input})",
+                battery.charge_state
+            ),
+        },
+        None => writeln!(output, "No battery detected ({input})"),
+    }
+}
+
 fn main() -> std::process::ExitCode {
     match Options::parse(std::env::args().skip(1)).and_then(run) {
         Ok(()) => std::process::ExitCode::SUCCESS,
         Err(error) => {
             eprintln!(
-                "motion_tracker [--interval-ms 100..2000] [--frames N] [--stream-usb] [--ble]: {error}"
+                "motion_tracker [--interval-ms 100..2000] [--frames N] [--stream-usb] [--ble] [--cellular-apn APN] or motion_tracker --battery: {error}"
             );
             std::process::ExitCode::FAILURE
         }

@@ -76,6 +76,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "95832e849adfb21180ccb6826a99da14e5d266ae5c2e668e1602cf234f153797"
 
 [[package]]
+name = "byteorder"
+version = "1.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1fd0f2584146f6f2ef48085050886acf353beff7305ebd1ae69500e27c67f64b"
+
+[[package]]
 name = "byterepr"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -347,6 +353,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "hash32"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "47d60b12902ba28e2730cd37e95b8c9223af2808df9e902d4df49588d1470606"
+dependencies = [
+ "byteorder",
+]
+
+[[package]]
 name = "hashbrown"
 version = "0.17.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -355,6 +370,16 @@ dependencies = [
  "allocator-api2",
  "equivalent",
  "foldhash",
+]
+
+[[package]]
+name = "heapless"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0bfb9eb618601c89945a70e254898da93b13be0388091d42117462b265bb3fad"
+dependencies = [
+ "hash32",
+ "stable_deref_trait",
 ]
 
 [[package]]
@@ -628,6 +653,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "num_enum"
+version = "0.7.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5d0bca838442ec211fa11de3a8b0e0e8f3a4522575b5c4c06ed722e005036f26"
+dependencies = [
+ "num_enum_derive",
+ "rustversion",
+]
+
+[[package]]
+name = "num_enum_derive"
+version = "0.7.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "680998035259dcfcafe653688bf2aa6d3e2dc05e98be6ab46afb089dc84f1df8"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.119",
+]
+
+[[package]]
 name = "num_threads"
 version = "0.1.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -670,6 +716,23 @@ dependencies = [
  "cfg-if",
  "nxrs-acquisition",
  "nxrs-build-support",
+]
+
+[[package]]
+name = "nxrs-axp2101"
+version = "0.1.0"
+dependencies = [
+ "embedded-hal",
+ "nxrs-peripheral",
+]
+
+[[package]]
+name = "nxrs-battery"
+version = "0.1.0"
+dependencies = [
+ "cfg-if",
+ "nxrs-build-support",
+ "nxrs-peripheral",
 ]
 
 [[package]]
@@ -772,12 +835,25 @@ name = "nxrs-capture-wire"
 version = "0.1.0"
 
 [[package]]
+name = "nxrs-cellular"
+version = "0.1.0"
+dependencies = [
+ "cfg-if",
+ "nxrs-acquisition",
+ "nxrs-build-support",
+ "nxrs-sim7080",
+ "ppproto",
+]
+
+[[package]]
 name = "nxrs-composition"
 version = "0.1.0"
 dependencies = [
  "cfg-if",
  "embedded-hal",
  "nxrs-acquisition",
+ "nxrs-axp2101",
+ "nxrs-battery",
  "nxrs-bmi270",
  "nxrs-build-support",
  "nxrs-gnss",
@@ -1043,7 +1119,9 @@ version = "0.1.0"
 name = "nxrs-motion-tracker"
 version = "0.1.0"
 dependencies = [
+ "nxrs-battery",
  "nxrs-ble",
+ "nxrs-cellular",
  "nxrs-composition",
  "nxrs-display",
  "nxrs-gnss",
@@ -1166,6 +1244,10 @@ dependencies = [
  "cfg-if",
  "nxrs-build-support",
 ]
+
+[[package]]
+name = "nxrs-sim7080"
+version = "0.1.0"
 
 [[package]]
 name = "nxrs-simulation"
@@ -1352,6 +1434,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "nxrs-tracker-sim-qualification"
+version = "0.1.0"
+dependencies = [
+ "nxrs-battery",
+ "nxrs-cellular",
+ "nxrs-composition",
+ "nxrs-display",
+ "nxrs-gnss",
+ "nxrs-imu",
+ "nxrs-messaging",
+ "nxrs-settings",
+ "nxrs-touch",
+]
+
+[[package]]
 name = "nxrs-transport"
 version = "0.1.0"
 dependencies = [
@@ -1459,6 +1556,16 @@ name = "powerfmt"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4a6394b9e965e73d0a289ee54f589087e2c676aedf60885baf52c76b771e4958"
+
+[[package]]
+name = "ppproto"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2e97092aa0d37d5c9ff116dded64bcf99a89ecda7901fc305b2176bdfac967f2"
+dependencies = [
+ "heapless",
+ "num_enum",
+]
 
 [[package]]
 name = "proc-macro-error"
@@ -1792,6 +1899,12 @@ name = "smallvec"
 version = "1.16.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "149309498a5f7334b12ddae0cad8aba81ce785fe91755068867e017cf98fee46"
+
+[[package]]
+name = "stable_deref_trait"
+version = "1.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6ce2be8dc25455e1f91df71bfa12ad37d7af1092ae736f3a6cd0e37bc7810596"
 
 [[package]]
 name = "static_assertions"

@@ -45,3 +45,19 @@ UART0_SERIAL_CONSOLE = "n"
 UART1_SERIAL_CONSOLE = "n"
 UART2_SERIAL_CONSOLE = "n"
 SERIAL_TERMIOS = "y"
+
+[resources.uart2]
+kind = "uart"
+device = "/dev/ttyS2"
+pin-settings = ["ESP32S3_UART2_TXPIN", "ESP32S3_UART2_RXPIN"]
+values = { baud = "UART2_BAUD" }
+[resources.uart2.kconfig]
+ESP32S3_UART2 = "y"
+ESP32S3_UART0 = "y"
+ESP32S3_UART1 = "y"
+ESP32S3_USBSERIAL = "y"
+OTHER_SERIAL_CONSOLE = "y"
+UART0_SERIAL_CONSOLE = "n"
+UART1_SERIAL_CONSOLE = "n"
+UART2_SERIAL_CONSOLE = "n"
+SERIAL_TERMIOS = "y"

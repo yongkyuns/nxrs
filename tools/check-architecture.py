@@ -53,6 +53,8 @@ PORTABLE_EXTERNAL_BY_PACKAGE = {
     'nxrs-detection-wire': {'serde', 'serde_json'},
     # QR encoding is safe Rust with no native dependencies, exercised on CoreS3.
     'nxrs-motion-tracker': {'qrcodegen'},
+    # Fixed-buffer PPP framing and negotiation with no host/native runtime.
+    'nxrs-cellular': {'ppproto'},
 }
 
 
@@ -449,11 +451,11 @@ def declared_binding_catalogs(package: Path, stack=(), capability=None) -> list[
 
 
 def inspect_generated_imu_factory(root: Path) -> list[str]:
-    """Check declarative sensor generation and the current typed runtime seam."""
+    """Check declarative device generation and the typed runtime seams."""
     root = root.resolve()
     errors = []
     relative = lambda path: path.relative_to(root).as_posix()
-    for capability in ('imu', 'gnss'):
+    for capability in ('imu', 'gnss', 'battery'):
         hal = root / 'hal' / capability
         owner = root / 'platform'
         nuttx = owner / 'src/nuttx' / f'{capability}.rs'
@@ -543,7 +545,7 @@ def inspect_generated_imu_factory(root: Path) -> list[str]:
                     continue
                 if any(re.search(r'\b' + re.escape(name) + r'\b', path.read_text()) for name in implementations):
                     errors.append(f'{relative(path)}: concrete sensor wiring belongs in the platform device catalogue')
-        else:
+        elif capability == 'gnss':
             runtime = (hal / 'src/platform/nuttx/mod.rs').read_text()
             compact = re.sub(r'\s+', '', source)
             retirement = re.sub(r'\s+', '', runtime)

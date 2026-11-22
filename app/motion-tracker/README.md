@@ -50,6 +50,7 @@ After loading the firmware on the matching board, run at the NuttX console:
 motion_tracker
 motion_tracker --interval-ms 500 --frames 20
 motion_tracker --frames 20
+motion_tracker --battery
 ```
 
 Use the bounded runs to confirm each IMU is live, the interval survives restart,
@@ -61,6 +62,12 @@ module sensors. Each live entry carries the source sequence and monotonic
 reception timestamp. The IMU entries include nominal sample period, acceleration
 in m/s² and angular velocity in rad/s. Live GNSS entries include latitude and
 longitude in degrees and speed in m/s. The dashboard's speed is in km/h.
+
+`motion_tracker --battery` prints one AXP2101 reading and exits. It reports
+the estimated charge percentage, the direction of charge and whether
+external power is available. A missing pack or unavailable estimate has
+its own status. The command can be run from the NuttX shell before starting
+the live dashboard.
 
 ## Live iPhone data over Bluetooth
 
@@ -97,5 +104,31 @@ The BLE UUIDs end in `3400` (service), `3401` (phone writes ciphertext), and
 `3CB1DE6E-A955-49B7-BE4F-C4572D3F`. Android can use the same GATT byte stream and
 TLS configuration. Each decrypted record is the same v1 NDJSON frame used by
 USB. Frame readers handle split or joined lines and reject records longer
-than 768 bytes including the newline. A future modem can carry the same frames
-over authenticated TLS/TCP with its own enrollment policy.
+than 768 bytes including the newline. The same frames can carry telemetry over an authenticated TCP session
+when a remote collector and its enrollment policy are configured.
+
+## Stamp CatM cellular
+
+The `m5stack-cores3-stamp-catm` profile adds the M5Stack S003 (SIM7080G) to
+CoreS3 + M135. It uses the Stamp’s TX pad **JP2** to CoreS3 GPIO7 and the Stamp’s
+RX pad **JP4** to GPIO13. JP1 and JP3 must stay open with GNSS using M-Bus
+pins 15 and 16. The Stamp UART is 115200 8N1. Check the M135 PCB revision
+against the [M135 schematic](https://m5stack-doc.oss-cn-shenzhen.aliyuncs.com/561/SCH_Module_GNSS_V1.0.pdf).
+The [Stamp documentation](https://docs.m5stack.com/en/stamp/Stamp_CatM)
+covers SIM and antenna installation.
+
+```sh
+cargo nxrs build --app motion-tracker --profile m5stack-cores3-stamp-catm
+```
+
+Run `motion_tracker --cellular-apn YOUR_APN` with your carrier’s IPv4 APN.
+The console reports `Connecting`, `Online` with the assigned IPv4 address,
+or the failure. The link lives for the duration of the tracker command. This
+profile expects one IP uplink and an APN without user-supplied PPP credentials.
+The HAL leaves global DNS configuration and link selection to the caller.
+Cellular currently provides IP connectivity. The dashboard still publishes
+tracker records over BLE and USB.
+
+The [Mac simulator](../../tests/nuttx-std/tracker-sim/README.md) can exercise the
+UART and network paths without a SIM or carrier. Physical modem and carrier
+operation remain unverified.

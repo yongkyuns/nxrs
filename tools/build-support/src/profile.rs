@@ -26,10 +26,12 @@ pub const CAPABILITIES: &[&str] = &[
     "imu",
     "gnss",
     "wifi",
+    "cellular",
     "ble",
     "tls",
     "boot",
     "watchdog",
+    "battery",
     "rtc",
     "flash",
     "display",
@@ -841,6 +843,7 @@ impl Profile {
     }
     pub fn validate_resources(&self) -> Result<()> {
         self.detector()?;
+        self.cellular_uart()?;
         if let Some(v) = self.data.get("scheduling") {
             if self.binding("execution") == "none"
                 || !keys(v, &["background", "normal"], &[])
@@ -941,6 +944,35 @@ impl Profile {
         }
         Ok(())
     }
+    fn cellular_uart(&self) -> Result<Option<&str>> {
+        let value = &self.data["cellular"];
+        if self.binding("cellular") != "nuttx" {
+            if !value.is_null() {
+                return Err("cellular UART requires its NuttX binding".into());
+            }
+            return Ok(None);
+        }
+        let uart = value["uart"]
+            .as_str()
+            .filter(|_| keys(value, &["uart"], &[]))
+            .ok_or("cellular requires one named UART resource")?;
+        let resource = &self.data["resources"][uart];
+        let assigned = self.data["devices"].as_object().is_some_and(|devices| {
+            devices.values().any(|device| {
+                self.data["resources"][device["bus"].as_str().unwrap_or_default()]["device"]
+                    == resource["device"]
+            })
+        });
+        if assigned
+            || resource["kind"] != "uart"
+            || resource["baud"] != 115200
+            || !device(&resource["device"])
+        {
+            return Err("cellular requires a dedicated 115200-baud BSP UART".into());
+        }
+        Ok(resource["device"].as_str())
+    }
+
     pub fn watchdog_mode(&self) -> &str {
         self.data["watchdog"]["mode"]
             .as_str()
@@ -1042,6 +1074,11 @@ impl Profile {
         let mut env =
             |name: &str, value: String| output.push(format!("cargo:rustc-env={name}={value}"));
         match capability {
+            "cellular" => {
+                if let Some(uart) = self.cellular_uart()? {
+                    env("CELLULAR_DEVICE", uart.into());
+                }
+            }
             "boot" if self.binding(capability) == "nuttx" && self.data.get("mcuboot").is_some() => {
                 env("BOOT_UPDATE_CONTROL", "1".into());
             }
@@ -1172,6 +1209,24 @@ mod tests {
         assert!(!replaced.source_paths().any(|path| path == &parent_fragment));
         assert_eq!(replaced.data["kconfig"], inherited.data["kconfig"]);
     }
+    #[test]
+    fn stamp_uses_its_own_bsp_uart_at_the_fixed_modem_baud() {
+        let root = root();
+        for name in ["m5stack-cores3-stamp-catm", "esp32s3-qemu-tracker"] {
+            let mut profile = Profile::resolve(&root, name).unwrap();
+            assert_eq!(profile.cellular_uart().unwrap(), Some("/dev/ttyS2"));
+            assert_eq!(
+                profile.data["resources"]["receiver_uart"]["device"],
+                "/dev/ttyS1"
+            );
+            profile.data["resources"]["modem_uart"]["device"] = json!("/dev/ttyS1");
+            assert!(profile.cellular_uart().is_err());
+            profile.data["resources"]["modem_uart"]["device"] = json!("/dev/ttyS2");
+            profile.data["resources"]["modem_uart"]["baud"] = json!(9600);
+            assert!(profile.cellular_uart().is_err());
+        }
+    }
+
     #[test]
     fn microphone_profile_admits_only_the_bound_endpoint_and_a_valid_slot() {
         let root = root();

@@ -88,10 +88,18 @@ The compiler, rust-src, GCC and QEMU archives are pinned and hash-verified. The
 build uses the same private NuttX std fixes as the ordinary runtime
 qualification; installed toolchains are not modified.
 
+## Tracker device simulation
+
+The [tracker simulator](../tests/nuttx-std/tracker-sim/README.md) uses the same
+NuttX/Rust build path with local device models and accelerated guest time.
+It exercises the serial, I²C, SPI, touch, settings and IP driver paths.
+The full motion tracker scenario also drives the app dashboard and pairs an
+independent TLS client through NuttX GATT and an emulated HCI UART controller.
+
 ## Limits
 
 Camera bytes are synthetic and storage is tmpfs. This does not qualify a physical
-ESP32-S3 camera, DMA/cache coherency, Wi-Fi/BLE, PSRAM, persistent storage,
+ESP32-S3 camera, DMA/cache coherency, Wi-Fi/BLE radio hardware, PSRAM, persistent storage,
 hardware deadlines or electrical behavior. Loopback proves the target
 network/std path, not a physical radio. The private std/libc corrections remain
 scoped compatibility patches rather than a claim of stock upstream NuttX std
