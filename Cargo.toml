@@ -12,6 +12,7 @@ members = [
     "tools/build-support",
     "platform",
     "tools/detector-build-support",
+    "driver/axp2101",
     "driver/bmi270",
     "driver/i2c",
     "driver/ili9342c",
@@ -22,10 +23,12 @@ members = [
     "driver/lsm6dso",
     "driver/peripheral",
     "driver/ubx",
+    "driver/sim7080",
     "driver/linux/gio",
     "hal/detector",
     "hal/display",
     "hal/touch",
+    "hal/cellular",
     "service/camera",
     "service/detection",
     "service/detection-wire",
@@ -54,6 +57,7 @@ members = [
     "hal/tls",
     "hal/boot",
     "hal/watchdog",
+    "hal/battery",
     "hal/rtc",
     "hal/flash",
     "hal/storage",
@@ -74,6 +78,7 @@ members = [
     "tests/nuttx-std/imu-qualification",
     "tests/nuttx-std/udp",
     "tests/nuttx-std/display",
+    "tests/nuttx-std/tracker-sim",
     "tests/nuttx-std/display/lvgl",
     "tests/nuttx-std/userled",
     "tests/nuttx-std/peripherals",
@@ -127,6 +132,8 @@ version = "0.1.0"
 # provenance and regression witnesses are recorded under upstream/microflow. The macro compiler
 # and other dependencies remain registry-pinned in Cargo.lock.
 microflow = { path = "vendor/microflow" }
+# Keep the published PPP implementation with the RustSec-fixed heapless release.
+ppproto = { path = "vendor/ppproto" }
 
 [profile.release.package.nxrs-detector]
 opt-level = 3

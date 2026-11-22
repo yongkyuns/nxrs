@@ -138,13 +138,16 @@ class FirmwareFrontendTests(unittest.TestCase):
                 data = PLATFORM_CONFIG.resolve(profile_name)
                 for key in ("board", "target", "crossdev", "machine", "image"):
                     self.assertIsInstance(data.get(key), str, f"{platform} missing {key}")
-                    self.assertTrue(data[key])
+                    if key == "crossdev" and data["board"] == "sim:nsh":
+                        self.assertEqual(data[key], "")
+                    else:
+                        self.assertTrue(data[key])
                 features = data.get("hal")
                 self.assertIsInstance(features, dict)
                 # Hardware qualification does not implicitly select sensor mocks.
                 expected = {"m5stack-cores3-gnss": {"gnss": "nuttx", "imu": "nuttx"},
                             "m5stack-cores3-display": {"display": "nuttx"},
-                            "m5stack-cores3-dual-imu": {"imu": "nuttx", "gnss": "nuttx", "display": "nuttx", "touch": "nuttx", "settings": "nuttx", "ble": "nuttx", "tls": "nuttx"},
+                            "m5stack-cores3-dual-imu": {"imu": "nuttx", "gnss": "nuttx", "display": "nuttx", "touch": "nuttx", "settings": "nuttx", "ble": "nuttx", "tls": "nuttx", "battery": "nuttx"},
                             "cores3-imu-qualification": {"gnss": "nuttx", "imu": "nuttx"},
                             "cores3-protected-qualification": {"gnss": "nuttx", "imu": "nuttx"},
                             "esp32s3-devkit-imu-qualification": {"imu": "nuttx"},
@@ -185,6 +188,16 @@ class FirmwareFrontendTests(unittest.TestCase):
                 expected["esp32s3-camera-microphone"] = {
                     **expected["esp32s3-camera-stream-startup"], "audio": "nuttx",
                 }
+                expected["m5stack-cores3-stamp-catm"] = {
+                    **expected["m5stack-cores3-dual-imu"], "cellular": "nuttx",
+                }
+                expected["esp32s3-qemu-tracker"] = dict.fromkeys(
+                    ("battery", "cellular", "display", "gnss", "imu", "settings", "touch"), "nuttx",
+                )
+                tracker = dict.fromkeys(("battery", "display", "gnss", "imu", "settings", "touch"), "nuttx")
+                expected["esp32s3-qemu-tracker-devices"] = tracker
+                expected["esp32s3-qemu-tracker-dashboard"] = {**tracker, "ble": "nuttx", "tls": "nuttx"}
+                expected["nuttx-sim-tracker"] = expected["esp32s3-qemu-tracker-dashboard"]
                 self.assertEqual(features, expected.get(profile_name,
                                  {"imu": "mock", "gnss": "mock"}))
                 self.assertNotIn("hal-features", data)
@@ -230,13 +243,20 @@ class FirmwareFrontendTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     PLATFORM_CONFIG.composition_config(invalid)
 
-    def test_cores3_dual_imu_selects_two_distinct_board_endpoints(self):
+    def test_cores3_tracker_selects_distinct_devices_on_the_shared_bus(self):
         data = PLATFORM_CONFIG.resolve("m5stack-cores3-dual-imu")
         graph = data["resolved-composition"]["graph"]
         primary = graph["devices"][graph["aliases"]["imu"]]
         secondary = graph["devices"][graph["aliases"]["imu_secondary"]]
         self.assertEqual((primary["address"], secondary["address"]), (0x69, 0x68))
         self.assertEqual(primary["bus"], secondary["bus"])
+        gauge = graph["devices"][graph["aliases"]["battery"]]
+        self.assertEqual((gauge["bus"], gauge["address"]), ("sensor_bus", 0x34))
+        for address in (0x35, 0x69):
+            invalid = copy.deepcopy(data)
+            invalid["devices"][graph["aliases"]["battery"]]["address"] = address
+            with self.subTest(address=address), self.assertRaises(ValueError):
+                PLATFORM_CONFIG.composition_config(invalid)
         self.assertEqual(graph["devices"][graph["aliases"]["gnss"]]["bus"], "receiver_uart")
         self.assertEqual(data["display"]["device"], "/dev/spi2")
         self.assertEqual(data["touch"]["device"], "/dev/input0")

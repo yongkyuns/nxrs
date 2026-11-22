@@ -13,7 +13,11 @@ endif
 
 nxrs_app.o: $(NXRS_STD_ELF)
 	@test -n "$(NXRS_APP_COMMAND)"
+ifeq ($(CONFIG_ARCH_SIM)$(CONFIG_HOST_MACOS),yy)
+	cp $< $@
+else
 	$(OBJCOPY) --redefine-sym main=$(NXRS_APP_COMMAND)_main $< $@
+endif
 
 ifneq ($(NXRS_TARGET_C_SOURCE),)
 CSRCS += $(NXRS_TARGET_C_SOURCE)

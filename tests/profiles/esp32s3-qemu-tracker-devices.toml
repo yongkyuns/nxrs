@@ -1,0 +1,70 @@
+# Device composition shared by the NuttX tracker simulator scenarios.
+board = "esp32s3-devkit:nsh"
+target = "xtensa-esp32s3-nuttx"
+crossdev = "xtensa-esp32s3-elf-"
+machine = "Tensilica Xtensa Processor"
+image = "nuttx.merged.bin"
+hal = { imu = "nuttx", gnss = "nuttx", battery = "nuttx", touch = "nuttx", display = "nuttx", settings = "nuttx" }
+
+[composition]
+version = 1
+mode = "hardware"
+
+[resources.receiver_uart]
+binding = "uart1"
+kconfig = { ESP32S3_UART1_TXPIN = 17, ESP32S3_UART1_RXPIN = 18 }
+baud = 38400
+
+[resources.sensor_bus]
+binding = "qemu_tracker_i2c"
+frequency = 400000
+
+[display]
+device = "/dev/spi2"
+
+[touch]
+device = "/dev/input0"
+
+[devices.navigation]
+compatible = "u-blox,neo-m9n"
+bus = "receiver_uart"
+
+[devices.onboard]
+compatible = "bosch,bmi270"
+bus = "sensor_bus"
+address = 0x69
+wake = { kind = "periodic" }
+
+[devices.module]
+compatible = "bosch,bmi270"
+bus = "sensor_bus"
+address = 0x68
+wake = { kind = "periodic" }
+
+[devices.fuel_gauge]
+compatible = "x-powers,axp2101-fuel-gauge"
+bus = "sensor_bus"
+address = 0x34
+
+[aliases]
+gnss = "navigation"
+imu = "onboard"
+imu_secondary = "module"
+battery = "fuel_gauge"
+
+[gnss]
+stack-bytes = 16384
+
+[imu]
+stack-bytes = 16384
+
+[kconfig]
+enable = ["ESP32S3_QEMU_IMAGE", "PIPES", "SCHED_LPWORK", "SPI", "SPI_DRIVER",
+  "SPI_EXCHANGE", "SPI_CMDDATA", "INPUT", "INPUT_FT5X06", "FT5X06_POLLMODE",
+  "FT5X06_SINGLEPOINT", "MTD", "RAMMTD", "RAMMTD_FLASHSIM", "MTD_CONFIG_NVS",
+  "MTD_CONFIG_NAMED"]
+disable = ["SMP", "ESP32S3_SPIRAM", "ESPRESSIF_WIFI", "ESPRESSIF_BLE", "SPI_HWFEATURES", "MTD_CONFIG_NONE"]
+set = ["USEC_PER_TICK=1000", "PTHREAD_STACK_DEFAULT=16384", "MTD_CONFIG_NAME_LEN=32",
+  "RAMMTD_ERASESIZE=4096", "RAMMTD_BLOCKSIZE=256"]
+require = ["CONFIG_ESP32S3_QEMU_IMAGE=y", "CONFIG_PIPES=y"]
+forbid-regex = "^CONFIG_(SMP|ESP32S3_SPIRAM|ESPRESSIF_WIFI|ESPRESSIF_BLE|SCHED_TICKLESS)=y$"

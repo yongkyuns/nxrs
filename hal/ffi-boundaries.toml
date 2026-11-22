@@ -2,6 +2,11 @@
 # Every entry requires semantic review; scalar interfaces do not prove thin glue.
 
 [[bridge]]
+path = "hal/cellular/src/platform/nuttx/ffi/link.c"
+kind = "abi"
+reason = "Target serial flags and termios, descriptor readiness and individual TUN interface controls. Rust owns the modem, packet path and link lifecycle."
+
+[[bridge]]
 path = "hal/touch/src/platform/nuttx/ffi/layout.c"
 kind = "abi"
 reason = "Target touchscreen sample offsets, event masks and nonblocking open flag. Rust owns the descriptor, reads and press delivery."

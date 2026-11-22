@@ -116,7 +116,11 @@
       "0129-esp32s3-cores3-register-settings-storage.patch",
       "0130-esp32s3-cores3-ble-and-guarded-entropy.patch",
       "0131-esp32s3-read-systimer-with-periodic-scheduler.patch",
-      "0132-esp32s3-cores3-touchscreen.patch"
+      "0132-esp32s3-cores3-touchscreen.patch",
+      "0133-esp32s3-qemu-host-entropy.patch",
+      "0134-sim-macos-pty.patch",
+      "0135-sim-macos-libc-symbol-prefix.patch",
+      "0136-sim-replace-macos-archive-members.patch"
     ]
   },
   "mcuboot": {

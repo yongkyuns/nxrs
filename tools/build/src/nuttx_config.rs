@@ -561,11 +561,16 @@ impl Configuration {
 }
 
 pub(crate) fn seed(nuttx: &Path, board: &str, command: impl Fn(&str) -> Command) -> Result<String> {
+    let host = if board.starts_with("sim:") && cfg!(target_os = "macos") {
+        "-m"
+    } else {
+        "-l"
+    };
     crate::output(
         command("bash")
             .current_dir(nuttx)
             .arg("tools/configure.sh")
-            .args(["-l", board, "KCONFIG_OLDDEFCONFIG=olddefconfig"])
+            .args([host, board, "KCONFIG_OLDDEFCONFIG=olddefconfig"])
             .env_remove("KCONFIG_CONFIG"),
     )?;
     read(&nuttx.join(".config"))

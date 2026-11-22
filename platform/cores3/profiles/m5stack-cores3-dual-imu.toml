@@ -1,6 +1,6 @@
 # CoreS3 with M135, built-in panel and a dedicated settings partition.
 extends = "m5stack-cores3-gnss"
-hal = { display = "nuttx", touch = "nuttx", settings = "nuttx", ble = "nuttx", tls = "nuttx" }
+hal = { display = "nuttx", touch = "nuttx", settings = "nuttx", ble = "nuttx", tls = "nuttx", battery = "nuttx" }
 
 [devices.onboard]
 compatible = "bosch,bmi270"
@@ -8,10 +8,16 @@ bus = "sensor_bus"
 address = 0x69
 wake = { kind = "periodic" }
 
+[devices.fuel_gauge]
+compatible = "x-powers,axp2101-fuel-gauge"
+bus = "sensor_bus"
+address = 0x34
+
 [aliases]
 # The inherited imu device is the M135 BMI270, set to 0x68.
 imu = "onboard"
 imu_secondary = "imu"
+battery = "fuel_gauge"
 
 [display]
 device = "/dev/spi2"

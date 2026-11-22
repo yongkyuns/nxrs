@@ -16,10 +16,11 @@ Select `linux-tls` or `macos-tls` for host qualification, or `pico2-tls` and
 `esp32s3-camera-tls` for NuttX qualification. Public socket/time types use
 Rust `std` and remain available without a selected backend; `open()` then returns `Unsupported`,
 acquiring no SDK or entropy. Services need no platform conditionals.
-The NuttX factory accepts only the configured RP2350 hardware source or the
-guarded ESP32-S3 RF source, opens `/dev/random` nonblocking and refuses
-unqualified sources. Polling and interrupted reads are bounded; contention,
-partial output and source failures close the identity. There is no fixed seed.
+The NuttX factory opens `/dev/random` nonblocking. Hardware builds admit the
+configured RP2350 source or the guarded ESP32-S3 RF source. An ESP32-S3 QEMU
+image can also use host-backed randomness after the emulator signature is
+verified at runtime. Polling and interrupted reads are bounded. Contention,
+partial output and source failures close the identity.
 
 Only one SDK owner may exist. It cannot move between threads; native callbacks
 borrow it only during synchronous calls. Fresh reseeding is explicit and source

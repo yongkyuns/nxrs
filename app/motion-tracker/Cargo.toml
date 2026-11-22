@@ -17,13 +17,15 @@ name = "motion-tracker"
 path = "src/main.rs"
 
 [dependencies]
-nxrs-composition = { path = "../../platform", features = ["imu", "gnss"] }
+nxrs-composition = { path = "../../platform", features = ["imu", "gnss", "battery"] }
+nxrs-battery = { path = "../../hal/battery" }
 nxrs-display = { path = "../../hal/display" }
 nxrs-touch = { path = "../../hal/touch" }
 nxrs-gnss = { path = "../../hal/gnss" }
 nxrs-imu = { path = "../../hal/imu" }
 nxrs-messaging = { path = "../../shared/messaging", features = ["channels"] }
 nxrs-settings = { path = "../../hal/settings" }
+nxrs-cellular = { path = "../../hal/cellular" }
 nxrs-ble = { path = "../../hal/ble", features = ["peripheral"] }
 nxrs-tls = { path = "../../hal/tls", features = ["pairing"] }
 qrcodegen = "1.8"
