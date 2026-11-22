@@ -194,6 +194,9 @@ class FirmwareFrontendTests(unittest.TestCase):
                 expected["esp32s3-qemu-tracker"] = dict.fromkeys(
                     ("battery", "cellular", "display", "gnss", "imu", "settings", "touch"), "nuttx",
                 )
+                expected["esp32s3-qemu-tracker-upload"] = {
+                    **expected["esp32s3-qemu-tracker"], "tls": "nuttx",
+                }
                 tracker = dict.fromkeys(("battery", "display", "gnss", "imu", "settings", "touch"), "nuttx")
                 expected["esp32s3-qemu-tracker-devices"] = tracker
                 expected["esp32s3-qemu-tracker-dashboard"] = {**tracker, "ble": "nuttx", "tls": "nuttx"}

@@ -82,6 +82,7 @@ pub struct Tracker {
     gnss: Source<gnss::GnssFix>,
 }
 
+#[derive(Clone, Copy)]
 pub struct Snapshot {
     pub imu: [Reading<imu::ImuSample>; 2],
     pub gnss: Reading<gnss::GnssFix>,

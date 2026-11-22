@@ -49,5 +49,7 @@ pub enum Status {
 /// One exclusive link. Dropping or stopping it joins its worker and removes the IP interface.
 pub trait Session {
     fn status(&self) -> Status;
+
+    /// Join teardown and report the terminal failure, if any.
     fn stop(&mut self) -> Result<(), Error>;
 }
