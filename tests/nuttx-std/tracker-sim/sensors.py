@@ -66,6 +66,10 @@ def check_imus(sample):
 
 def check_live(sample):
     check_imus(sample)
+    check_fix(sample)
+
+
+def check_fix(sample):
     gnss = sample['gnss']
     assert gnss['state'] == 'live', sample
     assert abs(gnss['lat_deg'] - 48.1173) < 1e-6 and abs(gnss['lon_deg'] + 11.5166667) < 1e-6, sample
@@ -74,3 +78,11 @@ def check_live(sample):
 def check_stale(sample):
     check_imus(sample)
     assert sample['gnss'] == {'state': 'stale'}, sample
+
+
+def check_progress(samples):
+    for previous, latest in zip(samples, samples[1:]):
+        assert latest['gnss']['seq'] > previous['gnss']['seq'], samples
+        for old, new in zip(previous['imu'], latest['imu']):
+            if old['state'] == new['state'] == 'live':
+                assert new['seq'] > old['seq'], samples

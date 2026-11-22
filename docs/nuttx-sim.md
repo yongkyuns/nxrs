@@ -9,12 +9,20 @@ for camera, recording and monitoring.
 The `nuttx-sim-tracker` profile builds the ordinary `motion_tracker` application
 and NuttX-side Rust standard library. The test registers the same BMI270 I²C
 fixture as ESP32-S3 QEMU and attaches the same scripted UBX receiver to a
-simulated NuttX UART through a temporary host pseudoterminal. It checks both
-IMUs, GNSS timeout and recovery, restoration of the receiver's update rate,
-and two successful tracker runs in one boot.
+simulated NuttX UART through a temporary host pseudoterminal. The
+`Native NuttX tracker (Apple Silicon)` CI job runs these cases in one boot:
+
+- GNSS fixes pause and resume while both IMUs keep reporting.
+- The primary IMU fails after reporting live data. The secondary IMU and GNSS
+  keep reporting, and the faulted run exits with an error.
+- A stalled display transfer fills the tracker inbox. USB diagnostics report
+  the drops, and fresh samples resume for both IMUs and GNSS.
+- A final healthy launch verifies release of the devices. Every run checks
+  restoration of the GNSS receiver's original update rate.
 
 Use Xcode command-line tools, GNU Make and GNU sed (as `make` and `sed` on
-`PATH`), CMake, `genromfs`, and Python 3.11 or later with `kconfiglib` and `lief`.
+`PATH`), `kconfig-tweak` from NuttX's `kconfig-frontends`, CMake, `flock`,
+`genromfs`, and Python 3.11 or later with `kconfiglib` and `lief`.
 Install `nightly-2025-09-15` with `rust-src`, and provide the pinned Mbed TLS
 archive at `target/mbedtls-4.2.0.tar.bz2` or with `NXRS_TLS_ARCHIVE`.
 See the [Mbed TLS source pin](../upstream/mbedtls/source.json) for the download.
