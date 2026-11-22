@@ -4,6 +4,10 @@
 #include <errno.h>
 #include <stdio.h>
 
+#ifdef TRACKER_DEMO_AUTOSTART
+#  include <builtin/builtin.h>
+#endif
+
 #ifdef CONFIG_RAM_UART
 #include <stddef.h>
 #include <nuttx/serial/uart_ram.h>
@@ -48,6 +52,14 @@ int tracker_sim_init(int argc, char *argv[])
       printf("tracker simulator initialization failed: %d\n", ret);
       return ret;
     }
+
+#ifdef TRACKER_DEMO_AUTOSTART
+  char *tracker_args[] = { "motion_tracker", "--interval-ms", "500", NULL };
+  if (exec_builtin(tracker_args[0], tracker_args, NULL) < 0)
+    {
+      printf("motion tracker startup failed: %d\n", errno);
+    }
+#endif
 
   return nsh_main(argc, argv);
 }

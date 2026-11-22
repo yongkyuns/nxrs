@@ -1,0 +1,5 @@
+/* Use the browser CSPRNG for the PSA random source. */
+#undef MBEDTLS_PSA_BUILTIN_GET_ENTROPY
+#undef MBEDTLS_PSA_CRYPTO_STORAGE_C
+#undef MBEDTLS_PSA_ITS_FILE_C
+#define MBEDTLS_PSA_CRYPTO_EXTERNAL_RNG
