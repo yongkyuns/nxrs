@@ -134,6 +134,9 @@ pub(crate) fn open_peripheral(
     ingress: Uuid,
     egress: Uuid,
 ) -> Result<impl Listener, Error> {
+    if unsafe { ffi::peripheral_max_connections } != 1 {
+        return Err(Error::Unsupported);
+    }
     let ids = [service, ingress, egress];
     if service == ingress || service == egress || ingress == egress {
         return Err(Error::InvalidValue);

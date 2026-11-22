@@ -1,4 +1,5 @@
 /* Bluetooth SDK declarations, descriptor layouts and callback translations. */
+#include <nuttx/config.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <string.h>
@@ -12,6 +13,8 @@
 extern void peripheral_connection_rust(bool connected, uint16_t handle);
 extern int peripheral_read_rust(void *data, uint8_t count);
 extern int peripheral_write_rust(const void *data, uint8_t count);
+
+const unsigned int peripheral_max_connections = CONFIG_BLUETOOTH_MAX_CONN;
 
 static struct bt_uuid_s service = { .type = BT_UUID_128 };
 static struct bt_uuid_s input = { .type = BT_UUID_128 };

@@ -3,6 +3,7 @@
 The CoreS3 opens on the graph. Swipe down to show **IMU 1**, **IMU 2**,
 **GNSS** and the pairing control in one row. Select a view, swipe up, or tap
 outside the row to hide it.
+
 Each IMU tab plots the three axes of **Accel** or **Gyro** for the last
 12 seconds, sampled for display at up to 5 Hz. Readings use the sensor's
 own coordinate frame. **GNSS** plots up to 96 recent fixes on an offline,
@@ -81,13 +82,12 @@ stream for higher-cadence bench captures.
 
 Pairing is opt-in for each run. The TLS 1.2 PSK cipher is
 `TLS_PSK_WITH_AES_128_GCM_SHA256` and the PSK identity is `nxrs-tracker-v1`.
-TLS authenticates both peers through possession
-of a generated 256-bit key. The key is shown on the device, used for a one-hour
+TLS authenticates both peers through possession of a generated 256-bit key.
+The key is shown on the device, used for a one-hour
 session, and kept out of persistent settings. The display returns to the
 graph when the phone authenticates, then shows **Linked** or **Paired** while
 the key remains valid. Tap **Pair** again when the one-hour session expires.
-This pairing suite has no
-forward secrecy. The NuttX random device checks the Bluetooth PHY state under
+This pairing suite has no forward secrecy. The NuttX random device checks the Bluetooth PHY state under
 the vendor mutex before sampling. Physical entropy and throughput qualification
 remain separate from the firmware build.
 [Espressif RNG requirements](https://docs.espressif.com/projects/esp-idf/en/stable/esp32s3/api-reference/system/random.html)

@@ -1,7 +1,8 @@
-use std::ffi::c_void;
+use std::ffi::{c_uint, c_void};
 use std::ptr::NonNull;
 
 unsafe extern "C" {
+    pub(super) static peripheral_max_connections: c_uint;
     pub(super) fn peripheral_register(uuids: *const u8);
     pub(super) fn peripheral_start() -> i32;
     pub(super) fn peripheral_stop();
