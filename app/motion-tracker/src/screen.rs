@@ -225,7 +225,6 @@ impl<D: Display> Screen<D> {
         snapshot: &Snapshot,
         history: &History,
         now: Instant,
-        mut service: impl FnMut(),
     ) -> Result<(), Error> {
         let key = (ui.page, ui.metric, link, ui.menu);
         let full = self.present != Some(key);
@@ -277,7 +276,6 @@ impl<D: Display> Screen<D> {
                 },
                 pixels,
             )?;
-            service();
         }
         self.present = Some(key);
         Ok(())
@@ -735,7 +733,7 @@ mod tests {
         };
         let history = History::new();
         screen
-            .render(&ui, LinkStatus::Idle, &snapshot, &history, now, || {})
+            .render(&ui, LinkStatus::Idle, &snapshot, &history, now)
             .unwrap();
         assert!(!screen.display.0.contains(&0xffff));
         assert_eq!(screen.display.0[320 * 45 + 12], PANEL);
@@ -745,7 +743,7 @@ mod tests {
         );
         assert!(ui.menu);
         screen
-            .render(&ui, LinkStatus::Idle, &snapshot, &history, now, || {})
+            .render(&ui, LinkStatus::Idle, &snapshot, &history, now)
             .unwrap();
         assert_eq!(screen.display.0[320 * 39], PANEL);
         assert_eq!(screen.display.0[320 * 45 + 12], BG);
@@ -766,7 +764,7 @@ mod tests {
         ui.show_code(&[42; 32]).unwrap();
         assert!(!ui.menu);
         screen
-            .render(&ui, LinkStatus::Pairing, &snapshot, &history, now, || {})
+            .render(&ui, LinkStatus::Pairing, &snapshot, &history, now)
             .unwrap();
         let code =
             QrCode::encode_text(&format!("NXRS1:{}", "2A".repeat(32)), QrCodeEcc::Low).unwrap();
@@ -808,7 +806,7 @@ mod tests {
         assert!(!ui.menu);
         assert_eq!(ui.page, Page::Gnss);
         screen
-            .render(&ui, LinkStatus::Connected, &snapshot, &history, now, || {})
+            .render(&ui, LinkStatus::Connected, &snapshot, &history, now)
             .unwrap();
     }
 

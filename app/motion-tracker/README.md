@@ -104,8 +104,7 @@ The BLE UUIDs end in `3400` (service), `3401` (phone writes ciphertext), and
 `3CB1DE6E-A955-49B7-BE4F-C4572D3F`. Android can use the same GATT byte stream and
 TLS configuration. Each decrypted record is the same v1 NDJSON frame used by
 USB. Frame readers handle split or joined lines and reject records longer
-than 768 bytes including the newline. The same frames can carry telemetry over an authenticated TCP session
-when a remote collector and its enrollment policy are configured.
+than 768 bytes including the newline. Cellular upload uses the same frames.
 
 ## Stamp CatM cellular
 
@@ -121,14 +120,27 @@ covers SIM and antenna installation.
 cargo nxrs build --app motion-tracker --profile m5stack-cores3-stamp-catm
 ```
 
-Run `motion_tracker --cellular-apn YOUR_APN` with your carrier’s IPv4 APN.
-The console reports `Connecting`, `Online` with the assigned IPv4 address,
-or the failure. The link lives for the duration of the tracker command. This
-profile expects one IP uplink and an APN without user-supplied PPP credentials.
-The HAL leaves global DNS configuration and link selection to the caller.
-Cellular currently provides IP connectivity. The dashboard still publishes
-tracker records over BLE and USB.
+Use your carrier’s IPv4 APN. Provide the collector’s IPv4 address, TLS port and
+SHA-256 fingerprint of its DER-encoded leaf certificate as 64 hex digits.
 
-The [Mac simulator](../../tests/nuttx-std/tracker-sim/README.md) can exercise the
-UART and network paths without a SIM or carrier. Physical modem and carrier
-operation remain unverified.
+```text
+motion_tracker --cellular-apn YOUR_APN --collector IPV4:PORT --collector-pin SHA256
+```
+
+The tracker sends v1 NDJSON over a one-way TLS 1.3 stream after authenticating
+the pinned collector certificate. The collector reads newline-delimited records
+without sending application data back. Use a named-curve P-256 certificate
+and provision its fingerprint through a trusted channel. The pin authenticates the collector.
+Device authentication at the collector would require a separate enrollment
+mechanism. Use `--cellular-apn YOUR_APN` on its own to bring up PPP for diagnostics.
+
+A lost PPP session is torn down before redial. A lost collector connection
+reconnects over the existing link when possible. Retry delays increase from one
+to at most 30 seconds. The tracker keeps the latest snapshot and one record
+in flight. Samples superseded during an outage are skipped. BLE and cellular
+share one TLS owner task while acquisition and the dashboard continue independently.
+A modem that cannot recover command mode reports the fault and stops redialing.
+
+The [simulator qualification](../../tests/nuttx-std/tracker-sim/README.md)
+exercises the full tracker and a local collector over PPP. Physical modem and
+carrier operation remain unverified.

@@ -127,6 +127,12 @@ fn run(context: &str, shared: &Shared, stop: File) -> Result<(), Error> {
         response?;
         modem.network(shared)
     })();
+    // A stop after a published fault joins teardown and retains that fault.
+    let result = if shared.stop.load(Ordering::Acquire) {
+        Ok(())
+    } else {
+        result
+    };
     if let Err(error) = result {
         *shared.status.lock().unwrap() = Status::Failed(error);
     }
@@ -146,11 +152,7 @@ fn run(context: &str, shared: &Shared, stop: File) -> Result<(), Error> {
             return Err(Error::RecoveryRequired);
         }
     }
-    if shared.stop.load(Ordering::Acquire) {
-        Ok(())
-    } else {
-        result
-    }
+    result
 }
 
 struct Modem<'a> {

@@ -3,7 +3,6 @@ use ble::{
     peripheral::{self, Link, Listener},
     Uuid,
 };
-use std::cell::OnceCell;
 use std::io::{self, Read, Write};
 use std::time::{Duration, Instant};
 
@@ -14,14 +13,10 @@ fn uuid(last: u8) -> Uuid {
     ])
 }
 
-pub fn pair(identity: &OnceCell<tls::Identity>) -> io::Result<Output<'_, impl Listener>> {
+pub fn pair(identity: &tls::Identity) -> io::Result<Output<'_, impl Listener>> {
     let listener = peripheral::open(uuid(0), uuid(1), uuid(2))
         .map_err(|error| io::Error::other(format!("BLE: {error:?}")))?;
-    if identity.get().is_none() {
-        let value = tls::open().map_err(|error| io::Error::other(format!("TLS: {error:?}")))?;
-        let _ = identity.set(value);
-    }
-    Output::start(listener, identity.get().unwrap())
+    Output::start(listener, identity)
 }
 
 struct Bearer<T>(T);
