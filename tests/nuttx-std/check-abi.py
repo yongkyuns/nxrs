@@ -15,10 +15,12 @@ import struct
 import subprocess
 
 TARGET = 'riscv32imac-unknown-nuttx-elf'
+SIM_TARGET = 'aarch64-nuttx-sim-darwin'
 TARGETS = {
     TARGET: ('riscv64-unknown-elf-', ['-march=rv32imac', '-mabi=ilp32']),
     'thumbv8m.main-nuttx-eabi': ('arm-none-eabi-', ['-mcpu=cortex-m33', '-mthumb', '-mfloat-abi=soft']),
     'xtensa-esp32s3-nuttx': ('xtensa-esp32s3-elf-', ['-mlongcalls', '-mtext-section-literals']),
+    SIM_TARGET: ('', []),
 }
 SCALARS = ['int', 'long', 'size_t', 'time_t', 'off_t', 'nfds_t', 'pthread_t', 'pthread_key_t', 'ino_t', 'blksize_t']
 OPAQUE = ['pthread_attr_t', 'pthread_mutex_t', 'pthread_mutexattr_t',
@@ -186,6 +188,7 @@ def self_test():
 
 def run(out, target=TARGET, target_spec=None, require_finalized_context=False):
     prefix, c_flags = TARGETS[target]
+    sim = target == SIM_TARGET
     out = out.resolve()
     config_hash = hashlib.sha256((out / 'resolved.config').read_bytes()).hexdigest()
     if require_finalized_context:
@@ -195,13 +198,18 @@ def run(out, target=TARGET, target_spec=None, require_finalized_context=False):
         config_header_hash = hashlib.sha256((out / 'nuttx/include/nuttx/config.h').read_bytes()).hexdigest()
         assert context['config_sha256'] == config_header_hash, 'native configuration header identity mismatch'
     target_arg = target
-    if target == 'xtensa-esp32s3-nuttx':
-        assert target_spec is not None, 'Xtensa needs the exact build target spec'
+    if target == 'xtensa-esp32s3-nuttx' or sim:
+        assert target_spec is not None, 'missing exact build target spec'
         assert target_spec.resolve() == out / (target + '.json'), 'wrong target-spec path'
         spec = json.loads(target_spec.read_text())
-        assert spec['arch'] == 'xtensa' and spec['os'] == 'nuttx'
-        assert spec['cpu'] == 'esp32s3' and str(spec['target-pointer-width']) == '32'
-        assert spec['executables'] and spec['target-family'] == ['unix']
+        assert spec['os'] == 'nuttx' and spec['target-family'] == ['unix']
+        if sim:
+            assert spec['arch'] == 'aarch64' and spec['binary-format'] == 'mach-o'
+            assert str(spec['target-pointer-width']) == '64'
+            assert require_finalized_context, 'sim needs its configured native compiler and flags'
+        else:
+            assert spec['arch'] == 'xtensa' and spec['cpu'] == 'esp32s3'
+            assert str(spec['target-pointer-width']) == '32' and spec['executables']
         target_arg = str(target_spec.resolve())
     else:
         assert target_spec is None, 'built-in targets must not use a custom spec'
@@ -230,23 +238,25 @@ def run(out, target=TARGET, target_spec=None, require_finalized_context=False):
     src = Path(libs[0]['target']['src_path']).resolve()
     version = '0.2.174' if target == 'xtensa-esp32s3-nuttx' else '0.2.175'
     assert libs[0]['package_id'].endswith('libc@' + version), 'review ABI checks for a new libc'
+    section = '__DATA,__nxrs_abi' if sim else '.nxrs_abi'
     c_source = ('#include <nuttx/config.h>\n#include <stdint.h>\n#include <stddef.h>\n'
                 '#include <time.h>\n#include <sys/types.h>\n#include <poll.h>\n'
                 '#include <pthread.h>\n#include <semaphore.h>\n#include <errno.h>\n#include <fcntl.h>\n#include <signal.h>\n'
                 '#include <dirent.h>\n#include <sys/stat.h>\n#include <sys/socket.h>\n'
-                '__attribute__((section(".nxrs_abi"), used))\n'
+                f'__attribute__((section("{section}"), used))\n'
                 'const uint32_t nxrs_abi[] = {\n'
                 + ''.join(f'  (uint32_t)({c}), /* {name} */\n' for name, c, _, _ in rows) + '};\n')
     rust_source = ('#![no_std]\n#![feature(rustc_private)]\nextern crate libc;\n'
                    'use core::mem::{size_of, size_of_val, align_of, offset_of};\n'
-                   '#[used]\n#[no_mangle]\n#[link_section = ".nxrs_abi"]\n'
+                   f'#[used]\n#[no_mangle]\n#[link_section = "{section}"]\n'
                    f'pub static NXRS_ABI: [u32; {len(rows)}] = [\n'
                    + ''.join(f'    ({r}) as u32, // {name}\n' for name, _, r, _ in rows) + '];\n')
     (out / 'abi-native.c').write_text(c_source)
     (out / 'abi-rust.rs').write_text(rust_source)
+    compiler = [*context['cc'], *context['cflags']] if sim else [prefix + 'gcc', '-std=c11', *c_flags]
     commands = [
-        [prefix + 'gcc', '-c', '-std=c11', *c_flags,
-         '-I' + str(out / 'nuttx/include'), str(out / 'abi-native.c'), '-o', str(out / 'abi-native.o')],
+        [*compiler, '-c', '-I' + str(out / 'nuttx/include'),
+         str(out / 'abi-native.c'), '-o', str(out / 'abi-native.o')],
         [str(rustc), '--edition=2021', '--target', target_arg, '--crate-type=lib', '--emit=obj',
          '-Cpanic=abort', '--extern', 'core=' + str(cores[0]),
          '--extern', 'compiler_builtins=' + str(builtins[0]),
@@ -256,11 +266,20 @@ def run(out, target=TARGET, target_spec=None, require_finalized_context=False):
         subprocess.run(command, check=True)
     values = {}
     for role in ('native', 'rust'):
-        command = [prefix + 'objcopy', '--dump-section',
-                   f'.nxrs_abi={out}/abi-{role}.bin', str(out / f'abi-{role}.o')]
+        obj = str(out / f'abi-{role}.o')
+        bin_path = out / f'abi-{role}.bin'
+        if sim:
+            command = ['xcrun', 'llvm-objdump', '-s', '-j', '__nxrs_abi', obj]
+            contents = subprocess.check_output(command, text=True).splitlines()
+            assert 'Contents of section __DATA,__nxrs_abi:' in contents, 'Mach-O witness section missing'
+            raw = b''.join(bytes.fromhex(line.strip().split('  ', 1)[0].split(' ', 1)[1])
+                           for line in contents if line.startswith(' '))
+            bin_path.write_bytes(raw)
+        else:
+            command = [prefix + 'objcopy', '--dump-section', f'{section}={bin_path}', obj]
+            subprocess.run(command, check=True)
+            raw = bin_path.read_bytes()
         commands.append(command)
-        subprocess.run(command, check=True)
-        raw = (out / f'abi-{role}.bin').read_bytes()
         assert len(raw) == 4 * len(rows), f'wrong witness length: {role}'
         values[role] = dict(zip([r[0] for r in rows], struct.unpack('<' + 'I' * len(rows), raw)))
     fixes = (

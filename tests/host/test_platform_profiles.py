@@ -138,7 +138,10 @@ class FirmwareFrontendTests(unittest.TestCase):
                 data = PLATFORM_CONFIG.resolve(profile_name)
                 for key in ("board", "target", "crossdev", "machine", "image"):
                     self.assertIsInstance(data.get(key), str, f"{platform} missing {key}")
-                    self.assertTrue(data[key])
+                    if key == "crossdev" and data["board"] == "sim:nsh":
+                        self.assertEqual(data[key], "")
+                    else:
+                        self.assertTrue(data[key])
                 features = data.get("hal")
                 self.assertIsInstance(features, dict)
                 # Hardware qualification does not implicitly select sensor mocks.
@@ -194,6 +197,7 @@ class FirmwareFrontendTests(unittest.TestCase):
                 tracker = dict.fromkeys(("battery", "display", "gnss", "imu", "settings", "touch"), "nuttx")
                 expected["esp32s3-qemu-tracker-devices"] = tracker
                 expected["esp32s3-qemu-tracker-dashboard"] = {**tracker, "ble": "nuttx", "tls": "nuttx"}
+                expected["nuttx-sim-tracker"] = expected["esp32s3-qemu-tracker-dashboard"]
                 self.assertEqual(features, expected.get(profile_name,
                                  {"imu": "mock", "gnss": "mock"}))
                 self.assertNotIn("hal-features", data)

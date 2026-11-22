@@ -20,7 +20,8 @@ from bumble.transport.common import ParserSource
 from PIL import Image
 import zxingcpp
 
-from run import NeoM9n, listener
+from run import listener
+from sensors import NeoM9n, check_imus, check_live, check_stale
 
 WIDTH, HEIGHT = 320, 240
 SERVICE = UUID('3CB1DE6E-A955-49B7-BE4F-C4572D3F3400')
@@ -261,20 +262,6 @@ class SecureStream:
         return value
 
 
-def check_imus(sample):
-    assert sample['v'] == 1, sample
-    imu = sample['imu']
-    assert len(imu) == 2 and all(source['state'] == 'live' for source in imu), sample
-    assert imu[0]['accel_mps2'][0] < 0 < imu[1]['accel_mps2'][0], sample
-
-
-def check_live(sample):
-    check_imus(sample)
-    gnss = sample['gnss']
-    assert gnss['state'] == 'live', sample
-    assert abs(gnss['lat_deg'] - 48.1173) < 1e-6 and abs(gnss['lon_deg'] + 11.5166667) < 1e-6, sample
-
-
 async def scenario(guest, panel, phone, args):
     await guest.wait_text(b'nsh>')
     offset = len(guest.buffer)
@@ -352,8 +339,7 @@ async def scenario(guest, panel, phone, args):
                 async with asyncio.timeout(5):
                     while (sample := await secure.sample())['gnss']['state'] != 'stale':
                         check_imus(sample)
-                    check_imus(sample)
-                    assert sample['gnss'] == {'state': 'stale'}
+                    check_stale(sample)
             finally:
                 guest.publish_fix = True
             async with asyncio.timeout(5):

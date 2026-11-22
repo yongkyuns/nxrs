@@ -205,6 +205,7 @@ struct Tools {
     rustc: PathBuf,
     prefix: String,
     esp: bool,
+    sim: bool,
     path: std::ffi::OsString,
 }
 fn bin_directories(root: &Path, depth: usize, tool: &str, paths: &mut Vec<PathBuf>) -> Result<()> {
@@ -236,8 +237,15 @@ fn bin_directories(root: &Path, depth: usize, tool: &str, paths: &mut Vec<PathBu
 impl Tools {
     fn select(root: &Path, target: &str, profile: &Profile, firmware: bool) -> Result<Self> {
         let esp = target == "xtensa-esp32s3-nuttx";
-        if !esp && target != "thumbv8m.main-nuttx-eabi" {
+        let sim = target == "aarch64-nuttx-sim-darwin";
+        if !esp && !sim && target != "thumbv8m.main-nuttx-eabi" {
             return Err("unsupported NuttX std target".into());
+        }
+        if sim
+            && (profile.data["board"] != "sim:nsh"
+                || !cfg!(all(target_os = "macos", target_arch = "aarch64")))
+        {
+            return Err("this native NuttX sim target requires sim:nsh on Apple Silicon".into());
         }
         let qemu = match profile.data.get("requires-qemu") {
             None => true,
@@ -249,7 +257,7 @@ impl Tools {
             && !esp
             && !qemu
             && env::var("NXRS_NUTTX_NATIVE_TOOLS").as_deref() == Ok("1");
-        if !(native || explicit_esp || explicit_arm) {
+        if !(native || explicit_esp || explicit_arm || sim) {
             return Err("NuttX requires Linux x86_64 or an explicit supported native-board tool environment".into());
         }
         let sdk = if esp {
@@ -290,11 +298,20 @@ impl Tools {
                 "missing pinned source Rust compiler; set RUSTC or prepare the tool bundle".into(),
             );
         }
-        let prefix = string(&profile.data, "crossdev")?.to_owned();
+        let prefix = if sim && profile.data["crossdev"] == "" {
+            String::new()
+        } else {
+            string(&profile.data, "crossdev")?.into()
+        };
+        if sim && !prefix.is_empty() {
+            return Err("native NuttX sim requires an empty crossdev prefix".into());
+        }
         for tool in ["git", "make", "rustup"] {
             find_program(tool)?;
         }
-        let required: &[_] = if firmware {
+        let required: &[_] = if sim {
+            &["cc", "ar", "ld", "nm", "xcrun"]
+        } else if firmware {
             &["gcc", "ld", "objcopy", "readelf", "nm", "size"]
         } else {
             &["gcc", "ld", "ar"]
@@ -314,6 +331,7 @@ impl Tools {
             rustc,
             prefix,
             esp,
+            sim,
             path,
         })
     }
@@ -330,6 +348,28 @@ impl Tools {
     }
     fn program(&self, name: &str) -> Result<PathBuf> {
         crate::find_program_on_path(name, &self.path)
+    }
+
+    fn compiler(&self) -> String {
+        if self.sim {
+            "cc".into()
+        } else {
+            format!("{}gcc", self.prefix)
+        }
+    }
+
+    fn symbols(&self, path: &Path) -> Result<String> {
+        let symbols = output(self.command(&format!("{}nm", self.prefix)).arg(path))?;
+        if !self.sim {
+            return Ok(symbols);
+        }
+        Ok(symbols
+            .lines()
+            .map(|line| {
+                let (prefix, name) = line.rsplit_once(' ').unwrap_or(("", line));
+                format!("{prefix} {}\n", name.strip_prefix('_').unwrap_or(name))
+            })
+            .collect())
     }
 }
 fn stage_sources(root: &Path, out: &Path) -> Result<()> {
@@ -598,7 +638,7 @@ fn build_or_prepare(
         "nuttx":source::revision(root,"nuttx")?,"apps":source::revision(root,"nuttx-apps")?,
         "build_inputs":reuse::snapshot(root,&["upstream","tools/build/nuttx"])?,
         "sdk":sdk_input,"sdk_inputs":reuse::sdk_snapshot(sdk_input)?,
-        "compiler":hash(&tools.rustc)?,"native_compiler":hash(&tools.program(&format!("{}gcc",tools.prefix))?)?,
+        "compiler":hash(&tools.rustc)?,"native_compiler":hash(&tools.program(&tools.compiler())?)?,
         "controller":hash(&env::current_exe().map_err(|e|e.to_string())?)?,"helpers":helper_inputs,
         "hal_cache":env::var_os("NXRS_ESP_HAL_3RDPARTY_CACHE"),
         "hal_revision":env::var_os("NXRS_ESP_HAL_3RDPARTY_REVISION"),
@@ -842,6 +882,17 @@ fn build_or_prepare(
         if firmware {
             fs::copy(downloads, out.join("downloads.sha256")).map_err(|e| e.to_string())?;
         }
+    } else if tools.sim {
+        let mut spec: Value =
+            serde_json::from_str(include_str!("../nuttx/aarch64-nuttx-sim-darwin.json"))
+                .map_err(|e| e.to_string())?;
+        // LLVM emits Mach-O while Rust continues to select the NuttX standard library.
+        spec["entry-name"] = json!(format!("{}_main", app.command));
+        target_arg = out.join(format!("{target}.json"));
+        reuse::write_if_changed(
+            &target_arg,
+            serde_json::to_string_pretty(&spec).map_err(|e| e.to_string())?.as_bytes(),
+        )?;
     }
     let linker = out.join("nxrs-nuttx-link");
     reuse::copy_if_changed(&env::current_exe().map_err(|e| e.to_string())?, &linker)?;
@@ -899,6 +950,11 @@ fn build_or_prepare(
         );
     } else {
         cargo.env_remove("NUTTX_STD_GNU_LINKER");
+    }
+    if tools.sim {
+        cargo.env("NUTTX_STD_MACHO_LINK", "1");
+    } else {
+        cargo.env_remove("NUTTX_STD_MACHO_LINK");
     }
     if trace {
         cargo.arg(format!(
@@ -965,24 +1021,36 @@ fn build_or_prepare(
     build::cargo_messages(&mut cargo, &out.join("cargo-messages.jsonl"))?;
     restore_link_evidence(&out, &elf)?;
     build::std_source(&out.join("cargo-messages.jsonl"), &sysroot, &rustc, &out)?;
-    let header = output(
-        tools
-            .command(&format!("{}readelf", tools.prefix))
-            .args(["-h"])
-            .arg(&elf),
-    )?;
-    if !header.contains("REL (Relocatable file)")
-        || !header.lines().any(|s| {
-            s.trim()
-                .strip_prefix("Machine:")
-                .is_some_and(|s| s.trim() == machine)
-        })
-    {
-        return Err("Rust input ELF machine/type mismatch".into());
-    }
-    fs::write(out.join("rust-elf-header.txt"), header).map_err(|e| e.to_string())?;
-    let symbols = output(tools.command(&format!("{}nm", tools.prefix)).arg(&elf))?;
-    require_symbols(&symbols, &[("main", "T")])?;
+    let header = if tools.sim {
+        let header = output(tools.command("xcrun")
+            .args(["llvm-objdump", "--macho", "--private-header"]).arg(&elf))?;
+        if !header.lines().any(|line| {
+            let fields: Vec<_> = line.split_whitespace().collect();
+            fields.first() == Some(&"MH_MAGIC_64") && fields.get(1) == Some(&machine)
+                && fields.get(4) == Some(&"OBJECT")
+        }) {
+            return Err("Rust input Mach-O machine/type mismatch".into());
+        }
+        header
+    } else {
+        let header = output(tools.command(&format!("{}readelf", tools.prefix)).arg("-h").arg(&elf))?;
+        if !header.contains("REL (Relocatable file)") || !header.lines().any(|s| {
+            s.trim().strip_prefix("Machine:").is_some_and(|s| s.trim() == machine)
+        }) {
+            return Err("Rust input ELF machine/type mismatch".into());
+        }
+        header
+    };
+    let header_name = if tools.sim {
+        "rust-macho-header.txt"
+    } else {
+        "rust-elf-header.txt"
+    };
+    fs::write(out.join(header_name), header).map_err(|e| e.to_string())?;
+    let symbols = tools.symbols(&elf)?;
+    let entry_symbol = format!("{}_main", app.command);
+    let rust_entry = if tools.sim { entry_symbol.as_str() } else { "main" };
+    require_symbols(&symbols, &[(rust_entry, "T")])?;
     // An active ABI makes these APIs available; it does not require an app to
     // use them. Check only retained strong imports after the native link.
     let runtime_symbols = if abi == "active" {
@@ -990,7 +1058,7 @@ fn build_or_prepare(
     } else {
         Vec::new()
     };
-    fs::write(out.join("rust-symbols.txt"), symbols).map_err(|e| e.to_string())?;
+    fs::write(out.join("rust-symbols.txt"), &symbols).map_err(|e| e.to_string())?;
     // Qualification is an independent test program, not build configuration policy.
     run(tools
         .command("python3")
@@ -1007,7 +1075,7 @@ fn build_or_prepare(
         .env("RUSTC", &rustc)
         .env("NUTTX_STD_SYSROOT", &sysroot)
         .env("CARGO_TARGET_DIR", &target_dir);
-    if tools.esp {
+    if tools.esp || tools.sim {
         check.arg("--target-spec").arg(&target_arg);
     }
     run(tools
@@ -1018,6 +1086,10 @@ fn build_or_prepare(
         .args(&make_args))?;
     let linked = finalized.verify(&nuttx)?;
     configuration.validate(p, &linked.config)?;
+    if tools.sim {
+        let kernel = tools.symbols(&nuttx.join("arch/sim/src/nuttx.rel"))?;
+        verify_sim_imports(&symbols, &kernel)?;
+    }
     check.arg("--require-finalized-context");
     run(&mut check)?;
     if let Some(signing) = signing {
@@ -1028,12 +1100,7 @@ fn build_or_prepare(
             false,
         )?;
     }
-    let symbols = output(
-        tools
-            .command(&format!("{}nm", tools.prefix))
-            .arg(nuttx.join("nuttx")),
-    )?;
-    let entry_symbol = format!("{}_main", app.command);
+    let symbols = tools.symbols(&nuttx.join("nuttx"))?;
     require_symbols(&symbols, &[("nx_start", "TtWw")])?;
     let user_symbols = if protected {
         if symbols
@@ -1063,14 +1130,22 @@ fn build_or_prepare(
         ("size", vec!["-A"], "image-size.txt"),
         ("readelf", vec!["-h", "-l", "-A"], "image-layout.txt"),
     ] {
+        let mut command = if tools.sim {
+            let mut command = tools.command("xcrun");
+            if tool == "size" {
+                command.args(["size", "-m"]);
+            } else {
+                command.args(["llvm-objdump", "--macho", "--private-headers"]);
+            }
+            command
+        } else {
+            let mut command = tools.command(&format!("{}{tool}", tools.prefix));
+            command.args(args);
+            command
+        };
         fs::write(
             out.join(file),
-            output(
-                tools
-                    .command(&format!("{}{tool}", tools.prefix))
-                    .args(args)
-                    .arg(nuttx.join("nuttx")),
-            )?,
+            output(command.arg(nuttx.join("nuttx")))?,
         )
         .map_err(|e| e.to_string())?;
     }
@@ -1148,9 +1223,7 @@ fn build_or_prepare(
     );
     provenance.push(
         output(
-            tools
-                .command(&format!("{}gcc", tools.prefix))
-                .arg("--version"),
+            tools.command(&tools.compiler()).arg("--version"),
         )?
         .lines()
         .next()
@@ -1197,7 +1270,7 @@ fn build_or_prepare(
             inputs.push(path);
         }
     }
-    if tools.esp {
+    if tools.esp || tools.sim {
         inputs.push(target_arg);
     }
     let mut hashes = String::new();
@@ -1414,6 +1487,7 @@ fn clear_success_evidence(out: &Path) -> Result<()> {
         "std-source.json",
         "resolved.config",
         "rust-elf-header.txt",
+        "rust-macho-header.txt",
         "rust-symbols.txt",
         "symbols.txt",
         "image-size.txt",
@@ -1477,10 +1551,27 @@ fn runtime_symbol_requirements(symbols: &str) -> Vec<(&'static str, &'static str
         .collect()
 }
 
+fn verify_sim_imports(application: &str, kernel: &str) -> Result<()> {
+    // The SIM host half supplies the architecture's IRQ entry points. The
+    // compiler and configured toolchain supply memory, math and unwind helpers.
+    const HOST_HELPERS: &[&str] = &[
+        "up_irq_save", "up_irq_restore", "bzero", "cos", "_Unwind_Backtrace", "_Unwind_GetIP",
+    ];
+    for line in application.lines() {
+        let mut words = line.split_whitespace();
+        if let (Some("U"), Some(name)) = (words.next(), words.next()) {
+            if !HOST_HELPERS.contains(&name) && !has_symbol(kernel, name, "TtWwDdBbSsRr") {
+                return Err(format!("SIM app import {name} did not resolve inside NuttX"));
+            }
+        }
+    }
+    Ok(())
+}
+
 fn require_symbols(symbols: &str, required: &[(&str, &str)]) -> Result<()> {
     for (name, kinds) in required {
         if !has_symbol(symbols, name, kinds) {
-            return Err(format!("ELF missing required symbol {name}"));
+            return Err(format!("target object missing required symbol {name}"));
         }
     }
     Ok(())
@@ -1545,6 +1636,15 @@ mod tests {
         assert!(runtime_symbol_requirements(symbols).is_empty());
         assert!(require_symbols(symbols, &[("main", "T")]).is_ok());
         assert!(require_symbols("         U puts\n", &[("main", "T")]).is_err());
+    }
+
+    #[test]
+    fn sim_requires_application_posix_imports_inside_the_kernel() {
+        let app = "         U read\n         U pthread_create\n         U up_irq_save\n";
+        let kernel = "00000000 t read\n00000001 t pthread_create\n         U up_irq_save\n";
+        assert!(verify_sim_imports(app, kernel).is_ok());
+        assert!(verify_sim_imports(app, "         U read\n00000001 t pthread_create\n")
+            .unwrap_err().contains("import read"));
     }
 
     #[test]
@@ -1984,6 +2084,7 @@ mod rebuild_tests {
             rustc: PathBuf::new(),
             prefix: String::new(),
             esp: false,
+            sim: false,
             path: env::var_os("PATH").unwrap(),
         };
         let (path, finalized) = native_context(&tools, &nuttx, &entry, out, "fixture-nuttx", &[]).unwrap();
