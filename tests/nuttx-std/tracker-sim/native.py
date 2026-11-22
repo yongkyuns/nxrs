@@ -8,6 +8,7 @@ from pathlib import Path
 import re
 import select
 import subprocess
+import tempfile
 import termios
 import time
 import tty
@@ -30,7 +31,7 @@ class Pty:
 
 
 class Guest:
-    def __init__(self, process, log):
+    def __init__(self, process, log, fixture):
         self.process = process
         self.log = log
         self.console = bytearray()
@@ -41,9 +42,17 @@ class Guest:
         self.live = False
         self.stale = False
         self.pause_fixes = False
+        self.fail_imu = fixture / 'fail-imu'
+        self.inject_imu_failure = False
 
     def record(self, sample):
         self.samples.append(sample)
+        if self.inject_imu_failure and sample['gnss']['state'] == 'live' and all(
+            source['state'] == 'live' for source in sample['imu']
+        ):
+            check_live(sample)
+            self.fail_imu.touch()
+            self.inject_imu_failure = False
         if self.pause_fixes:
             if not self.live and sample['gnss']['state'] == 'live':
                 check_live(sample)
@@ -121,6 +130,8 @@ class Guest:
         self.receiver = None
         self.live = self.stale = False
         self.pause_fixes = pause_fixes
+        self.inject_imu_failure = scenario == b'imu'
+        self.fail_imu.unlink(missing_ok=True)
         if scenario:
             self.until(b'nsh> ', self.command(b'set TRACKER_SIM_CASE ' + scenario))
         else:
@@ -139,11 +150,19 @@ class Guest:
 
 
 def run(image, log):
-    with subprocess.Popen([str(image.resolve())], stdin=subprocess.PIPE,
-                          stdout=subprocess.PIPE, stderr=subprocess.STDOUT) as process:
-        guest = Guest(process, log)
+    # The guest sees only this temporary directory through its fixture mount.
+    with (
+        tempfile.TemporaryDirectory(prefix='nxrs-tracker-') as fixture,
+        subprocess.Popen([str(image.resolve())], cwd=fixture, stdin=subprocess.PIPE,
+                         stdout=subprocess.PIPE, stderr=subprocess.STDOUT) as process,
+    ):
+        guest = Guest(process, log, Path(fixture))
         try:
             guest.until(b'nsh> ', 0)
+            guest.until(b'nsh> ', guest.command(b'mount -t hostfs -o fs=. /tracker-fixture'))
+            status = guest.command(b'echo fixture-mount:$?')
+            guest.until(b'nsh> ', status)
+            assert b'fixture-mount:0\n' in guest.console[status:], guest.console[status:]
             for scenario in (b'', b'imu', b'queue', b''):
                 transcript = guest.tracker(scenario, 12 if not scenario else 9,
                                            pause_fixes=not scenario, status=int(scenario == b'imu'))

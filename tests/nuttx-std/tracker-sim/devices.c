@@ -1,6 +1,5 @@
 /* Tracker device models below the real NuttX I2C, SPI, touch and MTD drivers. */
 #include <nuttx/config.h>
-#include <nuttx/clock.h>
 #include <nuttx/i2c/i2c_master.h>
 #include <nuttx/input/ft5x06.h>
 #include <nuttx/mtd/configdata.h>
@@ -31,7 +30,7 @@ static uint8_t g_pixel[2];
 static uint8_t g_flash[16384];
 
 #ifdef CONFIG_ARCH_SIM
-static clock_t g_imu_failure_at;
+static bool g_inject_imu_failure;
 static bool g_stall_panel;
 #endif
 
@@ -176,9 +175,9 @@ static int model_read(int address, uint8_t reg, uint8_t *data, size_t size)
       if (reg == 0x24 && size == 2)
         {
 #ifdef CONFIG_ARCH_SIM
-          /* Let the primary report live samples before failing its FIFO read. */
-          if (address == 0x69 && g_imu_failure_at &&
-              clock_systime_ticks() >= g_imu_failure_at)
+          /* The host signals only after seeing a healthy tracker report. */
+          if (address == 0x69 && g_inject_imu_failure &&
+              access("/tracker-fixture/fail-imu", F_OK) == 0)
             {
               return -EIO;
             }
@@ -321,8 +320,7 @@ static void spi_exchange(struct spi_dev_s *dev, const void *tx, void *rx,
         {
           const char *scenario = getenv("TRACKER_SIM_CASE");
           nxmutex_lock(&g_i2c_lock);
-          g_imu_failure_at = scenario && strcmp(scenario, "imu") == 0
-                            ? clock_systime_ticks() + SEC2TICK(2) : 0;
+          g_inject_imu_failure = scenario && strcmp(scenario, "imu") == 0;
           nxmutex_unlock(&g_i2c_lock);
           g_stall_panel = scenario && strcmp(scenario, "queue") == 0;
         }
