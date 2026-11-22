@@ -1,5 +1,6 @@
 /* Tracker device models below the real NuttX I2C, SPI, touch and MTD drivers. */
 #include <nuttx/config.h>
+#include <nuttx/clock.h>
 #include <nuttx/i2c/i2c_master.h>
 #include <nuttx/input/ft5x06.h>
 #include <nuttx/mtd/configdata.h>
@@ -9,7 +10,10 @@
 #include <nuttx/spi/spi_transfer.h>
 #include <errno.h>
 #include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 struct bmi270
 {
@@ -25,6 +29,11 @@ static bool g_lcd_cmd;
 static uint8_t g_lcd_register;
 static uint8_t g_pixel[2];
 static uint8_t g_flash[16384];
+
+#ifdef CONFIG_ARCH_SIM
+static clock_t g_imu_failure_at;
+static bool g_stall_panel;
+#endif
 
 #ifdef CONFIG_BLUETOOTH_UART_SHIM
 #define WIDTH 320
@@ -166,6 +175,14 @@ static int model_read(int address, uint8_t reg, uint8_t *data, size_t size)
       const struct bmi270 *chip = &g_imus[address - 0x68];
       if (reg == 0x24 && size == 2)
         {
+#ifdef CONFIG_ARCH_SIM
+          /* Let the primary report live samples before failing its FIFO read. */
+          if (address == 0x69 && g_imu_failure_at &&
+              clock_systime_ticks() >= g_imu_failure_at)
+            {
+              return -EIO;
+            }
+#endif
           data[0] = chip->registers[0x49] == 0xc0 ? 12 : 0;
         }
       else if (reg == 0x26 && size == 12)
@@ -299,6 +316,24 @@ static void spi_exchange(struct spi_dev_s *dev, const void *tx, void *rx,
   if (g_lcd_cmd && size == 1)
     {
       g_lcd_register = bytes[0];
+#ifdef CONFIG_ARCH_SIM
+      if (g_lcd_register == 0x01) /* Each app launch resets the panel. */
+        {
+          const char *scenario = getenv("TRACKER_SIM_CASE");
+          nxmutex_lock(&g_i2c_lock);
+          g_imu_failure_at = scenario && strcmp(scenario, "imu") == 0
+                            ? clock_systime_ticks() + SEC2TICK(2) : 0;
+          nxmutex_unlock(&g_i2c_lock);
+          g_stall_panel = scenario && strcmp(scenario, "queue") == 0;
+        }
+      else if (g_stall_panel && g_lcd_register == 0x2c)
+        {
+          /* Delay the app's first paint while acquisition threads keep running. */
+          g_stall_panel = false;
+          puts("TRACKER_PANEL_STALL");
+          usleep(1000000);
+        }
+#endif
     }
   else if (!g_lcd_cmd && g_lcd_register == 0x2c && size == 2)
     {

@@ -70,6 +70,31 @@ boots with the original QEMU build and 20 with the patched build.
 The patched wall-clock control also passed. The timings above used the
 RUNSTALL patch before the UART receive-timeout patch was added.
 
+## Cellular loss in the tracker app
+
+Build the full tracker with the same modem profile and register the simulated
+devices before the shell starts:
+
+```sh
+cargo nxrs build --app motion-tracker --profile esp32s3-qemu-tracker \
+  --target-c-source tests/nuttx-std/tracker-sim/devices.c \
+  --target-c-source tests/nuttx-std/tracker-sim/native_init.c \
+  --kconfig-set 'INIT_ENTRYPOINT="tracker_sim_init"' \
+  --kconfig-set 'INIT_ENTRYNAME="tracker_sim_init"' \
+  --kconfig-set LINE_MAX=128 \
+  --out target/tracker-cellular-sim
+python3 tests/nuttx-std/tracker-sim/run.py --tracker --shift 5 \
+  --log target/tracker-cellular-sim/console.log \
+  target/tracker-cellular-sim/nuttx/nuttx.merged.bin
+```
+
+The modem peer terminates PPP once the tracker reports its IPv4 address and
+all three sensors are live. The runner checks the PPP acknowledgement, the
+tracker's `Failed(LinkLost)` status, advancing sensor reports, and return to
+modem command mode. A second launch in the same kernel reopens the link and
+exits cleanly. The test covers peer-signaled loss and recovery on application
+restart. Radio silence and carrier behavior require a different test.
+
 ## Full dashboard and BLE/TLS
 
 Build the production `motion-tracker` app for the simulator. Python 3.13

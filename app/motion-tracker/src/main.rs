@@ -198,6 +198,7 @@ fn run(options: Options) -> io::Result<()> {
     .ok();
 
     let mut serial = options.usb_stream.then(io::stdout);
+    let mut reported_drops = [0; 3];
     let mut rendered = 0_u32;
     let mut next = Instant::now();
     let mut next_plot = next;
@@ -220,6 +221,23 @@ fn run(options: Options) -> io::Result<()> {
         let report_due = now >= next;
         let plot_due = now >= next_plot;
         if report_due {
+            if serial.is_some() {
+                let drops = [
+                    primary.as_ref().map(imu::Session::dropped),
+                    secondary.as_ref().map(imu::Session::dropped),
+                    receiver.as_ref().map(gnss::Session::dropped),
+                ];
+                for ((name, count), reported) in ["IMU 1", "IMU 2", "GNSS"]
+                    .into_iter()
+                    .zip(drops)
+                    .zip(&mut reported_drops)
+                {
+                    if let Some(count) = count.filter(|count| *count > *reported) {
+                        eprintln!("motion-tracker {name} queue drops: {count}");
+                        *reported = count;
+                    }
+                }
+            }
             if let Some(status) = cellular.as_ref().map(cellular::Session::status) {
                 if reported_cellular != Some(status) {
                     eprintln!("motion-tracker cellular {status:?}");

@@ -4,7 +4,8 @@ version.workspace = true
 edition.workspace = true
 
 [package.metadata.nxrs]
-required-capabilities = ["imu", "gnss", "display", "touch", "settings", "ble", "tls"]
+# BLE and TLS are used only with --ble.
+required-capabilities = ["imu", "gnss", "display", "touch", "settings"]
 
 [package.metadata.nxrs.firmware]
 bin = "motion-tracker"

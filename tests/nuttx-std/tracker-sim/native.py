@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run both tracker IMUs and the GNSS receiver in native NuttX sim."""
+"""Check tracker sensor lifetimes and failure recovery in native NuttX sim."""
 import argparse
 import errno
 import json
@@ -12,7 +12,7 @@ import termios
 import time
 import tty
 
-from sensors import NeoM9n, check_imus, check_live, check_stale
+from sensors import NeoM9n, check_fix, check_imus, check_live, check_progress, check_stale
 
 
 class Pty:
@@ -40,19 +40,21 @@ class Guest:
         self.samples = []
         self.live = False
         self.stale = False
+        self.pause_fixes = False
 
     def record(self, sample):
         self.samples.append(sample)
-        if not self.live and sample['gnss']['state'] == 'live':
-            check_live(sample)
-            self.live = True
-        if self.live and not self.stale:
-            # Pause fixes while both IMUs continue to produce samples.
-            if sample['gnss']['state'] != 'stale':
-                check_imus(sample)
-                return
-            check_stale(sample)
-            self.stale = True
+        if self.pause_fixes:
+            if not self.live and sample['gnss']['state'] == 'live':
+                check_live(sample)
+                self.live = True
+            if self.live and not self.stale:
+                # Pause fixes while both IMUs continue to produce samples.
+                if sample['gnss']['state'] != 'stale':
+                    check_imus(sample)
+                    return
+                check_stale(sample)
+                self.stale = True
         if self.uart is not None and self.receiver.rate == 1:
             tow_ms = 500 * len(self.samples)
             self.uart.sendall(self.receiver.fix_packet(tow_ms))
@@ -114,6 +116,27 @@ class Guest:
             os.close(self.uart.fd)
             self.uart = None
 
+    def tracker(self, scenario, frames, *, pause_fixes=False, status=0):
+        self.samples.clear()
+        self.receiver = None
+        self.live = self.stale = False
+        self.pause_fixes = pause_fixes
+        if scenario:
+            self.until(b'nsh> ', self.command(b'set TRACKER_SIM_CASE ' + scenario))
+        else:
+            self.until(b'nsh> ', self.command(b'unset TRACKER_SIM_CASE'))
+        start = self.command(f'motion_tracker --frames {frames} --interval-ms 500 --stream-usb'.encode())
+        self.until(b'nsh> ', start, timeout=20)
+        result = self.command(b'echo tracker-exit:$?')
+        self.until(b'nsh> ', result)
+        assert f'tracker-exit:{status}\n'.encode() in self.console[result:], self.console[result:]
+        assert len(self.samples) == frames, self.samples
+        assert self.receiver is not None and self.receiver.writes == [1, 7], (
+            None if self.receiver is None else self.receiver.writes
+        )
+        self.close_uart()
+        return self.console[start:result]
+
 
 def run(image, log):
     with subprocess.Popen([str(image.resolve())], stdin=subprocess.PIPE,
@@ -121,24 +144,39 @@ def run(image, log):
         guest = Guest(process, log)
         try:
             guest.until(b'nsh> ', 0)
-            for _ in range(2):
-                guest.samples.clear()
-                guest.receiver = None
-                guest.live = guest.stale = False
-                start = guest.command(b'motion_tracker --frames 12 --interval-ms 500 --stream-usb')
-                guest.until(b'nsh> ', start)
-                status = guest.command(b'echo tracker-exit:$?')
-                guest.until(b'nsh> ', status)
-                assert b'tracker-exit:0\n' in guest.console[status:], guest.console[status:]
-                assert guest.receiver is not None and guest.receiver.writes == [1, 7], (
-                    None if guest.receiver is None else guest.receiver.writes
-                )
-                assert len(guest.samples) == 12 and guest.stale, guest.samples
-                previous, latest = guest.samples[-2:]
-                check_live(previous)
-                check_live(latest)
-                assert latest['gnss']['seq'] > previous['gnss']['seq']
-                guest.close_uart()
+            for scenario in (b'', b'imu', b'queue', b''):
+                transcript = guest.tracker(scenario, 12 if not scenario else 9,
+                                           pause_fixes=not scenario, status=int(scenario == b'imu'))
+                tail = guest.samples[-3:] if scenario else guest.samples[-2:]
+                if scenario == b'imu':
+                    first_fault = next((i for i, sample in enumerate(guest.samples)
+                                        if sample['imu'][0]['state'] == 'fault'), len(guest.samples))
+                    assert first_fault <= len(guest.samples) - len(tail), guest.samples
+                    assert any(sample['imu'][0]['state'] == 'live'
+                               for sample in guest.samples[:first_fault]), guest.samples
+                    assert b'motion-tracker IMU 1: Io\n' in transcript, transcript
+                    for sample in guest.samples[first_fault:]:
+                        assert sample['imu'][0] == {'state': 'fault'}, sample
+                        assert sample['imu'][1]['state'] == 'live', sample
+                        assert sample['imu'][1]['accel_mps2'][0] > 0, sample
+                    for sample in tail:
+                        check_fix(sample)
+                    print('PASS: primary IMU fails while secondary IMU and GNSS keep reporting', flush=True)
+                else:
+                    if scenario == b'queue':
+                        before, marker, after = transcript.partition(b'TRACKER_PANEL_STALL\n')
+                        assert marker, transcript
+                        drop_line = rb'motion-tracker (IMU [12]|GNSS) queue drops: ([1-9]\d*)\n'
+                        baseline = {name: int(count) for name, count in re.findall(drop_line, before)}
+                        drops = list(re.finditer(drop_line, after))
+                        assert any(int(drop[2]) > baseline.get(drop[1], 0) for drop in drops), transcript
+                        assert after[drops[-1].end():].count(b'{"v":1,') > len(tail), transcript
+                        print('PASS: tracker inbox drops samples during a stalled paint and recovers', flush=True)
+                    else:
+                        assert guest.stale, guest.samples
+                    for sample in tail:
+                        check_live(sample)
+                check_progress(tail)
             assert not re.search(rb'panicked at|Assertion failed|tracker simulator initialization failed', guest.console)
             guest.command(b'poweroff')
             assert process.wait(timeout=5) == 0
