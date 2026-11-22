@@ -76,7 +76,7 @@ jobs:
       - name: Prepare the native NuttX build tools
         run: |
           test "$(uname -m)" = arm64
-          brew install make gnu-sed px4/px4/genromfs
+          brew install make gnu-sed flock px4/px4/genromfs
           if ! command -v cmake >/dev/null; then brew install cmake; fi
           echo "$(brew --prefix make)/libexec/gnubin" >> "$GITHUB_PATH"
           echo "$(brew --prefix gnu-sed)/libexec/gnubin" >> "$GITHUB_PATH"
@@ -95,6 +95,9 @@ jobs:
           rustup toolchain install nightly-2025-09-15 --profile minimal --component rust-src
       - name: Build the tracker with NuttX and Rust std
         run: |
+          for tool in make sed kconfig-tweak cmake genromfs flock; do
+            command -v "$tool" || { echo "Missing build tool: $tool" >&2; exit 1; }
+          done
           cargo nxrs fetch tls
           cargo nxrs build --app motion-tracker --profile nuttx-sim-tracker \
             --target-c-source tests/nuttx-std/tracker-sim/devices.c \
