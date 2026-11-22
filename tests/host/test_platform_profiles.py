@@ -246,6 +246,10 @@ class FirmwareFrontendTests(unittest.TestCase):
             self.assertIn('CONFIG_SMP_NCPUS=2', config['require'])
             self.assertIn('ESP32S3_SYSTIMER_CLOCK', config['enable'])
             self.assertIn('# CONFIG_ESP32S3_TICKLESS is not set', config['require'])
+            for setting in ('NET_TCP_WRITE_BUFFERS=y', 'NET_SEND_BUFSIZE=16384',
+                            'NET_MAX_SEND_BUFSIZE=16384', 'NET_TCP_NWRBCHAINS=16',
+                            'NET_TCP_ALLOC_WRBCHAINS=0'):
+                self.assertIn('CONFIG_' + setting, config['require'])
             for counter in ('ARCH_PERF_EVENTS', 'PERF_OVERFLOW_CORRECTION'):
                 self.assertNotIn(counter, config['enable'])
                 self.assertRegex('CONFIG_' + counter + '=y', config['forbid-regex'])
@@ -366,14 +370,9 @@ class FirmwareFrontendTests(unittest.TestCase):
         for derived in ('ESP32S3_SPIRAM_SPEED=80', 'ESP32S3_DATA_CACHE_SIZE=0x10000',
                         'ESP32S3_DATA_CACHE_LINE_SIZE=64'):
             self.assertIn('CONFIG_' + derived, config['require'])
-        native = (WROOM / data['nuttx-config']).read_text().splitlines()
-        for setting in ('NET_TCP_WRITE_BUFFERS=y', 'NET_SEND_BUFSIZE=16384',
-                        'NET_MAX_SEND_BUFSIZE=16384', 'NET_TCP_NWRBCHAINS=16',
-                        'NET_TCP_ALLOC_WRBCHAINS=0'):
-            self.assertIn('CONFIG_' + setting, native)
         maintenance = tomllib.loads((WROOM / 'esp32s3-camera-stream-ssh.toml').read_text())
         ssh_native = (WROOM / maintenance['nuttx-config']).read_text().splitlines()
-        self.assertIn('# CONFIG_NET_TCP_WRITE_BUFFERS is not set', ssh_native)
+        self.assertNotIn('# CONFIG_NET_TCP_WRITE_BUFFERS is not set', ssh_native)
 
     def test_cargo_frontend_lists_apps_and_platforms(self):
         apps = self.cargo_firmware("--list-apps").stdout.splitlines()
