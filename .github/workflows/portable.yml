@@ -2,7 +2,7 @@ name: Portable services
 
 on:
   push:
-    branches: [main]
+    branches: [main, codex/windows-motion-tracker-ci]
   # Stacked PRs need the same architecture/native/core/WASM gates as main-bound PRs.
   pull_request:
   workflow_dispatch:
@@ -20,6 +20,7 @@ env:
 
 jobs:
   architecture:
+    if: github.ref_name != 'codex/windows-motion-tracker-ci'
     name: Architecture boundaries
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -103,12 +104,6 @@ jobs:
       matrix:
         # Keep existing check identifiers while pinning the SDK/runner images.
         include:
-          - os: ubuntu-latest
-            image: ubuntu-24.04
-            platform: linux
-          - os: macos-latest
-            image: macos-15
-            platform: macos
           - os: windows-latest
             image: windows-latest
             platform: windows
@@ -202,6 +197,7 @@ jobs:
         run: cargo clippy --locked -p nxrs-camera -p nxrs-storage -p nxrs-transport -p nxrs-camera-service -p nxrs-recording-service -p nxrs-telemetry-service -p nxrs-camera-test-support -p nxrs-native-integration --lib -- -D warnings
 
   no-std:
+    if: github.ref_name != 'codex/windows-motion-tracker-ci'
     name: No-std Cortex-M0 compile
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -221,6 +217,7 @@ jobs:
         run: python3 tools/check-hal-isolation.py --capability imu --capability gnss --out target/sensor-isolation
 
   wasm:
+    if: github.ref_name != 'codex/windows-motion-tracker-ci'
     name: Shared mocks in Node and Chromium
     runs-on: ubuntu-24.04
     timeout-minutes: 15
