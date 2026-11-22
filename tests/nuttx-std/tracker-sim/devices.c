@@ -10,6 +10,9 @@
 #include <errno.h>
 #include <stdint.h>
 #include <string.h>
+#ifdef CONFIG_RAMLOG_SYSLOG
+#  include <syslog.h>
+#endif
 
 struct bmi270
 {
@@ -17,14 +20,24 @@ struct bmi270
   size_t image_bytes;
 };
 
-static struct bmi270 g_imus[2];
+#ifdef CONFIG_INPUT_FT5X06
+#  define FIRST_IMU 0x68
+#  define IMU_COUNT 2
+#else
+#  define FIRST_IMU 0x69
+#  define IMU_COUNT 1
+#endif
+
+static struct bmi270 g_imus[IMU_COUNT];
 static mutex_t g_i2c_lock = NXMUTEX_INITIALIZER;
+#ifdef CONFIG_INPUT_FT5X06
 static mutex_t g_spi_lock = NXMUTEX_INITIALIZER;
 static bool g_touched;
 static bool g_lcd_cmd;
 static uint8_t g_lcd_register;
 static uint8_t g_pixel[2];
 static uint8_t g_flash[16384];
+#endif
 
 #ifdef CONFIG_BLUETOOTH_UART_SHIM
 #define WIDTH 320
@@ -149,6 +162,9 @@ static int bmi_write(struct bmi270 *chip, uint8_t reg,
       if (reg == 0x59 && data[0] == 1 && chip->image_bytes == 8192)
         {
           chip->registers[0x21] = 1;
+#ifdef CONFIG_RAMLOG_SYSLOG
+          syslog(LOG_NOTICE, "log witness: BMI270 configured\n");
+#endif
         }
     }
   else
@@ -161,9 +177,9 @@ static int bmi_write(struct bmi270 *chip, uint8_t reg,
 static int model_read(int address, uint8_t reg, uint8_t *data, size_t size)
 {
   memset(data, 0, size);
-  if (address == 0x68 || address == 0x69)
+  if (address >= FIRST_IMU && address < FIRST_IMU + IMU_COUNT)
     {
-      const struct bmi270 *chip = &g_imus[address - 0x68];
+      const struct bmi270 *chip = &g_imus[address - FIRST_IMU];
       if (reg == 0x24 && size == 2)
         {
           data[0] = chip->registers[0x49] == 0xc0 ? 12 : 0;
@@ -183,6 +199,7 @@ static int model_read(int address, uint8_t reg, uint8_t *data, size_t size)
         }
       return 0;
     }
+#ifdef CONFIG_INPUT_FT5X06
   if (address == 0x34)
     {
       if (reg == 0 && size == 2)
@@ -223,6 +240,7 @@ static int model_read(int address, uint8_t reg, uint8_t *data, size_t size)
 #endif
       return 0;
     }
+#endif
   return -ENXIO;
 }
 
@@ -244,15 +262,17 @@ static int i2c_transfer(struct i2c_master_s *dev, struct i2c_msg_s *msgs,
     }
   else if (count == 1 && msgs[0].length > 1)
     {
-      if (address == 0x68 || address == 0x69)
+      if (address >= FIRST_IMU && address < FIRST_IMU + IMU_COUNT)
         {
-          ret = bmi_write(&g_imus[address - 0x68], reg, msgs[0].buffer + 1,
+          ret = bmi_write(&g_imus[address - FIRST_IMU], reg, msgs[0].buffer + 1,
                           msgs[0].length - 1);
         }
+#ifdef CONFIG_INPUT_FT5X06
       else if (address == 0x38 && reg == 0)
         {
           ret = 0;
         }
+#endif
       else
         {
           ret = -ENXIO;
@@ -265,6 +285,7 @@ static int i2c_transfer(struct i2c_master_s *dev, struct i2c_msg_s *msgs,
 static const struct i2c_ops_s g_i2c_ops = { .transfer = i2c_transfer };
 static struct i2c_master_s g_i2c = { .ops = &g_i2c_ops };
 
+#ifdef CONFIG_INPUT_FT5X06
 static int spi_lock(struct spi_dev_s *dev, bool lock)
 {
   return lock ? nxmutex_lock(&g_spi_lock) : nxmutex_unlock(&g_spi_lock);
@@ -315,17 +336,22 @@ static const struct spi_ops_s g_spi_ops =
   .exchange = spi_exchange,
 };
 static struct spi_dev_s g_spi = { .ops = &g_spi_ops };
+#endif
 
 int tracker_sim_devices(void)
 {
+  for (unsigned int i = 0; i < IMU_COUNT; i++)
+    {
+      g_imus[i].registers[0] = 0x24;
+    }
+  int ret = i2c_register(&g_i2c, 0);
+#ifdef CONFIG_INPUT_FT5X06
   static const struct ft5x06_config_s touch =
   {
     .lower = { .xres = 320, .yres = 240, .maxpoint = 1 },
     .address = 0x38,
     .frequency = I2C_SPEED_FAST,
   };
-  g_imus[0].registers[0] = g_imus[1].registers[0] = 0x24;
-  int ret = i2c_register(&g_i2c, 0);
   if (ret >= 0)
     {
       ret = ft5x06_register(&g_i2c, &touch, 0);
@@ -340,9 +366,11 @@ int tracker_sim_devices(void)
       struct mtd_dev_s *memory = rammtd_initialize(g_flash, sizeof(g_flash));
       ret = memory ? mtdconfig_register(memory) : -ENOMEM;
     }
+#endif
   return ret;
 }
 
+#ifdef CONFIG_INPUT_FT5X06
 uint16_t tracker_sim_pixel(void)
 {
   return ((uint16_t)g_pixel[0] << 8) | g_pixel[1];
@@ -354,3 +382,4 @@ void tracker_sim_touch(void)
   g_touched = true;
   nxmutex_unlock(&g_i2c_lock);
 }
+#endif

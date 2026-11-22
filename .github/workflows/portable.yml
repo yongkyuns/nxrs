@@ -127,6 +127,11 @@ jobs:
         run: |
           git rev-parse HEAD
           rustc --version --verbose
+      - name: Save and rotate the observation service log
+        run: cargo test --locked -p nxrs-log-qualification --test file -- --nocapture
+      - name: Build and run the headless Motion Tracker on Windows
+        if: runner.os == 'Windows'
+        run: python tests/native/motion_tracker.py
       - name: Portable applications, mocks and actual native adapters
         run: |
           cargo test --locked

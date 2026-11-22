@@ -1,0 +1,14 @@
+[package]
+name = "nxrs-log-qualification"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[lib]
+crate-type = ["rlib", "cdylib"]
+
+[dependencies]
+log = "0.4"
+nxrs-log-adapters = { path = "../../platform/logging" }
+nxrs-log-router = { path = "../../service/logging" }
+nxrs-navigation-services = { path = "../../service/navigation" }

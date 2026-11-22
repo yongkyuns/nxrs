@@ -1,0 +1,20 @@
+[package]
+name = "nxrs-tracker-log-qualification"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[dependencies]
+log = "0.4"
+nxrs-log-adapters = { path = "../../../../platform/logging" }
+nxrs-composition = { path = "../../../../platform", features = ["imu"] }
+nxrs-log-router = { path = "../../../../service/logging" }
+nxrs-motion-tracker = { path = "../../../../app/motion-tracker", default-features = false }
+
+[package.metadata.nxrs]
+qualification-only = true
+required-capabilities = ["imu"]
+
+[package.metadata.nxrs.firmware]
+command = "motion_tracker"
+stack-size = 32768
