@@ -23,6 +23,7 @@
     ["performance", "Performance and memory", "Understand results and measure your workload"],
     ["troubleshooting", "Troubleshooting", "Resolve setup and runtime errors"],
     ["examples", "NXRS examples", "Learning programs and optional application examples"],
+    ["motion-tracker", "Motion Tracker in the browser", "Drive a two-core NuttX dashboard and pair over a simulated BLE link"],
     ["status", "Current status", "Implementation, validation and ongoing work"]
   ],
   "sections": [
@@ -31,7 +32,7 @@
     {"title": "Develop firmware", "pages": ["designing-applications", "standard-library", "services", "controller", "hardware", "io"]},
     {"title": "Configure and build", "pages": ["build-system", "profiles"]},
     {"title": "Test and debug", "pages": ["testing", "performance", "troubleshooting"]},
-    {"title": "Examples and status", "pages": ["examples", "status"]}
+    {"title": "Examples and status", "pages": ["examples", "motion-tracker", "status"]}
   ],
   "reference": [
     ["architecture.md", "Architecture"],

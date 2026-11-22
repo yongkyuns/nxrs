@@ -10,6 +10,7 @@ Run a small Rust program to learn an API, or pick an integration that matches th
 | Send messages to a worker and stop it cleanly | [Basic firmware worker](#basic-firmware) | Yes, using the same tutorial workspace |
 | Switch an output and confirm each command | [Controller application](#controller-application) | Yes, with the explicit LED mock on the host and in QEMU |
 | Switch a light from Home Assistant | [Simulated Matter light](../examples/matter-led/README.md) | Yes, with the same LED mock and a Matter controller |
+| Try an ESP32-S3 touchscreen and BLE pairing | [Motion Tracker in the browser](motion-tracker.md) | Yes, with two NuttX cores and modeled peripherals |
 | Use Rust collections, channels, and deadlines | [Standard-library recipes](#standard-library-recipes) | Yes |
 | Test overload and repeated shutdown | [Stress example](#exercise-overload-and-shutdown) | Yes; host measurements describe the host |
 | Try replay, recording, or UDP output | [Software capability tests](#test-a-reusable-software-capability) | Yes, subject to their file/network prerequisites |

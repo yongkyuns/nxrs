@@ -104,11 +104,15 @@ class ContentTests(unittest.TestCase):
             for case in re.findall(command, guide.read_text()):
                 self.assertIn(case, cases | {'all'}, (guide.name, case))
 
-    def test_site_has_no_embedded_application(self):
+    def test_tracker_is_the_opt_in_embedded_application(self):
         layout = (ROOT / 'website/layout.html').read_text()
         script = (ROOT / 'website/static/site.js').read_text()
+        embed = (ROOT / 'website/tracker-demo.html').read_text()
         self.assertIn("frame-src 'none'", layout)
+        self.assertIn("route == 'guide/motion-tracker/' %}frame-src 'self'", layout)
         self.assertNotIn('<iframe', layout.lower())
+        self.assertIn('data-src="{{ demo_url }}"', embed)
+        self.assertNotRegex(embed, r'\s+src=')
         self.assertNotRegex(script, r'createElement\([\'\"]iframe[\'\"]\)')
 
 

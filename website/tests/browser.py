@@ -260,7 +260,13 @@ def run(site: Path, prefix: str, output: Path) -> dict:
                 page.goto(url + route, wait_until='networkidle')
                 width = page.evaluate('({viewport: innerWidth, document: document.documentElement.scrollWidth})')
                 assert width['document'] <= width['viewport'] + 1, (route, width)
-                assert page.locator('iframe').count() == 0
+                if route == 'guide/motion-tracker/':
+                    frame = page.locator('.tracker-demo iframe')
+                    assert page.locator('iframe').count() == 1
+                    assert frame.get_attribute('src') is None
+                    assert frame.get_attribute('data-src') == prefix + 'demos/motion-tracker/'
+                else:
+                    assert page.locator('iframe').count() == 0
                 for label in ('Getting started', 'User guide', 'Examples', 'Reference', 'Rust API', 'GitHub ↗'):
                     expect(main_nav.get_by_role('link', name=label, exact=True)).to_be_visible()
                 if route == 'reference/rtos-comparison/':
