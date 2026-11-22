@@ -29,6 +29,10 @@ interrupts do not slow down the clock. The gateway retires streams when
 capture-to-arrival delay grows by more than one second above the connection's
 best observed offset.
 
+WROOM streaming profiles share the regular camera's fixed TCP write pool,
+including the SSH maintenance image. Buffered sends let the TLS worker keep
+polling while TCP waits for acknowledgements.
+
 Install the NuttX-pinned upstream tool with `pip install -r tools/mcuboot-requirements.txt`.
 The PyPI 2.2.0 release lacks the pinned source's EC public-key verification fix. Supply
 `NXRS_FIRMWARE_SIGNING_KEY`, `NXRS_FIRMWARE_VERIFY_KEY` (the expected public root),
