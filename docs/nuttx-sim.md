@@ -21,7 +21,8 @@ simulated NuttX UART through a temporary host pseudoterminal. The
   restoration of the GNSS receiver's original update rate.
 
 Use Xcode command-line tools, GNU Make and GNU sed (as `make` and `sed` on
-`PATH`), CMake, `genromfs`, and Python 3.11 or later with `kconfiglib` and `lief`.
+`PATH`), `kconfig-tweak` from NuttX's `kconfig-frontends`, CMake, `genromfs`, and
+Python 3.11 or later with `kconfiglib` and `lief`.
 Install `nightly-2025-09-15` with `rust-src`, and provide the pinned Mbed TLS
 archive at `target/mbedtls-4.2.0.tar.bz2` or with `NXRS_TLS_ARCHIVE`.
 See the [Mbed TLS source pin](../upstream/mbedtls/source.json) for the download.

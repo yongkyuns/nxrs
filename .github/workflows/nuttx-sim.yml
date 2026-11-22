@@ -80,6 +80,17 @@ jobs:
           if ! command -v cmake >/dev/null; then brew install cmake; fi
           echo "$(brew --prefix make)/libexec/gnubin" >> "$GITHUB_PATH"
           echo "$(brew --prefix gnu-sed)/libexec/gnubin" >> "$GITHUB_PATH"
+          # NuttX sethost.sh uses kconfig-tweak even when Kconfiglib resolves the config.
+          kconfig_bin="$RUNNER_TEMP/nxrs-kconfig"
+          mkdir -p "$kconfig_bin"
+          curl --proto '=https' -fsSL --retry 3 \
+            https://raw.githubusercontent.com/patacongo/tools/9484147c12d051014f854852d59c21d75a9616bd/kconfig-frontends/utils/kconfig-tweak.in \
+            -o "$kconfig_bin/kconfig-tweak.in"
+          printf '%s  %s\n' a847ac38cc80d77f5c3ef87976b912816b8d1b4546867920ccba3451a4e99790 \
+            "$kconfig_bin/kconfig-tweak.in" | shasum -a 256 -c -
+          sed 's/@CONFIG_@/CONFIG_/g' "$kconfig_bin/kconfig-tweak.in" > "$kconfig_bin/kconfig-tweak"
+          chmod +x "$kconfig_bin/kconfig-tweak"
+          echo "$kconfig_bin" >> "$GITHUB_PATH"
           python -m pip install kconfiglib==14.1.0 lief==0.17.6
           rustup toolchain install nightly-2025-09-15 --profile minimal --component rust-src
       - name: Build the tracker with NuttX and Rust std
