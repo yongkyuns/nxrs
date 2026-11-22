@@ -364,6 +364,9 @@ restored and the full flash matched its pre-test backup. The disposable
 credentials were erased and the camera resumed streaming.
 [Shared TCP profile change](https://github.com/yongkyuns/nxrs/pull/401)
 
+The WROOM maintenance profile schedules the SSH transport and shell below
+the camera TLS worker to prioritize video delivery during bulk terminal output.
+
 ## Qualification still required on hardware
 
 The automated fixture is a starting point for this matrix. Preserve failures and
