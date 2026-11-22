@@ -199,6 +199,10 @@ portability, dependency, native-boundary and lifecycle coverage. The OS/provider
   model features are for HAL qualification only. Model dependencies remain
   explicit in the detector HAL; benchmark choices use typed cases, never boolean
   cfg aliases or a feature for each measurement axis.
+- Deadline-sensitive paths on fixed-priority targets reserve workspace during
+  setup and reuse it through the owning component's normal API. Qualify shared
+  heap access across Rust and native calls. See
+  `docs/concurrency-event-communication.md`.
 - Hardware acquisition is event-driven. GNSS UART reads and IMU FIFO
   draining belong to HAL providers, never service polling timers. Services receive
   normalized typed messages through bounded channels. ISRs and interrupt-context callbacks only

@@ -303,7 +303,7 @@ fn source_destruction_finishes_before_sdk_lease_is_released() {
 #[test]
 fn fallible_rust_allocations_retire_sources_and_preserve_healthy_key() {
     let _serial = serial();
-    for count in 0..3 {
+    for count in 0..4 {
         let source = Source::new();
         let closed = source.closed.clone();
         assert!(matches!(
@@ -326,6 +326,32 @@ fn fallible_rust_allocations_retire_sources_and_preserve_healthy_key() {
 #[cfg(feature = "probe")]
 mod witness {
     use super::*;
+    #[test]
+    fn native_allocator_reuses_bounded_record_storage() {
+        let _serial = serial();
+        let identity = Identity::generate(Source::new()).unwrap();
+        // SAFETY: use the paired SDK callbacks and never retain a freed slot.
+        unsafe {
+            let outside = tls_test_calloc(8192);
+            assert!(!outside.is_null());
+            let scope = identity.record.enter().unwrap();
+            let first = tls_test_calloc(4096);
+            let second = tls_test_calloc(4096);
+            assert!(!first.is_null() && !second.is_null() && first != second);
+            assert!(tls_test_calloc(8192).is_null());
+            tls_test_free(first);
+            let reused = tls_test_calloc(4096);
+            assert_eq!(reused, first);
+            tls_test_free(reused);
+            tls_test_free(second);
+            assert_eq!(scope.finish(), Err(Error::Capacity));
+            let scope = identity.record.enter().unwrap();
+            // An unexpected release uses its original allocator and fails the record.
+            tls_test_free(outside);
+            assert_eq!(scope.finish(), Err(Error::Crypto));
+        }
+    }
+
     #[test]
     fn actual_c_callback_clears_partial_entropy_and_estimate() {
         let _serial = serial();
