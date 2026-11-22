@@ -23,6 +23,12 @@ configuration without copying its HAL implementations or resource budgets.
 The pinned Espressif port reserves swap status for 512 sectors; signing includes
 that trailer budget and rejects an image that no longer fits.
 
+WROOM streaming profiles read the ESP32-S3 hardware counter for Rust's
+monotonic capture timestamps and keep the periodic scheduler. Delayed timer
+interrupts do not slow down the clock. The gateway retires streams when
+capture-to-arrival delay grows by more than one second above the connection's
+best observed offset.
+
 Install the NuttX-pinned upstream tool with `pip install -r tools/mcuboot-requirements.txt`.
 The PyPI 2.2.0 release lacks the pinned source's EC public-key verification fix. Supply
 `NXRS_FIRMWARE_SIGNING_KEY`, `NXRS_FIRMWARE_VERIFY_KEY` (the expected public root),
