@@ -120,6 +120,7 @@ fn write_imu_fixture(root: &Path) {
     for package in [
         "hal/imu",
         "platform",
+        "driver/axp2101",
         "driver/bmi270",
         "driver/lsm6dso",
         "driver/ubx",
