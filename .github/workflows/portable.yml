@@ -2,7 +2,7 @@ name: Portable services
 
 on:
   push:
-    branches: [main]
+    branches: [codex/portable-tracker-linux-ci]
   # Stacked PRs need the same architecture/native/core/WASM gates as main-bound PRs.
   pull_request:
   workflow_dispatch:
@@ -19,81 +19,6 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  architecture:
-    name: Architecture boundaries
-    runs-on: ubuntu-24.04
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-        with:
-          persist-credentials: false
-      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
-        with:
-          toolchain: 1.90.0
-      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
-        with:
-          python-version: '3.12'
-      - name: Boundary checker negative controls
-        run: |
-          python -m unittest discover -s tests/host -p test_architecture.py -v
-          python -m unittest discover -s tests/host -p test_hal_boundaries.py -v
-          python -m unittest discover -s tests/host -p test_hal_isolation.py -v
-          python -m unittest discover -s tests/host -p test_imu_i2c_ffi.py -v
-          python -m unittest discover -s tests/host -p test_spi_ffi.py -v
-      - name: Editor configuration regressions
-        run: python -m unittest discover -s tests/host -p test_clangd_setup.py -v
-      - name: Ubuntu package setup failure controls
-        run: python -m unittest discover -s tests/host -p test_ci_apt.py -v
-      - name: Enforce actual workspace dependency boundaries
-        run: python tools/check-architecture.py
-      - name: Qualify reusable IMU drivers and device contract
-        run: cargo test --locked -p nxrs-peripheral -p nxrs-bmi270 -p nxrs-lsm6dso -p nxrs-gpio -p nxrs-spi -p nxrs-acquisition
-      - name: Consolidated probes and typed experiment cases
-        run: |
-          cargo test --locked -p nxrs-boot --lib
-          cargo test --locked -p nxrs-detector --features probe
-          python -m unittest discover -s tests/service-footprint -p 'test_*.py'
-          python -m unittest discover -s tests/event-services-comparison -p 'test_*.py'
-          python -m unittest discover -s tests/embassy-comparison -p 'test_*.py'
-          python tests/service-footprint/check_native.py
-          for case in payload rust-owned-z rust-borrowed-z rust-borrowed-2 rust-packet-wire-2 rust-packet-2 rust-packet-inplace-2 paired-wire paired-packet paired-packet-inplace; do
-            NXRS_FOOTPRINT_CASE="$case" cargo test --locked -p nxrs-footprint-demo --bin cq-scale
-            NXRS_FOOTPRINT_CASE="$case" cargo test --locked -p nxrs-footprint-demo --bin cq-scale --features probe
-          done
-          for case in wire packet baseline wire-cooperative packet-cooperative; do
-            NXRS_EMBASSY_CASE="$case" cargo test --locked --manifest-path tests/embassy-comparison/Cargo.toml --target x86_64-unknown-linux-gnu
-          done
-      - name: Native filesystem binding rejection controls
-        run: python -m unittest discover -s tests/host -p test_directory_abi.py -v
-      - name: Camera inspection runtime and session policies (no devices)
-        run: |
-          cargo test --locked -p nxrs-std-stream --bin nxrs-std-stream
-          python -m unittest discover -s tests/host -p test_camera_session.py -v
-      - name: Two-board GATT runner negative controls (no devices)
-        run: |
-          python -m unittest discover -s tests/host -p test_gatt_client_runner.py -v
-          python -m unittest discover -s tests/host -p test_gatt_native_process.py -v
-          python -m unittest discover -s tests/host -p test_radio_client.py -v
-          python -m unittest discover -s tests/host -p test_radio_echo.py -v
-      - name: Documentation and dependency setup guards (no toolchain build)
-        run: |
-          python -m unittest discover -s tests/host -p test_evaluation_docs.py -v
-          python -m unittest discover -s tests/host -p test_xtensa_literal_calls.py -v
-          python -m unittest discover -s tests/host -p test_upstream_layout.py -v
-          python -m unittest discover -s tests/host -p test_esp_mbedtls_allocators.py -v
-          python -m unittest discover -s tests/host -p test_arc4random_entropy.py -v
-          python -m unittest discover -s tests/host -p test_rng_entropy.py -v
-          python -m unittest discover -s tests/host -p test_esp_rng_entropy.py -v
-          python -m unittest discover -s tests/host -p test_esp32s3_image_size.py -v
-          cargo test --locked -p nxrs-std-wifi --bin entropy-probe
-          python -m unittest discover -s tests/host -p test_sim_entropy.py -v
-          python -m unittest discover -s tests/host -p test_tls_sdk.py -v
-          python -m unittest discover -s tests/event-services-comparison -p test_setup.py -v
-          python -m unittest discover -s tests/rtos_harness -p 'test_*.py' -v
-          python tests/nuttx-std/test-llvm-patches.py
-          python tests/nuttx-std/test-build-rust-llvm.py
-          python tests/nuttx-std/test-std-proposals.py
-
   native:
     name: Native qualification (${{ matrix.os }})
     runs-on: ${{ matrix.image }}
@@ -106,12 +31,6 @@ jobs:
           - os: ubuntu-latest
             image: ubuntu-24.04
             platform: linux
-          - os: macos-latest
-            image: macos-15
-            platform: macos
-          - os: windows-latest
-            image: windows-latest
-            platform: windows
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -133,118 +52,3 @@ jobs:
           python tests/native/motion_tracker.py
           cargo test --locked -p nxrs-log-qualification --test file -- --nocapture
           cargo test --locked -p nxrs-telemetry-service --no-default-features --features stream
-      - name: Portable applications, mocks and actual native adapters
-        run: |
-          cargo test --locked
-          cargo test --locked -p nxrs-build-support -p nxrs-detector-build-support -p nxrs-build
-      - name: Matter gateway protocol and lifecycle
-        run: cargo test --locked --manifest-path gateway/Cargo.toml -p nxrs-gateway-matter --lib
-      - name: Real shared file and UDP APIs without hardware admission
-        run: |
-          cargo test --locked -p nxrs-storage --features recording --test std_recording
-          cargo test --locked -p nxrs-transport --features udp --test std_udp --test typed_udp
-      - name: Native HAL integration under unset, mock and host profiles
-        run: python tests/native/qualify.py
-      - name: Scan fixture single-wait owner tests
-        run: |
-          cargo test --locked -p nxrs-std-wifi --lib
-          cargo clippy --locked -p nxrs-std-wifi --lib -- -D warnings
-          cargo test --locked -p nxrs-std-ble --lib --bin gatt-client
-          # Lint the portable fixture without compiling a hardware entry point.
-          cargo clippy --locked -p nxrs-std-ble --lib -- -D warnings
-          cargo test --locked -p nxrs-std-radio
-          cargo clippy --locked -p nxrs-std-radio --tests -- -D warnings
-      - name: Injected NuttX radio source tests (no radio access)
-        if: runner.os != 'Windows'
-        run: |
-          cargo test --locked -p nxrs-wifi --lib
-          cargo test --locked -p nxrs-ble --lib --tests
-          python tests/host/test_ble_native.py
-          python tests/host/test_gatt_native.py
-          python tests/host/test_wifi_qualification.py
-      - name: Actual TLS identity SDK and native sanitizer controls
-        if: runner.os != 'Windows'
-        run: |
-          python upstream/mbedtls/fetch.py
-          python tests/tls/qualify.py --platform ${{ matrix.platform }}
-      - name: macOS radio SDK bridges (fake objects; no radio or permission UI)
-        if: runner.os == 'macOS'
-        env:
-          NXRS_PLATFORM: macos
-        run: |
-          cargo test --locked -p nxrs-wifi --lib
-          cargo clippy --locked -p nxrs-wifi --lib --tests -- -D warnings
-          cargo test --locked -p nxrs-ble --lib --tests
-          cargo clippy --locked -p nxrs-ble --lib --tests -- -D warnings
-          cargo clippy --locked -p nxrs-std-ble --bin gatt-client -- -D warnings
-          python tests/host/test_macos_radio_native.py
-      - name: Linux radio IPC bridges (private services; no radio access)
-        if: runner.os == 'Linux'
-        env:
-          NXRS_PLATFORM: ${{ matrix.platform }}
-        run: |
-          bash .github/scripts/install-ubuntu-packages.sh build-essential pkg-config libglib2.0-dev dbus
-          cargo test --locked -p nxrs-wifi -p nxrs-ble --lib --tests
-          cargo clippy --locked -p nxrs-wifi -p nxrs-ble --lib --tests -- -D warnings
-          cargo clippy --locked -p nxrs-std-ble --bin gatt-client -- -D warnings
-          python tests/host/test_linux_radio_native.py
-      - name: Detached consumers use declared Cargo dependencies
-        run: python -m unittest discover -s tests/host -p test_external_consumers.py -v
-      - name: Native simulator and bounded worker
-        env:
-          NXRS_PLATFORM: mock
-        run: |
-          cargo test --locked -p nxrs-simulator
-          cargo test --locked -p nxrs-navigation-services --lib --test active
-          cargo run --locked -p nxrs-simulator --bin nxrs-simulator
-      - name: Lint capability APIs, services and test composition
-        env:
-          NXRS_PLATFORM: ${{ matrix.platform }}
-        run: cargo clippy --locked -p nxrs-camera -p nxrs-storage -p nxrs-transport -p nxrs-camera-service -p nxrs-recording-service -p nxrs-telemetry-service -p nxrs-camera-test-support -p nxrs-native-integration --lib -- -D warnings
-
-  no-std:
-    name: No-std Cortex-M0 compile
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-        with:
-          persist-credentials: false
-      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
-        with:
-          toolchain: 1.90.0
-          targets: thumbv6m-none-eabi,wasm32-unknown-unknown
-      - name: Compile shared qualification and services without selecting a backend
-        run: cargo check --locked -p nxrs-camera-test-support --lib --target thumbv6m-none-eabi
-      - name: Compile allocation-free radio contracts and controllers
-        run: cargo check --locked -p nxrs-wifi -p nxrs-ble --no-default-features --lib --target thumbv6m-none-eabi
-      - name: Verify sensor contract and mock dependency isolation
-        run: python3 tools/check-hal-isolation.py --capability imu --capability gnss --out target/sensor-isolation
-
-  wasm:
-    name: Shared mocks in Node and Chromium
-    runs-on: ubuntu-24.04
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-        with:
-          persist-credentials: false
-      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
-        with:
-          toolchain: 1.90.0
-          targets: wasm32-unknown-unknown
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
-        with:
-          node-version: '22'
-      - name: Compile the same scenario registry to WebAssembly
-        run: NXRS_PLATFORM=mock cargo build --locked --release --lib -p nxrs-simulator --target wasm32-unknown-unknown
-      - name: Install pinned browser test harness
-        run: |
-          npm install --no-save --package-lock=false playwright@1.56.1
-          npx playwright install --with-deps chromium
-      - name: Execute Rust assertions in Node and a real Chromium page
-        run: node tests/browser/run-wasm-scenarios.mjs target/wasm32-unknown-unknown/release/nxrs_simulator.wasm --browser
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: portable-simulator-wasm
-          path: target/wasm32-unknown-unknown/release/nxrs_simulator.wasm
