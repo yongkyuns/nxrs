@@ -228,7 +228,11 @@ impl<'a, L: Listener> Output<'a, L> {
     }
 
     pub fn offer(&mut self, snapshot: &Snapshot, now: Instant) {
-        if self.live && self.drained && self.publication.is_idle() && now >= self.next_frame {
+        if self.live
+            && (self.drained || self.listener.notifying())
+            && self.publication.is_idle()
+            && now >= self.next_frame
+        {
             self.publication.offer(*snapshot);
             self.next_frame = now + Duration::from_secs(1);
         }

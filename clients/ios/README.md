@@ -234,3 +234,21 @@ only in that disposable simulator. Delete the simulator afterward. Without the
 fixture, the hosted test explicitly skips; the reference runner requires its
 success marker. See `docs/client-camera-architecture.md` for admission/lifetime
 rules and the boundaries of device qualification.
+
+## Motion Tracker simulator tests
+
+Run the tracker receive path in the iPhone Simulator from the repository root.
+Use the destination ID from `xcrun simctl list devices available`.
+
+```sh
+xcodebuild test -project clients/ios/NxrsMonitor.xcodeproj \
+  -scheme CameraSessionTests -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
+  -only-testing:NxrsMonitorSessionTests/TrackerSessionTests
+```
+
+The tests feed two minutes of authenticated-stream payloads through the app's
+real parser and graph history. They check counters, stale dashboard metadata,
+stream timeout, sequence gaps and queue overflow. The
+[QEMU export test](../../tests/nuttx-std/tracker-sim/README.md#ble-telemetry-during-ppp-loss-and-reconnect)
+checks the tracker firmware, BLE protocol and cellular load. Physical iPhone
+Bluetooth behavior still requires a hardware test.

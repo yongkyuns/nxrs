@@ -181,6 +181,18 @@ impl<const IMUS: usize> ObservationService<IMUS> {
         sender: Sender<E>,
         wrap: impl Fn(Observation) -> E + Send + 'static,
     ) -> Result<(), SensorFault> {
+        self.start_imu_with(index, device, sender, move |event| Some(wrap(event)))
+    }
+
+    /// A caller can consume an observation in its own bounded storage and
+    /// return `None` to skip the inbox.
+    pub fn start_imu_with<E: Send + 'static>(
+        &mut self,
+        index: usize,
+        device: &'static impl imu::Device,
+        sender: Sender<E>,
+        wrap: impl Fn(Observation) -> Option<E> + Send + 'static,
+    ) -> Result<(), SensorFault> {
         let Some(slot) = self.imu.get_mut(index) else {
             return Err(SensorFault::Imu(index, imu::DeviceError::InvalidData));
         };
@@ -205,6 +217,17 @@ impl<const IMUS: usize> ObservationService<IMUS> {
         device: &'static impl gnss::Device,
         sender: Sender<E>,
         wrap: impl Fn(Observation) -> E + Send + 'static,
+    ) -> Result<(), SensorFault> {
+        self.start_gnss_with(device, sender, move |event| Some(wrap(event)))
+    }
+
+    /// A caller can consume an observation in its own bounded storage and
+    /// return `None` to skip the inbox.
+    pub fn start_gnss_with<E: Send + 'static>(
+        &mut self,
+        device: &'static impl gnss::Device,
+        sender: Sender<E>,
+        wrap: impl Fn(Observation) -> Option<E> + Send + 'static,
     ) -> Result<(), SensorFault> {
         let Some(source) = &self.values.gnss else {
             return Err(SensorFault::Gnss(gnss::DeviceError::Unsupported));
@@ -334,22 +357,23 @@ impl<const IMUS: usize> ObservationService<IMUS> {
 fn sink<T: Copy, E>(
     sender: Sender<E>,
     input: impl Fn(T) -> Input,
-    wrap: impl Fn(Observation) -> E + Send + 'static,
+    wrap: impl Fn(Observation) -> Option<E> + Send + 'static,
 ) -> impl FnMut(T) -> DeliveryResult<T> {
     move |value| {
         let observation = Observation {
             input: input(value),
             received: Instant::now(),
         };
-        sender
-            .try_send(wrap(observation))
-            .map_err(|error| Rejected {
-                value,
-                error: match error {
-                    TrySendError::Full(_) => DeliveryError::Full,
-                    TrySendError::Disconnected(_) => DeliveryError::Closed,
-                },
-            })
+        let Some(event) = wrap(observation) else {
+            return Ok(());
+        };
+        sender.try_send(event).map_err(|error| Rejected {
+            value,
+            error: match error {
+                TrySendError::Full(_) => DeliveryError::Full,
+                TrySendError::Disconnected(_) => DeliveryError::Closed,
+            },
+        })
     }
 }
 
@@ -382,7 +406,7 @@ mod tests {
         let mut service = ObservationService::<1>::new(Duration::from_millis(500), None);
         service.imu[0] = Some(Box::new(FinishedImu));
         let (sender, inbox) = messaging::bounded(1);
-        let mut deliver = sink(sender, |event| Input::Imu(0, event), |event| event);
+        let mut deliver = sink(sender, |event| Input::Imu(0, event), Some);
         let sample = imu::ImuSample {
             sequence: 1,
             timestamp_ms: 0,
@@ -400,6 +424,33 @@ mod tests {
         assert_eq!(faults, [SensorFault::Imu(0, imu::DeviceError::Io)]);
         assert!(service.observe(inbox.try_recv().unwrap()).is_none());
         assert_eq!(service.snapshot(Instant::now()).imu, [Reading::Fault]);
+    }
+
+    #[test]
+    fn a_sample_consumed_by_the_caller_leaves_room_for_a_fault() {
+        let (sender, inbox) = messaging::bounded(1);
+        let mut deliver = sink(
+            sender,
+            |event| Input::Imu(0, event),
+            |event| event.measurement().is_none().then_some(event),
+        );
+        let sample = imu::ImuSample {
+            sequence: 1,
+            timestamp_ms: 0,
+            sample_interval_us: 10_000,
+            accel_mps2: [0.0; 3],
+            gyro_rps: [0.0; 3],
+        };
+        deliver(imu::Event::Sample(sample)).unwrap();
+        assert!(matches!(
+            inbox.try_recv(),
+            Err(std::sync::mpsc::TryRecvError::Empty)
+        ));
+        deliver(imu::Event::Failed(imu::DeviceError::Io)).unwrap();
+        assert!(matches!(
+            inbox.try_recv().unwrap().input,
+            Input::Imu(0, imu::Event::Failed(imu::DeviceError::Io))
+        ));
     }
 
     #[test]

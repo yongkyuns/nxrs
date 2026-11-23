@@ -185,13 +185,14 @@ class Scenario:
         first = [None] * 3
         latest = [None] * 3
         count = [0] * 3
-        dashboard = 0
+        started = time.monotonic()
+        dashboard = []
         async with asyncio.timeout(75):
-            while min(count[:2]) < minimum or count[2] < minimum // 50 or dashboard < 2:
+            while min(count[:2]) < minimum or count[2] < minimum // 50 or len(dashboard) < 2:
                 record = await stream.export_record()
                 if isinstance(record, dict):
                     check_live(record)
-                    dashboard += 1
+                    dashboard.append(time.monotonic())
                     continue
                 pos = 0
                 while pos < len(record):
@@ -214,8 +215,11 @@ class Scenario:
                     count[index] += 1
         rates = [(n - 1) * 1000 / (end[1] - start) for n, end, start in zip(count, latest, first)]
         assert all(92 <= rate <= 108 for rate in rates[:2]) and 1.8 <= rates[2] <= 2.2, rates
+        times = [started, *dashboard, time.monotonic()]
+        gap = max(end - start for start, end in zip(times, times[1:]))
+        assert gap < 4, ('dashboard became stale during full-rate export', gap)
         print(f'PASS: BLE export counts {count}, rates {[round(rate, 2) for rate in rates]}, '
-              f'zero sequence gaps and {dashboard} dashboard snapshots', flush=True)
+              f'zero sequence gaps and {len(dashboard)} dashboard snapshots with max gap {gap:.2f}s', flush=True)
         return latest
 
     async def exercise(self, guest, panel, phone, args):

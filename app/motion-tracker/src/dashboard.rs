@@ -5,12 +5,12 @@ use battery::Device as _;
 use charts::{History, SAMPLE_INTERVAL};
 use communications::{Communications, Pairing, View};
 use messaging::bounded;
-use navigation::observations::{Observation, ObservationService};
+use navigation::observations::{Measurement, Observation, ObservationService};
 use screen::{Action, Dashboard, LinkStatus, Screen};
 use std::io::{self, Write};
 use std::sync::{
     mpsc::{RecvTimeoutError, TrySendError},
-    Arc,
+    Arc, Mutex,
 };
 use std::time::Instant;
 use touch::Session as _;
@@ -105,13 +105,21 @@ pub(super) fn run(args: impl Iterator<Item = String>) -> io::Result<()> {
         }
     };
     let capture = Arc::new(Capture::default());
+    let latest = Arc::new(Mutex::new([None, None, None]));
     let sensor_event = {
         let capture = capture.clone();
+        let latest = latest.clone();
         move |event: Observation| {
-            if let Some(sample) = event.measurement() {
-                capture.record(sample);
-            }
-            Event::Sensor(event)
+            let Some(sample) = event.measurement() else {
+                return Some(Event::Sensor(event));
+            };
+            capture.record(sample);
+            let index = match sample {
+                Measurement::Imu(index, _) => index,
+                Measurement::Gnss(_) => 2,
+            };
+            latest.lock().unwrap()[index] = Some(event);
+            None
         }
     };
     let mut communications = (options.ble || options.cellular.is_some())
@@ -127,19 +135,19 @@ pub(super) fn run(args: impl Iterator<Item = String>) -> io::Result<()> {
     let mut view = View::default();
     let mut sensors = ObservationService::<2>::new(IMU_FRESH, Some(FIX_FRESH));
     for result in [
-        sensors.start_imu(
+        sensors.start_imu_with(
             0,
             composition::imu::primary_imu(),
             events.clone(),
             sensor_event.clone(),
         ),
-        sensors.start_imu(
+        sensors.start_imu_with(
             1,
             composition::imu::secondary(),
             events.clone(),
             sensor_event.clone(),
         ),
-        sensors.start_gnss(
+        sensors.start_gnss_with(
             composition::gnss::primary_gnss(),
             events.clone(),
             sensor_event.clone(),
@@ -189,6 +197,14 @@ pub(super) fn run(args: impl Iterator<Item = String>) -> io::Result<()> {
                         }
                     }
                     view = update;
+                }
+            }
+        }
+        if report_due || plot_due || redraw {
+            let current = std::mem::take(&mut *latest.lock().unwrap());
+            for event in current.into_iter().flatten() {
+                if let Some(fault) = sensors.observe(event) {
+                    report_fault(fault);
                 }
             }
         }

@@ -57,6 +57,7 @@ import NxrsMonitorCore
     private var generation = UUID()
     private var relayTimer: Timer?
     private var lastReading: ContinuousClock.Instant?
+    private var lastStreamData: ContinuousClock.Instant?
 
     func start(key: String) {
         stop()
@@ -80,7 +81,7 @@ import NxrsMonitorCore
         }
         let token = generation
         DispatchQueue.main.asyncAfter(deadline: .now() + (pairedTracker == nil ? 45 : 15)) { [weak self] in
-            guard let self, self.generation == token, self.lastReading == nil else { return }
+            guard let self, self.generation == token, self.lastStreamData == nil else { return }
             self.recover("Connection timed out")
         }
     }
@@ -150,6 +151,7 @@ import NxrsMonitorCore
         generation = UUID()
         reading = nil
         lastReading = nil
+        lastStreamData = nil
         relayTimer?.invalidate()
         relayTimer = nil
         manager?.stopScan()
@@ -244,22 +246,27 @@ import NxrsMonitorCore
         let timer = Timer(timeInterval: 0.015, repeats: true) { [weak self] _ in
             Task { @MainActor in
                 guard let self, self.generation == token else { return }
-                if let last = self.lastReading {
-                    let age = last.duration(to: .now)
-                    if age > .seconds(12) {
-                        self.recover("Tracker data stopped")
-                        return
-                    }
-                    if age > .seconds(4), self.reading != nil {
-                        self.reading = nil
-                        self.status = "Waiting for tracker data"
-                    }
+                if !self.refreshTelemetry(at: .now) {
+                    self.recover("Tracker data stopped")
+                    return
                 }
                 self.pump()
             }
         }
         relayTimer = timer
         RunLoop.main.add(timer, forMode: .common)
+    }
+
+    /// Returns false after the authenticated stream stops delivering data.
+    func refreshTelemetry(at now: ContinuousClock.Instant) -> Bool {
+        if let last = lastStreamData, last.duration(to: now) > .seconds(12) {
+            return false
+        }
+        if let last = lastReading, last.duration(to: now) > .seconds(4), reading != nil {
+            reading = nil
+            if !notifying { status = "Waiting for tracker data" }
+        }
+        return true
     }
 
     private func connectTLS(port: NWEndpoint.Port, options: NWProtocolTLS.Options, token: UUID) {
@@ -302,41 +309,46 @@ import NxrsMonitorCore
             MainActor.assumeIsolated {
                 guard let self, let client, self.generation == token else { return }
                 if done || error != nil { self.recover("Secure connection closed"); return }
-                if let data {
-                    do {
-                        var newest: TrackerTelemetry?
-                        var measurements: [TrackerMeasurement] = []
-                        try self.frames.receive(data, snapshot: { newest = $0 }, measurement: { measurements.append($0) })
-                        if !measurements.isEmpty {
-                            for item in measurements { self.capture.append(item) }
-                            self.capture.trim()
-                            let now = ContinuousClock.now
-                            if self.lastPlot.map({ $0.duration(to: now) >= .milliseconds(100) }) ?? true {
-                                self.lastPlot = now
-                                self.history = self.capture
-                            }
-                        }
-                        if let newest {
-                            self.reading = newest
-                            self.lastReading = .now
-                            self.retries = 0
-                        }
-                        if self.capture.hasGaps {
-                            self.status = "Sensor export incomplete. Samples missing."
-                        } else if newest != nil {
-                            self.status = self.notifying ? "Secure connection" : "Dashboard only"
-                        }
-                    } catch TrackerFrames.FrameError.captureOverflow {
-                        self.stop("Sensor export incomplete. Tracker buffer filled.")
-                        return
-                    } catch {
-                        self.stop("Invalid tracker telemetry")
-                        return
-                    }
-                }
+                if let data, !self.receiveAuthenticatedData(data, at: .now) { return }
                 self.receiveTelemetry(client, token: token)
             }
         }
+    }
+
+    /// Applies the plaintext read from the authenticated tracker connection.
+    func receiveAuthenticatedData(_ data: Data, at now: ContinuousClock.Instant) -> Bool {
+        do {
+            var newest: TrackerTelemetry?
+            var measurements: [TrackerMeasurement] = []
+            try frames.receive(data, snapshot: { newest = $0 }, measurement: { measurements.append($0) })
+            if !measurements.isEmpty || newest != nil {
+                lastStreamData = now
+                retries = 0
+            }
+            if !measurements.isEmpty {
+                for item in measurements { capture.append(item) }
+                capture.trim()
+                if lastPlot.map({ $0.duration(to: now) >= .milliseconds(100) }) ?? true {
+                    lastPlot = now
+                    history = capture
+                }
+            }
+            if let newest {
+                reading = newest
+                lastReading = now
+            }
+            if capture.hasGaps {
+                status = "Sensor export incomplete. Samples missing."
+            } else if newest != nil {
+                status = notifying ? "Secure connection" : "Dashboard only"
+            }
+            return true
+        } catch TrackerFrames.FrameError.captureOverflow {
+            stop("Sensor export incomplete. Tracker buffer filled.")
+        } catch {
+            stop("Invalid tracker telemetry")
+        }
+        return false
     }
 
     private func receiveCiphertext(_ conn: NWConnection, token: UUID) {

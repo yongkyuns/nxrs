@@ -26,10 +26,11 @@ north-up grid with a distance scale, current coordinates and ground speed.
 Loss of fix breaks the trail. This view works without internet access.
 Street maps are a separate integration.
 
-The dashboard uses a 32-slot event inbox. A slow display or console can cause
-sample drops without blocking the sensor workers. Sequence gaps are visible
-in telemetry. The tracker expires IMU readings after 500 ms and GNSS fixes
-after three seconds.
+The dashboard samples the latest observation from each sensor when it redraws
+or publishes telemetry. Touch events and sensor faults have their own inbox.
+The BLE export receives the full stream before the dashboard downsamples it.
+The tracker expires IMU readings after 500 ms and GNSS fixes after three
+seconds.
 
 ## CoreS3 and M135 setup
 
