@@ -96,11 +96,14 @@ the live dashboard.
    fresh. It clears stale readings and reconnects to the paired tracker after a
    temporary drop or when you return to the screen. The pairing key stays in
    memory while the tracker screen is open. Tap Disconnect to clear it.
+   If the phone needs to scan again, tap **Pair** on the CoreS3 after it
+   disconnects. The board opens the menu automatically.
 
 The CoreS3 sends the latest dashboard snapshot at up to 1 Hz. Current iPhone
-builds subscribe to GATT notifications and request binary sensor data after
-TLS pairing. Earlier clients can still read the dashboard using 20-byte GATT
-reads. The same authenticated session carries both records.
+builds use the notification service and request binary sensor data after
+TLS pairing. The authenticated notification stream carries both record types.
+With older firmware, the app shows **Dashboard only**. Earlier clients can
+still read the dashboard using the original service and 20-byte GATT reads.
 
 The export sends each received IMU sample at the configured 100 Hz and each
 valid GNSS fix at 2 Hz on the dual-IMU CoreS3 profiles. The GNSS driver verifies
@@ -122,9 +125,11 @@ the vendor mutex before sampling. Physical entropy and throughput qualification
 remain separate from the firmware build.
 [Espressif RNG requirements](https://docs.espressif.com/projects/esp-idf/en/stable/esp32s3/api-reference/system/random.html)
 
-The BLE UUIDs end in `3400` (service), `3401` (phone writes ciphertext), and
-`3402` (phone reads or subscribes to ciphertext). Their full prefix is
-`3CB1DE6E-A955-49B7-BE4F-C4572D3F`. Dashboard snapshots retain the v1 NDJSON
+The BLE UUID prefix is `3CB1DE6E-A955-49B7-BE4F-C4572D3F`. The notification
+service uses suffixes `3410` (service), `3411` (phone writes ciphertext) and
+`3412` (phone subscribes to ciphertext). The original dashboard service uses
+the unchanged `3400`, `3401` and `3402` UUIDs and handles, and is advertised
+in the scan response. Dashboard snapshots retain the v1 NDJSON
 layout used by USB and cellular. Binary export begins after the authenticated
 client sends the bytes `4e 58 52 53 01`. Each batch starts with `a5 01` and a
 little-endian 16-bit payload length. It contains up to 16 records. Each record

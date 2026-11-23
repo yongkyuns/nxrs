@@ -2,6 +2,7 @@
 import argparse
 import asyncio
 import base64
+from dataclasses import replace
 import json
 from pathlib import Path
 import re
@@ -14,6 +15,8 @@ import time
 from bumble.controller import Controller
 from bumble.core import AdvertisingData, PhysicalTransport, UUID
 from bumble.device import Device, Peer
+from bumble.gatt import Characteristic
+from bumble.hci import HCI_LE_Advertising_Report_Event, HCI_LE_Extended_Advertising_Report_Event
 from bumble.hci import Address
 from bumble.link import LocalLink
 from bumble.transport.common import ParserSource
@@ -27,6 +30,9 @@ WIDTH, HEIGHT = 320, 240
 SERVICE = UUID('3CB1DE6E-A955-49B7-BE4F-C4572D3F3400')
 RX = UUID('3CB1DE6E-A955-49B7-BE4F-C4572D3F3401')
 TX = UUID('3CB1DE6E-A955-49B7-BE4F-C4572D3F3402')
+EXPORT_SERVICE = UUID('3CB1DE6E-A955-49B7-BE4F-C4572D3F3410')
+EXPORT_RX = UUID('3CB1DE6E-A955-49B7-BE4F-C4572D3F3411')
+EXPORT_TX = UUID('3CB1DE6E-A955-49B7-BE4F-C4572D3F3412')
 TRACKER = Address('F0:F1:F2:F3:F4:01', Address.PUBLIC_DEVICE_ADDRESS)
 
 
@@ -63,6 +69,26 @@ class H4Controller(Controller):
         # The virtual controller queues no host-bound ACL credits. The HCI
         # acknowledgement has no response event.
         return None
+
+
+class PhoneController(Controller):
+    def send_hci_packet(self, packet):
+        # Bumble 0.0.236 synthesizes a scan response from the advertising
+        # payload. Use the actual scan response configured by the NuttX host.
+        scan_types = {
+            HCI_LE_Advertising_Report_Event: HCI_LE_Advertising_Report_Event.EventType.SCAN_RSP,
+            HCI_LE_Extended_Advertising_Report_Event:
+                HCI_LE_Extended_Advertising_Report_Event.EventType.SCAN_RESPONSE,
+        }
+        if (kind := scan_types.get(type(packet))) is not None:
+            report, = packet.reports
+            if report.event_type == kind:
+                if not self.le_scan_type:
+                    return
+                advertiser = self.link.find_le_controller(report.address)
+                response = advertiser.le_legacy_advertiser.scan_response_data
+                packet = type(packet)([replace(report, data=response)])
+        super().send_hci_packet(packet)
 
 
 class Guest:
@@ -192,17 +218,19 @@ class Panel:
         raise TimeoutError('decodable dashboard QR')
 
 
-async def connect(device):
+async def connect(device, *, export=False):
     seen = asyncio.Event()
+    schema = EXPORT_SERVICE if export else SERVICE
 
     def advertisement(event):
-        services = event.data.get(AdvertisingData.COMPLETE_LIST_OF_128_BIT_SERVICE_CLASS_UUIDS)
-        if event.is_connectable and event.address == TRACKER and services and SERVICE in services:
+        lists = event.data.get_all(AdvertisingData.INCOMPLETE_LIST_OF_128_BIT_SERVICE_CLASS_UUIDS)
+        if (event.address == TRACKER and any(schema in services for services in lists)
+                and (event.is_connectable if export else event.is_scan_response)):
             seen.set()
 
     device.on('advertisement', advertisement)
     try:
-        await device.start_scanning(active=False, filter_duplicates=False)
+        await device.start_scanning(legacy=True, active=not export, filter_duplicates=False)
         try:
             await asyncio.wait_for(seen.wait(), 5)
         finally:
@@ -211,10 +239,14 @@ async def connect(device):
         device.remove_listener('advertisement', advertisement)
     async with asyncio.timeout(5):
         connection = await device.connect(TRACKER)
-        services = await Peer(connection).discover_service(SERVICE)
+        services = await Peer(connection).discover_service(schema)
         assert len(services) == 1, 'tracker service missing'
         characteristics = await services[0].discover_characteristics()
-        return connection, *(next(c for c in characteristics if c.uuid == uuid) for uuid in (RX, TX))
+        rx, tx = (next(c for c in characteristics if c.uuid == uuid)
+                  for uuid in ((EXPORT_RX, EXPORT_TX) if export else (RX, TX)))
+        assert (rx.handle, tx.handle) == ((8, 10) if export else (3, 5))
+        assert tx.properties == (Characteristic.Properties.NOTIFY if export else Characteristic.Properties.READ)
+        return connection, rx, tx
 
 
 class SecureStream:
@@ -445,7 +477,7 @@ async def run(args, log, exercise=scenario, attach_controller=None):
                     controller_wire = await attach_controller(
                         panel, peer_reader, peer_writer, source.parser.feed_data, tasks)
                 H4Controller('NuttX H4', source, controller_wire, link=link, public_address=TRACKER)
-                central = Controller('test phone', link=link, public_address='F0:F1:F2:F3:F4:02')
+                central = PhoneController('test phone', link=link, public_address='F0:F1:F2:F3:F4:02')
                 phone = Device.with_hci('test phone', Address('F0:F1:F2:F3:F4:A2'), central, central)
                 await phone.power_on()
                 start = time.monotonic()

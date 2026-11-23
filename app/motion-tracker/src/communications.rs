@@ -115,7 +115,7 @@ fn run(
     let collector = cellular.as_ref().and_then(|config| config.collector);
     let mut modem = cellular.map(uplink::Modem::start).transpose()?;
     let identity = OnceCell::new();
-    let mut radio = None;
+    let mut radio: Option<radio::Output<'_, _>> = None;
     let mut next_radio = Instant::now();
     let mut upload = None;
     let mut retry = uplink::Retry::new();
@@ -134,21 +134,26 @@ fn run(
             (inbox.latest.take(), inbox.pairing.take().or(command.take()))
         };
         let now = Instant::now();
-        if let Some(pair) = pair {
-            radio = None;
-            pairing_failed = false;
-            if matches!(pair, Pairing::Start) {
-                match tls_identity(&identity).and_then(|identity| radio::pair(identity, capture)) {
-                    Ok(output) => radio = Some(output),
-                    Err(error) => {
-                        eprintln!("motion-tracker pairing: {error}");
-                        pairing_failed = true;
-                    }
-                }
-            }
-        }
         if radio.as_ref().is_some_and(|output| output.expired(now)) {
             radio = None;
+        }
+        if let Some(pair) = pair {
+            pairing_failed = false;
+            match pair {
+                Pairing::Cancel => radio = None,
+                Pairing::Start => match radio.as_mut() {
+                    Some(output) => output.show_pairing_code(),
+                    None => match tls_identity(&identity)
+                        .and_then(|identity| radio::pair(identity, capture))
+                    {
+                        Ok(output) => radio = Some(output),
+                        Err(error) => {
+                            eprintln!("motion-tracker pairing: {error}");
+                            pairing_failed = true;
+                        }
+                    },
+                },
+            }
         }
         let view = match radio.as_mut() {
             Some(output) => {

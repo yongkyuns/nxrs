@@ -3,7 +3,7 @@ use std::ptr::NonNull;
 
 unsafe extern "C" {
     pub(super) static peripheral_max_connections: c_uint;
-    pub(super) fn peripheral_register(uuids: *const u8);
+    pub(super) fn peripheral_register(uuids: *const u8, notifications: bool);
     pub(super) fn peripheral_start() -> i32;
     pub(super) fn peripheral_stop();
     fn bt_conn_lookup_handle(handle: u16) -> *mut c_void;

@@ -5,7 +5,7 @@ use crate::{
     wire,
 };
 use ble::{
-    peripheral::{self, Link, Listener},
+    peripheral::{self, Link, Listener, Service},
     Uuid,
 };
 use std::io::{self, Read, Write};
@@ -23,7 +23,12 @@ pub fn pair<'a>(
     identity: &'a tls::Identity,
     capture: &'a Capture,
 ) -> io::Result<Output<'a, impl Listener>> {
-    let listener = peripheral::open(uuid(0), uuid(1), uuid(2))
+    let service = |base| Service {
+        uuid: uuid(base),
+        ingress: uuid(base + 1),
+        egress: uuid(base + 2),
+    };
+    let listener = peripheral::open_with_notifications(service(0), service(0x10))
         .map_err(|error| io::Error::other(format!("BLE: {error:?}")))?;
     Output::start(listener, identity, capture)
 }
@@ -109,6 +114,12 @@ impl<'a, L: Listener> Output<'a, L> {
     }
     pub fn paired(&self) -> bool {
         self.paired
+    }
+
+    pub fn show_pairing_code(&mut self) {
+        if !self.live {
+            self.paired = false;
+        }
     }
 
     pub fn expired(&self, now: Instant) -> bool {

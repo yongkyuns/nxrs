@@ -1,4 +1,4 @@
-use crate::peripheral::{Link, Listener};
+use crate::peripheral::{Link, Listener, Service};
 use crate::{Error, Uuid};
 use std::collections::VecDeque;
 use std::io::{self, Read, Write};
@@ -18,7 +18,7 @@ const RETIRED: u32 = 1 << 13;
 const GENERATION: u32 = 1 << 14;
 static NOTIFY: AtomicBool = AtomicBool::new(false);
 static OPEN: AtomicBool = AtomicBool::new(false);
-static REGISTERED: Mutex<Option<[Uuid; 3]>> = Mutex::new(None);
+static REGISTERED: Mutex<Option<(Service, Option<Service>)>> = Mutex::new(None);
 // One atomic tracks the HCI handle, its generation and the link state.
 static STAMP: AtomicU32 = AtomicU32::new(0);
 static DATA: Mutex<Buffers> = Mutex::new(Buffers {
@@ -96,6 +96,11 @@ extern "C" fn peripheral_notify_rust(enabled: bool) {
 }
 
 #[no_mangle]
+extern "C" fn peripheral_notifications_rust() -> bool {
+    NOTIFY.load(Ordering::Acquire)
+}
+
+#[no_mangle]
 unsafe extern "C" fn peripheral_read_rust(output: *mut u8, count: u8) -> i32 {
     if count == 0 || NOTIFY.load(Ordering::Acquire) {
         return 0;
@@ -138,16 +143,25 @@ struct Peripheral {
 }
 
 pub(crate) fn open_peripheral(
-    service: Uuid,
-    ingress: Uuid,
-    egress: Uuid,
+    legacy: Service,
+    notifications: Option<Service>,
 ) -> Result<impl Listener, Error> {
     if unsafe { ffi::peripheral_max_connections } != 1 {
         return Err(Error::Unsupported);
     }
-    let ids = [service, ingress, egress];
-    if service == ingress || service == egress || ingress == egress {
-        return Err(Error::InvalidValue);
+    let uuids = |service: Service| [service.uuid, service.ingress, service.egress];
+    let mut ids = [Uuid([0; 16]); 6];
+    ids[..3].copy_from_slice(&uuids(legacy));
+    let count = if let Some(service) = notifications {
+        ids[3..].copy_from_slice(&uuids(service));
+        6
+    } else {
+        3
+    };
+    for (index, uuid) in ids[..count].iter().enumerate() {
+        if ids[..index].contains(uuid) {
+            return Err(Error::InvalidValue);
+        }
     }
     let mut registered = REGISTERED.try_lock().map_err(|_| Error::Busy)?;
     let stamp = STAMP.load(Ordering::Acquire);
@@ -155,7 +169,7 @@ pub(crate) fn open_peripheral(
         return Err(Error::Busy);
     }
     match *registered {
-        Some(prior) if prior != ids => return Err(Error::Unsupported),
+        Some(prior) if prior != (legacy, notifications) => return Err(Error::Unsupported),
         Some(_) => {}
         None => {
             {
@@ -172,8 +186,10 @@ pub(crate) fn open_peripheral(
                 bytes
             });
             // The registration copies UUIDs into the SDK's static GATT table.
-            unsafe { ffi::peripheral_register(little_endian.as_ptr().cast()) };
-            *registered = Some(ids);
+            unsafe {
+                ffi::peripheral_register(little_endian.as_ptr().cast(), notifications.is_some())
+            };
+            *registered = Some((legacy, notifications));
         }
     }
     OPEN.store(true, Ordering::Release);
@@ -192,7 +208,7 @@ impl Listener for Peripheral {
     type Transport = Transport;
 
     fn notifying(&self) -> bool {
-        NOTIFY.load(Ordering::Acquire)
+        peripheral_notifications_rust()
     }
 
     fn service(&mut self) -> io::Result<()> {

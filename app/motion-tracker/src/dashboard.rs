@@ -6,7 +6,7 @@ use charts::{History, SAMPLE_INTERVAL};
 use communications::{Communications, Pairing, View};
 use messaging::bounded;
 use navigation::observations::{Observation, ObservationService};
-use screen::{Action, Dashboard, Screen};
+use screen::{Action, Dashboard, LinkStatus, Screen};
 use std::io::{self, Write};
 use std::sync::{
     mpsc::{RecvTimeoutError, TrySendError},
@@ -184,6 +184,9 @@ pub(super) fn run(args: impl Iterator<Item = String>) -> io::Result<()> {
                         }
                     } else {
                         dashboard.hide_code();
+                        if update.link == LinkStatus::Paired {
+                            dashboard.open_menu();
+                        }
                     }
                     view = update;
                 }

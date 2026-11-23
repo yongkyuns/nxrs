@@ -213,6 +213,11 @@ collector receives fresh data again. Use `--shift 3` for a faster continuity
 check. Accelerated timings include the effect of QEMU's virtual clock on the
 host-driven BLE controller.
 
+Use `--export` to exercise the notification service. The peer receives both
+IMU streams and the GNSS stream without sequence gaps, disconnects, and uses
+the same pairing key to start a new export while the cellular TLS connection
+remains active.
+
 On the unbuffered TCP build, this control reproduced a 4.02-second BLE gap and
 zero records during the hold. With bounded TCP writes enabled, three
 wall-clock boots each delivered BLE records during the hold. The longest

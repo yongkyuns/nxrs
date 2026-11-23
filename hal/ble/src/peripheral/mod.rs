@@ -20,8 +20,32 @@ pub trait Listener {
     }
 }
 
+/// UUIDs for one version of the byte-stream service, in display byte order.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct Service {
+    pub uuid: Uuid,
+    pub ingress: Uuid,
+    pub egress: Uuid,
+}
+
 /// Advertise one service with a write-with-response ingress and a read egress
 /// characteristic. UUIDs use the conventional (display) byte order.
 pub fn open(service: Uuid, ingress: Uuid, egress: Uuid) -> Result<impl Listener, Error> {
-    crate::platform::open_peripheral(service, ingress, egress)
+    crate::platform::open_peripheral(
+        Service {
+            uuid: service,
+            ingress,
+            egress,
+        },
+        None,
+    )
+}
+
+/// Advertise a notification service while retaining the original read service
+/// in the scan response. Both carry the same stream on one central connection.
+pub fn open_with_notifications(
+    legacy: Service,
+    notifications: Service,
+) -> Result<impl Listener, Error> {
+    crate::platform::open_peripheral(legacy, Some(notifications))
 }

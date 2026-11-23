@@ -109,6 +109,10 @@ impl Dashboard {
         self.contact = None;
     }
 
+    pub fn open_menu(&mut self) {
+        self.menu = true;
+    }
+
     pub fn show_code(&mut self, key: &[u8; 32]) -> Result<(), Error> {
         let mut code = String::with_capacity(70);
         code.push_str("NXRS1:");
@@ -181,7 +185,9 @@ impl<D: Display> Screen<D> {
         }
         if ui.menu && self.layout.tab(3).contains(x, y) {
             return match status {
-                LinkStatus::Idle | LinkStatus::Unavailable => Some(Action::Pair),
+                LinkStatus::Idle | LinkStatus::Paired | LinkStatus::Unavailable => {
+                    Some(Action::Pair)
+                }
                 _ => None,
             };
         }
@@ -305,10 +311,9 @@ fn header(canvas: &mut Canvas<'_>, layout: &Layout, ui: &Dashboard, link: LinkSt
         PANEL,
     );
     let (label, color, clickable): (&[u8], _, _) = match link {
-        LinkStatus::Idle => (b"PAIR", MINT, true),
+        LinkStatus::Idle | LinkStatus::Paired => (b"PAIR", MINT, true),
         LinkStatus::Unavailable => (b"RETRY", GOLD, true),
         LinkStatus::Pairing => unreachable!(),
-        LinkStatus::Paired => (b"PAIRED", MUTED, false),
         LinkStatus::Connected => (b"LINKED", MINT, false),
     };
     chip(canvas, layout.tab(3), label, color, clickable);

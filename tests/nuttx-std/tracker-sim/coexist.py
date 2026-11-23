@@ -9,6 +9,7 @@ import tempfile
 import time
 
 from bumble.device import Peer
+from bumble.gatt import GATT_CLIENT_CHARACTERISTIC_CONFIGURATION_DESCRIPTOR
 
 from dashboard import SecureStream, Stream, connect, pump, run, wait_until
 from sensors import check_live
@@ -154,20 +155,38 @@ class Scenario:
                 self.collector_samples[number] = value[1]
         return connection in self.tls_connections and connection in self.collector_samples
 
-    async def sample_export(self, guest, phone, key):
-        connection, rx, tx = await connect(phone)
-        assert await Peer(connection).request_mtu(247) >= 64
-        stream = SecureStream(rx, tx, key)
-        await stream.subscribe()
-        await asyncio.wait_for(stream.handshake(), 8)
+    async def sample_export(self, guest, panel, phone, key):
         before = self.collector_samples[1]['imu'][0]['seq']
+        previous = None
+        for minimum in (500, 200):
+            connection, rx, tx = await connect(phone, export=True)
+            assert await Peer(connection).request_mtu(247) >= 64
+            await tx.discover_descriptors()
+            ccc = tx.get_descriptor(GATT_CLIENT_CHARACTERISTIC_CONFIGURATION_DESCRIPTOR)
+            assert ccc is not None and await ccc.read_value(no_long_read=True) == b'\0\0'
+            stream = SecureStream(rx, tx, key)
+            await stream.subscribe()
+            await asyncio.wait_for(stream.handshake(), 8)
+            latest = await self.export_window(stream, minimum, previous)
+            await connection.disconnect()
+            previous = latest
+        assert guest.gnss.navigation == (500, 1)
+        assert self.collector_live(1) and self.collector_samples[1]['imu'][0]['seq'] > before
+        assert self.tls_connections == {1}
+        print('PASS: full-rate export reconnected with the same pairing key and continuing cellular TLS', flush=True)
+        await panel.wait_pixel(275, 33, 0x57f4)
+        await panel.tap(275, 20)
+        assert await panel.pairing_key() == key
+        print('PASS: the tracker offers its pairing code again after disconnect', flush=True)
+
+    async def export_window(self, stream, minimum, previous):
         stream.tls.write(b'NXRS\x01')
         first = [None] * 3
         latest = [None] * 3
         count = [0] * 3
         dashboard = 0
         async with asyncio.timeout(35):
-            while min(count[:2]) < 500 or count[2] < 10 or dashboard < 2:
+            while min(count[:2]) < minimum or count[2] < minimum // 50 or dashboard < 2:
                 record = await stream.export_record()
                 if isinstance(record, dict):
                     check_live(record)
@@ -187,17 +206,16 @@ class Scenario:
                     pos += 29 if tag == 3 else 33
                     if latest[index] is None:
                         first[index] = tick
+                        assert previous is None or seq > previous[index][0], (tag, seq, previous)
                     else:
                         assert seq == latest[index][0] + 1, (tag, seq, latest[index], count)
                     latest[index] = (seq, tick)
                     count[index] += 1
-        assert guest.gnss.navigation == (500, 1)
-        assert self.collector_live(1) and self.collector_samples[1]['imu'][0]['seq'] > before
         rates = [(n - 1) * 1000 / (end[1] - start) for n, end, start in zip(count, latest, first)]
         assert all(92 <= rate <= 108 for rate in rates[:2]) and 1.8 <= rates[2] <= 2.2, rates
-        await connection.disconnect()
         print(f'PASS: BLE export counts {count}, rates {[round(rate, 2) for rate in rates]}, '
-              f'zero sequence gaps, {dashboard} dashboard snapshots and continuing cellular TLS', flush=True)
+              f'zero sequence gaps and {dashboard} dashboard snapshots', flush=True)
+        return latest
 
     async def exercise(self, guest, panel, phone, args):
         stamp = self.stamp
@@ -209,7 +227,7 @@ class Scenario:
         key = await panel.pairing_key()
         await wait_until(lambda: self.collector_live(1), 'initial cellular TLS telemetry', 12)
         if args.export:
-            await self.sample_export(guest, phone, key)
+            await self.sample_export(guest, panel, phone, key)
             return
         stamp.begin_hold()
         await wait_until(lambda: stamp.held_tcp, 'cellular TLS data to stall before pairing')

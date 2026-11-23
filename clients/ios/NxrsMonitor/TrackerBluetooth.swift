@@ -12,14 +12,31 @@ import NxrsMonitorCore
     @Published private(set) var exporting = false
     @Published private(set) var interruptions = 0
 
-    private static let service = CBUUID(string: "3CB1DE6E-A955-49B7-BE4F-C4572D3F3400")
-    private static let ingress = CBUUID(string: "3CB1DE6E-A955-49B7-BE4F-C4572D3F3401")
-    private static let egress = CBUUID(string: "3CB1DE6E-A955-49B7-BE4F-C4572D3F3402")
+    private struct Service {
+        let uuid: CBUUID
+        let ingress: CBUUID
+        let egress: CBUUID
+        let notifications: Bool
+
+        init(_ version: String, notifications: Bool) {
+            let prefix = "3CB1DE6E-A955-49B7-BE4F-C4572D3F34" + version
+            uuid = CBUUID(string: prefix + "0")
+            ingress = CBUUID(string: prefix + "1")
+            egress = CBUUID(string: prefix + "2")
+            self.notifications = notifications
+        }
+    }
+    private static let dashboardService = Service("0", notifications: false)
+    private static let exportService = Service("1", notifications: true)
+    private static let services = [exportService.uuid, dashboardService.uuid]
     private static let loopback = NWEndpoint.Host.ipv4(.loopback)
     private enum Operation { case read, write }
 
     private var manager: CBCentralManager?
+    private var disconnectingPeer: CBPeripheral?
+    private var connectAfterDisconnect = false
     private var peripheral: CBPeripheral?
+    private var requiresExport = false
     private var ingress: CBCharacteristic?
     private var egress: CBCharacteristic?
     private var listener: NWListener?
@@ -56,8 +73,11 @@ import NxrsMonitorCore
     private func connect() {
         guard foreground, active, pairingKey != nil else { return }
         status = pairedTracker == nil ? "Looking for tracker" : "Reconnecting to tracker"
-        let central = CBCentralManager(delegate: self, queue: .main)
-        manager = central
+        if let manager {
+            beginDiscovery(manager)
+        } else {
+            manager = CBCentralManager(delegate: self, queue: .main)
+        }
         let token = generation
         DispatchQueue.main.asyncAfter(deadline: .now() + (pairedTracker == nil ? 45 : 15)) { [weak self] in
             guard let self, self.generation == token, self.lastReading == nil else { return }
@@ -65,10 +85,32 @@ import NxrsMonitorCore
         }
     }
 
+    private func beginDiscovery(_ central: CBCentralManager) {
+        guard foreground, active, peripheral == nil, central.state == .poweredOn else { return }
+        if disconnectingPeer != nil {
+            connectAfterDisconnect = true
+            return
+        }
+        if let pairedTracker, let peer = central.retrievePeripherals(withIdentifiers: [pairedTracker]).first {
+            connect(central, to: peer)
+        } else {
+            central.scanForPeripherals(withServices: Self.services)
+        }
+    }
+
+    private func connect(_ central: CBCentralManager, to peer: CBPeripheral) {
+        peripheral = peer
+        status = "Connecting to tracker"
+        central.stopScan()
+        peer.delegate = self
+        central.connect(peer)
+    }
+
     func stop(_ message: String = "Disconnected") {
         active = false
         pairingKey = nil
         pairedTracker = nil
+        requiresExport = false
         retries = 0
         retireConnection()
         status = message
@@ -111,12 +153,16 @@ import NxrsMonitorCore
         relayTimer?.invalidate()
         relayTimer = nil
         manager?.stopScan()
-        if let peripheral {
-            peripheral.delegate = nil
-            manager?.cancelPeripheralConnection(peripheral)
-        }
-        manager = nil
+        let peer = peripheral
         peripheral = nil
+        connectAfterDisconnect = false
+        if let peer {
+            peer.delegate = nil
+            if peer.state != .disconnected {
+                disconnectingPeer = peer
+                manager?.cancelPeripheralConnection(peer)
+            }
+        }
         ingress = nil
         egress = nil
         listener?.cancel()
@@ -231,7 +277,8 @@ import NxrsMonitorCore
                         self.stop("Tracker authentication failed")
                         return
                     }
-                    self.status = "Secure connection"
+                    self.pairedTracker = self.peripheral?.identifier
+                    self.status = self.notifying ? "Secure connection" : "Dashboard only"
                     if self.notifying {
                         self.exporting = true
                         client.send(content: TrackerExportFrames.request, completion: .contentProcessed { [weak self] error in
@@ -270,11 +317,10 @@ import NxrsMonitorCore
                             }
                         }
                         if let newest {
-                            self.pairedTracker = self.peripheral?.identifier
                             self.reading = newest
                             self.lastReading = .now
                             self.retries = 0
-                            if self.status != "Secure connection" { self.status = "Secure connection" }
+                            self.status = self.notifying ? "Secure connection" : "Dashboard only"
                         }
                     } catch {
                         self.stop("Invalid tracker telemetry")
@@ -318,57 +364,81 @@ extension TrackerBluetooth: @preconcurrency CBCentralManagerDelegate, @preconcur
     func centralManagerDidUpdateState(_ central: CBCentralManager) {
         guard central === manager else { return }
         switch central.state {
-        case .poweredOn: central.scanForPeripherals(withServices: [Self.service])
+        case .poweredOn: beginDiscovery(central)
         case .unknown, .resetting: break
-        case .poweredOff: recover("Bluetooth is unavailable")
+        case .poweredOff:
+            disconnectingPeer = nil
+            if active { recover("Bluetooth is unavailable") }
         default: stop("Bluetooth is unavailable")
         }
     }
 
     func centralManager(_ central: CBCentralManager, didDiscover peripheral: CBPeripheral,
                         advertisementData: [String: Any], rssi RSSI: NSNumber) {
-        guard central === manager, self.peripheral == nil,
+        guard central === manager, foreground, active, self.peripheral == nil, disconnectingPeer == nil,
               pairedTracker == nil || peripheral.identifier == pairedTracker else { return }
-        self.peripheral = peripheral
-        status = "Connecting to tracker"
-        central.stopScan()
-        peripheral.delegate = self
-        central.connect(peripheral)
+        if (advertisementData[CBAdvertisementDataServiceUUIDsKey] as? [CBUUID])?.contains(Self.exportService.uuid) == true {
+            requiresExport = true
+        }
+        connect(central, to: peripheral)
     }
 
     func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {
         guard central === manager, peripheral === self.peripheral else { return }
         status = "Reading tracker services"
-        peripheral.discoverServices([Self.service])
+        peripheral.discoverServices(Self.services)
     }
 
     func centralManager(_ central: CBCentralManager, didDisconnectPeripheral peripheral: CBPeripheral, error: Error?) {
-        if central === manager, peripheral === self.peripheral { recover("Tracker disconnected") }
+        connectionEnded(central, peripheral, message: "Tracker disconnected")
     }
 
     func centralManager(_ central: CBCentralManager, didFailToConnect peripheral: CBPeripheral, error: Error?) {
-        if central === manager, peripheral === self.peripheral { recover("Could not reach tracker") }
+        connectionEnded(central, peripheral, message: "Could not reach tracker")
+    }
+
+    private func connectionEnded(_ central: CBCentralManager, _ peer: CBPeripheral, message: String) {
+        guard central === manager else { return }
+        if peer === disconnectingPeer {
+            disconnectingPeer = nil
+            if connectAfterDisconnect {
+                connectAfterDisconnect = false
+                beginDiscovery(central)
+            }
+        } else if peer === peripheral {
+            recover(message)
+        }
     }
 
     func peripheral(_ peer: CBPeripheral, didDiscoverServices error: Error?) {
         guard peer === peripheral else { return }
-        guard error == nil, let service = peer.services?.first(where: { $0.uuid == Self.service }) else {
+        guard error == nil, let offered = peer.services else {
             stop("Tracker service unavailable")
             return
         }
-        peer.discoverCharacteristics([Self.ingress, Self.egress], for: service)
+        if let service = offered.first(where: { $0.uuid == Self.exportService.uuid }) {
+            requiresExport = true
+            peer.discoverCharacteristics([Self.exportService.ingress, Self.exportService.egress], for: service)
+        } else if !requiresExport, let service = offered.first(where: { $0.uuid == Self.dashboardService.uuid }) {
+            peer.discoverCharacteristics([Self.dashboardService.ingress, Self.dashboardService.egress], for: service)
+        } else {
+            stop("Tracker service unavailable")
+        }
     }
 
     func peripheral(_ peer: CBPeripheral, didDiscoverCharacteristicsFor service: CBService, error: Error?) {
         guard peer === peripheral, listener == nil else { return }
-        ingress = service.characteristics?.first { $0.uuid == Self.ingress && $0.properties.contains(.write) }
-        egress = service.characteristics?.first { $0.uuid == Self.egress && $0.properties.contains(.read) }
+        let profile = service.uuid == Self.exportService.uuid ? Self.exportService : Self.dashboardService
+        ingress = service.characteristics?.first { $0.uuid == profile.ingress && $0.properties.contains(.write) }
+        egress = service.characteristics?.first {
+            $0.uuid == profile.egress && $0.properties.contains(profile.notifications ? .notify : .read)
+        }
         guard error == nil, ingress != nil, egress != nil,
               peer.maximumWriteValueLength(for: .withResponse) >= 20 else {
             stop("Tracker transport unavailable")
             return
         }
-        if let egress, egress.properties.contains(.notify) {
+        if let egress, profile.notifications {
             peer.setNotifyValue(true, for: egress)
         } else {
             establishRelay()
@@ -378,7 +448,11 @@ extension TrackerBluetooth: @preconcurrency CBCentralManagerDelegate, @preconcur
     func peripheral(_ peer: CBPeripheral, didUpdateNotificationStateFor characteristic: CBCharacteristic, error: Error?) {
         guard peer === peripheral, characteristic === egress else { return }
         if listener == nil {
-            notifying = error == nil && characteristic.isNotifying
+            guard error == nil && characteristic.isNotifying else {
+                recover("Could not subscribe to sensor export")
+                return
+            }
+            notifying = true
             establishRelay()
         } else if notifying && (error != nil || !characteristic.isNotifying) {
             recover("Tracker notifications stopped")
