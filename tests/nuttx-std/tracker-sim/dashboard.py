@@ -33,9 +33,9 @@ WIDTH, HEIGHT = 320, 240
 SERVICE = UUID('3CB1DE6E-A955-49B7-BE4F-C4572D3F3400')
 RX = UUID('3CB1DE6E-A955-49B7-BE4F-C4572D3F3401')
 TX = UUID('3CB1DE6E-A955-49B7-BE4F-C4572D3F3402')
-EXPORT_SERVICE = UUID('3CB1DE6E-A955-49B7-BE4F-C4572D3F3410')
-EXPORT_RX = UUID('3CB1DE6E-A955-49B7-BE4F-C4572D3F3411')
-EXPORT_TX = UUID('3CB1DE6E-A955-49B7-BE4F-C4572D3F3412')
+EXPORT_SERVICE = UUID('3CB1DE6E-A955-49B7-BE4F-C4572D3F3420')
+EXPORT_RX = UUID('3CB1DE6E-A955-49B7-BE4F-C4572D3F3421')
+EXPORT_TX = UUID('3CB1DE6E-A955-49B7-BE4F-C4572D3F3422')
 TRACKER = Address('F0:F1:F2:F3:F4:01', Address.PUBLIC_DEVICE_ADDRESS)
 
 
@@ -57,10 +57,19 @@ class Stream:
 
 
 class BluetoothLink(LocalLink):
+    notifications_to_drop = 0
+    acknowledgements_to_drop = 0
+
     def send_acl_data(self, sender, destination, transport, data):
         # Bumble 0.0.236 otherwise uses the sender's random address for all LE ACL.
         if transport != PhysicalTransport.LE:
             return super().send_acl_data(sender, destination, transport, data)
+        if self.notifications_to_drop and data[2:5] == b'\x04\x00\x1b':
+            self.notifications_to_drop -= 1
+            return
+        if self.acknowledgements_to_drop and data[2:8] == b'\x04\x00\x52\x08\x00\x01':
+            self.acknowledgements_to_drop -= 1
+            return
         peer = self.find_le_controller(destination)
         if peer is not None:
             source = sender.le_connections[destination].self_address
@@ -270,6 +279,10 @@ async def connect(device, *, export=False):
         rx, tx = (next(c for c in characteristics if c.uuid == uuid)
                   for uuid in ((EXPORT_RX, EXPORT_TX) if export else (RX, TX)))
         assert (rx.handle, tx.handle) == ((8, 10) if export else (3, 5))
+        expected_rx = Characteristic.Properties.WRITE
+        if export:
+            expected_rx |= Characteristic.Properties.WRITE_WITHOUT_RESPONSE
+        assert rx.properties == expected_rx
         assert tx.properties == (Characteristic.Properties.NOTIFY if export else Characteristic.Properties.READ)
         return connection, rx, tx
 
@@ -290,34 +303,65 @@ class SecureStream:
         self.buffer = bytearray()
         self.notifications = None
         self.notification_overflow = False
+        self.offset = 0
+        self.out_of_order = 0
+        self.acknowledgement_pending = False
+        self.acknowledge_at = 0.0
 
     async def subscribe(self):
-        self.notifications = asyncio.Queue(maxsize=64)
+        self.notifications = asyncio.Event()
 
-        def receive(data):
-            if self.notifications.full():
+        def receive(packet):
+            if not 4 < len(packet) <= 244 or self.incoming.pending + len(packet) - 4 > 8192:
                 self.notification_overflow = True
-            else:
-                self.notifications.put_nowait(data)
+                self.notifications.set()
+                return
+            offset = int.from_bytes(packet[:4], 'little')
+            skip = (self.offset - offset) & 0xffffffff
+            data = packet[4 + skip:]
+            self.out_of_order += skip > 0x7fffffff
+            if data:
+                self.incoming.write(data)
+                self.offset = (self.offset + len(data)) & 0xffffffff
+            self.acknowledgement_pending = True
+            self.notifications.set()
 
         await self.tx.subscribe(receive)
 
     async def flush(self):
+        framed = self.notifications is not None
         while self.outgoing.pending:
-            chunk = self.outgoing.read(20)
-            await self.rx.write_value(chunk, with_response=True)
+            chunk = self.outgoing.read(19 if framed else 20)
+            await self.rx.write_value(b'\0' + chunk if framed else chunk, with_response=True)
 
     async def poll(self):
         await self.flush()
         if self.notifications is None:
             data = await self.tx.read_value(no_long_read=True)
-        else:
-            assert not self.notification_overflow, 'test peer notification queue overflowed'
-            data = await self.notifications.get()
-        if data:
-            self.incoming.write(data)
-        else:
-            await asyncio.sleep(0.003)
+            if data:
+                self.incoming.write(data)
+            else:
+                await asyncio.sleep(0.003)
+            return
+        # Use the same cumulative acknowledgment interval as the iPhone.
+        loop = asyncio.get_running_loop()
+        while True:
+            assert not self.notification_overflow, 'test peer notification storage overflowed or received an invalid frame'
+            if self.acknowledgement_pending and loop.time() >= self.acknowledge_at:
+                self.acknowledgement_pending = False
+                self.acknowledge_at = loop.time() + 0.015
+                await self.rx.write_value(b'\x01' + self.offset.to_bytes(4, 'little'), with_response=False)
+            if self.notifications.is_set():
+                self.notifications.clear()
+                return
+            if not self.acknowledgement_pending:
+                await self.notifications.wait()
+                continue
+            try:
+                async with asyncio.timeout_at(self.acknowledge_at):
+                    await self.notifications.wait()
+            except TimeoutError:
+                pass
 
     async def handshake(self):
         while True:
@@ -505,7 +549,7 @@ async def run(args, log, exercise=scenario, attach_controller=None):
                 panel = Panel(q_reader, q_writer, addresses)
                 guest.gnss = NeoM9n(Stream(gps_writer))
                 tasks.append(asyncio.create_task(pump(gps_reader, guest.gnss.receive)))
-                link = BluetoothLink()
+                link = guest.ble_link = BluetoothLink()
                 source = ParserSource()
                 if attach_controller is None:
                     controller_wire = Stream(peer_writer)

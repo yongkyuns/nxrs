@@ -4,7 +4,7 @@ Use this catalog to find the Rust library that owns a type, function, or method.
 
 ## Find an API
 
-Choose a library below, then search its generated Rust documentation for a symbol such as `Led` or `PacketSink`. Use the site’s header search for guides and library names.
+Choose a library below, then search its generated Rust documentation for a symbol such as `Led` or `Reconnector`. Use the site’s header search for guides and library names.
 
 The catalog shows both names you need: Cargo selects package `nxrs-led`, while Rust code imports its library as `led`, for example `led::Led`. An item's page gives its signature, documentation, and a link to source. Type and trait pages also list relevant implementations. Follow the owning contract for error, completion, and cleanup semantics.
 
@@ -20,7 +20,6 @@ Ordinary default features are retained, including messaging channels. The refere
 | --- | --- | --- |
 | `nxrs-camera` | `replay` | `camera::replay` for explicit file replay |
 | `nxrs-storage` | `recording` | `storage::recording` for queued file recording |
-| `nxrs-transport` | `udp` | `transport::udp` for Rust socket output |
 | `nxrs-composition` | `imu`, `gnss` | IMU and GNSS device-access modules |
 
 The named devices available through `composition` follow the selected product profile. The public `imu::construction` and `gnss::construction` modules serve platform catalogues and qualification; applications use the catalogue's device accessors and the capability APIs. Detector model features and diagnostic probes are not enabled in this view. Private provider and build-tooling interfaces are outside the public catalog.

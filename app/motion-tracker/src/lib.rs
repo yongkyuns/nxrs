@@ -6,8 +6,6 @@ mod charts;
 #[cfg(feature = "dashboard")]
 mod communications;
 #[cfg(feature = "dashboard")]
-mod export;
-#[cfg(feature = "dashboard")]
 #[path = "dashboard.rs"]
 mod mode;
 #[cfg(not(feature = "dashboard"))]
@@ -15,13 +13,9 @@ mod mode;
 mod mode;
 mod preferences;
 #[cfg(feature = "dashboard")]
-mod radio;
-#[cfg(feature = "dashboard")]
 mod screen;
 mod text;
 mod tracker;
-#[cfg(feature = "dashboard")]
-mod uplink;
 mod wire;
 
 use preferences::Interval;

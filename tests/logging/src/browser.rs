@@ -1,5 +1,7 @@
-//! Browser-side qualification exports and the host logging import.
+//! Hand each line to the host before the borrowed Wasm bytes expire.
 #![allow(unsafe_code)]
+
+use log::LevelFilter;
 
 #[link(wasm_import_module = "nxrs_logging")]
 unsafe extern "C" {
@@ -8,9 +10,9 @@ unsafe extern "C" {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn enable_diagnostics() -> u32 {
-    logging::install(log::LevelFilter::Info, |_, line| {
+    logging::install(LevelFilter::Info, |_, line| {
         let bytes = line.as_bytes();
-        // The import copies the bytes before returning to Wasm.
+        // The browser import copies the bytes synchronously into bounded storage.
         unsafe { emit(bytes.as_ptr(), bytes.len()) };
     })
     .is_ok() as u32

@@ -4,6 +4,29 @@ import Foundation
 import Network
 import NxrsMonitorCore
 
+struct TrackerNotificationStream {
+    private(set) var offset: UInt32 = 0
+
+    var acknowledgement: Data {
+        var littleEndian = offset.littleEndian
+        return withUnsafeBytes(of: &littleEndian) { Data([1]) + Data($0) }
+    }
+
+    mutating func accept(_ packet: Data) -> Data? {
+        guard packet.count > 4 else { return nil }
+        let start = packet.prefix(4).enumerated().reduce(UInt32(0)) { result, byte in
+            result | (UInt32(byte.element) << (8 * byte.offset))
+        }
+        let size = UInt32(packet.count - 4)
+        let skip = offset &- start
+        // Ignore future and duplicate bytes. The tracker replays from our
+        // last contiguous offset, which may arrive in a different chunk size.
+        guard skip < size else { return nil }
+        offset &+= size - skip
+        return Data(packet.dropFirst(4 + Int(skip)))
+    }
+}
+
 @MainActor final class TrackerBluetooth: NSObject, ObservableObject {
     @Published private(set) var status = "Disconnected"
     @Published private(set) var reading: TrackerTelemetry?
@@ -27,7 +50,7 @@ import NxrsMonitorCore
         }
     }
     private static let dashboardService = Service("0", notifications: false)
-    private static let exportService = Service("1", notifications: true)
+    private static let exportService = Service("2", notifications: true)
     private static let services = [exportService.uuid, dashboardService.uuid]
     private static let loopback = NWEndpoint.Host.ipv4(.loopback)
     private enum Operation { case read, write }
@@ -50,6 +73,8 @@ import NxrsMonitorCore
     private var capture = TrackerHistory()
     private var lastPlot: ContinuousClock.Instant?
     private var notifying = false
+    private var notificationStream = TrackerNotificationStream()
+    private var acknowledgementPending = false
     private var relayBytes = 0
     private var pending: Data?
     private var operation: Operation?
@@ -177,6 +202,8 @@ import NxrsMonitorCore
         operation = nil
         relaySending = false
         notifying = false
+        notificationStream = TrackerNotificationStream()
+        acknowledgementPending = false
         relayBytes = 0
         frames = TrackerExportFrames()
         capture = TrackerHistory()
@@ -352,7 +379,7 @@ import NxrsMonitorCore
     }
 
     private func receiveCiphertext(_ conn: NWConnection, token: UUID) {
-        conn.receive(minimumIncompleteLength: 1, maximumLength: 20) { [weak self] data, _, done, error in
+        conn.receive(minimumIncompleteLength: 1, maximumLength: notifying ? 19 : 20) { [weak self] data, _, done, error in
             MainActor.assumeIsolated {
                 guard let self, self.generation == token else { return }
                 guard !done, error == nil, let data, !data.isEmpty else {
@@ -366,12 +393,15 @@ import NxrsMonitorCore
     }
 
     private func pump() {
-        guard let peripheral, let ingress, let egress, relay != nil, operation == nil, !relaySending else {
-            return
+        guard let peripheral, let ingress, let egress, relay != nil else { return }
+        if notifying, acknowledgementPending, peripheral.canSendWriteWithoutResponse {
+            acknowledgementPending = false
+            peripheral.writeValue(notificationStream.acknowledgement, for: ingress, type: .withoutResponse)
         }
+        guard operation == nil, !relaySending else { return }
         if let pending {
             operation = .write
-            peripheral.writeValue(pending, for: ingress, type: .withResponse)
+            peripheral.writeValue(notifying ? Data([0]) + pending : pending, for: ingress, type: .withResponse)
         } else if !notifying {
             operation = .read
             peripheral.readValue(for: egress)
@@ -448,7 +478,10 @@ extension TrackerBluetooth: @preconcurrency CBCentralManagerDelegate, @preconcur
     func peripheral(_ peer: CBPeripheral, didDiscoverCharacteristicsFor service: CBService, error: Error?) {
         guard peer === peripheral, listener == nil else { return }
         let profile = service.uuid == Self.exportService.uuid ? Self.exportService : Self.dashboardService
-        ingress = service.characteristics?.first { $0.uuid == profile.ingress && $0.properties.contains(.write) }
+        ingress = service.characteristics?.first {
+            $0.uuid == profile.ingress && $0.properties.contains(.write)
+                && (!profile.notifications || $0.properties.contains(.writeWithoutResponse))
+        }
         egress = service.characteristics?.first {
             $0.uuid == profile.egress && $0.properties.contains(profile.notifications ? .notify : .read)
         }
@@ -487,18 +520,30 @@ extension TrackerBluetooth: @preconcurrency CBCentralManagerDelegate, @preconcur
         // The periodic read gives the tracker a chance to drain outgoing ciphertext.
     }
 
+    func peripheralIsReady(toSendWriteWithoutResponse peer: CBPeripheral) {
+        guard peer === peripheral else { return }
+        pump()
+    }
+
     func peripheral(_ peer: CBPeripheral, didUpdateValueFor characteristic: CBCharacteristic, error: Error?) {
         guard peer === peripheral, characteristic === egress, notifying || operation == .read else { return }
-        guard error == nil, let data = characteristic.value,
-              data.count <= (notifying ? 244 : 20), let relay else {
+        guard error == nil, let packet = characteristic.value,
+              packet.count <= (notifying ? 244 : 20), let relay else {
             recover("Bluetooth data failed")
             return
         }
-        if !notifying { operation = nil }
-        guard !data.isEmpty else { return }
-        guard relayBytes + data.count <= 8192 else {
-            recover("Bluetooth receiver fell behind")
-            return
+        let data: Data
+        if notifying {
+            guard packet.count > 4 else { recover("Invalid Bluetooth notification"); return }
+            // Keep this offset unacknowledged if local relay storage is full.
+            guard relayBytes + packet.count - 4 <= 8192 else { return }
+            acknowledgementPending = true
+            guard let accepted = notificationStream.accept(packet) else { return }
+            data = accepted
+        } else {
+            operation = nil
+            guard !packet.isEmpty else { return }
+            data = packet
         }
         relayBytes += data.count
         relaySending = !notifying

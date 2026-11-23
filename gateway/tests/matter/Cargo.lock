@@ -3088,7 +3088,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "nxrs-detection-wire"
+name = "nxrs-detection-service"
 version = "0.1.0"
 dependencies = [
  "serde",
@@ -3110,7 +3110,7 @@ dependencies = [
  "if-addrs",
  "libc",
  "nix 0.31.4",
- "nxrs-detection-wire",
+ "nxrs-detection-service",
  "rcgen",
  "retina",
  "ring",

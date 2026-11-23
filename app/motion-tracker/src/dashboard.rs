@@ -1,12 +1,10 @@
-use crate::{
-    charts, communications, export::Capture, screen, tracker, uplink, wire, ReportOptions,
-};
+use crate::{charts, communications, screen, tracker, wire, ReportOptions};
 use battery::Device as _;
 use charts::{History, SAMPLE_INTERVAL};
-use communications::{Communications, Pairing, View};
+use communications::{Capture, CellularConfig, Collector, Communications, LinkStatus, Pairing, View};
 use messaging::bounded;
 use navigation::observations::{Measurement, Observation, ObservationService};
-use screen::{Action, Dashboard, LinkStatus, Screen};
+use screen::{Action, Dashboard, Screen};
 use std::io::{self, Write};
 use std::sync::{
     mpsc::{RecvTimeoutError, TrySendError},
@@ -20,7 +18,7 @@ struct Options {
     reports: ReportOptions,
     ble: bool,
     battery: bool,
-    cellular: Option<uplink::Config>,
+    cellular: Option<CellularConfig>,
 }
 
 impl Options {
@@ -52,9 +50,7 @@ impl Options {
         }
         let collector = match (collector, pin) {
             (None, None) => None,
-            (Some(address), Some(pin)) if apn.is_some() => {
-                Some(uplink::Collector::parse(&address, &pin)?)
-            }
+            (Some(address), Some(pin)) if apn.is_some() => Some(Collector::parse(&address, &pin)?),
             _ => {
                 return Err(io::Error::new(
                     io::ErrorKind::InvalidInput,
@@ -62,7 +58,7 @@ impl Options {
                 ));
             }
         };
-        options.cellular = apn.map(|apn| uplink::Config { apn, collector });
+        options.cellular = apn.map(|apn| CellularConfig { apn, collector });
         if options.battery
             && (options.reports.interval.is_some()
                 || options.reports.frames.is_some()

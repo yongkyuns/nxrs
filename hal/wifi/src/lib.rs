@@ -11,6 +11,8 @@ pub use api::{
 mod controller;
 pub use controller::{Controller, ControllerError, Outcome, Update};
 mod platform;
+mod reconnect;
+pub use reconnect::{ReconnectError, ReconnectStats, Reconnector};
 
 mod acquisition;
 pub use acquisition::{open, open_for_quiescence, open_with_storage};

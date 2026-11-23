@@ -1,5 +1,9 @@
 # Camera HAL
 
+Use `camera::capture::Session` for caller-polled capture with fixed frame history,
+validated publication and explicit stop. Applications supply the buffers and
+drive the session from their existing loop.
+
 One `nxrs-camera` crate owns the camera contract, configured acquisition and
 optional explicit replay. Read `src/lib.rs` for the public surface; the private
 `src/platform/mod.rs` selects acquisition only, with no implementation bodies.

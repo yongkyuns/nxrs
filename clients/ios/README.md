@@ -248,7 +248,9 @@ xcodebuild test -project clients/ios/NxrsMonitor.xcodeproj \
 
 The tests feed two minutes of authenticated-stream payloads through the app's
 real parser and graph history. They check counters, stale dashboard metadata,
-stream timeout, sequence gaps and queue overflow. The
+stream timeout, sequence gaps, queue overflow, and handling of missing and
+duplicate Bluetooth notifications. Full-rate export requires an app and
+firmware build that use the same notification service version. The
 [QEMU export test](../../tests/nuttx-std/tracker-sim/README.md#ble-telemetry-during-ppp-loss-and-reconnect)
 checks the tracker firmware, BLE protocol and cellular load. Physical iPhone
 Bluetooth behavior still requires a hardware test.

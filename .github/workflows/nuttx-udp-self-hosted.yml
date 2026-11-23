@@ -7,7 +7,6 @@ on:
       - 'refactor/**'
     paths:
       - 'tests/nuttx-std/**'
-      - 'hal/transport/**'
       - 'tools/build-support/**'
       - 'platform/*/profile.toml'
       - 'platform/*/profiles/**'

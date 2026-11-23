@@ -27,7 +27,7 @@ class ArchitectureTests(unittest.TestCase):
                                ('acquisition', 'shared/acquisition'),
                                ('driver', 'driver/demo'), ('platform', 'tools/build'),
                                ('bmi270', 'driver/bmi270'), ('imu', 'hal/imu'),
-                               ('devices', 'platform'),
+                               ('devices', 'platform'), ('platform-adapter', 'platform/adapter'),
                                ('build-support', 'tools/build-support'),
                                ('camera-build', 'tools/camera-build-support'),
                                ('test', 'tests/portable'), ('target', 'tests/nuttx')]:
@@ -64,6 +64,19 @@ class ArchitectureTests(unittest.TestCase):
             self.add(source, 'acquisition')
             self.assertTrue(any(f'forbidden {source} -> support edge' in error
                                 for error in self.violations()))
+
+    def test_detection_owns_only_the_optional_detector_hal(self):
+        for name, path in [('detection', 'service/detection'), ('detector', 'hal/detector')]:
+            self.metadata['packages'].append(self.package(name, path))
+            self.metadata['workspace_members'].append(name)
+        self.add('detection', 'detector', optional=True)
+        self.assertEqual(CHECK.inspect(self.metadata, self.root), [])
+        for target, optional in [('camera', True), ('detector', False)]:
+            with self.subTest(target=target, optional=optional):
+                self.add('detection', target, optional=optional, rename='inference_backend')
+                self.assertTrue(any('only use the optional detector HAL' in error
+                                    for error in CHECK.inspect(self.metadata, self.root)))
+                self.packages['detection']['dependencies'].pop()
 
     def test_catalogue_wires_drivers_but_only_apps_select_devices(self):
         for source, target in [('app', 'devices'), ('devices', 'imu'), ('devices', 'bmi270')]:
@@ -260,11 +273,14 @@ class ArchitectureTests(unittest.TestCase):
                 self.assertTrue(any('cross-package Rust source' in error for error in self.violations()))
 
     def test_portability_boundary_has_no_app_or_target_exceptions(self):
-        for source, target in [('app', 'platform'), ('service', 'platform'), ('platform', 'app')]:
-            for extra in ({}, {'kind': 'dev'}, {'kind': 'build'}, {'target': 'cfg(target_os = "nuttx")'}):
-                self.add(source, target, **extra)
-                self.assertTrue(self.violations())
-                self.packages[source]['dependencies'].clear()
+        for source, target in [('app', 'platform'), ('service', 'platform'), ('platform', 'app'),
+                               ('platform-adapter', 'service'), ('devices', 'service')]:
+            for extra in ({}, {'kind': 'dev'}, {'kind': 'build'}, {'optional': True},
+                          {'target': 'cfg(target_os = "nuttx")'}):
+                with self.subTest(source=source, dependency=target, **extra):
+                    self.add(source, target, **extra)
+                    self.assertTrue(self.violations())
+                    self.packages[source]['dependencies'].pop()
         directory = Path(self.packages['app']['manifest_path']).parent
         for code in ['#[cfg(target_os = "nuttx")] fn f() {}', 'fn f() { cfg!(unix); }',
                      '#[cfg(platform = "mock")] fn f() {}', 'fn f() { cfg!(platform = "simulation"); }',

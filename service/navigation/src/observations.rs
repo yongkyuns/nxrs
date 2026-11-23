@@ -1,8 +1,7 @@
 //! Own configured acquisition sessions and track normalized observations.
 //! HALs acquire and deliver samples. The caller dispatches events and deadlines.
 
-use messaging::{DeliveryError, DeliveryResult, Rejected, Sender};
-use std::sync::mpsc::TrySendError;
+use messaging::{DeliveryResult, Sender};
 use std::time::{Duration, Instant};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -359,27 +358,18 @@ fn sink<T: Copy, E>(
     input: impl Fn(T) -> Input,
     wrap: impl Fn(Observation) -> Option<E> + Send + 'static,
 ) -> impl FnMut(T) -> DeliveryResult<T> {
-    move |value| {
-        let observation = Observation {
+    crate::inbox_sink(sender, move |value| {
+        wrap(Observation {
             input: input(value),
             received: Instant::now(),
-        };
-        let Some(event) = wrap(observation) else {
-            return Ok(());
-        };
-        sender.try_send(event).map_err(|error| Rejected {
-            value,
-            error: match error {
-                TrySendError::Full(_) => DeliveryError::Full,
-                TrySendError::Disconnected(_) => DeliveryError::Closed,
-            },
         })
-    }
+    })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use messaging::DeliveryError;
 
     struct FinishedImu;
 

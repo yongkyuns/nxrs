@@ -327,19 +327,17 @@ function navigationDataflow(p) {
 
 function serviceDependencies(p) {
   return guideFigure(p, 'Capability dependencies in portable service qualification',
-    'The camera-support test composition depends on camera, recording and telemetry services. Each service uses its corresponding camera, storage or transport capability contract. Separately, navigation services depend on IMU and GNSS capability contracts, each with a build-selected provider. Production applications do not depend on the camera-support fixture.', 744, `
+    'The camera-support fixture uses the camera HAL capture session, a recording adapter and an injected packet output. Navigation services use IMU and GNSS contracts with build-selected providers.', 744, `
   ${group(p, 'test', 24, 24, 752, 392, 'Camera qualification fixture')}
   ${panel({ id: 'fixture', x: 188, y: 80, w: 424, h: 68, title: 'tests/camera-support' })}
-  ${panel({ id: 'camera-service', x: 44, y: 204, w: 218, title: 'Camera service', lines: ['nxrs-camera-service'] })}
-  ${panel({ id: 'recording-service', x: 290, y: 204, w: 218, title: 'Recording service', lines: ['nxrs-recording-service'] })}
-  ${panel({ id: 'telemetry-service', x: 536, y: 204, w: 218, title: 'Telemetry service', lines: ['nxrs-telemetry-service'] })}
-  ${panel({ id: 'camera', x: 44, y: 332, w: 218, h: 60, title: 'nxrs-camera', accent: p.blue })}
+  ${panel({ id: 'camera', x: 44, y: 204, w: 218, title: 'nxrs-camera', lines: ['capture::Session'], accent: p.blue })}
+  ${panel({ id: 'recording-service', x: 290, y: 204, w: 218, title: 'Recording adapter', lines: ['Camera test support'] })}
+  ${panel({ id: 'telemetry-service', x: 536, y: 204, w: 218, title: 'Packet summary', lines: ['Camera test support'] })}
   ${panel({ id: 'storage', x: 290, y: 332, w: 218, h: 60, title: 'nxrs-storage', accent: p.blue })}
-  ${panel({ id: 'transport', x: 536, y: 332, w: 218, h: 60, title: 'nxrs-transport', accent: p.blue })}
-  ${edge('fixture', 'camera-service', 'M272 148 V174 H153 V202')}
+  ${panel({ id: 'transport', x: 536, y: 332, w: 218, h: 60, title: 'std::net / fixture' })}
+  ${edge('fixture', 'camera', 'M272 148 V174 H153 V202')}
   ${edge('fixture', 'recording-service', 'M400 148 V202')}
   ${edge('fixture', 'telemetry-service', 'M528 148 V174 H645 V202')}
-  ${edge('camera-service', 'camera', 'M153 292 V330')}
   ${edge('recording-service', 'storage', 'M399 292 V330')}
   ${edge('telemetry-service', 'transport', 'M645 292 V330')}
   ${group(p, 'navigation', 24, 456, 752, 264, 'Navigation service dependencies')}
@@ -375,9 +373,9 @@ function aoStress(p) {
 
 function cameraPipeline(p) {
   return guideFigure(p, 'Independent streaming and bounded inference paths',
-    'The camera HAL feeds CameraService, which supplies MJPEG streaming and offers one owned JPEG to an inference worker. The worker invokes the detector HAL synchronously; Monitor turns results into typed state and events. The bounded copy separates inference lifetime from camera buffers, and an occupied worker rejects additional offers instead of queuing video frames.', 792, `
-  ${panel({ id: 'camera-hal', x: 240, y: 24, w: 320, title: 'Camera HAL', lines: ['Capture ownership'] })}
-  ${panel({ id: 'camera-service', x: 240, y: 150, w: 320, title: 'CameraService', lines: ['Frame history and delivery'], accent: p.blue })}
+    'Home-cam polls the camera HAL capture session. Its frames feed MJPEG streaming and a bounded inference worker. The worker invokes the detector HAL synchronously; Monitor turns results into typed state and events. The bounded copy separates inference lifetime from camera buffers, and an occupied worker rejects additional offers instead of queuing video frames.', 792, `
+  ${panel({ id: 'camera-hal', x: 240, y: 24, w: 320, title: 'Home-cam', lines: ['Polls capture and consumers'] })}
+  ${panel({ id: 'camera-service', x: 240, y: 150, w: 320, title: 'Camera HAL', lines: ['Capture session and frame history'], accent: p.blue })}
   ${edge('camera-hal', 'camera-service', 'M400 112 V148')}
   ${panel({ id: 'stream', x: 24, y: 302, w: 320, title: 'MJPEG service', lines: ['Streaming keeps progressing'] })}
   ${panel({ id: 'jpeg', x: 436, y: 302, w: 340, title: 'One owned JPEG', lines: ['Bounded copy; excess offers drop'], accent: p.orange })}

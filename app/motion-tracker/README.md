@@ -130,8 +130,13 @@ remain separate from the firmware build.
 [Espressif RNG requirements](https://docs.espressif.com/projects/esp-idf/en/stable/esp32s3/api-reference/system/random.html)
 
 The BLE UUID prefix is `3CB1DE6E-A955-49B7-BE4F-C4572D3F`. The notification
-service uses suffixes `3410` (service), `3411` (phone writes ciphertext) and
-`3412` (phone subscribes to ciphertext). The original dashboard service uses
+service uses suffixes `3420` (service), `3421` (ingress) and `3422` (egress).
+Each notification starts with a little-endian 32-bit offset into the
+connection's ciphertext. The phone delivers only contiguous bytes to TLS and
+reports the next offset as an ingress write command prefixed with `01`.
+Phone-to-tracker ciphertext uses acknowledged ingress writes prefixed with
+`00`. The tracker retains up to 2 KiB of ciphertext and replays after 180 ms
+without acknowledgment progress. The original dashboard service uses
 the unchanged `3400`, `3401` and `3402` UUIDs and handles, and is advertised
 in the scan response. Dashboard snapshots retain the v1 NDJSON
 layout used by USB and cellular. Binary export begins after the authenticated

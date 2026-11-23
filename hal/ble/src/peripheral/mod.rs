@@ -43,6 +43,10 @@ pub fn open(service: Uuid, ingress: Uuid, egress: Uuid) -> Result<impl Listener,
 
 /// Advertise a notification service while retaining the original read service
 /// in the scan response. Both carry the same stream on one central connection.
+/// Notifications prefix ciphertext with a little-endian 32-bit byte offset.
+/// The ingress accepts acknowledged writes with a leading zero byte for data
+/// and write commands with a leading one byte and the next contiguous offset
+/// for cumulative acknowledgment. Unacknowledged bytes remain eligible for replay.
 pub fn open_with_notifications(
     legacy: Service,
     notifications: Service,

@@ -1,9 +1,9 @@
 use camera::Camera;
-use camera_service::{CameraService, CaptureProgress};
-use recording_service::RecordingService;
+use camera::capture::{Progress as CaptureProgress, Session as CaptureSession};
+use crate::recording::RecordingService;
 use storage::Storage;
-use telemetry_service::TelemetryService;
-use transport::PacketSink;
+use crate::packet_summary::TelemetryService;
+use crate::packet::PacketSink;
 use crate::{Error, Monitor, Progress, Recorder};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -30,7 +30,7 @@ pub struct ShutdownReport {
 /// Public fields let scenarios control each service independently.
 /// B chooses backing storage at construction, not application behavior.
 pub struct CameraProduct<C, S, T, const BYTES: usize, const HISTORY: usize, B = [u8; BYTES]> {
-    pub camera: CameraService<C, BYTES, HISTORY, B>,
+    pub camera: CaptureSession<C, BYTES, HISTORY, B>,
     pub recordings: RecordingService<S>,
     pub telemetry: TelemetryService<T>,
     pub recorder: Recorder,
@@ -52,7 +52,7 @@ impl<C: Camera, S: Storage, T: PacketSink, const BYTES: usize, const HISTORY: us
 {
     pub fn with_buffers(camera: C, storage: S, transport: T, history: [B; HISTORY], staging: B) -> Result<Self, Error> {
         Ok(Self {
-            camera: CameraService::with_buffers(camera, history, staging)?,
+            camera: CaptureSession::with_buffers(camera, history, staging)?,
             recordings: RecordingService::new(storage),
             telemetry: TelemetryService::new(transport),
             recorder: Recorder::default(),

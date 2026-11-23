@@ -15,7 +15,7 @@ extern void peripheral_connection_rust(bool connected, uint16_t handle);
 extern int peripheral_read_rust(void *data, uint8_t count);
 extern bool peripheral_notifications_rust(void);
 extern void peripheral_notify_rust(bool enabled);
-extern int peripheral_write_rust(const void *data, uint8_t count);
+extern int peripheral_write_rust(const void *data, uint8_t count, bool framed);
 
 const unsigned int peripheral_max_connections = CONFIG_BLUETOOTH_MAX_CONN;
 
@@ -31,8 +31,7 @@ static int receive(struct bt_conn_s *connection, const struct bt_gatt_attr_s *at
                    const void *data, uint8_t count, uint16_t offset)
 {
   (void)connection;
-  (void)attr;
-  return offset == 0 ? peripheral_write_rust(data, count) : -1;
+  return offset == 0 ? peripheral_write_rust(data, count, attr->handle == 8) : -1;
 }
 
 static int transmit(struct bt_conn_s *connection, const struct bt_gatt_attr_s *attr,
@@ -66,7 +65,8 @@ static struct bt_gatt_chrc_s outgoing = {
   .uuid = &output, .value_handle = 5, .properties = BT_GATT_CHRC_READ,
 };
 static struct bt_gatt_chrc_s notify_incoming = {
-  .uuid = &notify_input, .value_handle = 8, .properties = BT_GATT_CHRC_WRITE,
+  .uuid = &notify_input, .value_handle = 8,
+  .properties = BT_GATT_CHRC_WRITE | BT_GATT_CHRC_WRITE_WITHOUT_RESP,
 };
 static struct bt_gatt_chrc_s notify_outgoing = {
   .uuid = &notify_output, .value_handle = 10, .properties = BT_GATT_CHRC_NOTIFY,

@@ -215,7 +215,8 @@ host-driven BLE controller.
 
 Use `--export` to exercise the notification service. The test withholds three
 bursts of controller transmit credits while both IMUs, GNSS, the dashboard and
-cellular TLS stay active. The peer must receive at least 6,000 consecutive samples
+cellular TLS stay active. It also drops two notifications and two acknowledgments.
+The peer must receive at least 6,000 consecutive samples
 per IMU and 120 GNSS fixes without disconnecting. The test then checks that the
 tracker disconnects a peer that sends an invalid export request and accepts a
 new export with the same pairing key. For a longer run, add

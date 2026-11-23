@@ -52,6 +52,17 @@ import XCTest
         XCTAssertEqual(tracker.status, "Sensor export incomplete. Tracker buffer filled.")
     }
 
+    func testNotificationReplayOnlyAdmitsContiguousCiphertext() {
+        var stream = TrackerNotificationStream()
+        XCTAssertEqual(stream.accept(Data([0, 0, 0, 0, 10, 11])), Data([10, 11]))
+        XCTAssertNil(stream.accept(Data([4, 0, 0, 0, 14, 15])), "A gap must never reach TLS")
+        XCTAssertEqual(stream.acknowledgement, Data([1, 2, 0, 0, 0]))
+        XCTAssertEqual(stream.accept(Data([1, 0, 0, 0, 11, 12, 13, 14])), Data([12, 13, 14]))
+        XCTAssertNil(stream.accept(Data([2, 0, 0, 0, 12, 13])))
+        XCTAssertEqual(stream.accept(Data([5, 0, 0, 0, 15])), Data([15]))
+        XCTAssertEqual(stream.acknowledgement, Data([1, 6, 0, 0, 0]))
+    }
+
     private func batch(_ ticks: Range<Int>) -> Data {
         var records = Data()
         func append<T: FixedWidthInteger>(_ value: T) {

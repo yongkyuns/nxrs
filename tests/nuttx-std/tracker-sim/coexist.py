@@ -200,13 +200,14 @@ class Scenario:
         dashboard = []
         hold_points = iter((500, 2_500, 4_500)) if previous is None else iter(())
         next_hold = next(hold_points, None)
+        loss_injected = False
         async with asyncio.timeout(15 + minimum / 92), asyncio.TaskGroup() as stalls:
             while min(count[:2]) < minimum or count[2] < minimum // 50 or len(dashboard) < 2:
                 try:
                     record = await asyncio.wait_for(stream.export_record(), timeout=6)
                 except TimeoutError as error:
-                    raise AssertionError(f'BLE export stalled after {count} samples and '
-                                         f'{len(dashboard)} dashboard snapshots') from error
+                    raise AssertionError(f'BLE export stalled at ciphertext byte {stream.offset}, after {count} samples '
+                                         f'and {len(dashboard)} dashboard snapshots') from error
                 assert not disconnected.is_set(), 'unexpected BLE disconnect during export'
                 if isinstance(record, dict):
                     check_live(record)
@@ -235,6 +236,14 @@ class Scenario:
                     # Keep consuming packets the controller has already sent.
                     stalls.create_task(self.hold_acl_credits(guest))
                     next_hold = next(hold_points, None)
+                if previous is None and not loss_injected and count[0] >= 1_400:
+                    guest.ble_link.notifications_to_drop = 2
+                    guest.ble_link.acknowledgements_to_drop = 2
+                    loss_injected = True
+        if previous is None:
+            assert loss_injected and stream.out_of_order > 0, 'the peer never witnessed the notification gap'
+            assert not guest.ble_link.notifications_to_drop and not guest.ble_link.acknowledgements_to_drop
+            print('PASS: replay recovered two lost notifications and two lost acknowledgments', flush=True)
         rates = [(n - 1) * 1000 / (end[1] - start) for n, end, start in zip(count, latest, first)]
         assert all(92 <= rate <= 108 for rate in rates[:2]) and 1.8 <= rates[2] <= 2.2, rates
         times = [started, *dashboard, time.monotonic()]

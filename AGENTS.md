@@ -1,3 +1,16 @@
+# Service ownership and footprint
+
+For service changes, read [Service boundaries and footprint](docs/architecture.md#service-boundaries-and-footprint)
+and use the `nxrs-service-boundaries` skill in `.agents/skills/`.
+Identify the existing owner and production callers before adding a crate.
+Keep device-specific waits, retries and shutdown with the HAL. Keep product-only
+behavior in app modules. Extract a service for an independent, reusable contract.
+Keep fixture-only helpers under `tests/`, and keep service policy and runtime
+adapters out of the root `platform/` tree. Reuse the portable operation, inbox,
+and owner where their contracts match. Budget new workers, queues, retained
+buffers, allocations, dependencies, and linked bytes against the existing
+product path.
+
 # HAL architecture rules
 
 Read `docs/hal-platform-architecture.md` and `docs/nuttx-device-access.md` before
@@ -173,11 +186,10 @@ portability, dependency, native-boundary and lifecycle coverage. The OS/provider
   Gate a coherent module once instead of repeating its condition on each type,
   implementation and constructor. All HAL selectors must name their exports;
   wildcard re-exports in selectors or crate roots are forbidden by the audit.
-  Storage recording and transport UDP are explicitly accessible as
-  `storage::recording` and `transport::udp` through the additive, nondefault
-  `recording` and `udp` Cargo features, regardless of hardware admission. Use
-  their explicit constructors; do not restore profile-dependent root factories
-  or OS whitelists. The distinct synchronous `create_record_file` acquisition
+  Use `std::net` directly for TCP and UDP. Keep packet adapters used only by
+  qualification in its fixtures. Storage recording is `storage::recording`
+  through the additive, nondefault `recording` Cargo feature, independent of
+  hardware admission. The distinct synchronous `create_record_file` acquisition
   keeps one signature and an explicit unavailable result.
   Shared file replay is explicit functionality, not a platform backend:
   `nxrs-camera` exposes it through its additive `replay` Cargo feature, with no

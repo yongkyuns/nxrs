@@ -2,7 +2,6 @@
 #![forbid(unsafe_code)]
 use crate::commissioning;
 use camera::{Camera, JpegQuality};
-use connectivity_service::Reconnector;
 use home_cam::{update::Update, LiveCamera, StreamOutput, TlsOptions};
 
 use std::{
@@ -10,7 +9,7 @@ use std::{
     sync::mpsc::{sync_channel, Receiver, SyncSender, TrySendError},
     time::{Duration, Instant},
 };
-use wifi::{Command, DeliveryError, Event, LinkState, ProviderStatus, Rejected};
+use wifi::{Command, DeliveryError, Event, LinkState, ProviderStatus, Reconnector, Rejected};
 
 const BYTES: usize = 320 * 240 * 2;
 const HEALTH_AGE_MS: u64 = 5000;
@@ -123,12 +122,13 @@ fn run_live<D: Camera, O: StreamOutput>(
     let mut restart = Outcome::Renew;
     let operation: Result<bool, String> = (|| {
         if let Some(budget) = budget {
-            let worker = detection_service::Worker::spawn(
+            let detection = detection_service::Session::start(
                 detection_service::WorkerOptions {
                     frame_capacity: BYTES,
                     sample_interval_ms: budget.sample_interval_ms,
                     stack_bytes: budget.stack_bytes,
                 },
+                detection_service::Policy::default(),
                 || {
                     // Keep synchronous inference below capture and video delivery.
                     execution::configure_current(execution::Priority::Background)
@@ -137,15 +137,12 @@ fn run_live<D: Camera, O: StreamOutput>(
                 },
             )
             .map_err(|e| format!("detector startup {e:?}"))?;
-            live.attach_detection(
-                home_cam::SecurityDetection::new(worker, detection_service::Policy::default())
-                    .map_err(|e| format!("detection policy {e:?}"))?,
-            )
-            .map_err(|e| format!("detection attachment {e:?}"))?;
+            live.attach_detection(detection)
+                .map_err(|e| format!("detection attachment {e:?}"))?;
         }
         match live.start(320, 240) {
             Ok(_) => {}
-            Err(home_cam::Error::Camera(camera_service::Error::Device(error))) => {
+            Err(home_cam::Error::Camera(camera::capture::Error::Device(error))) => {
                 restart = camera_failure("start", error)?;
                 return Ok(false);
             }
@@ -166,7 +163,7 @@ fn run_live<D: Camera, O: StreamOutput>(
             let (online, network_deadline) = poll_network(elapsed)?;
             match live.poll(elapsed, online) {
                 Ok(_) => {}
-                Err(home_cam::Error::Camera(camera_service::Error::Device(error))) => {
+                Err(home_cam::Error::Camera(camera::capture::Error::Device(error))) => {
                     restart = camera_failure("read", error)?;
                     return Ok(false);
                 }
