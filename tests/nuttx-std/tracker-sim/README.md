@@ -227,6 +227,10 @@ The test requires contiguous sequences, queue recovery, an advancing cellular
 stream, and one UTC mapping for sensor records on BLE, USB and cellular TLS.
 A legacy export reconnect uses the same pairing key.
 
+For a five-minute soak, pass `--export --export-seconds 300 --timeout 400`.
+The runner repeats the fault sequence and checks that the export catches up
+after each minute. CI runs one sequence.
+
 CoreS3 production qualification uses the physical display, both IMUs at
 100 Hz, GNSS at 2 Hz and a cellular TLS collector while a physical iPhone
 receives the stream. Compare source sequence ranges against the phone's
