@@ -2,7 +2,12 @@ use super::{
     export::{Capture, Version, MAX_BYTES, REQUEST_LEN, REQUEST_PREFIX},
     publication::Publisher,
 };
-use crate::{text::Text, tracker::Snapshot, wire};
+use crate::{
+    map::{Key, Receiver, Response},
+    text::Text,
+    tracker::Snapshot,
+    wire,
+};
 use ble::{
     peripheral::{self, Link, Listener, Service},
     Uuid,
@@ -59,6 +64,7 @@ pub struct Output<'a, L: Listener> {
     identity: &'a tls::Identity,
     key: [u8; 32],
     capture: &'a Capture,
+    tile: Receiver,
     request: [u8; REQUEST_LEN],
     request_len: usize,
     export: [u8; MAX_BYTES],
@@ -91,6 +97,7 @@ impl<'a, L: Listener> Output<'a, L> {
             identity,
             key,
             capture,
+            tile: Receiver::default(),
             request: [0; REQUEST_LEN],
             request_len: 0,
             export: [0; MAX_BYTES],
@@ -132,34 +139,40 @@ impl<'a, L: Listener> Output<'a, L> {
         self.listener.take_ready()
     }
 
-    pub fn service(&mut self, now: Instant) {
+    pub fn service(&mut self, now: Instant, wanted: Option<Key>) -> Option<Response> {
+        self.tile.retain(wanted);
         if let Some(last) = self.last_export_service.as_mut() {
             self.max_service_gap = self.max_service_gap.max(now.duration_since(*last));
             *last = now;
         }
-        if let Err(error) = self.poll(now) {
-            eprintln!("motion-tracker BLE session ended: {error}");
-            if self.last_export_service.take().is_some() {
-                self.capture.disable();
-                eprintln!(
-                    "motion-tracker BLE export: high_water={} samples max_service_gap={} us",
-                    self.capture.high_water(),
-                    self.max_service_gap.as_micros(),
-                );
-            }
-            self.connection = None;
+        let error = match self.poll(now, wanted) {
+            Ok(response) => return response,
+            Err(error) => error,
+        };
+        eprintln!("motion-tracker BLE session ended: {error}");
+        if self.last_export_service.take().is_some() {
             self.capture.disable();
-            self.request_len = 0;
-            self.export_len = 0;
-            self.next_export = None;
-            self.sent = 0;
-            self.live = false;
-            self.drained = false;
-            self.publication = Publisher::default();
+            eprintln!(
+                "motion-tracker BLE export: high_water={} samples max_service_gap={} us",
+                self.capture.high_water(),
+                self.max_service_gap.as_micros(),
+            );
         }
+        self.connection = None;
+        self.capture.disable();
+        self.tile = Receiver::default();
+        self.request_len = 0;
+        self.export_len = 0;
+        self.next_export = None;
+        self.sent = 0;
+        self.live = false;
+        self.drained = false;
+        self.publication = Publisher::default();
+        None
     }
 
-    fn poll(&mut self, now: Instant) -> io::Result<()> {
+    fn poll(&mut self, now: Instant, wanted: Option<Key>) -> io::Result<Option<Response>> {
+        let mut response = None;
         self.listener.service()?;
         if self.connection.is_none() {
             if let Some(stream) = self
@@ -207,18 +220,22 @@ impl<'a, L: Listener> Output<'a, L> {
                         self.sent = 0;
                         self.export_len = 0;
                     }
-                    return Ok(());
+                    return Ok(None);
                 }
+                let tile_ready = !notifications || self.request_len == REQUEST_LEN;
+                let requested_tile = wanted.filter(|_| tile_ready);
                 if !self.publication.is_idle() {
                     self.drained = if notifications {
                         self.publication.enqueue(conn, now, self.expires, |snapshot| {
-                            wire::export_frame(snapshot, self.capture.scales())
+                            wire::export_frame(snapshot, self.capture.scales(), requested_tile)
                         })?
                     } else {
                         self.publication
-                            .service(conn, now, self.expires, wire::frame)?
+                            .service(conn, now, self.expires, |snapshot| {
+                                wire::ble_frame(snapshot, requested_tile)
+                            })?
                     };
-                    return Ok(());
+                    return Ok(None);
                 }
                 if !notifications {
                     self.drained = match conn.flush() {
@@ -226,6 +243,10 @@ impl<'a, L: Listener> Output<'a, L> {
                         Err(error) if error.kind() == io::ErrorKind::WouldBlock => false,
                         Err(error) => return Err(error),
                     };
+                }
+                // Read a bounded portion per turn, then service the sensor batch.
+                if tile_ready && (notifications || self.drained) {
+                    response = self.tile.poll(conn, wanted)?;
                 }
                 if let Some((version, deadline)) = self.next_export.filter(|_| notifications) {
                     if let Some(batch) =
@@ -244,7 +265,7 @@ impl<'a, L: Listener> Output<'a, L> {
                 }
             }
         }
-        Ok(())
+        Ok(response)
     }
 
     fn write_export(conn: &mut impl Write, bytes: &[u8], sent: &mut usize) -> io::Result<()> {

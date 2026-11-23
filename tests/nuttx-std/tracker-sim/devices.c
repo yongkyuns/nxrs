@@ -55,7 +55,20 @@ static bool g_stall_panel;
 /* QTest reads an RGB565 palette and four-bit indices from guest memory.
  * An odd sequence means that a full-panel redraw is in progress.
  */
+#ifdef TRACKER_MAP_PANEL
+/* The CoreS3 map square fits inside this region with the menu open or closed.
+ * Retain the map and UI colors in separate RGB565 palettes.
+ */
+#define MAP_X 75
+#define MAP_Y 38
+#define MAP_SIDE 170
+uint8_t tracker_panel_center[MAP_SIDE * MAP_SIDE];
+uint16_t tracker_center_colors[64];
+static unsigned int g_center_count;
+uint8_t tracker_pixels[(WIDTH * HEIGHT - sizeof(tracker_panel_center)) / 2];
+#else
 uint8_t tracker_pixels[WIDTH * HEIGHT / 2];
+#endif
 uint16_t tracker_colors[16];
 volatile uint32_t tracker_frame_sequence;
 volatile uint32_t tracker_touch_input = 1u << 30;
@@ -72,9 +85,73 @@ static unsigned int read_be16(const uint8_t *bytes)
   return ((unsigned int)bytes[0] << 8) | bytes[1];
 }
 
+static unsigned int make_index(uint16_t rgb, uint16_t *palette,
+                               unsigned int *count, unsigned int capacity,
+                               unsigned int *last_color)
+{
+  unsigned int color = *last_color;
+  if (color >= *count || palette[color] != rgb)
+    {
+      for (color = 0; color < *count; color++)
+        {
+          if (palette[color] == rgb)
+            {
+              break;
+            }
+        }
+    }
+  if (color == *count && color < capacity)
+    {
+      palette[(*count)++] = rgb;
+    }
+  *last_color = color;
+  return color;
+}
+
+static bool store_pixel(uint16_t rgb, unsigned int index,
+                        unsigned int *last_colors)
+{
+#ifdef TRACKER_MAP_PANEL
+  if (g_y >= MAP_Y && g_y < MAP_Y + MAP_SIDE)
+    {
+      if (g_x >= MAP_X && g_x < MAP_X + MAP_SIDE)
+        {
+          unsigned int color = make_index(rgb, tracker_center_colors,
+                                          &g_center_count, 64, &last_colors[1]);
+          if (color >= 64)
+            {
+              return false;
+            }
+          tracker_panel_center[(g_y - MAP_Y) * MAP_SIDE + g_x - MAP_X] = color;
+          return true;
+        }
+      index -= (g_y - MAP_Y) * MAP_SIDE;
+      if (g_x >= MAP_X + MAP_SIDE)
+        {
+          index -= MAP_SIDE;
+        }
+    }
+  else if (g_y >= MAP_Y + MAP_SIDE)
+    {
+      index -= sizeof(tracker_panel_center);
+    }
+#endif
+
+  unsigned int color = make_index(rgb, tracker_colors, &g_color_count, 16,
+                                  &last_colors[0]);
+  if (color >= 16)
+    {
+      return false;
+    }
+  unsigned int shift = (index & 1) * 4;
+  tracker_pixels[index / 2] =
+    (tracker_pixels[index / 2] & ~(15 << shift)) | (color << shift);
+  return true;
+}
+
 static void draw_pixels(const uint8_t *bytes, size_t size)
 {
-  unsigned int color = 0;
+  unsigned int colors[2] = {0};
   for (size_t i = 0; i + 1 < size; i += 2)
     {
       uint16_t rgb = read_be16(bytes + i);
@@ -84,33 +161,15 @@ static void draw_pixels(const uint8_t *bytes, size_t size)
           tracker_model_error = 1;
           return;
         }
-      if (color >= g_color_count || tracker_colors[color] != rgb)
-        {
-          for (color = 0; color < g_color_count; color++)
-            {
-              if (tracker_colors[color] == rgb)
-                {
-                  break;
-                }
-            }
-        }
-      if (color == g_color_count)
-        {
-          if (color >= 16)
-            {
-              tracker_model_error = 2;
-              return;
-            }
-          tracker_colors[g_color_count++] = rgb;
-        }
       if (g_x == 0 && (tracker_frame_sequence & 1) == 0)
         {
           tracker_frame_sequence++;
         }
-      unsigned int index = g_y * WIDTH + g_x;
-      unsigned int shift = (index & 1) * 4;
-      tracker_pixels[index / 2] =
-        (tracker_pixels[index / 2] & ~(15 << shift)) | (color << shift);
+      if (!store_pixel(rgb, g_y * WIDTH + g_x, colors))
+        {
+          tracker_model_error = 2;
+          return;
+        }
       if (g_x == WIDTH - 1 && g_y == HEIGHT - 1)
         {
           tracker_frame_sequence++;

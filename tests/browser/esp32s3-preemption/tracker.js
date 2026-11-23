@@ -1,6 +1,7 @@
 import init, { WasmEmulator } from './esp_emu.js';
 import pb from './esp_cosim_pb.js';
 import { width, height, readPanel, wordAt } from './panel.mjs';
+import { Touchscreen } from './touchscreen.mjs';
 
 const { EmulatorMessage, ProtoVersion } = pb.esp_cosim.v1;
 const text = new TextDecoder();
@@ -14,7 +15,7 @@ function panelPng(machine, symbols) {
     return canvas.toDataURL().split(',')[1];
 }
 
-export async function probe({ commands, symbols, timeoutMs, ble }) {
+export async function probe({ commands, symbols, timeoutMs, ble, tiles }) {
     await init({ module_or_path: new URL('./emulator.wasm', location.href) });
     const machine = new WasmEmulator('esp32s3');
     machine.load_default_rom();
@@ -66,17 +67,20 @@ export async function probe({ commands, symbols, timeoutMs, ble }) {
     let image = '';
     let panelSequence = 0;
     let qrDecoded = false;
+    let openedGnss = false;
+    const touch = tiles ? new Touchscreen(machine, symbols) : null;
     async function untilPrompt(command) {
         const start = machine.cycles();
         const time = performance.now();
         const cyclesPerMs = 1000 * machine.cycles_per_us();
-        const fixPeriod = 250 * cyclesPerMs;
+        const fixPeriod = 500 * cyclesPerMs;
         const cycleBudget = ble ? timeoutMs * cyclesPerMs : 2400000000;
         let nextFix = start + fixPeriod;
         let nextH4 = start;
         let console = '';
         if (command) machine.uart_input(encoder.encode(command + '\n'));
         while (performance.now() - time < timeoutMs && machine.cycles() - start < cycleBudget) {
+            touch?.service();
             console += machine.run_until(ble ? 1000000 : 250000);
             const cycles = machine.cycles();
             if (ble) {
@@ -95,12 +99,22 @@ export async function probe({ commands, symbols, timeoutMs, ble }) {
                 if (data.length) send('gnss', { uartRx: { data: Uint8Array.from(data) } });
                 nextFix += fixPeriod;
             }
-            if (command?.includes('--frames') && (!ble || !qrDecoded)) {
+            if (command?.includes('--frames') && (!ble || !qrDecoded || tiles)) {
                 const sequence = word('tracker_frame_sequence');
                 if (sequence > panelSequence && sequence % 2 === 0) {
                     const candidate = panelPng(machine, symbols);
-                    if (ble) qrDecoded = await window.pairingPanel(candidate);
-                    else image = candidate;
+                    if (!ble) image = candidate;
+                    else if (!qrDecoded) qrDecoded = await window.pairingPanel(candidate);
+                    else if (tiles) {
+                        const ready = await window.mapPanel(candidate);
+                        if (ready && !openedGnss) {
+                            for (const [contact, x, y] of [
+                                [0, 160, 6], [2, 160, 65], [1, 160, 65],
+                                [0, 195, 20], [1, 195, 20],
+                            ]) touch.enqueue({ contact, x, y });
+                            openedGnss = true;
+                        }
+                    }
                     panelSequence = sequence;
                 }
             }

@@ -152,6 +152,11 @@ final class TrackerConnection: NSObject, @unchecked Sendable {
     private var relayBytes = 0
     private var pending: Data?
     private var operation: Operation?
+    private var writesSinceRead = 0
+    private var writeRetries = 0
+    private var wantedTile: TrackerTile?
+    private var offeredTile: TrackerTile?
+    private var tileTask: Task<Void, Never>?
     private var relaySending = false
     private var generation = UUID()
     private var relayTimer: DispatchSourceTimer?
@@ -280,6 +285,12 @@ final class TrackerConnection: NSObject, @unchecked Sendable {
         relay = nil
         tlsClient?.cancel()
         tlsClient = nil
+        tileTask?.cancel()
+        tileTask = nil
+        wantedTile = nil
+        offeredTile = nil
+        writesSinceRead = 0
+        writeRetries = 0
         pending = nil
         operation = nil
         relaySending = false
@@ -452,6 +463,7 @@ final class TrackerConnection: NSObject, @unchecked Sendable {
             presentation.reading = newest
             lastReading = now
             requestExport(telemetry: newest, at: now)
+            if let tlsClient { updateTile(newest.tile, client: tlsClient, token: generation) }
         }
         if capture.hasGaps {
             presentation.status = "Sensor export incomplete. Samples missing."
@@ -478,6 +490,42 @@ final class TrackerConnection: NSObject, @unchecked Sendable {
         })
     }
 
+    private func updateTile(_ wanted: TrackerTile?, client: NWConnection, token: UUID) {
+        wantedTile = wanted
+        if wanted == nil { offeredTile = nil }
+        guard let wanted, wanted != offeredTile, tileTask == nil else { return }
+        offeredTile = wanted
+        tileTask = Task { [weak self, weak client] in
+            let reply = await wanted.download()
+            guard let self, let client, !Task.isCancelled else { return }
+            self.queue.async {
+                guard self.generation == token else { return }
+                if self.wantedTile == wanted {
+                    self.sendTile(reply, from: 0, client: client, token: token)
+                } else {
+                    self.tileTask = nil
+                    self.updateTile(self.wantedTile, client: client, token: token)
+                }
+            }
+        }
+    }
+
+    // Keep TLS writes smaller than the tracker record buffer. Once started,
+    // finish the response even if the viewport changes so framing stays intact.
+    private func sendTile(_ reply: Data, from offset: Int, client: NWConnection, token: UUID) {
+        if offset == reply.count {
+            tileTask = nil
+            updateTile(wantedTile, client: client, token: token)
+            return
+        }
+        let end = min(offset + 512, reply.count)
+        client.send(content: reply.subdata(in: offset..<end), completion: .contentProcessed { [weak self, weak client] error in
+            guard let self, let client, self.generation == token else { return }
+            if error != nil { self.recover("Secure connection closed"); return }
+            self.sendTile(reply, from: end, client: client, token: token)
+        })
+    }
+
     private func receiveCiphertext(_ conn: NWConnection, token: UUID) {
         conn.receive(minimumIncompleteLength: 1, maximumLength: notifying ? 19 : 20) { [weak self] data, _, done, error in
             guard let self, self.generation == token else { return }
@@ -497,10 +545,12 @@ final class TrackerConnection: NSObject, @unchecked Sendable {
             peripheral.writeValue(notificationStream.acknowledgement, for: ingress, type: .withoutResponse)
         }
         guard operation == nil, !relaySending else { return }
-        if let pending {
+        if let pending, notifying || writesSinceRead < 4 {
+            if !notifying { writesSinceRead += 1 }
             operation = .write
             peripheral.writeValue(notifying ? Data([0]) + pending : pending, for: ingress, type: .withResponse)
         } else if !notifying {
+            writesSinceRead = 0
             operation = .read
             peripheral.readValue(for: egress)
         }
@@ -611,8 +661,16 @@ extension TrackerConnection: CBCentralManagerDelegate, CBPeripheralDelegate {
 
     func peripheral(_ peer: CBPeripheral, didWriteValueFor characteristic: CBCharacteristic, error: Error?) {
         guard peer === peripheral, characteristic === ingress, operation == .write else { return }
-        guard error == nil, let relay else { recover("Bluetooth write failed"); return }
         operation = nil
+        // The tracker rejects a GATT write before enqueuing any bytes when
+        // its bounded ingress is busy. Retry the identical ciphertext.
+        if (error as? CBATTError)?.code == .unlikelyError, writeRetries < 32 {
+            writeRetries += 1
+            writesSinceRead = 4
+            return
+        }
+        guard error == nil, let relay else { recover("Bluetooth write failed"); return }
+        writeRetries = 0
         pending = nil
         receiveCiphertext(relay, token: generation)
         // The periodic read gives the tracker a chance to drain outgoing ciphertext.

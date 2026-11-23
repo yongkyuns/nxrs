@@ -24,13 +24,107 @@ Each IMU tab plots the three axes of **Accel** or **Gyro** for the last
 own coordinate frame. **GNSS** plots up to 96 recent fixes on an offline,
 north-up grid with a distance scale, current coordinates and ground speed.
 Loss of fix breaks the trail. This view works without internet access.
-Street maps are a separate integration.
+The GNSS view overlays a street map when a tile is available.
 
 The dashboard samples the latest observation from each sensor when it redraws
 or publishes telemetry. Touch events and sensor faults have their own inbox.
 The BLE export receives the full stream before the dashboard downsamples it.
 The tracker expires IMU readings after 500 ms and GNSS fixes after three
 seconds.
+
+## GNSS street map
+
+Open **GNSS** with a live fix. When a source is available, the screen shows
+an OpenStreetMap view with the current position and recent trail. The
+offline route plot remains available during fix loss, tile loading, and
+network outages.
+
+The tracker starts at zoom 18. Use `--map-zoom 17`, `--map-zoom 16`, or
+`--map-zoom 15` for a wider view. Each step up halves the width and
+height of geographic coverage. Higher zooms use the same bytes per tile
+and can cross more tile boundaries while moving.
+When successive fixes show movement of at least 0.8 m/s,
+the viewport follows the dominant direction of travel and can show one
+neighboring tile ahead.
+That tile becomes eligible for download when it enters the viewport,
+before the tracker crosses into it. The part already loaded stays
+visible while the next tile arrives. If no matching tile is available,
+the dashboard uses the route plot.
+
+A transfer carries 14,482 bytes for a 170 × 170 tile with its palette,
+plus a fourteen-byte header. The tile matches the CoreS3 map area pixel for
+pixel with the menu closed. The tracker keeps up to two complete tiles and
+one partial reply. It releases off-screen tiles before a new request and
+stores each row losslessly in small blocks to limit heap pressure during
+sensor export. It waits at least five seconds between requests.
+Direct IP dialing uses a temporary 8 KiB stack and opens a
+separate TLS session for the reply. The phone or relay fetches the PNG
+over HTTPS and uses HTTP caching. It lightly sharpens the raster after
+resizing to preserve thin labels in the 16-color palette. Tile coordinates
+reveal the approximate area of the fix to the tile source. Downloads are
+limited to the open GNSS viewport.
+
+[OpenStreetMap tile usage policy](https://operations.osmfoundation.org/policies/tiles/)
+
+### Bluetooth through the phone
+
+Pair in the updated Nxrs Home app and leave Motion Tracker open on the
+phone. It uses its internet connection to fetch the visible tile and
+returns it over the existing authenticated BLE/TLS connection. The iPhone
+can use Wi-Fi or mobile data. Older companion clients can continue to read
+telemetry from the tracker.
+
+### Direct Wi-Fi or cellular
+
+For operation without a phone, run the IPv4 relay inside your private
+network. The tracker uses normal IP routing, so the same endpoint works
+over an already connected Wi-Fi interface or Stamp PPP. The CoreS3
+dual-IMU profile currently leaves onboard Wi-Fi disabled. Its Stamp
+profile provides the direct bearer.
+
+```sh
+python3 -m pip install 'Pillow>=10,<14' 'requests-cache>=1.2,<2'
+python3 tools/tracker-map/relay.py --bind RELAY_IPV4 --cert cert.pem --key key.pem
+openssl x509 -in cert.pem -outform DER | openssl dgst -sha256
+```
+
+Use a named-curve P-256 certificate and provision the fingerprint
+independently. Limit access to trusted devices at the network boundary.
+Tile requests authenticate the relay by pin and carry no client credentials.
+On the Stamp profile, use the relay with or without a telemetry collector.
+
+```text
+motion_tracker --cellular-apn YOUR_APN --map-relay IPV4:8444 --map-pin SHA256
+```
+
+When the phone is paired and connected, the tracker tries it first. It
+uses the configured IP relay if the phone is absent, reports a fetch error,
+or runs past the 25-second tile deadline.
+
+### Tile protocol
+
+The tile ID is the OpenStreetMap zoom and XYZ coordinates. Zoom is 15
+through 18. Both coordinates are unsigned big-endian integers less than
+`2^zoom`.
+On BLE, the tracker includes an optional `"tile":[zoom,x,y]` field in its
+dashboard snapshot. On the notification service, it sends tile requests
+after the client's existing sensor export request. The companion returns
+each tile on the same TLS connection while the tracker sends sensor
+batches in the other direction. The legacy dashboard service also accepts
+tile replies. The phone retries an acknowledged write the tracker rejects
+before enqueuing it. Over IP, the tracker opens one pinned TLS 1.3 connection per
+request, writes the 13 bytes `NXM4 | zoom:u8 | x:u32 | y:u32`, and reads one
+response. Both paths use the same response bytes.
+
+| Bytes | Meaning |
+| --- | --- |
+| 0–12 | Request header, including zoom and the requested X and Y |
+| 13 | Status byte. Zero is success, one is temporarily unavailable |
+| 14 onward | On success, 16 big-endian RGB565 palette entries followed by 170 × 170 four-bit indexes, north row first. An unavailable response has no body |
+
+Pack the left pixel in the high nibble and the right pixel in the low nibble. Split writes into TLS chunks of at most
+1,024 bytes. The tracker renders only complete responses matching its
+current viewport. USB and cellular telemetry omit the map field.
 
 ## CoreS3 and M135 setup
 

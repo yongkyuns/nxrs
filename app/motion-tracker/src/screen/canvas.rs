@@ -69,6 +69,24 @@ impl Canvas<'_> {
         }
     }
 
+    pub fn map(&mut self, area: Area, origin: (i32, i32), tile: &crate::map::Tile) {
+        use crate::map::SIDE;
+        let mut colors = [0; SIDE];
+        let (x0, y0) = origin;
+        let bottom = self.top + (self.pixels.len() / self.width) as i32;
+        let left = area.x.max(x0);
+        let right = (area.x + area.w).min(x0 + area.w);
+        for y in area.y.max(self.top).max(y0)..(area.y + area.h).min(bottom).min(y0 + area.h) {
+            let row = (y - y0) as usize * SIDE / area.h as usize;
+            let start = (y - self.top) as usize * self.width;
+            tile.row(row, &mut colors);
+            for x in left..right {
+                let column = (x - x0) as usize * SIDE / area.w as usize;
+                self.pixels[start + x as usize] = tile.palette[usize::from(colors[column])];
+            }
+        }
+    }
+
     pub fn text(&mut self, mut x: i32, y: i32, text: &[u8], scale: i32, color: u16) {
         for &byte in text {
             for (row, bits) in glyph(byte.to_ascii_uppercase()).into_iter().enumerate() {

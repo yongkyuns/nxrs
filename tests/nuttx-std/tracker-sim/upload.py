@@ -20,6 +20,7 @@ import threading
 import time
 
 from run import ADDRESS, Stamp, frame, listener, parser, run
+import tile_fixture
 from sensors import NeoM9n, check_live, check_progress
 
 COLLECTOR = '192.0.2.3'
@@ -30,11 +31,12 @@ ROUTER_MAC = bytes.fromhex('5255c0000203')
 class Collector(socketserver.ThreadingTCPServer):
     daemon_threads = True
 
-    def __init__(self, context, close_first, idle_timeout):
+    def __init__(self, context, close_first, idle_timeout, tile):
         super().__init__(('127.0.0.1', 0), Receive)
         self.context = context
         self.close_first = close_first
         self.idle_timeout = idle_timeout
+        self.tile = tile
         self.events = queue.Queue()
         self.connections = 0
         self.lock = threading.Lock()
@@ -52,6 +54,14 @@ class Receive(socketserver.BaseRequestHandler):
                 secure.settimeout(self.server.idle_timeout)
                 self.server.events.put((connection, 'secure', None))
                 with secure.makefile('rb') as stream:
+                    if self.server.tile:
+                        request = stream.read(tile_fixture.REQUEST.size)
+                        assert request[:4] == tile_fixture.MAGIC
+                        self.server.events.put((connection, 'tile', tile_fixture.REQUEST.unpack(request)[1:]))
+                        packet = request + b'\0' + tile_fixture.solid(0x001f)
+                        for offset in range(0, len(packet), 512):
+                            secure.sendall(packet[offset:offset + 512])
+                        return
                     for raw in iter(stream.readline, b''):
                         assert len(raw) <= 768 and raw.endswith(b'\n'), raw
                         sample = json.loads(raw)
@@ -65,7 +75,7 @@ class Receive(socketserver.BaseRequestHandler):
 
 
 @contextmanager
-def collector(directory, *, close_first=True, idle_timeout=3):
+def collector(directory, *, close_first=True, idle_timeout=3, tile=False):
     key = directory / 'key.pem'
     certificate = directory / 'cert.pem'
     subprocess.run([
@@ -76,7 +86,7 @@ def collector(directory, *, close_first=True, idle_timeout=3):
     context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
     context.minimum_version = ssl.TLSVersion.TLSv1_3
     context.load_cert_chain(certificate, key)
-    with Collector(context, close_first, idle_timeout) as server:
+    with Collector(context, close_first, idle_timeout, tile) as server:
         task = threading.Thread(target=server.serve_forever, kwargs={'poll_interval': 0.05})
         task.start()
         try:

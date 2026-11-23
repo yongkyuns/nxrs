@@ -86,8 +86,9 @@ jobs:
           export PYTHONPATH=tests
           python3 -m rtos_harness.footprint_budget target/nuttx-qemu/tracker \
             --linked-flash 470016 --image 540672 --static-ram 61440 | tee -a "$GITHUB_STEP_SUMMARY"
+          # The full tracker now includes the tile codec, projection and renderer.
           python3 -m rtos_harness.footprint_budget target/tracker-upload-sim \
-            --linked-flash 786432 --image 835584 --static-ram 104448 | tee -a "$GITHUB_STEP_SUMMARY"
+            --linked-flash 811008 --image 835584 --static-ram 104448 | tee -a "$GITHUB_STEP_SUMMARY"
       - name: Verify live sensor reports and TLS recovery after PPP loss
         run: |
           python3 tests/nuttx-std/tracker-sim/upload.py \

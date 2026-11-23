@@ -11,7 +11,8 @@ import time
 from bumble.device import Peer
 from bumble.gatt import GATT_CLIENT_CHARACTERISTIC_CONFIGURATION_DESCRIPTOR
 
-from dashboard import SecureStream, Stream, connect, pump, run, wait_until
+from dashboard import SecureStream, Stream, connect, pump, run, wait_until, connect_map_export
+import tile_fixture
 from sensors import check_live
 from upload import COLLECTOR, TcpStamp, collector, is_live, network
 
@@ -316,6 +317,83 @@ class Scenario:
         print(f'Withheld {withheld} ACL credits for {source_time() - start} ms guest time '
               f'and returned them in {"individual events" if individual else "one event"}', flush=True)
 
+    async def exercise_tiles(self, guest, panel, phone, args):
+        await guest.wait_text(b'nsh>')
+        offset = len(guest.buffer)
+        guest.command(
+            f'motion_tracker --frames {FRAMES} --interval-ms {INTERVAL_MS} --stream-usb --ble '
+            f'--cellular-apn nxrs.test --map-relay {COLLECTOR}:{self.stamp.port} --map-pin {self.pin}')
+        key = await panel.pairing_key()
+        await guest.wait_text(b"cellular Online", offset)
+        connection, stream = await asyncio.wait_for(connect_map_export(phone, key), 8)
+
+        async def consume_during(operation):
+            async with asyncio.TaskGroup() as pending:
+                operation = pending.create_task(operation)
+                while not operation.done():
+                    await sample()
+
+        async def sample():
+            try:
+                return await asyncio.wait_for(stream.sample(), 6)
+            except TimeoutError as error:
+                raise AssertionError(f'no BLE snapshot after {stream.sample_counts} export samples '
+                                     f'at ciphertext offset {stream.offset}') from error
+
+        async def select_gnss():
+            await panel.reveal_menu()
+            await panel.tap(195, 20)
+
+        await sample()
+        await consume_during(select_gnss())
+        async with asyncio.timeout(30):
+            while 'tile' not in (snapshot := await sample()):
+                pass
+            zoom, x, y = snapshot['tile']
+            assert zoom == 18, snapshot['tile']
+            assert self.server.events.empty(), 'IP fetched before the phone reported failure'
+            stream.tls.write(tile_fixture.REQUEST.pack(tile_fixture.MAGIC, zoom, x, y) + bytes([1]))
+            await stream.poll()
+            requests = []
+            while not requests:
+                followup = await sample()
+                check_live(followup)
+                assert followup['imu'][0]['seq'] > snapshot['imu'][0]['seq']
+                while not self.server.events.empty():
+                    _, event, value = self.server.events.get_nowait()
+                    if event == 'tile':
+                        requests.append(value)
+            assert requests == [(zoom, x, y)], requests
+            try:
+                await consume_during(panel.wait_pixel(90, 50, 0x001f, timeout=15))
+            except ExceptionGroup:
+                (await panel.capture()).save(args.log.with_suffix('.png'))
+                raise
+            # The next tile comes back over BLE while the export is still active.
+            before = stream.sample_counts.copy()
+            boundary = (x + 1) * 360 / (1 << zoom) - 180
+            distance = min(0.0003, (boundary - snapshot['gnss']['lon_deg']) / 2)
+            guest.moving_fix = {'longitude_deg': boundary - distance, 'speed_mps': 15}
+            ahead = [zoom, x + 1, y]
+            while (await sample()).get('tile') != ahead:
+                pass
+            await stream.send_tile(*ahead, color=0xf800)
+            await consume_during(panel.wait_pixel(220, 50, 0xf800))
+            guest.moving_fix = {'longitude_deg': boundary + 0.00015, 'speed_mps': 15}
+            await consume_during(panel.wait_pixel(160, 50, 0xf800))
+            while min(current - previous for current, previous in zip(stream.sample_counts, before)) < 2:
+                await sample()
+            assert min(stream.sample_counts[:2]) >= 200 and stream.sample_counts[2] >= 4
+            rates = stream.export_rates()
+            assert all(92 <= rate <= 108 for rate in rates[:2]) and 1.8 <= rates[2] <= 2.2, rates
+        print(f'PASS: map replies over PPP and BLE, tile crossing, export {stream.sample_counts} '
+              f'at {[round(rate, 2) for rate in rates]} Hz without gaps', flush=True)
+        await connection.disconnect()
+        await guest.wait_text(b'nsh>', offset + 8, args.timeout)
+        exit_offset = len(guest.buffer)
+        guest.command('echo tile-exit:$?')
+        await guest.wait_text(b'tile-exit:0', exit_offset)
+
     async def exercise(self, guest, panel, phone, args):
         stamp = self.stamp
         await guest.wait_text(b'nsh>')
@@ -457,8 +535,10 @@ def main():
     clock = parser.add_mutually_exclusive_group()
     clock.add_argument('--shift', type=int, choices=range(11), help='optional QEMU clock acceleration')
     clock.add_argument('--wall-clock', action='store_true', help='use wall-clock timing (default)')
-    parser.add_argument('--export', action='store_true', help='qualify authenticated full-rate BLE export')
+    scenario_kind = parser.add_mutually_exclusive_group()
+    scenario_kind.add_argument('--export', action='store_true', help='qualify authenticated full-rate BLE export')
     parser.add_argument('--export-seconds', type=int, default=60)
+    scenario_kind.add_argument('--tiles', action='store_true', help='verify full-rate export during BLE and PPP tile delivery')
     parser.add_argument('--timeout', default=100, type=float)
     parser.add_argument('--log', type=Path, default=Path('target/tracker-coexist-sim/coexist.log'))
     args = parser.parse_args()
@@ -468,10 +548,11 @@ def main():
     args.log.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix='nxrs-coexist-', dir='/tmp') as folder:
         directory = Path(folder)
-        with collector(directory, close_first=False, idle_timeout=15) as (server, pin), network(
+        with collector(directory, close_first=False, idle_timeout=15, tile=args.tiles) as (server, pin), network(
                 directory, args.network_qemu, server.server_address[1]) as ethernet, args.log.open('wb') as log:
             scenario = Scenario(server, pin, ethernet)
-            asyncio.run(run(args, log, scenario.exercise, scenario.attach))
+            test = scenario.exercise_tiles if args.tiles else scenario.exercise
+            asyncio.run(run(args, log, test, scenario.attach))
 
 
 if __name__ == '__main__':

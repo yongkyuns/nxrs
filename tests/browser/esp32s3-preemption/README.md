@@ -97,6 +97,27 @@ python3 tests/browser/esp32s3-preemption/tracker.py --ble \
   --elf "$out/firmware/nuttx/nuttx" --report "$out/ble-smp.json"
 ```
 
+Add `--tiles --timeout 105` to the BLE probe to exercise the GNSS map.
+The guest receives a moving UBX fix from the fixture. The BLE peer supplies
+two synthetic 170 × 170 tiles over the authenticated notification stream.
+The probe also checks the sequence of each exported sensor. It verifies
+that the second request precedes the boundary crossing, verifies both tile
+colors on the guest panel before and after crossing, and saves those frames
+beside the JSON report. Chrome runs the ESP32-S3 guest and the peer runs
+locally through the emulated H4 link.
+
+For an OpenStreetMap capture, add `--osm-tiles` and install the tile
+relay's Python dependencies from the
+[tracker map setup](../../../app/motion-tracker/README.md#gnss-street-map).
+Rebuild this qualification image with
+`NXRS_TARGET_C_FLAGS=-DTRACKER_MAP_PANEL` so the simulated LCD captures
+the map square with its RGB565 colors. The host downloads the two requested
+tiles over HTTPS using the relay's HTTP cache and raster conversion.
+The browser receives both tiles through the same TLS and H4 path as the
+synthetic check. The test uses a public London route at the tracker default
+of zoom 18. Add `--map-zoom 16` or `--map-zoom 17` to compare wider views.
+[OpenStreetMap attribution](https://www.openstreetmap.org/copyright)
+
 Add `--deny-entropy` to run the control with Web Crypto disabled in the
 test page. UART2 still boots and the app refuses TLS pairing. The UART2 model
 supports one guest per module and moves bytes at browser batch boundaries.

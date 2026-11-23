@@ -138,10 +138,10 @@ guest Bluetooth host and GATT. OpenSSL acts as the TLS-PSK client and
 verifies the decrypted tracker schema. Pairing keys stay in process memory.
 
 The scenario checks tab selection, QR cancellation and rotation, rejection of
-the old key, authenticated telemetry, a paused BLE reader, reconnect, GNSS
+the old key, authenticated telemetry, a paused BLE reader, reconnect, rendering adjacent tiles sent over BLE across a simulated boundary, GNSS
 freshness and recovery, battery state, and a clean app restart with preferences
 retained. The dashboard uses `-icount shift=5,sleep=off`. Use
-`--wall-clock --frames 22 --timeout 40` for a shorter real-time control.
+`--wall-clock --frames 42 --timeout 70` for a shorter real-time control.
 
 The scenario passed on five fresh Apple Silicon QEMU boots. The 99-second guest
 report window took a median of 5.22 seconds on the host, and the entire scenario
@@ -235,3 +235,10 @@ On the unbuffered TCP build, this control reproduced a 4.02-second BLE gap and
 zero records during the hold. With bounded TCP writes enabled, three
 wall-clock boots each delivered BLE records during the hold. The longest
 receiver gap was 1.55 seconds and TLS telemetry resumed after release.
+
+Run the same combined fixture with `--tiles` to test map failover.
+The phone rejects the first tile request, then a local pinned TLS relay
+returns a synthetic tile over PPP. The phone supplies the neighboring
+tile over the same notification session while both IMUs and GNSS
+export samples. The test checks the panel on both sides of the boundary
+and requires consecutive sample sequences throughout the transfers.
