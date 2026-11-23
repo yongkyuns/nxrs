@@ -111,10 +111,11 @@ valid GNSS fix at 2 Hz on the dual-IMU CoreS3 profiles. The GNSS driver verifies
 a 500 ms navigation period in receiver RAM and restores the previous
 configuration on shutdown. The phone shows acceleration and gyroscope for
 both IMUs, recent fixes on the map, observed rates, and sequence gaps. Export
-starts with each authenticated connection. If the tracker fills its export
-buffer, it delivers the samples already queued and reports an incomplete
-export. Sensor acquisition and the display continue. The phone also marks an
-export incomplete if it detects a sequence gap.
+starts with each authenticated connection. A 512-sample buffer covers about
+2.5 seconds of acquisition at these rates while a connected receiver catches
+up. If the buffer fills, the tracker delivers queued samples and reports an
+incomplete export. Sensor acquisition and the display continue. The phone
+also marks an export incomplete if it detects a sequence gap.
 
 Pairing is opt-in for each run. The TLS 1.2 PSK cipher is
 `TLS_PSK_WITH_AES_128_GCM_SHA256` and the PSK identity is `nxrs-tracker-v1`.

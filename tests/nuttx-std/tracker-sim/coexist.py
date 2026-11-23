@@ -17,7 +17,6 @@ from upload import COLLECTOR, TcpStamp, collector, is_live, network
 
 RAM_UART_SIZE = 2048
 FRAMES = 80
-EXPORT_FRAMES = 160
 INTERVAL_MS = 500
 BLE_READ_TIMEOUT = 5
 MAX_WALL_BLE_GAP = 2.5
@@ -156,11 +155,11 @@ class Scenario:
                 self.collector_samples[number] = value[1]
         return connection in self.tls_connections and connection in self.collector_samples
 
-    async def sample_export(self, guest, panel, phone, key):
-        before = self.collector_samples[1]['imu'][0]['seq']
-        previous = None
-        for minimum in (6_000, 200):
+    async def sample_export(self, guest, panel, phone, key, seconds):
+        async def authenticated_link():
             connection, rx, tx = await connect(phone, export=True)
+            disconnected = asyncio.Event()
+            connection.once(connection.EVENT_DISCONNECTION, lambda _: disconnected.set())
             assert await Peer(connection).request_mtu(247) >= 64
             await tx.discover_descriptors()
             ccc = tx.get_descriptor(GATT_CLIENT_CHARACTERISTIC_CONFIGURATION_DESCRIPTOR)
@@ -168,28 +167,47 @@ class Scenario:
             stream = SecureStream(rx, tx, key)
             await stream.subscribe()
             await asyncio.wait_for(stream.handshake(), 8)
-            latest = await self.export_window(stream, minimum, previous)
+            return connection, stream, disconnected
+
+        before = self.collector_samples[1]['imu'][0]['seq']
+        previous = None
+        for minimum in (100 * seconds, 200):
+            if previous is not None:
+                _, rejected, retired = await authenticated_link()
+                rejected.tls.write(b'!')
+                await rejected.flush()
+                await asyncio.wait_for(retired.wait(), 5)
+                print('PASS: tracker retires the link after an invalid export request', flush=True)
+            connection, stream, disconnected = await authenticated_link()
+            latest = await self.export_window(guest, stream, minimum, previous, disconnected)
             await connection.disconnect()
             previous = latest
         assert guest.gnss.navigation == (500, 1)
         assert self.collector_live(1) and self.collector_samples[1]['imu'][0]['seq'] > before
-        assert self.tls_connections == {1}
+        assert self.tls_connections == {1} and not self.collector_closures
         print('PASS: full-rate export reconnected with the same pairing key and continuing cellular TLS', flush=True)
         await panel.wait_pixel(275, 33, 0x57f4)
         await panel.tap(275, 20)
         assert await panel.pairing_key() == key
         print('PASS: the tracker offers its pairing code again after disconnect', flush=True)
 
-    async def export_window(self, stream, minimum, previous):
+    async def export_window(self, guest, stream, minimum, previous, disconnected):
         stream.tls.write(b'NXRS\x01')
         first = [None] * 3
         latest = [None] * 3
         count = [0] * 3
         started = time.monotonic()
         dashboard = []
-        async with asyncio.timeout(75):
+        hold_points = iter((500, 2_500, 4_500)) if previous is None else iter(())
+        next_hold = next(hold_points, None)
+        async with asyncio.timeout(15 + minimum / 92), asyncio.TaskGroup() as stalls:
             while min(count[:2]) < minimum or count[2] < minimum // 50 or len(dashboard) < 2:
-                record = await stream.export_record()
+                try:
+                    record = await asyncio.wait_for(stream.export_record(), timeout=6)
+                except TimeoutError as error:
+                    raise AssertionError(f'BLE export stalled after {count} samples and '
+                                         f'{len(dashboard)} dashboard snapshots') from error
+                assert not disconnected.is_set(), 'unexpected BLE disconnect during export'
                 if isinstance(record, dict):
                     check_live(record)
                     dashboard.append(time.monotonic())
@@ -213,6 +231,10 @@ class Scenario:
                         assert seq == latest[index][0] + 1, (tag, seq, latest[index], count)
                     latest[index] = (seq, tick)
                     count[index] += 1
+                if next_hold is not None and count[0] >= next_hold:
+                    # Keep consuming packets the controller has already sent.
+                    stalls.create_task(self.hold_acl_credits(guest))
+                    next_hold = next(hold_points, None)
         rates = [(n - 1) * 1000 / (end[1] - start) for n, end, start in zip(count, latest, first)]
         assert all(92 <= rate <= 108 for rate in rates[:2]) and 1.8 <= rates[2] <= 2.2, rates
         times = [started, *dashboard, time.monotonic()]
@@ -222,18 +244,35 @@ class Scenario:
               f'zero sequence gaps and {len(dashboard)} dashboard snapshots with max gap {gap:.2f}s', flush=True)
         return latest
 
+    async def hold_acl_credits(self, guest):
+        def source_time():
+            return guest.samples[-1]['imu'][0].get('received_ms', 0)
+
+        assert self.collector_live(1)
+        before = self.collector_samples[1]['imu'][0]['seq']
+        start = source_time()
+        guest.controller.hold_acl_credits()
+        try:
+            await wait_until(lambda: source_time() - start >= 1_800, 'ACL credit hold')
+            assert self.collector_live(1) and self.collector_samples[1]['imu'][0]['seq'] > before, (
+                'cellular upload made no progress during the BLE credit hold')
+        finally:
+            withheld = guest.controller.release_acl_credits()
+        assert withheld > 0, 'the test did not withhold any controller credits'
+        print(f'Withheld {withheld} ACL credits for {source_time() - start} ms guest time', flush=True)
+
     async def exercise(self, guest, panel, phone, args):
         stamp = self.stamp
         await guest.wait_text(b'nsh>')
         offset = len(guest.buffer)
         guest.command(
-            f'motion_tracker --frames {EXPORT_FRAMES if args.export else FRAMES} '
+            f'motion_tracker --frames {2 * (args.export_seconds + 30) if args.export else FRAMES} '
             f'--interval-ms {INTERVAL_MS} --stream-usb --ble '
             f'--cellular-apn nxrs.test --collector {COLLECTOR}:{stamp.port} --collector-pin {self.pin}')
         key = await panel.pairing_key()
         await wait_until(lambda: self.collector_live(1), 'initial cellular TLS telemetry', 12)
         if args.export:
-            await self.sample_export(guest, panel, phone, key)
+            await self.sample_export(guest, panel, phone, key, args.export_seconds)
             return
         stamp.begin_hold()
         await wait_until(lambda: stamp.held_tcp, 'cellular TLS data to stall before pairing')
@@ -364,9 +403,12 @@ def main():
     clock.add_argument('--shift', type=int, choices=range(11), help='optional QEMU clock acceleration')
     clock.add_argument('--wall-clock', action='store_true', help='use wall-clock timing (default)')
     parser.add_argument('--export', action='store_true', help='qualify authenticated full-rate BLE export')
+    parser.add_argument('--export-seconds', type=int, default=60)
     parser.add_argument('--timeout', default=100, type=float)
     parser.add_argument('--log', type=Path, default=Path('target/tracker-coexist-sim/coexist.log'))
     args = parser.parse_args()
+    if args.export and args.export_seconds < 60:
+        parser.error('--export-seconds must be at least 60 for the three credit-stall controls')
     args.wall_clock = args.shift is None
     args.log.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix='nxrs-coexist-', dir='/tmp') as folder:

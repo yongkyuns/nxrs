@@ -127,7 +127,8 @@ impl<'a, L: Listener> Output<'a, L> {
     }
 
     pub fn service(&mut self, now: Instant) {
-        if self.poll(now).is_err() {
+        if let Err(error) = self.poll(now) {
+            eprintln!("motion-tracker BLE session ended: {error}");
             self.connection = None;
             self.capture.disable();
             self.request_len = 0;

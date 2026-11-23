@@ -213,10 +213,13 @@ collector receives fresh data again. Use `--shift 3` for a faster continuity
 check. Accelerated timings include the effect of QEMU's virtual clock on the
 host-driven BLE controller.
 
-Use `--export` to exercise the notification service. The peer receives at
-least 6,000 consecutive samples per IMU and 120 GNSS fixes, disconnects, and uses
-the same pairing key to start a new export while the cellular TLS connection
-remains active.
+Use `--export` to exercise the notification service. The test withholds three
+bursts of controller transmit credits while both IMUs, GNSS, the dashboard and
+cellular TLS stay active. The peer must receive at least 6,000 consecutive samples
+per IMU and 120 GNSS fixes without disconnecting. The test then checks that the
+tracker disconnects a peer that sends an invalid export request and accepts a
+new export with the same pairing key. For a longer run, add
+`--export-seconds 180 --timeout 260`.
 
 On the unbuffered TCP build, this control reproduced a 4.02-second BLE gap and
 zero records during the hold. With bounded TCP writes enabled, three

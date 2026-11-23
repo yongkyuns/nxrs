@@ -21,23 +21,24 @@ static OPEN: AtomicBool = AtomicBool::new(false);
 static REGISTERED: Mutex<Option<(Service, Option<Service>)>> = Mutex::new(None);
 // One atomic tracks the HCI handle, its generation and the link state.
 static STAMP: AtomicU32 = AtomicU32::new(0);
-static DATA: Mutex<Buffers> = Mutex::new(Buffers {
+static INPUT: Mutex<Queue> = Mutex::new(Queue {
     stamp: 0,
-    input: VecDeque::new(),
-    output: VecDeque::new(),
+    bytes: VecDeque::new(),
+});
+static OUTPUT: Mutex<Queue> = Mutex::new(Queue {
+    stamp: 0,
+    bytes: VecDeque::new(),
 });
 
-struct Buffers {
+struct Queue {
     stamp: u32,
-    input: VecDeque<u8>,
-    output: VecDeque<u8>,
+    bytes: VecDeque<u8>,
 }
 
-fn current(stamp: u32) -> io::Result<MutexGuard<'static, Buffers>> {
-    let mut data = DATA.try_lock().map_err(|error| match error {
-        std::sync::TryLockError::WouldBlock => io::ErrorKind::WouldBlock,
-        std::sync::TryLockError::Poisoned(_) => io::ErrorKind::BrokenPipe,
-    })?;
+fn current(
+    mut data: MutexGuard<'static, Queue>,
+    stamp: u32,
+) -> io::Result<MutexGuard<'static, Queue>> {
     if !OPEN.load(Ordering::Acquire)
         || stamp & (CONNECTED | RETIRED) != CONNECTED
         || stamp != STAMP.load(Ordering::Acquire)
@@ -46,10 +47,23 @@ fn current(stamp: u32) -> io::Result<MutexGuard<'static, Buffers>> {
     }
     if data.stamp != stamp {
         data.stamp = stamp;
-        data.input.clear();
-        data.output.clear();
+        data.bytes.clear();
     }
     Ok(data)
+}
+
+fn input(stamp: u32) -> io::Result<MutexGuard<'static, Queue>> {
+    // ATT writes run on NuttX's HCI receive worker. This lock protects only
+    // bounded byte copies and is never held across an SDK call or I/O.
+    current(INPUT.lock().map_err(|_| io::ErrorKind::BrokenPipe)?, stamp)
+}
+
+fn output(stamp: u32) -> io::Result<MutexGuard<'static, Queue>> {
+    let queue = OUTPUT.try_lock().map_err(|error| match error {
+        std::sync::TryLockError::WouldBlock => io::ErrorKind::WouldBlock,
+        std::sync::TryLockError::Poisoned(_) => io::ErrorKind::BrokenPipe,
+    })?;
+    current(queue, stamp)
 }
 
 fn pop(queue: &mut VecDeque<u8>, bytes: &mut [u8]) -> usize {
@@ -101,11 +115,11 @@ extern "C" fn peripheral_notifications_rust() -> bool {
 }
 
 #[no_mangle]
-unsafe extern "C" fn peripheral_read_rust(output: *mut u8, count: u8) -> i32 {
+unsafe extern "C" fn peripheral_read_rust(destination: *mut u8, count: u8) -> i32 {
     if count == 0 || NOTIFY.load(Ordering::Acquire) {
         return 0;
     }
-    let mut data = match current(STAMP.load(Ordering::Acquire)) {
+    let mut data = match output(STAMP.load(Ordering::Acquire)) {
         Ok(data) => data,
         // An empty reply lets the central poll again without consuming bytes
         // or treating a preempted publisher as a broken connection.
@@ -114,25 +128,25 @@ unsafe extern "C" fn peripheral_read_rust(output: *mut u8, count: u8) -> i32 {
     };
     // The GATT SDK owns count writable bytes until this callback returns.
     let bytes =
-        unsafe { std::slice::from_raw_parts_mut(output, usize::from(count).min(ATT_CHUNK)) };
-    pop(&mut data.output, bytes) as i32
+        unsafe { std::slice::from_raw_parts_mut(destination, usize::from(count).min(ATT_CHUNK)) };
+    pop(&mut data.bytes, bytes) as i32
 }
 
 #[no_mangle]
-unsafe extern "C" fn peripheral_write_rust(input: *const u8, count: u8) -> i32 {
+unsafe extern "C" fn peripheral_write_rust(source: *const u8, count: u8) -> i32 {
     let count = usize::from(count);
     if count == 0 || count > ATT_CHUNK {
         return -1;
     }
-    let Ok(mut data) = current(STAMP.load(Ordering::Acquire)) else {
+    let Ok(mut data) = input(STAMP.load(Ordering::Acquire)) else {
         return -1;
     };
-    if count > CAPACITY - data.input.len() {
+    if count > CAPACITY - data.bytes.len() {
         return -1;
     }
     // SDK storage is valid for this synchronous callback only.
-    data.input
-        .extend(unsafe { std::slice::from_raw_parts(input, count) });
+    data.bytes
+        .extend(unsafe { std::slice::from_raw_parts(source, count) });
     count as i32
 }
 
@@ -172,12 +186,11 @@ pub(crate) fn open_peripheral(
         Some(prior) if prior != (legacy, notifications) => return Err(Error::Unsupported),
         Some(_) => {}
         None => {
-            {
-                let mut data = DATA.lock().map_err(|_| Error::Io)?;
-                data.input
-                    .try_reserve_exact(CAPACITY)
-                    .map_err(|_| Error::Io)?;
-                data.output
+            for queue in [&INPUT, &OUTPUT] {
+                queue
+                    .lock()
+                    .map_err(|_| Error::Io)?
+                    .bytes
                     .try_reserve_exact(CAPACITY)
                     .map_err(|_| Error::Io)?;
             }
@@ -212,32 +225,34 @@ impl Listener for Peripheral {
     }
 
     fn service(&mut self) -> io::Result<()> {
-        if !self.notifying() {
+        let stamp = STAMP.load(Ordering::Acquire);
+        // Let accept() retire a failed link even if its notification
+        // subscription is still enabled.
+        if stamp & (CONNECTED | RETIRED) != CONNECTED || !self.notifying() {
             return Ok(());
         }
-        let stamp = STAMP.load(Ordering::Acquire);
         let Some(peer) = ffi::Peer::lookup((stamp & HANDLE_MASK) as u16) else {
             return Ok(());
         };
         let mut bytes = [0; NOTIFY_CHUNK];
         for _ in 0..8 {
-            let mut queues = match current(stamp) {
-                Ok(queues) => queues,
+            let mut queue = match output(stamp) {
+                Ok(queue) => queue,
                 Err(error) if error.kind() == io::ErrorKind::WouldBlock => break,
                 Err(error) => return Err(error),
             };
-            if !self.notifying() || queues.output.is_empty() {
+            if !self.notifying() || queue.bytes.is_empty() {
                 break;
             }
-            let len = bytes.len().min(queues.output.len());
-            for (out, value) in bytes[..len].iter_mut().zip(&queues.output) {
+            let len = bytes.len().min(queue.bytes.len());
+            for (out, value) in bytes[..len].iter_mut().zip(&queue.bytes) {
                 *out = *value;
             }
             let sent = peer.notify(&bytes[..len])?;
             if sent == 0 {
                 break;
             }
-            queues.output.drain(..sent);
+            queue.bytes.drain(..sent);
         }
         Ok(())
     }
@@ -289,7 +304,9 @@ impl Read for Transport {
         if bytes.is_empty() {
             return Ok(0);
         }
-        let count = pop(&mut current(self.stamp)?.input, bytes);
+        // Keep the HCI callback's wait bounded even for large TLS reads.
+        let len = bytes.len().min(4 * ATT_CHUNK);
+        let count = pop(&mut input(self.stamp)?.bytes, &mut bytes[..len]);
         if count == 0 {
             Err(io::ErrorKind::WouldBlock.into())
         } else {
@@ -302,16 +319,16 @@ impl Write for Transport {
         if bytes.is_empty() {
             return Ok(0);
         }
-        let mut data = current(self.stamp)?;
-        let count = bytes.len().min(CAPACITY - data.output.len());
+        let mut data = output(self.stamp)?;
+        let count = bytes.len().min(CAPACITY - data.bytes.len());
         if count == 0 {
             return Err(io::ErrorKind::WouldBlock.into());
         }
-        data.output.extend(&bytes[..count]);
+        data.bytes.extend(&bytes[..count]);
         Ok(count)
     }
     fn flush(&mut self) -> io::Result<()> {
-        if current(self.stamp)?.output.is_empty() {
+        if output(self.stamp)?.bytes.is_empty() {
             Ok(())
         } else {
             Err(io::ErrorKind::WouldBlock.into())

@@ -16,7 +16,10 @@ from bumble.controller import Controller
 from bumble.core import AdvertisingData, PhysicalTransport, UUID
 from bumble.device import Device, Peer
 from bumble.gatt import Characteristic
-from bumble.hci import HCI_LE_Advertising_Report_Event, HCI_LE_Extended_Advertising_Report_Event
+from bumble.hci import (
+    HCI_LE_Advertising_Report_Event, HCI_LE_Extended_Advertising_Report_Event,
+    HCI_Number_Of_Completed_Packets_Event,
+)
 from bumble.hci import Address
 from bumble.link import LocalLink
 from bumble.transport.common import ParserSource
@@ -65,6 +68,28 @@ class BluetoothLink(LocalLink):
 
 
 class H4Controller(Controller):
+    withheld_completions = None
+
+    def send_hci_packet(self, packet):
+        if self.withheld_completions is not None and isinstance(packet, HCI_Number_Of_Completed_Packets_Event):
+            for handle, count in zip(packet.connection_handles, packet.num_completed_packets):
+                self.withheld_completions[handle] = self.withheld_completions.get(handle, 0) + count
+        else:
+            super().send_hci_packet(packet)
+
+    def hold_acl_credits(self):
+        assert self.withheld_completions is None
+        self.withheld_completions = {}
+
+    def release_acl_credits(self):
+        counts = self.withheld_completions
+        self.withheld_completions = None
+        if counts:
+            # A real controller can return many credits in one HCI event.
+            self.send_hci_packet(HCI_Number_Of_Completed_Packets_Event(
+                connection_handles=list(counts), num_completed_packets=list(counts.values())))
+        return sum(counts.values())
+
     def on_hci_host_number_of_completed_packets_command(self, _command):
         # The virtual controller queues no host-bound ACL credits. The HCI
         # acknowledgement has no response event.
@@ -264,18 +289,30 @@ class SecureStream:
         self.tx = tx
         self.buffer = bytearray()
         self.notifications = None
+        self.notification_overflow = False
 
     async def subscribe(self):
         self.notifications = asyncio.Queue(maxsize=64)
-        await self.tx.subscribe(self.notifications.put_nowait)
 
-    async def poll(self):
+        def receive(data):
+            if self.notifications.full():
+                self.notification_overflow = True
+            else:
+                self.notifications.put_nowait(data)
+
+        await self.tx.subscribe(receive)
+
+    async def flush(self):
         while self.outgoing.pending:
             chunk = self.outgoing.read(20)
             await self.rx.write_value(chunk, with_response=True)
+
+    async def poll(self):
+        await self.flush()
         if self.notifications is None:
             data = await self.tx.read_value(no_long_read=True)
         else:
+            assert not self.notification_overflow, 'test peer notification queue overflowed'
             data = await self.notifications.get()
         if data:
             self.incoming.write(data)
@@ -476,7 +513,7 @@ async def run(args, log, exercise=scenario, attach_controller=None):
                 else:
                     controller_wire = await attach_controller(
                         panel, peer_reader, peer_writer, source.parser.feed_data, tasks)
-                H4Controller('NuttX H4', source, controller_wire, link=link, public_address=TRACKER)
+                guest.controller = H4Controller('NuttX H4', source, controller_wire, link=link, public_address=TRACKER)
                 central = PhoneController('test phone', link=link, public_address='F0:F1:F2:F3:F4:02')
                 phone = Device.with_hci('test phone', Address('F0:F1:F2:F3:F4:A2'), central, central)
                 await phone.power_on()
