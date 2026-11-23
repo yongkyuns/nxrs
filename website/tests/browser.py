@@ -226,12 +226,13 @@ def run(site: Path, prefix: str, output: Path) -> dict:
             expect(page.locator('h1')).to_have_text('Rust API reference')
             report['checks'].append('API catalog, public trait and method, source link, return navigation and native themes')
 
-            # These modules are explicitly included by the API build configuration.
-            for route in ('camera/replay/', 'storage/recording/', 'transport/udp/'):
+            # Check public routes for acquisition, shared I/O and protocol modules.
+            for route in ('camera/capture/', 'camera/replay/', 'storage/recording/',
+                          'detection_service/wire/', 'stream_service/wire/'):
                 page.goto(url + 'api/' + route + 'index.html', wait_until='networkidle')
                 expect(page.locator('h1')).to_contain_text(route.rstrip('/').split('/')[-1])
                 expect(api_nav.get_by_role('link', name='NXRS API reference', exact=True)).to_be_visible()
-            report['checks'].append('documented replay, recording and UDP feature modules are readable')
+            report['checks'].append('documented capture, replay, recording and protocol modules are readable')
 
             page.goto(url + 'api/peripheral/imu/trait.Imu.html', wait_until='networkidle')
             for crate in ('nxrs_bmi270', 'nxrs_lsm6dso'):

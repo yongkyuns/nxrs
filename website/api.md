@@ -4,7 +4,7 @@ Use this catalog to find the Rust library that owns a type, function, or method.
 
 ## Find an API
 
-Choose a library below, then search its generated Rust documentation for a symbol such as `Led` or `PacketSink`. Use the site’s header search for guides and library names.
+Choose a library below, then search its generated Rust documentation for a symbol such as `Led` or `Reconnector`. Use the site’s header search for guides and library names.
 
 The catalog shows both names you need: Cargo selects package `nxrs-led`, while Rust code imports its library as `led`, for example `led::Led`. An item's page gives its signature, documentation, and a link to source. Type and trait pages also list relevant implementations. Follow the owning contract for error, completion, and cleanup semantics.
 
