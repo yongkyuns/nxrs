@@ -352,11 +352,12 @@ static void spi_exchange(struct spi_dev_s *dev, const void *tx, void *rx,
           nxmutex_lock(&g_i2c_lock);
           g_inject_imu_failure = scenario && strcmp(scenario, "imu") == 0;
           nxmutex_unlock(&g_i2c_lock);
-          g_stall_panel = scenario && strcmp(scenario, "queue") == 0;
+          g_stall_panel = scenario && strcmp(scenario, "paint") == 0;
         }
-      else if (g_stall_panel && g_lcd_register == 0x2c)
+      else if (g_stall_panel && g_lcd_register == 0x2c &&
+               access("/tracker-fixture/stall-panel", F_OK) == 0)
         {
-          /* Delay the app's first paint while acquisition threads keep running. */
+          /* Delay one paint after the host sees live telemetry. */
           g_stall_panel = false;
           puts("TRACKER_PANEL_STALL");
           usleep(1000000);
