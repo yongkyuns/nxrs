@@ -2,7 +2,7 @@
 //! subprocess owns demuxing and encoding. This module only writes EBML.
 use super::Track;
 use crate::{Error, Result};
-use capture_wire::SAMPLE_RATE_HZ;
+use stream_service::wire::SAMPLE_RATE_HZ;
 use tokio::io::{AsyncWrite, AsyncWriteExt};
 
 fn prefix(output: &mut Vec<u8>, tag: u32, length: usize) {

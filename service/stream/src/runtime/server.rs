@@ -1,14 +1,14 @@
 //! Caller-polled HTTP server with one active client. Extra connections are
 //! accepted and immediately closed; no queue or background worker is created.
 
-use crate::{append, append_number, AudioMode, Metadata, MjpegSession, OfferResult, SessionError};
+use super::{append, append_number, AudioMode, Metadata, MjpegSession, OfferResult, SessionError, HEADER_CAPACITY};
 use camera::Frame;
-use capture_wire::{AudioBlock, AudioStamp, MicrophoneState, AV_PATH, CONTROLLED_AV_PATH};
+use crate::wire::{AudioBlock, AudioStamp, MicrophoneState, AV_PATH, CONTROLLED_AV_PATH};
 use std::io::{self, Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
 
 const REQUEST_CAPACITY: usize = 1024;
-const _: () = assert!(REQUEST_CAPACITY <= crate::HEADER_CAPACITY);
+const _: () = assert!(REQUEST_CAPACITY <= HEADER_CAPACITY);
 const WRITE_BUDGET: usize = 4096;
 // An inline empty icon avoids a second browser request competing for the
 // deliberately single-client server while the image connection is admitted.
@@ -285,9 +285,9 @@ impl<W: Read + Write, B: AsRef<[u8]> + AsMut<[u8]>> HttpSession<W, B> {
         }
         let mut header = Vec::new();
         header
-            .try_reserve_exact(crate::HEADER_CAPACITY)
+            .try_reserve_exact(HEADER_CAPACITY)
             .map_err(|_| io::Error::other("metadata storage unavailable"))?;
-        header.resize(crate::HEADER_CAPACITY, 0);
+        header.resize(HEADER_CAPACITY, 0);
         Ok(Self {
             buffer: Some(buffer),
             header: Some(header.into_boxed_slice()),

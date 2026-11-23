@@ -137,7 +137,8 @@ or scheduling requirements. Apps compose policy and may use the HAL or Rust
 Keep a service's lifecycle, policy and versioned protocol together when they
 describe the same capability. Reuse domain types with identical semantics.
 Expose a protocol module independently when a peer only needs to encode or
-validate messages.
+validate messages. The stream service's wire module defines the multipart A/V
+contract, so gateway ingest can read it with the camera-side server disabled.
 
 Motion Tracker uses the navigation observation owner and the same bounded
 publisher for BLE and cellular. Navigation also has fusion workflows that

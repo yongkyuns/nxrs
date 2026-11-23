@@ -1,6 +1,6 @@
 //! Bounded camera multipart framing shared with the camera stream writer.
 use crate::{Error, Result};
-use capture_wire::{AudioBlock, AudioStamp, MicrophoneState, AUDIO_TYPE, AV_HEADER, AV_VERSION, BLOCK_BYTES, CONTROLLED_AV_VERSION, MICROPHONE_STATE_TYPE};
+use stream_service::wire::{AudioBlock, AudioStamp, MicrophoneState, AUDIO_TYPE, AV_HEADER, AV_VERSION, BLOCK_BYTES, CONTROLLED_AV_VERSION, MICROPHONE_STATE_TYPE};
 use std::collections::BTreeMap;
 use std::num::NonZeroU64;
 use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, BufReader};

@@ -829,10 +829,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "nxrs-capture-wire"
-version = "0.1.0"
-
-[[package]]
 name = "nxrs-cellular"
 version = "0.1.0"
 dependencies = [
@@ -1015,7 +1011,6 @@ dependencies = [
  "nxrs-boot",
  "nxrs-camera",
  "nxrs-camera-service",
- "nxrs-capture-wire",
  "nxrs-connectivity-service",
  "nxrs-console",
  "nxrs-detection-service",
@@ -1403,7 +1398,6 @@ name = "nxrs-stream-service"
 version = "0.1.0"
 dependencies = [
  "nxrs-camera",
- "nxrs-capture-wire",
 ]
 
 [[package]]

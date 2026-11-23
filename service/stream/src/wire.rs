@@ -1,5 +1,4 @@
 //! Versioned microphone parts for the camera's authenticated multipart stream.
-#![forbid(unsafe_code)]
 
 pub const AV_PATH: &str = "/stream?av=1";
 pub const AV_HEADER: &str = "x-nxrs-av";
@@ -16,7 +15,7 @@ pub const BLOCK_BYTES: usize = BLOCK_SAMPLES as usize * 2;
 /// sent in its multipart response after the change takes effect.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct MicrophoneState {
-    pub sequence: std::num::NonZeroU64,
+    pub sequence: core::num::NonZeroU64,
     pub muted: bool,
 }
 
@@ -31,7 +30,7 @@ impl MicrophoneState {
     }
 
     pub fn decode(bytes: &[u8; Self::BYTES]) -> Option<Self> {
-        let sequence = std::num::NonZeroU64::new(u64::from_be_bytes(bytes[..8].try_into().ok()?))?;
+        let sequence = core::num::NonZeroU64::new(u64::from_be_bytes(bytes[..8].try_into().ok()?))?;
         let muted = match bytes[8] {
             0 => false,
             1 => true,
