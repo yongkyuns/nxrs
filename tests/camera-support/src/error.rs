@@ -1,6 +1,6 @@
 //! Errors from composing the independent services into the example product.
 
-use camera_service::Error as CameraError;
+use camera::capture::Error as CameraError;
 use crate::recording::Error as RecordingError;
 use crate::packet_summary::Error as TelemetryError;
 

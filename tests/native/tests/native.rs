@@ -9,8 +9,8 @@ use camera_test_support::CameraProduct;
 use camera::{Camera, Capture, DeviceError, Format, Frame, PixelFormat, ReplayCamera};
 use storage::recording::{read_record, FileRecorder, StorageLimits};
 use storage::Storage;
-use transport::udp::UdpTransport;
-use transport::PacketSink;
+use camera_test_support::packet::udp::UdpTransport;
+use camera_test_support::packet::PacketSink;
 use camera_test_support::Error;
 use camera_test_support::recording::Error as RecordingError;
 
@@ -183,8 +183,8 @@ fn udp_uses_real_loopback_datagrams_with_independent_owners() {
     assert_eq!(&buffer[..len], b"first");
     let len = second.recv(&mut buffer).unwrap();
     assert_eq!(&buffer[..len], b"second");
-    assert_eq!(a.send(&[]), Err(transport::DeviceError::InvalidData));
-    assert_eq!(a.send(&vec![0; 65_508]), Err(transport::DeviceError::InvalidData));
+    assert_eq!(a.send(&[]), Err(camera_test_support::packet::DeviceError::InvalidData));
+    assert_eq!(a.send(&vec![0; 65_508]), Err(camera_test_support::packet::DeviceError::InvalidData));
 }
 
 #[test]

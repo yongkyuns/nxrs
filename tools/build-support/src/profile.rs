@@ -21,7 +21,6 @@ pub const CAPABILITIES: &[&str] = &[
     "audio",
     "settings",
     "storage",
-    "transport",
     "led",
     "imu",
     "gnss",

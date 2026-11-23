@@ -1,8 +1,7 @@
 //! Caller-polled reconnect policy for the Wi-Fi controller.
-#![no_std]
 #![forbid(unsafe_code)]
 
-use wifi::{
+use crate::{
     Command, Completion, Controller, ControllerError, Error as WifiError, Event, LinkState,
     ProviderStatus, Update, Wifi,
 };
@@ -223,7 +222,8 @@ where
     /// Immediately stop the provider without implicitly disassociating.
     /// Failed stop admission is retained and retried by subsequent polls.
     pub fn request_stop(&mut self) -> Result<(), ReconnectError> {
-        if matches!(self.stop_intent, Some(StopIntent::Disconnect { .. })) && !self.disconnect_done()
+        if matches!(self.stop_intent, Some(StopIntent::Disconnect { .. }))
+            && !self.disconnect_done()
         {
             self.shutdown_error
                 .get_or_insert(ReconnectError::Device(WifiError::Unavailable));
@@ -381,7 +381,10 @@ where
             Ok(_) => return self.set_terminal(WifiError::InvalidConfig),
             Err(error) => return self.handle_error(error, now_ms),
         };
-        match self.controller.submit(command, now_ms, OPERATION_TIMEOUT_MS) {
+        match self
+            .controller
+            .submit(command, now_ms, OPERATION_TIMEOUT_MS)
+        {
             Ok(_) => {
                 self.stats.attempts = self.stats.attempts.saturating_add(1);
                 self.retry_at_ms = None;

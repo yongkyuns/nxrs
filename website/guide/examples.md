@@ -93,10 +93,10 @@ These package tests exercise existing implementations without selecting a hardwa
 ```sh
 cargo test --locked -p nxrs-camera --features replay
 cargo test --locked -p nxrs-storage --features recording
-cargo test --locked -p nxrs-transport --features udp
+cargo run --locked -p nxrs-std-udp -- pass
 ```
 
-Follow the owning [camera](../../hal/camera/README.md), [storage](../../hal/storage/README.md), and [transport](../../hal/transport/README.md) guides for runnable examples and file or network inputs. Enable the feature on the dependency that owns the functionality. The package references explain queue admission, record commit, cancellation, and cleanup contracts that matter when combining these components.
+Follow the owning [camera](../../hal/camera/README.md), [storage](../../hal/storage/README.md), and [UDP qualification](../../tests/nuttx-std/udp/README.md) guides for runnable examples and file or network inputs. Enable the feature on the dependency that owns the functionality. The package references explain queue admission, record commit, cancellation, and cleanup contracts that matter when combining these components.
 
 ## IoT application structure
 

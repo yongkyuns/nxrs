@@ -9,6 +9,4 @@ crate-type = ["rlib", "cdylib"]
 [dependencies]
 nxrs-camera = { path = "../../hal/camera" }
 nxrs-storage = { path = "../../hal/storage" }
-nxrs-transport = { path = "../../hal/transport" }
-nxrs-camera-service = { path = "../../service/camera" }
 nxrs-camera-test-support = { path = "../camera-support" }

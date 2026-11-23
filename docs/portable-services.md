@@ -2,7 +2,7 @@
 
 ## Scope and status
 
-This guide describes the camera service and its recording and telemetry
+This guide describes camera capture and its recording and packet-summary
 qualification.
 `tests/camera-support` supplies the small shared Recorder, Monitor and
 `CameraProduct` composition used by native, NuttX and WASM tests. It is test
@@ -17,20 +17,20 @@ These do not establish physical capture, RTOS scheduling or radio behavior.
 
 ## Dependency direction
 
-The qualification connects the camera service to two fixture adapters over
-the storage and transport HALs.
+The qualification passes frames from a camera capture session to two fixture
+adapters. Recording uses the storage HAL. Packet summaries use an injected sink.
 
 <figure class="architecture-art">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="assets/nxrs-service-dependencies-dark.svg">
-    <img src="assets/nxrs-service-dependencies.svg" alt="The camera test composition uses the camera service and fixture adapters for storage and packet delivery. Navigation services use IMU and GNSS capability contracts." loading="lazy">
+    <img src="assets/nxrs-service-dependencies.svg" alt="The camera test composition uses a capture session and fixture adapters for storage and packet delivery. Navigation services use IMU and GNSS capability contracts." loading="lazy">
   </picture>
   <figcaption>Arrows show dependencies. The camera composition is qualification support; production applications construct their own services. <a href="assets/nxrs-service-dependencies.svg">Open SVG</a>.</figcaption>
 </figure>
 
 Production apps and services depend on capability contracts, never on this test
 helper. Native qualification explicitly constructs replay, recording and UDP
-resources and transfers them into the camera service and the fixture adapters. Hardware acquisition
+resources and transfers them into the capture session and the fixture adapters. Hardware acquisition
 remains inside the owning capability HAL; test support does not select a
 platform or construct native devices.
 
@@ -51,8 +51,8 @@ wired together inside the test composition. They cannot start/stop the camera
 through `Frames`.
 
 `CameraProduct` is one ordinary explicit constructor and tick function, not a
-registry or mandatory framework. One camera service is shared by both workflows,
-while the recording and packet summary fixtures hold their respective HAL resources.
+registry or mandatory framework. Both workflows read one capture session. Recording owns a storage handle and
+the packet summary owns its sink.
 Scenarios can omit Monitor or substitute a frame provider. Product apps
 compose their own services; this helper is not part of their dependency graph.
 
@@ -60,7 +60,7 @@ The qualification setup uses these APIs.
 
 ```rust,ignore
 // A qualification fixture supplies resources through the capability contracts.
-let mut camera = CameraService::<_, 65536, 2, _>::with_buffers(
+let mut camera = camera::capture::Session::<_, 65536, 2, _>::with_buffers(
     platform_camera, history_buffers, staging_buffer,
 )?;
 let mut recordings = RecordingService::new(platform_storage);
@@ -91,13 +91,13 @@ sequence counter.
 
 ## Ownership, buffers and backpressure
 
-CameraService owns one device, a fixed history, and one private staging buffer.
+The capture session owns one device, a fixed history, and one private staging buffer.
 Payload capacity is `(history + 1) * frame_capacity`, plus metadata. No frame
 allocation or deep cloning occurs in the portable path. Failed/pending reads
 may overwrite staging but cannot corrupt published data. Actual byte lengths,
 negotiated format and monotonic timestamps are checked before publication.
 
-A returned frame borrows its service, so Rust prevents capture/teardown while
+A returned frame borrows its session, so Rust prevents capture/teardown while
 that view is still in use. Frames do not escape into unbounded application
 queues. This is NOT a general DMA zero-copy lease pool. Large pools need static
 or otherwise explicitly budgeted placement, not an oversized thread stack.

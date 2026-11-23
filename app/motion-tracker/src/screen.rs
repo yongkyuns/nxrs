@@ -3,6 +3,7 @@ mod font;
 mod gesture;
 
 use crate::{
+    communications::LinkStatus,
     charts::{History, Metric, RoutePoint, ROUTE_POINTS},
     text::Text,
     tracker::{Reading, Snapshot},
@@ -33,15 +34,6 @@ enum Page {
     Onboard,
     Module,
     Gnss,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum LinkStatus {
-    Idle,
-    Pairing,
-    Paired,
-    Connected,
-    Unavailable,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

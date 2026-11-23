@@ -1,8 +1,8 @@
 //! Scripted packet acceptance for tests; not network delivery.
 #![forbid(unsafe_code)]
-use crate::{DeviceError, PacketSink};
-use alloc::collections::VecDeque;
-use alloc::vec::Vec;
+use camera_test_support::packet::{DeviceError, PacketSink};
+use std::collections::VecDeque;
+use std::vec::Vec;
 
 pub struct MockTransport {
     pub packets: Vec<Vec<u8>>,
@@ -33,5 +33,28 @@ impl PacketSink for MockTransport {
         }
         self.packets.push(packet.to_vec());
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn scripted_rejection_accepts_nothing_and_success_owns_the_packet() {
+        let mut sender = MockTransport {
+            capacity: 1,
+            ..Default::default()
+        };
+        sender.send_errors.push_back(DeviceError::Busy);
+        let mut bytes = [7, 9];
+        assert_eq!(sender.send(&bytes), Err(DeviceError::Busy));
+        assert!(sender.packets.is_empty());
+        assert_eq!(sender.send(&bytes), Ok(()));
+        bytes.fill(0);
+        assert_eq!(sender.packets, vec![vec![7, 9]]);
+        assert_eq!(sender.send(&bytes), Err(DeviceError::Full));
+        assert_eq!(sender.packets.len(), 1);
+        assert_eq!(sender.sends, 3);
     }
 }

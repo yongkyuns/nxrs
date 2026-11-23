@@ -17,7 +17,6 @@ nxrs-detector = { path = "../../../hal/detector" }
 nxrs-camera = { path = "../../../hal/camera" }
 nxrs-wifi = { path = "../../../hal/wifi" }
 nxrs-home-cam = { path = "../../../app/home-cam" }
-nxrs-connectivity-service = { path = "../../../service/connectivity" }
 nxrs-stream-service = { path = "../../../service/stream" }
 nxrs-detection-service = { path = "../../../service/detection" }
 nxrs-tls = { path = "../../../hal/tls" }

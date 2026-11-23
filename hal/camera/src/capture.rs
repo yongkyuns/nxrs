@@ -1,8 +1,7 @@
-//! Camera capture and frame history service.
-#![no_std]
+//! Camera acquisition and bounded frame history.
 #![forbid(unsafe_code)]
 
-use camera::{Camera, Capture, DeviceError, Format, Frame};
+use crate::{Camera, Capture, DeviceError, Format, Frame};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Error {
@@ -23,14 +22,14 @@ impl From<DeviceError> for Error {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum CameraState {
+pub enum State {
     Stopped,
     Running,
     StopPending,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum CaptureProgress {
+pub enum Progress {
     Pending,
     Published(u64),
 }
@@ -54,15 +53,15 @@ struct Slot<B> {
 /// Default backing is inline arrays for small products. with_buffers accepts
 /// externally placed mutable slices or native-owned buffers through standard
 /// AsRef/AsMut traits. Allocation and memory placement remain a platform choice;
-/// the service itself never allocates. Native large pools must not be built as
+/// the capture session never allocates. Native large pools must not be built as
 /// inline arrays and subsequently boxed: that still permits stack temporaries.
 ///
 /// Oldest frames are overwritten; consumers report sequence gaps independently.
 /// Borrowed frames cannot survive a mutable capture/stop call. No global device,
 /// per-reader queue, hidden thread, or runtime dependency is introduced.
-pub struct CameraService<D, const BYTES: usize, const HISTORY: usize, B = [u8; BYTES]> {
+pub struct Session<D, const BYTES: usize, const HISTORY: usize, B = [u8; BYTES]> {
     device: D,
-    state: CameraState,
+    state: State,
     format: Option<Format>,
     slots: [Slot<B>; HISTORY],
     staging: B,
@@ -72,14 +71,14 @@ pub struct CameraService<D, const BYTES: usize, const HISTORY: usize, B = [u8; B
     last_frame_ms: Option<u64>,
 }
 
-impl<D: Camera, const BYTES: usize, const HISTORY: usize> CameraService<D, BYTES, HISTORY> {
+impl<D: Camera, const BYTES: usize, const HISTORY: usize> Session<D, BYTES, HISTORY> {
     pub fn new(device: D) -> Result<Self, Error> {
         Self::with_buffers(device, core::array::from_fn(|_| [0; BYTES]), [0; BYTES])
     }
 }
 
 impl<D: Camera, const BYTES: usize, const HISTORY: usize, B: AsRef<[u8]> + AsMut<[u8]>>
-    CameraService<D, BYTES, HISTORY, B>
+    Session<D, BYTES, HISTORY, B>
 {
     /// Inject storage without copying payloads or choosing an allocator.
     /// B must expose the same bytes through AsRef and AsMut.
@@ -100,7 +99,7 @@ impl<D: Camera, const BYTES: usize, const HISTORY: usize, B: AsRef<[u8]> + AsMut
         }
         Ok(Self {
             device,
-            state: CameraState::Stopped,
+            state: State::Stopped,
             format: None,
             slots: history.map(|bytes| Slot {
                 metadata: None,
@@ -114,7 +113,7 @@ impl<D: Camera, const BYTES: usize, const HISTORY: usize, B: AsRef<[u8]> + AsMut
         })
     }
 
-    pub fn state(&self) -> CameraState {
+    pub fn state(&self) -> State {
         self.state
     }
     pub fn format(&self) -> Option<Format> {
@@ -124,7 +123,7 @@ impl<D: Camera, const BYTES: usize, const HISTORY: usize, B: AsRef<[u8]> + AsMut
     /// Earliest owner-clock millisecond at which the device says another poll
     /// may make useful progress. None means no time-based retry is advertised.
     pub fn next_poll_at_ms(&self) -> Option<u64> {
-        if self.state == CameraState::Running {
+        if self.state == State::Running {
             self.device.next_poll_at_ms()
         } else {
             None
@@ -137,14 +136,14 @@ impl<D: Camera, const BYTES: usize, const HISTORY: usize, B: AsRef<[u8]> + AsMut
     }
 
     pub fn start(&mut self, requested: Format) -> Result<Format, Error> {
-        if self.state != CameraState::Stopped {
+        if self.state != State::Stopped {
             return Err(Error::AlreadyRunning);
         }
         if !requested.fits(BYTES) {
             return Err(Error::InvalidFormat);
         }
         // A failed start can also fail cleanup. Keep explicit stop reachable.
-        self.state = CameraState::StopPending;
+        self.state = State::StopPending;
         let actual = match self.device.start(requested) {
             Ok(actual) => actual,
             Err(error) => {
@@ -157,12 +156,12 @@ impl<D: Camera, const BYTES: usize, const HISTORY: usize, B: AsRef<[u8]> + AsMut
             return Err(Error::InvalidFormat);
         }
         self.format = Some(actual);
-        self.state = CameraState::Running;
+        self.state = State::Running;
         Ok(actual)
     }
 
-    pub fn poll(&mut self, now_ms: u64) -> Result<CaptureProgress, Error> {
-        if self.state != CameraState::Running {
+    pub fn poll(&mut self, now_ms: u64) -> Result<Progress, Error> {
+        if self.state != State::Running {
             return Err(Error::NotRunning);
         }
         if self.last_poll_ms.is_some_and(|previous| now_ms < previous) {
@@ -174,7 +173,7 @@ impl<D: Camera, const BYTES: usize, const HISTORY: usize, B: AsRef<[u8]> + AsMut
             .checked_add(1)
             .ok_or(Error::SequenceExhausted)?;
         let Some(capture) = self.device.poll_frame(now_ms, self.staging.as_mut())? else {
-            return Ok(CaptureProgress::Pending);
+            return Ok(Progress::Pending);
         };
         if Some(capture.format) != self.format
             || capture.len > BYTES
@@ -192,33 +191,33 @@ impl<D: Camera, const BYTES: usize, const HISTORY: usize, B: AsRef<[u8]> + AsMut
         self.write_index = (self.write_index + 1) % HISTORY;
         self.sequence = next;
         self.last_frame_ms = Some(capture.timestamp_ms);
-        Ok(CaptureProgress::Published(next))
+        Ok(Progress::Published(next))
     }
 
     pub fn stop(&mut self) -> Result<(), Error> {
-        if self.state == CameraState::Stopped {
+        if self.state == State::Stopped {
             return Ok(());
         }
-        self.state = CameraState::StopPending;
+        self.state = State::StopPending;
         self.format = None;
         for slot in &mut self.slots {
             slot.metadata = None;
         }
         self.device.stop()?;
-        self.state = CameraState::Stopped;
+        self.state = State::Stopped;
         Ok(())
     }
 }
 
 impl<D: Camera, const BYTES: usize, const HISTORY: usize, B: AsRef<[u8]> + AsMut<[u8]>> Frames
-    for CameraService<D, BYTES, HISTORY, B>
+    for Session<D, BYTES, HISTORY, B>
 {
     fn latest_sequence(&self) -> u64 {
         self.sequence
     }
 
     fn next_after(&self, sequence: u64) -> Option<Frame<'_>> {
-        if self.state != CameraState::Running {
+        if self.state != State::Running {
             return None;
         }
         let slot = self

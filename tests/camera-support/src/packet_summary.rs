@@ -1,5 +1,5 @@
 use camera::{Frame, PixelFormat};
-use transport::{DeviceError, PacketSink};
+use crate::packet::{DeviceError, PacketSink};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Error {

@@ -1,7 +1,6 @@
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
-use connectivity_service::{ReconnectError, Reconnector};
 use wifi::*;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

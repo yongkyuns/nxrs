@@ -1,13 +1,28 @@
 //! One task steps both TLS sessions under the SDK's single identity lease.
-use crate::{radio, screen::LinkStatus, tracker::Snapshot, uplink};
+mod publication;
+mod radio;
+mod uplink;
+
+pub(super) use uplink::{Collector, Config as CellularConfig};
+
+use crate::tracker::Snapshot;
+use publication::Publisher;
 use std::cell::OnceCell;
 use std::io;
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
-use telemetry_service::stream::Publisher;
 
 const ACTIVE_POLL: Duration = Duration::from_millis(15);
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum LinkStatus {
+    Idle,
+    Pairing,
+    Paired,
+    Connected,
+    Unavailable,
+}
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub struct View {
@@ -45,7 +60,7 @@ pub struct Communications {
 impl Communications {
     pub fn start(
         pair: bool,
-        cellular: Option<uplink::Config>,
+        cellular: Option<CellularConfig>,
         notify: impl FnMut() + Send + 'static,
     ) -> io::Result<Self> {
         let shared = Arc::new(Mutex::new(Shared::default()));
@@ -107,7 +122,7 @@ fn tls_identity(slot: &OnceCell<tls::Identity>) -> io::Result<&tls::Identity> {
 fn run(
     shared: &Mutex<Shared>,
     pair: bool,
-    cellular: Option<uplink::Config>,
+    cellular: Option<CellularConfig>,
     mut notify: impl FnMut(),
 ) -> io::Result<()> {
     let collector = cellular.as_ref().and_then(|config| config.collector);
@@ -233,7 +248,7 @@ fn run(
             thread::park();
         }
     }
-    drop(upload);
+    let _ = upload.take();
     drop(radio);
     modem.as_mut().map_or(Ok(()), uplink::Modem::stop)
 }

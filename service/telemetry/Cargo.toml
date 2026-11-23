@@ -1,7 +1,0 @@
-[package]
-name = "nxrs-telemetry-service"
-version.workspace = true
-edition.workspace = true
-
-[lib]
-name = "telemetry_service"

@@ -1,7 +1,7 @@
 # HAL and platform architecture
 
 Each capability is one Rust crate. Applications use `wifi`, `ble`, `led`,
-`imu`, `gnss`, `camera`, `storage`, `settings` and `transport`; Cargo package names
+`imu`, `gnss`, `camera`, `storage` and `settings`; Cargo package names
 retain the `nxrs-` prefix.
 
 ## Capability boundaries and execution
@@ -25,9 +25,10 @@ does not imply equal hardware capabilities or a universal device API.
 `peripheral::imu::Imu` supplies synchronous device operations; `imu::Session`
 and `gnss::Session` describe active acquisition lifetimes.
 
-A component does not automatically require a thread or queue. A driver may own
-execution when hardware or blocking operations require it; current IMU chip
-contracts create none. Each `Worker::start` in `shared/acquisition` starts one
+A HAL may run an event loop when required for readiness, blocking device I/O
+or quiescent shutdown. The same HAL owns its validation and retry policy. A
+driver may need execution when the hardware requires it. Current IMU chip
+contracts create no threads. Each `Worker::start` in `shared/acquisition` starts one
 Rust thread. IMU and GNSS count lost measurements under backpressure and retain
 a terminal failure independently in the joined result. Audio owns a single
 latest-block slot and reports terminal faults through the stream. The shared
@@ -240,14 +241,10 @@ A build without `NXRS_PLATFORM`
 compiles portable contracts/common code, with no implicit hardware or mock.
 Explicit software functionality, such as camera file replay, may be requested
 through Cargo without hardware admission; it does not select a physical backend.
-The additive `recording` and `udp` Cargo features expose `storage::recording`
-and `transport::udp` without selecting a hardware provider. They have no OS
-whitelist or default feature. The old profile-dependent storage/transport root
-factories and software type aliases have been removed. Synchronous NuttX record
-files use the fixed `storage::create_record_file(path, max_records, max_frame_bytes)`
-factory, which returns `Unsupported` when that acquisition is unbound. Explicit
-`MockStorage` and `MockTransport` fixture constructors remain separate from real
-file/socket operations.
+The additive `recording` Cargo feature exposes `storage::recording`
+without selecting a hardware provider. Synchronous NuttX record files use
+`storage::create_record_file(path, max_records, max_frame_bytes)`, which returns
+`Unsupported` when acquisition is unbound. IP sockets use `std::net` directly.
 
 `NXRS_PLATFORM=macos` selects desktop Wi-Fi, BLE scanning and GATT. The radio
 providers reuse their capability's controller
@@ -312,10 +309,9 @@ construction; HAL runtime code stays in the HAL. A profile's `[hal]` values name
 `target_os`; a macOS profile cannot select Linux code. `mock` and `none` are
 explicit fixture/unbound states. There is no `std` or `native` platform/profile.
 
-Shared code lives outside `src/platform/`: sockets in `transport/src/udp.rs`,
-replay in `camera/src/replay/`, public recording in `storage::recording`,
-public shared UDP in `transport::udp`, radio
-resource protocols in `src/shared/`, and detector models in `detector/src/model/`.
+Shared code lives outside `src/platform/`. Examples include camera capture
+and replay, `storage::recording`, the Wi-Fi controller and reconnect policy,
+and detector models in `detector/src/model/`.
 An OS factory may directly reuse these modules; do not copy them into each OS
 folder or invent a shared platform. Private, platform-independent ESP-DL SDK
 compute bindings live beside their numerical adapter in
@@ -326,7 +322,7 @@ glue under `tls/src/sdk/`. Its OS factories own entropy acquisition; SDK callbac
 key lifetime and enrollment requests stay in the shared Rust adapter.
 
 Use one Rust std implementation wherever the operating systems offer the same
-operation: IP sockets belong to transport, and file/thread/synchronization/time
+operation. IP sockets use `std::net`, and file/thread/synchronization/time
 handling needs no per-platform copy. Radio control is a separate capability:
 std TCP/UDP sockets do not provide Wi-Fi association, BLE discovery or GATT.
 Provider code should contain those native protocols, with generic behavior in
@@ -507,9 +503,8 @@ automatically become a service or get a thread/queue. For example,
 and lifecycle in the consumer's existing event loop. A connectivity service
 can own Wi-Fi/BLE and add network selection/reconnect policy when needed.
 
-`app/home-cam` composes the camera service with a caller-polled MJPEG
-server. `service/connectivity` adds Wi-Fi reconnect policy separately; neither
-component adds a service thread. Hardware, storage and time are injected, and
+`app/home-cam` composes a camera capture session with a caller-polled MJPEG
+server. It polls `wifi::Reconnector` from the same owner loop. Hardware, storage and time are injected, and
 platform configuration owns native driver resources. See the
 [local streaming qualification](../tests/nuttx-std/stream/README.md) for its
 resource budgets, reproduction steps and evidence limits.

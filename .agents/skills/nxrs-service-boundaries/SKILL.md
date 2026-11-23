@@ -14,9 +14,11 @@ whether another type, crate or worker is needed.
 - Keep one owner for each lifecycle and policy. Reuse identical operations
   through the owning crate. Keep distinct protocols and scheduling policies
   explicit. Use a portable HAL API or Rust `std` directly for clear app-owned
-  operations. Keep a service's stable protocol with its lifecycle and policy
-  when they describe the same capability. Peers can use an optional protocol
-  module without starting the service or pulling in its HAL.
+  operations. Keep device waits, retries, acquisition and cleanup in the HAL.
+  Keep single-product behavior in app modules and extract services for
+  independently reusable policy or protocol. Keep a service's stable protocol
+  with its lifecycle and policy when they describe the same capability. Peers
+  can use an optional protocol module without starting the service or its HAL.
 - Put reusable native capability adapters in their HAL and fixture-only adapters
   in `tests/`. Leave the root `platform/` tree to profiles, BSP inputs and
   composition. Keep optional diagnostic code behind the existing `probe` feature.

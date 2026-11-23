@@ -1,4 +1,4 @@
-use camera_service::Frames;
+use camera::capture::Frames;
 use crate::recording::Recordings;
 use crate::{reader::Reader, AppState, AppStats, Error, Progress};
 

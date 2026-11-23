@@ -9,7 +9,9 @@ Use this reference to decide who owns behavior and where a change belongs. The [
 | Who owns a device, its driver and its bus? | [HALs](#hal-one-crate-per-capability), [drivers](#providers-and-drivers) and [composition](static-device-composition.md) |
 | Where are OS and board choices made? | [Platform composition](#platform-directory) and [build policy](#build-policy) |
 
-The source hierarchy is app, service, hal, driver, platform, and layer-neutral shared libraries.
+The directories identify ownership. Apps can call a HAL or Rust `std` directly.
+Each service, HAL and driver boundary should correspond to behavior or resources
+that its callers can use independently.
 
 The normative HAL/resource ownership rules are in
 [hal-platform-architecture.md](hal-platform-architecture.md). Physical NuttX
@@ -103,18 +105,15 @@ macro or service-graph configuration language.
 
 ## Services
 
-A service owns a standalone system function and the resources required to
-implement it.
+A service owns reusable system behavior with a distinct lifecycle or protocol,
+such as alert policy or multipart streaming. It can run synchronously or own a
+bounded inbox and a thread when independent progress is required.
 
-A service may be synchronous or may own an execution context. Active services
-can intentionally own std threads, bounded channels, timing, shutdown and join
-when those resources are part of their functionality.
-
-When a capability primarily exists to implement a service, that service should
-normally acquire it internally from the HAL at an explicit lifecycle boundary
-such as start(). This is the preferred ownership pattern because it prevents
-unnecessary resource sharing. It is not a blanket prohibition on direct
-application access to portable HAL abstractions.
+The HAL owns the full device lifecycle. Its implementation can wait on
+readiness, run an acquisition loop, apply resource-level retry policy and
+join workers before releasing the device. The caller still owns product
+decisions such as which service to run, what credentials to use and where to
+send the resulting data.
 
 The navigation services are the first implementation of this rule:
 
@@ -128,11 +127,12 @@ connections.
 
 ### Service boundaries and footprint
 
-Find the existing owner and production callers before introducing a service.
-One owner implements each lifecycle and policy. Extend it or extract the
-operation its callers share. Keep distinct ownership for different protocols
-or scheduling requirements. Apps compose policy and may use the HAL or Rust
-`std` directly when no separate service owns the operation.
+Start with the owner and its callers. Keep adjacent behavior in modules within
+that owner. Extract a crate when the contract has an independent lifecycle,
+protocol, or set of consumers. Device readiness, buffering and stop belong
+with acquisition. Reusable policy with independent inputs and outputs belongs
+in a service. Product-only behavior belongs in the app, and ordinary I/O uses
+Rust `std` directly.
 
 Keep a service's lifecycle, policy and versioned protocol together when they
 describe the same capability. Reuse domain types with identical semantics.
@@ -140,13 +140,14 @@ Expose a protocol module independently when a peer only needs to encode or
 validate messages. The stream service's wire module defines the multipart A/V
 contract, so gateway ingest can read it with the camera-side server disabled.
 
-Motion Tracker uses the navigation observation owner and the same bounded
-publisher for BLE and cellular. Navigation also has fusion workflows that
-consume the same HAL sample types and inbox admission logic. The tracker
-owner dispatches observations in its existing inbox, so it does not need a
-second service task for each sensor. The camera qualification's recording
-and packet summary adapters live with its fixture. The production telemetry
-service owns bounded stream publication.
+`camera::capture::Session` owns frame validation, fixed history and stop.
+`wifi::Reconnector` owns station retry and rejoin; its caller supplies credentials
+and drives polling. Home-cam composes those APIs with streaming and detection.
+Motion Tracker's `communications` module owns the BLE and cellular sessions and
+their common bounded publisher. Its dashboard consumes link status. Navigation
+supplies reusable observation and fusion behavior. The camera qualification's
+recording and packet-summary adapters live with that fixture. Network data paths
+use `std::net`.
 
 Keep OS adapters in their owning capability HAL, and keep adapters used only
 for qualification under `tests/`. Reserve the root `platform/` tree for profiles,
@@ -176,7 +177,7 @@ inference disabled.
 <figure class="architecture-art">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="assets/nxrs-camera-pipeline-dark.svg">
-    <img src="assets/nxrs-camera-pipeline.svg" alt="CameraService supplies streaming while a separate bounded worker owns one JPEG for detector execution. Monitor converts results into typed state and events." loading="lazy">
+    <img src="assets/nxrs-camera-pipeline.svg" alt="The camera capture session supplies streaming while a separate bounded worker owns one JPEG for detector execution. Monitor converts results into typed state and events." loading="lazy">
   </picture>
   <figcaption>Streaming and inference have independent progress. One owned frame bounds the inference path; capture buffers are not borrowed across worker execution. <a href="assets/nxrs-camera-pipeline.svg">Open SVG</a>.</figcaption>
 </figure>
@@ -397,9 +398,9 @@ Applications work with the capability's session or stream.
 For host/test Cargo invocations, one `NXRS_PLATFORM` value selects the profile's
 provider bindings. NuttX builds use `cargo nxrs build`, which supplies the
 validated `NXRS_RESOLVED_PROFILE` receipt and prepared native inputs. For example,
-`linux`, `macos` and `windows` select their OS providers. File replay,
-recording and UDP use shared Rust code enabled by Cargo features. `mock` selects mock IMU and
-GNSS; `host-imu` selects only a mock IMU. `std` is an environment, not a platform. The NuttX
+`linux`, `macos` and `windows` select their OS providers. File replay and
+recording are additive Cargo features. IP sockets use standard Rust APIs.
+`mock` selects mock IMU and GNSS; `host-imu` selects only a mock IMU. `std` is an environment, not a platform. The NuttX
 profiles bind only capabilities with an implemented NuttX provider. There is
 no provider Cargo feature, no global `nxrs-hal` or `hal/platform` package, and
 no giant `Hal` object.

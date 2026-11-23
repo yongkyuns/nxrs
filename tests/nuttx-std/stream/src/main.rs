@@ -12,7 +12,6 @@ mod model {
 #[cfg(target_os = "nuttx")]
 pub(crate) mod device {
     use camera::{Camera, JpegQuality};
-    use connectivity_service::Reconnector;
     use home_cam::{LiveCamera, StreamOutput, TlsOptions};
     use std::io::Read;
     use std::net::{Ipv4Addr, TcpListener};
@@ -22,7 +21,7 @@ pub(crate) mod device {
         Arc,
     };
     use std::time::{Duration, Instant};
-    use wifi::{Command, DeliveryError, Event, LinkState, ProviderStatus, Rejected};
+    use wifi::{Command, DeliveryError, Event, LinkState, ProviderStatus, Reconnector, Rejected};
 
     const BYTES: usize = 320 * 240 * 2;
     const STARTUP_HEALTH_AGE_MS: u64 = 5000;

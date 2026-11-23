@@ -20,7 +20,6 @@ Ordinary default features are retained, including messaging channels. The refere
 | --- | --- | --- |
 | `nxrs-camera` | `replay` | `camera::replay` for explicit file replay |
 | `nxrs-storage` | `recording` | `storage::recording` for queued file recording |
-| `nxrs-transport` | `udp` | `transport::udp` for Rust socket output |
 | `nxrs-composition` | `imu`, `gnss` | IMU and GNSS device-access modules |
 
 The named devices available through `composition` follow the selected product profile. The public `imu::construction` and `gnss::construction` modules serve platform catalogues and qualification; applications use the catalogue's device accessors and the capability APIs. Detector model features and diagnostic probes are not enabled in this view. Private provider and build-tooling interfaces are outside the public catalog.

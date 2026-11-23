@@ -5,7 +5,6 @@ on:
       - '.github/scripts/install-ubuntu-packages.sh'
       - 'gateway/**'
       - 'app/home-cam/**'
-      - 'service/camera/**'
       - 'service/detection/**'
       - 'hal/detector/src/api.rs'
       - 'hal/tls/**'

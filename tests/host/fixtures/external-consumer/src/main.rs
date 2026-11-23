@@ -4,7 +4,6 @@
 use archive::{recording::FileRecorder, recording::StorageLimits, Storage};
 use frames::{Camera, Format, Frame, PixelFormat};
 use motion::{Device, Session};
-use packets::PacketSink;
 use position::{Device as _, Session as _};
 use std::{fs, net::UdpSocket, path::PathBuf, sync::mpsc, time::Duration};
 
@@ -51,8 +50,8 @@ fn main() {
     receiver
         .set_read_timeout(Some(Duration::from_secs(3)))
         .unwrap();
-    let mut sender = packets::udp::UdpTransport::connect(receiver.local_addr().unwrap()).unwrap();
-    sender.send(&bytes).unwrap();
+    let sender = UdpSocket::bind("127.0.0.1:0").unwrap();
+    assert_eq!(sender.send_to(&bytes, receiver.local_addr().unwrap()).unwrap(), bytes.len());
     let mut received = [0; 4];
     assert_eq!(receiver.recv(&mut received).unwrap(), 4);
     assert_eq!(received, bytes);

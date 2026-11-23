@@ -11,7 +11,7 @@ pub mod update;
 pub use tls::{RefreshStep, TimeChannel, TlsIdentity, TlsOptions, TlsStats, Worker as TlsOutput};
 
 use camera::{Camera, Format, PixelFormat};
-use camera_service::{CameraService, CaptureProgress, Frames};
+use camera::capture::{Frames, Progress as CaptureProgress, Session as CaptureSession};
 use detection_service::{Input as DetectionInput, Session as DetectionSession};
 use std::io;
 use std::net::TcpListener;
@@ -19,7 +19,7 @@ use stream_service::{Options, Progress, Server, ServerStats};
 
 #[derive(Debug)]
 pub enum Error {
-    Camera(camera_service::Error),
+    Camera(camera::capture::Error),
     Network(io::Error),
     Detection(detection_service::Error),
     Tls(::tls::Error),
@@ -42,7 +42,7 @@ pub struct Stats {
 pub struct LiveCamera<D, const BYTES: usize, B, O = Server<B>> {
     // Join TLS before releasing camera storage, including implicit teardown.
     server: O,
-    capture: CameraService<D, BYTES, 1, B>,
+    capture: CaptureSession<D, BYTES, 1, B>,
     stats: Stats,
     detection: Option<DetectionSession>,
 }
@@ -120,7 +120,7 @@ impl<D: Camera, const BYTES: usize, B: AsRef<[u8]> + AsMut<[u8]>> LiveCamera<D, 
         options: Options,
     ) -> Result<Self, Error> {
         let capture =
-            CameraService::with_buffers(device, [history], staging).map_err(Error::Camera)?;
+            CaptureSession::with_buffers(device, [history], staging).map_err(Error::Camera)?;
         let server = Server::new(listener, outgoing, options).map_err(Error::Network)?;
         Ok(Self {
             capture,
@@ -152,7 +152,7 @@ impl<D: Camera, const BYTES: usize, B: AsRef<[u8]> + AsMut<[u8]>> LiveCamera<D, 
         B: Send + 'static,
     {
         let capture =
-            CameraService::with_buffers(device, [history], staging).map_err(Error::Camera)?;
+            CaptureSession::with_buffers(device, [history], staging).map_err(Error::Camera)?;
         let server =
             tls::Worker::spawn(listener, outgoing, handoff, options, resources, initialize)?;
         Ok(LiveCamera {
@@ -186,8 +186,8 @@ impl<D: Camera, const BYTES: usize, B: AsRef<[u8]> + AsMut<[u8]>, O: StreamOutpu
     /// initialized session; inference neither takes camera ownership nor
     /// competes for the single video client. Results stay in typed Rust state.
     pub fn attach_detection(&mut self, detection: DetectionSession) -> Result<(), Error> {
-        if self.capture.state() != camera_service::CameraState::Stopped {
-            return Err(Error::Camera(camera_service::Error::AlreadyRunning));
+        if self.capture.state() != camera::capture::State::Stopped {
+            return Err(Error::Camera(camera::capture::Error::AlreadyRunning));
         }
         self.detection = Some(detection);
         Ok(())
@@ -220,7 +220,7 @@ impl<D: Camera, const BYTES: usize, B: AsRef<[u8]> + AsMut<[u8]>, O: StreamOutpu
             // Negotiation is allowed by Camera, but this transport does not
             // encode raw pixels. Stop before accepting an unusable stream.
             self.capture.stop().map_err(Error::Camera)?;
-            return Err(Error::Camera(camera_service::Error::InvalidFormat));
+            return Err(Error::Camera(camera::capture::Error::InvalidFormat));
         }
         Ok(actual)
     }
@@ -349,7 +349,7 @@ mod tests {
         let retired = Rc::new(Cell::new(false));
         let mut live = LiveCamera {
             server: Output(retired.clone()),
-            capture: CameraService::<_, 4, 1, _>::with_buffers(Failed, [[0; 4]], [0; 4]).unwrap(),
+            capture: CaptureSession::<_, 4, 1, _>::with_buffers(Failed, [[0; 4]], [0; 4]).unwrap(),
             stats: Stats::default(),
             detection: None,
         };

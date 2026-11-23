@@ -2,7 +2,6 @@
 #![forbid(unsafe_code)]
 use crate::commissioning;
 use camera::{Camera, JpegQuality};
-use connectivity_service::Reconnector;
 use home_cam::{update::Update, LiveCamera, StreamOutput, TlsOptions};
 
 use std::{
@@ -10,7 +9,7 @@ use std::{
     sync::mpsc::{sync_channel, Receiver, SyncSender, TrySendError},
     time::{Duration, Instant},
 };
-use wifi::{Command, DeliveryError, Event, LinkState, ProviderStatus, Rejected};
+use wifi::{Command, DeliveryError, Event, LinkState, ProviderStatus, Reconnector, Rejected};
 
 const BYTES: usize = 320 * 240 * 2;
 const HEALTH_AGE_MS: u64 = 5000;
@@ -143,7 +142,7 @@ fn run_live<D: Camera, O: StreamOutput>(
         }
         match live.start(320, 240) {
             Ok(_) => {}
-            Err(home_cam::Error::Camera(camera_service::Error::Device(error))) => {
+            Err(home_cam::Error::Camera(camera::capture::Error::Device(error))) => {
                 restart = camera_failure("start", error)?;
                 return Ok(false);
             }
@@ -164,7 +163,7 @@ fn run_live<D: Camera, O: StreamOutput>(
             let (online, network_deadline) = poll_network(elapsed)?;
             match live.poll(elapsed, online) {
                 Ok(_) => {}
-                Err(home_cam::Error::Camera(camera_service::Error::Device(error))) => {
+                Err(home_cam::Error::Camera(camera::capture::Error::Device(error))) => {
                     restart = camera_failure("read", error)?;
                     return Ok(false);
                 }

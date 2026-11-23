@@ -90,7 +90,7 @@ fn non_jpeg_negotiation_stops_before_streaming() {
     assert!(matches!(
         app.start(2, 2),
         Err(home_cam::Error::Camera(
-            camera_service::Error::InvalidFormat
+            camera::capture::Error::InvalidFormat
         ))
     ));
     assert_eq!(stops.get(), 1);

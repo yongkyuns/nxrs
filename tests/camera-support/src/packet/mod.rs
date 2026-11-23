@@ -1,7 +1,10 @@
-//! A packet-output boundary for portable telemetry, not a socket or thread API.
+//! Injected packet output for the camera qualification fixture.
 #![forbid(unsafe_code)]
 
-/// Failures reported by this capability's providers.
+#[cfg(feature = "udp")]
+pub mod udp;
+
+/// Failures reported by the fixture output.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DeviceError {
     Unsupported,

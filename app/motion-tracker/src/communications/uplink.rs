@@ -9,7 +9,7 @@ use std::sync::{
 };
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
-use telemetry_service::stream::Publisher;
+use super::publication::Publisher;
 
 const LINK_POLL: Duration = Duration::from_millis(100);
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(3);

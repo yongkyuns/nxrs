@@ -812,20 +812,11 @@ dependencies = [
 ]
 
 [[package]]
-name = "nxrs-camera-service"
-version = "0.1.0"
-dependencies = [
- "nxrs-camera",
-]
-
-[[package]]
 name = "nxrs-camera-test-support"
 version = "0.1.0"
 dependencies = [
  "nxrs-camera",
- "nxrs-camera-service",
  "nxrs-storage",
- "nxrs-transport",
 ]
 
 [[package]]
@@ -858,13 +849,6 @@ dependencies = [
  "nxrs-peripheral",
  "nxrs-spi",
  "nxrs-ubx-driver",
-]
-
-[[package]]
-name = "nxrs-connectivity-service"
-version = "0.1.0"
-dependencies = [
- "nxrs-wifi",
 ]
 
 [[package]]
@@ -1010,8 +994,6 @@ dependencies = [
  "nxrs-audio",
  "nxrs-boot",
  "nxrs-camera",
- "nxrs-camera-service",
- "nxrs-connectivity-service",
  "nxrs-console",
  "nxrs-detection-service",
  "nxrs-detector",
@@ -1130,7 +1112,6 @@ dependencies = [
  "nxrs-messaging",
  "nxrs-navigation-services",
  "nxrs-settings",
- "nxrs-telemetry-service",
  "nxrs-tls",
  "nxrs-touch",
  "qrcodegen",
@@ -1141,10 +1122,8 @@ name = "nxrs-native-integration"
 version = "0.1.0"
 dependencies = [
  "nxrs-camera",
- "nxrs-camera-service",
  "nxrs-camera-test-support",
  "nxrs-storage",
- "nxrs-transport",
 ]
 
 [[package]]
@@ -1164,11 +1143,9 @@ name = "nxrs-nuttx-app"
 version = "0.1.0"
 dependencies = [
  "nxrs-camera",
- "nxrs-camera-service",
  "nxrs-camera-test-support",
  "nxrs-nuttx-support",
  "nxrs-storage",
- "nxrs-transport",
 ]
 
 [[package]]
@@ -1253,10 +1230,8 @@ name = "nxrs-simulator"
 version = "0.1.0"
 dependencies = [
  "nxrs-camera",
- "nxrs-camera-service",
  "nxrs-camera-test-support",
  "nxrs-storage",
- "nxrs-transport",
 ]
 
 [[package]]
@@ -1323,7 +1298,6 @@ dependencies = [
 name = "nxrs-std-ssh"
 version = "0.1.0"
 dependencies = [
- "nxrs-connectivity-service",
  "nxrs-std-wifi",
  "nxrs-wifi",
 ]
@@ -1335,7 +1309,6 @@ dependencies = [
  "nxrs-boot",
  "nxrs-build-support",
  "nxrs-camera",
- "nxrs-connectivity-service",
  "nxrs-console",
  "nxrs-detection-service",
  "nxrs-detector",
@@ -1365,9 +1338,6 @@ dependencies = [
 [[package]]
 name = "nxrs-std-udp"
 version = "0.1.0"
-dependencies = [
- "nxrs-transport",
-]
 
 [[package]]
 name = "nxrs-std-userled"
@@ -1399,10 +1369,6 @@ version = "0.1.0"
 dependencies = [
  "nxrs-camera",
 ]
-
-[[package]]
-name = "nxrs-telemetry-service"
-version = "0.1.0"
 
 [[package]]
 name = "nxrs-tls"
@@ -1445,14 +1411,6 @@ dependencies = [
  "nxrs-messaging",
  "nxrs-settings",
  "nxrs-touch",
-]
-
-[[package]]
-name = "nxrs-transport"
-version = "0.1.0"
-dependencies = [
- "cfg-if",
- "nxrs-build-support",
 ]
 
 [[package]]

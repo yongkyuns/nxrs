@@ -1,7 +1,7 @@
 //! A start error must not hide a still-owned device from explicit stop retry.
 #![forbid(unsafe_code)]
+use camera::capture::{Error, Session, State};
 use camera::{Camera, Capture, DeviceError, Format, PixelFormat};
-use camera_service::{CameraService, CameraState, Error};
 
 struct Device {
     stops: usize,
@@ -33,7 +33,7 @@ fn failed_start_keeps_failed_cleanup_retryable() {
         pixels: PixelFormat::Gray8,
     };
     for cleanup_fails in [false, true] {
-        let mut service = CameraService::<_, 4, 1>::new(Device {
+        let mut service = Session::<_, 4, 1>::new(Device {
             stops: 0,
             cleanup_fails,
         })
@@ -41,13 +41,13 @@ fn failed_start_keeps_failed_cleanup_retryable() {
         assert_eq!(service.start(format), Err(Error::Device(DeviceError::Io)));
         assert_eq!(service.backend().stops, 1);
         if cleanup_fails {
-            assert_eq!(service.state(), CameraState::StopPending);
+            assert_eq!(service.state(), State::StopPending);
             assert_eq!(service.start(format), Err(Error::AlreadyRunning));
         } else {
-            assert_eq!(service.state(), CameraState::Stopped);
+            assert_eq!(service.state(), State::Stopped);
         }
         service.stop().unwrap();
-        assert_eq!(service.state(), CameraState::Stopped);
+        assert_eq!(service.state(), State::Stopped);
         assert_eq!(service.backend().stops, if cleanup_fails { 2 } else { 1 });
     }
 }

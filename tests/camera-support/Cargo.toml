@@ -7,8 +7,9 @@ edition.workspace = true
 [lib]
 name = "camera_test_support"
 
+[features]
+udp = []
+
 [dependencies]
 nxrs-camera = { path = "../../hal/camera" }
 nxrs-storage = { path = "../../hal/storage" }
-nxrs-transport = { path = "../../hal/transport" }
-nxrs-camera-service = { path = "../../service/camera" }

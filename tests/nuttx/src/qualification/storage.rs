@@ -4,7 +4,7 @@ use camera_test_support::{AppState, Progress, Recorder};
 use storage::{Capture, DeviceError, Format, Frame, PixelFormat};
 use nuttx_support::FileStorage;
 use camera_test_support::Error as AppError;
-use camera_service::Frames;
+use camera::capture::Frames;
 use camera_test_support::recording::{Error, RecordingService, Recordings};
 
 extern "C" {

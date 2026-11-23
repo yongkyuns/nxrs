@@ -3,10 +3,14 @@
 #![no_std]
 #![forbid(unsafe_code)]
 
+#[cfg(feature = "udp")]
+extern crate std;
+
 mod reader;
 mod error;
 pub mod recorder;
 pub mod monitor;
+pub mod packet;
 pub mod packet_summary;
 pub mod product;
 pub mod recording;

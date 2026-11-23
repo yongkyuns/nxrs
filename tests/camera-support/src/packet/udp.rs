@@ -1,10 +1,9 @@
 //! Shared std UDP I/O; target socket ABI details belong to the standard library.
 #![forbid(unsafe_code)]
 
-use crate::{DeviceError, PacketSink};
+use super::{DeviceError, PacketSink};
 use std::io;
 use std::net::Ipv6Addr;
-use std::net::{Ipv4Addr, SocketAddrV4};
 use std::net::{SocketAddr, UdpSocket};
 
 const MAX_PAYLOAD: usize = 65_507;
@@ -55,32 +54,6 @@ impl PacketSink for UdpTransport {
     }
 }
 
-/// IPv4 datagram output, including zero-length datagrams.
-/// The packet-oriented UdpTransport deliberately rejects empty packets.
-pub struct UdpSender {
-    socket: UdpTransport,
-}
-
-impl UdpSender {
-    pub fn connect(address: [u8; 4], port: u16) -> Result<Self, DeviceError> {
-        let local = SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, 0);
-        let peer = SocketAddrV4::new(Ipv4Addr::from(address), port);
-        UdpTransport::bind(local.into(), peer.into())
-            .map(|socket| Self { socket })
-            .map_err(device_error)
-    }
-
-    pub fn local_addr(&self) -> io::Result<SocketAddr> {
-        self.socket.local_addr()
-    }
-}
-
-impl PacketSink for UdpSender {
-    fn send(&mut self, packet: &[u8]) -> Result<(), DeviceError> {
-        self.socket.submit(packet)
-    }
-}
-
 fn submission_result(result: io::Result<usize>, expected: usize) -> Result<(), DeviceError> {
     match result {
         Ok(len) if len == expected => Ok(()),
@@ -122,30 +95,22 @@ mod tests {
     }
 
     #[test]
-    fn ipv4_facade_keeps_its_empty_datagram_and_ownership_contract() {
+    fn fixture_rejects_invalid_packets_and_preserves_source_port() {
         let receiver = UdpSocket::bind("127.0.0.1:0").unwrap();
         receiver
             .set_read_timeout(Some(Duration::from_secs(5)))
             .unwrap();
-        let mut sender =
-            UdpSender::connect([127, 0, 0, 1], receiver.local_addr().unwrap().port()).unwrap();
-        let mut bytes = [0; 16];
-        for payload in [&[][..], &b"shared-std"[..]] {
-            sender.send(payload).unwrap();
-            let (len, peer) = receiver.recv_from(&mut bytes).unwrap();
-            assert_eq!(&bytes[..len], payload);
-            assert_eq!(peer.port(), sender.local_addr().unwrap().port());
-            assert!(peer.ip().is_loopback());
-        }
+        let mut sender = UdpTransport::connect(receiver.local_addr().unwrap()).unwrap();
+        assert_eq!(sender.send(&[]), Err(DeviceError::InvalidData));
         assert_eq!(
             sender.send(&std::vec![0; MAX_PAYLOAD + 1]),
             Err(DeviceError::InvalidData)
         );
-        receiver.set_nonblocking(true).unwrap();
-        assert_eq!(
-            receiver.recv(&mut bytes).unwrap_err().kind(),
-            io::ErrorKind::WouldBlock
-        );
-        // This exercises shared Rust socket code on a host, not the NuttX ABI.
+        sender.send(b"camera-fixture").unwrap();
+        let mut bytes = [0; 16];
+        let (len, peer) = receiver.recv_from(&mut bytes).unwrap();
+        assert_eq!(&bytes[..len], b"camera-fixture");
+        assert_eq!(peer.port(), sender.local_addr().unwrap().port());
+        assert!(peer.ip().is_loopback());
     }
 }

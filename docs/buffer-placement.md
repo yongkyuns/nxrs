@@ -8,7 +8,7 @@ The first real Windows CLI run found a startup stack overflow (0xC00000FD).
 The small mock fixtures passed, but the inline 3 x 65536-byte camera pool
 created large unoptimized constructor temporaries on the process stack.
 
-The fix does not enlarge the stack or reduce frame capacity. CameraService
+The fix does not enlarge the stack or reduce frame capacity. `camera::capture::Session`
 and CameraProduct now accept a backing type B through `with_buffers`. Standard
 AsRef<[u8]> / AsMut<[u8]> are sufficient; there is no custom allocator trait,
 service registry, unsafe initialization or std dependency in the portable code.

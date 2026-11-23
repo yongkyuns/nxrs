@@ -5,7 +5,7 @@ use ble::{
 };
 use std::io::{self, Read, Write};
 use std::time::{Duration, Instant};
-use telemetry_service::stream::Publisher;
+use super::publication::Publisher;
 
 fn uuid(last: u8) -> Uuid {
     Uuid([
