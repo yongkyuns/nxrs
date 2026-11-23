@@ -95,6 +95,14 @@ jobs:
             --qemu target/tracker-qemu/qemu-system-xtensa --qemu-data target/tracker-qemu \
             --network-qemu target/tracker-qemu/qemu-system-xtensa \
             --wall-clock --log target/tracker-upload-sim/upload.log
+      - name: Build the Motion Tracker BLE export fixture
+        shell: bash
+        run: |
+          set -o pipefail
+          cargo nxrs build --app motion-tracker --profile esp32s3-qemu-tracker-coexist \
+            --target-c-source tests/nuttx-std/tracker-sim/devices.c \
+            --target-c-source tests/nuttx-std/tracker-sim/dashboard_init.c \
+            --out target/tracker-coexist-sim 2>&1 | tee target/tracker-coexist-build.log
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         id: tracker-python
         with:
@@ -104,11 +112,6 @@ jobs:
         env:
           TRACKER_PYTHON: ${{ steps.tracker-python.outputs.python-path }}
         run: |
-          set -o pipefail
-          cargo nxrs build --app motion-tracker --profile esp32s3-qemu-tracker-coexist \
-            --target-c-source tests/nuttx-std/tracker-sim/devices.c \
-            --target-c-source tests/nuttx-std/tracker-sim/dashboard_init.c \
-            --out target/tracker-coexist-sim 2>&1 | tee target/tracker-coexist-build.log
           "$TRACKER_PYTHON" -m venv target/tracker-peer
           target/tracker-peer/bin/pip install bumble==0.0.236 pillow==13.0.0 zxing-cpp==3.0.0
           source target/qemu-tools/environment.sh
