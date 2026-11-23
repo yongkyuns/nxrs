@@ -71,7 +71,7 @@ fn worst_case_full_boxes_and_event_ring_fit_the_camera_buffer() {
             .push(Event {
                 id,
                 at_ms: 1000,
-                kind: EventKind::PersonEntered,
+                event: EventKind::PersonEntered,
             })
             .unwrap();
     }

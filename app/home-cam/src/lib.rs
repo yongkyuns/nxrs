@@ -10,7 +10,8 @@ mod publication;
 pub mod startup;
 mod tls;
 pub mod update;
-pub use detection::{DetectionSnapshot, SecurityDetection, SecurityEvent};
+pub use detection::{DetectionSnapshot, SecurityDetection};
+pub use detection_wire::Event as SecurityEvent;
 pub use tls::{RefreshStep, TimeChannel, TlsIdentity, TlsOptions, TlsStats, Worker as TlsOutput};
 
 use camera::{Camera, Format, PixelFormat};

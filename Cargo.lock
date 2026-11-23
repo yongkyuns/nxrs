@@ -884,6 +884,7 @@ name = "nxrs-detection-service"
 version = "0.1.0"
 dependencies = [
  "nxrs-camera",
+ "nxrs-detection-wire",
  "nxrs-detector",
 ]
 

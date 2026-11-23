@@ -134,6 +134,12 @@ operation its callers share. Keep distinct ownership for different protocols
 or scheduling requirements. Apps compose policy and may use the HAL or Rust
 `std` directly when no separate service owns the operation.
 
+A versioned wire crate owns the protocol shared by its endpoints. Reuse domain
+types there when their meaning is identical in the service and on the wire.
+Detection policy shares presence and event kinds with its wire contract.
+Home-cam uses the contract's event records and history limit directly.
+Policy-only builds can compile the shared types with JSON support disabled.
+
 Motion Tracker uses the navigation observation owner and the same bounded
 publisher for BLE and cellular. Navigation also has fusion workflows that
 consume the same HAL sample types and inbox admission logic. The tracker

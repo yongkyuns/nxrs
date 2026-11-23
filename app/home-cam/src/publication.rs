@@ -31,13 +31,8 @@ impl Publication {
         })
     }
     pub fn update(&mut self, s: DetectionSnapshot, now: u64) {
-        let presence = match s.presence {
-            detection_service::Presence::Unavailable => wire::Presence::Unavailable,
-            detection_service::Presence::Clear => wire::Presence::Clear,
-            detection_service::Presence::Person => wire::Presence::Person,
-        };
         if self.current.as_ref().is_some_and(|v| {
-            v.presence == presence
+            v.presence == s.presence
                 && v.event_count == s.event_count
                 && v.latest.as_ref().map(|o| o.frame_sequence) == s.latest.map(|o| o.sequence)
         }) {
@@ -50,7 +45,7 @@ impl Publication {
                 .as_ref()
                 .map_or(1, |v| v.publication_id.saturating_add(1)),
             emitted_ms: now,
-            presence,
+            presence: s.presence,
             localization: self.localization,
             latest: None,
             event_count: s.event_count,
@@ -83,16 +78,7 @@ impl Publication {
         let mut events = s.events;
         events.sort_unstable_by_key(|v| v.map(|e| e.id).unwrap_or(u64::MAX));
         for e in events.into_iter().flatten() {
-            let kind = match e.event {
-                detection_service::Event::PersonEntered => wire::EventKind::PersonEntered,
-                detection_service::Event::PersonLeft => wire::EventKind::PersonLeft,
-                detection_service::Event::Unavailable => wire::EventKind::Unavailable,
-            };
-            let _ = next.events.push(wire::Event {
-                id: e.id,
-                at_ms: e.at_ms,
-                kind,
-            });
+            let _ = next.events.push(e);
         }
         // Invalid output is never published as clear. The gateway expires the prior state.
         self.length = next.encode(&mut self.bytes).unwrap_or(0);

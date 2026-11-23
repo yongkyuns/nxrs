@@ -741,9 +741,11 @@ examples, and rejects unsupported platform/target combinations.
 ## Detector ownership and portability
 
 Detection delivery is an application contract above the detector HAL.
-`service/detection-wire` owns the bounded, versioned camera/gateway protocol;
-the camera app translates typed service observations into it. The stream
-service handles opaque optional metadata, while the gateway validates and
+`service/detection-wire` owns the bounded, versioned camera/gateway protocol
+and the presence and event kinds shared with detection policy. The camera app
+uses that contract's event history, adds publication metadata, and translates
+typed inference observations. The stream service handles opaque optional
+metadata, while the gateway validates and
 authenticates it independently of video encoding. SDK/model details stay below
 the detector API. Subscribers use latest-value delivery and independent source
 and inference expiry; slow readers cannot block capture. iOS expires status

@@ -9,3 +9,4 @@ name = "detection_service"
 [dependencies]
 nxrs-camera = { path = "../../hal/camera" }
 nxrs-detector = { path = "../../hal/detector" }
+nxrs-detection-wire = { path = "../detection-wire", default-features = false }

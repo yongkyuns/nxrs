@@ -575,7 +575,7 @@ mod tests {
             .push(wire::Event {
                 id: initial_events + 1,
                 at_ms: 1200,
-                kind: wire::EventKind::PersonEntered,
+                event: wire::EventKind::PersonEntered,
             })
             .unwrap();
         let near_expiry = t + Duration::from_millis(2990);

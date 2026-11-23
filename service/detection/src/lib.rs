@@ -15,6 +15,7 @@ pub enum Error {
     Stopped,
 }
 
+pub use detection_wire::{EventKind as Event, Presence};
 pub use detector::{Bounds, Detection, Detections, Score};
 
 impl From<detector::DeviceError> for Error {
@@ -33,21 +34,6 @@ pub struct Observation {
     pub inference_us: u64,
     pub score: Score,
     pub objects: Detections,
-}
-
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum Presence {
-    #[default]
-    Unavailable,
-    Clear,
-    Person,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Event {
-    PersonEntered,
-    PersonLeft,
-    Unavailable,
 }
 
 #[derive(Clone, Copy, Debug)]

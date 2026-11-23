@@ -1,15 +1,9 @@
+use crate::SecurityEvent;
 use camera::Frame;
 use detection_service::{
     Error, Event, Monitor, Observation, Policy, Presence, Worker, WorkerStats,
 };
-
-const EVENTS: usize = 8;
-#[derive(Clone, Copy, Debug)]
-pub struct SecurityEvent {
-    pub id: u64,
-    pub at_ms: u64,
-    pub event: Event,
-}
+use detection_wire::EVENT_HISTORY;
 #[derive(Clone, Copy, Debug)]
 pub struct DetectionSnapshot {
     pub presence: Presence,
@@ -17,7 +11,7 @@ pub struct DetectionSnapshot {
     pub worker: WorkerStats,
     pub failures: u64,
     pub event_count: u64,
-    pub events: [Option<SecurityEvent>; EVENTS],
+    pub events: [Option<SecurityEvent>; EVENT_HISTORY],
 }
 
 /// Product composition of inference and alert policy, exposed as typed Rust
@@ -27,7 +21,7 @@ pub struct DetectionSnapshot {
 pub struct SecurityDetection {
     worker: Worker,
     monitor: Monitor,
-    events: [Option<SecurityEvent>; EVENTS],
+    events: [Option<SecurityEvent>; EVENT_HISTORY],
     event_count: u64,
     failures: u64,
     stopped: bool,
@@ -41,7 +35,7 @@ impl SecurityDetection {
         Ok(Self {
             worker,
             monitor,
-            events: [None; EVENTS],
+            events: [None; EVENT_HISTORY],
             event_count: 0,
             failures: 0,
             stopped: false,
@@ -65,11 +59,12 @@ impl SecurityDetection {
     fn event(&mut self, event: Option<Event>, now_ms: u64) {
         if let Some(event) = event {
             self.event_count = self.event_count.saturating_add(1);
-            self.events[((self.event_count - 1) % EVENTS as u64) as usize] = Some(SecurityEvent {
-                id: self.event_count,
-                at_ms: now_ms,
-                event,
-            });
+            self.events[((self.event_count - 1) % EVENT_HISTORY as u64) as usize] =
+                Some(SecurityEvent {
+                    id: self.event_count,
+                    at_ms: now_ms,
+                    event,
+                });
         }
     }
     fn failed(&mut self, error: Error, now_ms: u64) {
