@@ -1,14 +1,17 @@
 mod canvas;
+mod charts;
 mod font;
 mod gesture;
 
+pub(super) use charts::SAMPLE_INTERVAL;
+
 use crate::{
-    charts::{History, Metric, RoutePoint, ROUTE_POINTS},
     communications::LinkStatus,
     text::Text,
     tracker::{Reading, Snapshot},
 };
 use canvas::{Area, Canvas};
+use charts::{History, Metric, RoutePoint, ROUTE_POINTS};
 use display::{Display, Error, Rect, Size};
 use gesture::{Contact, Gesture};
 use qrcodegen::{QrCode, QrCodeEcc};
@@ -81,6 +84,7 @@ impl Layout {
 
 #[derive(Default)]
 pub struct Dashboard {
+    history: History,
     page: Page,
     metric: Metric,
     code: Option<QrCode>,
@@ -89,6 +93,10 @@ pub struct Dashboard {
 }
 
 impl Dashboard {
+    pub fn record(&mut self, snapshot: &Snapshot, now: Instant) {
+        self.history.record(snapshot, now);
+    }
+
     fn content_top(&self) -> i32 {
         if self.menu {
             MENU_HEIGHT
@@ -215,7 +223,6 @@ impl<D: Display> Screen<D> {
         ui: &Dashboard,
         link: LinkStatus,
         snapshot: &Snapshot,
-        history: &History,
         now: Instant,
     ) -> Result<(), Error> {
         let key = (ui.page, ui.metric, link, ui.menu);
@@ -231,7 +238,6 @@ impl<D: Display> Screen<D> {
         let body = Body::new(
             ui,
             snapshot,
-            history,
             now,
             layout.plot(content_top.into()),
             &mut route,
@@ -411,13 +417,13 @@ enum Body<'a> {
 
 impl<'a> Body<'a> {
     fn new(
-        ui: &Dashboard,
+        ui: &'a Dashboard,
         snapshot: &Snapshot,
-        samples: &'a History,
         now: Instant,
         plot: Area,
         route: &'a mut [RoutePoint; ROUTE_POINTS],
     ) -> Self {
+        let samples = &ui.history;
         if ui.page == Page::Gnss {
             let mut low_e = f32::INFINITY;
             let mut high_e = f32::NEG_INFINITY;
@@ -587,7 +593,7 @@ impl<'a> Body<'a> {
                             w: 5,
                             h: 5,
                         },
-                        if matches!(snapshot.gnss, Reading::Live(_)) {
+                        if matches!(snapshot.gnss, Some(Reading::Live(_))) {
                             MINT
                         } else {
                             GOLD
@@ -616,7 +622,7 @@ impl<'a> Body<'a> {
                     canvas.text(scale_x, scale_y - 12, scale.bytes(), 1, MUTED);
                 }
                 match snapshot.gnss {
-                    Reading::Live(fix) => {
+                    Some(Reading::Live(fix)) => {
                         let mut coordinates = Text::<40>::new();
                         let _ = write!(
                             coordinates,
@@ -634,7 +640,7 @@ impl<'a> Body<'a> {
                             MINT,
                         );
                     }
-                    reading => status(canvas, footer, Some(reading), b"WAITING FOR SATELLITES"),
+                    reading => status(canvas, footer, reading, b"WAITING FOR SATELLITES"),
                 }
                 canvas.text(12, footer + 12, b"RECENT FIXES", 1, MUTED);
             }
@@ -722,11 +728,10 @@ mod tests {
         let now = Instant::now();
         let snapshot = Snapshot {
             imu: [Some(Reading::Waiting); 2],
-            gnss: Reading::Waiting,
+            gnss: Some(Reading::Waiting),
         };
-        let history = History::new();
         screen
-            .render(&ui, LinkStatus::Idle, &snapshot, &history, now)
+            .render(&ui, LinkStatus::Idle, &snapshot, now)
             .unwrap();
         assert!(!screen.display.0.contains(&0xffff));
         assert_eq!(screen.display.0[320 * 45 + 12], PANEL);
@@ -736,7 +741,7 @@ mod tests {
         );
         assert!(ui.menu);
         screen
-            .render(&ui, LinkStatus::Idle, &snapshot, &history, now)
+            .render(&ui, LinkStatus::Idle, &snapshot, now)
             .unwrap();
         assert_eq!(screen.display.0[320 * 39], PANEL);
         assert_eq!(screen.display.0[320 * 45 + 12], BG);
@@ -757,7 +762,7 @@ mod tests {
         ui.show_code(&[42; 32]).unwrap();
         assert!(!ui.menu);
         screen
-            .render(&ui, LinkStatus::Pairing, &snapshot, &history, now)
+            .render(&ui, LinkStatus::Pairing, &snapshot, now)
             .unwrap();
         let code =
             QrCode::encode_text(&format!("NXRS1:{}", "2A".repeat(32)), QrCodeEcc::Low).unwrap();
@@ -799,7 +804,7 @@ mod tests {
         assert!(!ui.menu);
         assert_eq!(ui.page, Page::Gnss);
         screen
-            .render(&ui, LinkStatus::Connected, &snapshot, &history, now)
+            .render(&ui, LinkStatus::Connected, &snapshot, now)
             .unwrap();
     }
 

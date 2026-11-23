@@ -10,4 +10,5 @@ crate-type = ["rlib", "cdylib"]
 [dependencies]
 log = "0.4"
 nxrs-log-router = { path = "../../service/logging" }
+nxrs-messaging = { path = "../../shared/messaging" }
 nxrs-navigation-services = { path = "../../service/navigation", features = ["probe"] }

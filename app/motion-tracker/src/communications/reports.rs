@@ -3,27 +3,12 @@ use super::{
     wire::{self, Frame},
     Cellular, Communications, Pairing, View,
 };
+use crate::tracker::Snapshot;
 use logging::FileArchive;
-use navigation::observations::{ObservationService, Reading};
 use std::io::{self, Write};
 use std::num::NonZeroU64;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
-#[derive(Clone, Copy)]
-pub struct Snapshot {
-    pub imu: [Option<Reading<imu::ImuSample>>; 2],
-    pub gnss: Reading<gnss::GnssFix>,
-}
-
-pub fn reading_status<T>(reading: &Reading<T>) -> &'static str {
-    match reading {
-        Reading::Waiting => "waiting",
-        Reading::Live(_) => "live",
-        Reading::Stale => "stale",
-        Reading::Fault => "fault",
-    }
-}
-
 pub struct Outputs {
     pub usb: bool,
     pub archive: Option<(PathBuf, NonZeroU64)>,
@@ -36,7 +21,6 @@ pub struct Outputs {
 pub struct Reports {
     interval: Duration,
     next: Instant,
-    secondary: bool,
     usb: Option<io::Stdout>,
     archive: Option<FileArchive<Frame>>,
     links: Option<Communications>,
@@ -45,7 +29,6 @@ pub struct Reports {
 impl Reports {
     pub fn start(
         interval: Duration,
-        secondary: bool,
         outputs: Outputs,
         notify: impl FnMut() + Send + 'static,
     ) -> io::Result<Self> {
@@ -59,7 +42,6 @@ impl Reports {
         Ok(Self {
             interval,
             next: Instant::now(),
-            secondary,
             usb: outputs.usb.then(io::stdout),
             archive,
             links,
@@ -70,24 +52,9 @@ impl Reports {
         self.next
     }
 
-    pub fn snapshot(&self, source: &ObservationService<2>, now: Instant) -> io::Result<Snapshot> {
-        let snapshot = source.snapshot(now);
-        let [primary, secondary] = snapshot.imu;
-        let gnss = snapshot.gnss.ok_or(io::ErrorKind::InvalidInput)?;
-        Ok(Snapshot {
-            imu: [Some(primary), self.secondary.then_some(secondary)],
-            gnss,
-        })
-    }
-
     /// Advance one reporting deadline. USB and the archive share one encoding;
     /// the stream publishers encode after admitting a snapshot for transmission.
-    pub fn publish(
-        &mut self,
-        source: &ObservationService<2>,
-        now: Instant,
-    ) -> io::Result<Snapshot> {
-        let snapshot = self.snapshot(source, now)?;
+    pub fn publish(&mut self, snapshot: Snapshot, now: Instant) -> io::Result<()> {
         if self.usb.is_some() || self.archive.is_some() {
             let frame = wire::frame(&snapshot)?;
             if let Some(usb) = &self.usb {
@@ -103,7 +70,7 @@ impl Reports {
             links.offer(snapshot);
         }
         self.next = now + self.interval;
-        Ok(snapshot)
+        Ok(())
     }
 
     pub fn view(&self, previous: View) -> View {

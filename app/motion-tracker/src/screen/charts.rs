@@ -58,8 +58,8 @@ pub struct History {
     last_fix: Option<Instant>,
 }
 
-impl History {
-    pub fn new() -> Self {
+impl Default for History {
+    fn default() -> Self {
         Self {
             motion: VecDeque::with_capacity(MOTION_POINTS),
             fixes: VecDeque::with_capacity(ROUTE_POINTS),
@@ -67,7 +67,9 @@ impl History {
             last_fix: None,
         }
     }
+}
 
+impl History {
     pub fn record(&mut self, snapshot: &Snapshot, now: Instant) {
         if self.motion.len() == MOTION_POINTS {
             self.motion.pop_front();
@@ -79,7 +81,7 @@ impl History {
                 _ => None,
             }),
         });
-        let Reading::Live(fix) = snapshot.gnss else {
+        let Some(Reading::Live(fix)) = snapshot.gnss else {
             self.last_fix = None;
             return;
         };
@@ -142,7 +144,7 @@ mod tests {
     #[test]
     fn route_ignores_duplicate_fixes_and_breaks_after_loss() {
         let now = Instant::now();
-        let mut history = History::new();
+        let mut history = History::default();
         let fix = |sequence, longitude_deg| {
             Reading::Live(gnss::GnssFix {
                 sequence,
@@ -155,15 +157,15 @@ mod tests {
         };
         let mut snapshot = Snapshot {
             imu: [Some(Reading::Waiting); 2],
-            gnss: fix(1, 179.9999),
+            gnss: Some(fix(1, 179.9999)),
         };
         history.record(&snapshot, now);
         history.record(&snapshot, now + SAMPLE_INTERVAL);
-        snapshot.gnss = fix(2, -179.9999);
+        snapshot.gnss = Some(fix(2, -179.9999));
         history.record(&snapshot, now + Duration::from_secs(1));
-        snapshot.gnss = Reading::Stale;
+        snapshot.gnss = Some(Reading::Stale);
         history.record(&snapshot, now + Duration::from_secs(4));
-        snapshot.gnss = fix(3, -179.9998);
+        snapshot.gnss = Some(fix(3, -179.9998));
         history.record(&snapshot, now + Duration::from_secs(5));
         let mut points = [RoutePoint::default(); ROUTE_POINTS];
         assert_eq!(history.project_route(&mut points), 3);

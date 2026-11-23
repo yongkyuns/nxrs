@@ -253,6 +253,8 @@ def qualify(process, modem, gnss_wire, transcript, log, ethernet, server, pin, r
     assert not re.search(rb'PANIC|panicked at|Assertion failed', transcript), transcript[-2000:]
     assert len(usb) == 160 and gnss.writes == [1, 7], (len(usb), gnss.writes)
     assert transcript.count(b"cellular Failed(Rejected)") == 1
+    assert transcript.count(b"cellular Online { address: 192.0.2.2 }") == (1 if reject else 2)
+    assert transcript.count(b"cellular Failed(LinkLost)") == (0 if reject else 1)
     check_live(json.loads(usb[-1]))
     if reject:
         assert len(secure_connections) >= 2, secure_connections

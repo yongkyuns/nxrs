@@ -5,9 +5,11 @@ mod reports;
 mod uplink;
 mod wire;
 
-pub(super) use reports::{reading_status, Outputs, Reports, Snapshot};
+pub(super) use reports::{Outputs, Reports};
 pub(super) use uplink::{Collector, Config as Cellular};
 
+use crate::tracker::Snapshot;
+use cellular::{Session as _, Status};
 use publication::Publisher;
 use std::cell::OnceCell;
 use std::io;
@@ -128,14 +130,24 @@ fn run(
     mut notify: impl FnMut(),
 ) -> io::Result<()> {
     let collector = cellular.as_ref().and_then(|config| config.collector);
-    let mut modem = cellular.map(uplink::Modem::start).transpose()?;
+    let wake = thread::current();
+    let mut link = cellular
+        .map(|config| cellular::maintain(&config.apn, move || wake.unpark()))
+        .transpose();
+    if let Err(error) = &link {
+        eprintln!("motion-tracker cellular {:?}", Status::Failed(*error));
+    }
+    let mut dialer = collector
+        .filter(|_| matches!(link, Ok(Some(_))))
+        .map(uplink::Dialer::start)
+        .transpose()?;
     let identity = OnceCell::new();
     let mut radio = None;
     let mut next_radio = Instant::now();
     let mut upload = None;
     let mut retry = uplink::Retry::new();
-    let mut retry_pending = false;
-    let mut link_generation = 0;
+    let mut dial_pending = false;
+    let mut link_state = None;
     let mut pairing_failed = false;
     let mut publication = Publisher::default();
     let mut command = pair.then_some(Pairing::Start);
@@ -201,50 +213,64 @@ fn run(
         if view != previous {
             notify();
         }
-        if let (Some(collector), Some(modem)) = (collector, modem.as_ref()) {
-            if let Some(sample) = sample {
-                publication.offer(sample);
-            }
-            let (generation, socket) = modem.receive();
-            if generation != link_generation {
-                link_generation = generation;
+        if let Ok(Some(link)) = &link {
+            let state = link.link_state();
+            if link_state != Some(state) {
+                eprintln!("motion-tracker cellular {:?}", state.status);
+                link_state = Some(state);
                 upload = None;
                 publication.reset_stream();
                 retry = uplink::Retry::new();
-                retry_pending = false;
-            }
-            let progress = if let Some(socket) = socket {
-                tls_identity(&identity)
-                    .and_then(|identity| uplink::Upload::open(identity, socket, collector))
-                    .map(|connection| {
-                        upload = Some(connection);
-                        publication.reset_stream();
-                        false
-                    })
-            } else {
-                upload.as_mut().map_or(Ok(false), |connection| {
-                    connection.service(&mut publication, now)
-                })
-            };
-            match progress {
-                Ok(true) => retry = uplink::Retry::new(),
-                Ok(false) => {}
-                Err(error) => {
-                    eprintln!("motion-tracker collector retry: {error}");
-                    upload = None;
-                    publication.reset_stream();
-                    retry.later();
-                    retry_pending = true;
+                dial_pending = false;
+                if let Some(dialer) = &dialer {
+                    let generation =
+                        matches!(state.status, Status::Online { .. }).then_some(state.generation);
+                    dialer.set_link(generation);
                 }
             }
-            if retry_pending && now >= retry.next {
-                modem.request_socket(generation);
-                retry_pending = false;
+        }
+        let online = link_state.filter(|state| matches!(state.status, Status::Online { .. }));
+        if let (Some(collector), Some(dialer)) = (collector, dialer.as_ref()) {
+            if let Some(sample) = sample {
+                publication.offer(sample);
+            }
+            if online.is_some() {
+                let progress = if let Some(socket) = dialer.receive() {
+                    dial_pending = false;
+                    socket
+                        .and_then(|socket| {
+                            tls_identity(&identity).and_then(|identity| {
+                                uplink::Upload::open(identity, socket, collector)
+                            })
+                        })
+                        .map(|connection| {
+                            upload = Some(connection);
+                            false
+                        })
+                } else {
+                    upload.as_mut().map_or(Ok(false), |connection| {
+                        connection.service(&mut publication, now)
+                    })
+                };
+                match progress {
+                    Ok(true) => retry = uplink::Retry::new(),
+                    Ok(false) => {}
+                    Err(error) => {
+                        eprintln!("motion-tracker collector retry: {error}");
+                        upload = None;
+                        publication.reset_stream();
+                        retry.later();
+                    }
+                }
+                if upload.is_none() && !dial_pending && Instant::now() >= retry.next {
+                    dialer.request();
+                    dial_pending = true;
+                }
             }
         }
         if radio.is_some() || upload.is_some() {
             thread::park_timeout(ACTIVE_POLL);
-        } else if retry_pending {
+        } else if online.is_some() && dialer.is_some() && !dial_pending {
             thread::park_timeout(retry.next.saturating_duration_since(Instant::now()));
         } else {
             thread::park();
@@ -252,5 +278,11 @@ fn run(
     }
     let _ = upload.take();
     drop(radio);
-    modem.as_mut().map_or(Ok(()), uplink::Modem::stop)
+    let dial_stop = dialer.as_mut().map_or(Ok(()), uplink::Dialer::stop);
+    let link_stop = match &mut link {
+        Ok(Some(link)) => link.stop(),
+        Ok(None) => Ok(()),
+        Err(error) => Err(*error),
+    };
+    dial_stop.and(link_stop.map_err(io::Error::other))
 }

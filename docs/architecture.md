@@ -143,12 +143,15 @@ contract, so gateway ingest can read it with the camera-side server disabled.
 `camera::capture::Session` owns frame validation, fixed history and stop.
 `wifi::Reconnector` owns station retry and rejoin; its caller supplies credentials
 and drives polling. Home-cam composes those APIs with streaming and detection.
-Motion Tracker's `communications` module owns the BLE and cellular sessions and
-their common bounded publisher. It encodes the same typed snapshots for USB and
-the rotating archive. The dashboard consumes link status and typed observations.
-Navigation supplies reusable observation and fusion behavior. The camera
-qualification's recording and packet-summary adapters live with that fixture.
-Network data paths use `std::net`.
+Motion Tracker's `communications` module owns BLE pairing, collector TCP/TLS
+retries, and their common bounded publisher. The cellular HAL maintains the PPP
+link and wakes communications on state changes. It identifies each online
+interval so the publisher can retire sockets from an earlier link. The app
+encodes the same typed snapshots for USB and the rotating archive.
+Navigation owns observation startup, rollback, and terminal reconciliation.
+The app supplies the selected devices and shares one typed snapshot between
+the dashboard and publisher. The camera qualification's recording and
+packet-summary adapters live with that fixture. Network data paths use `std::net`.
 
 Keep OS adapters in their owning capability HAL, and keep adapters used only
 for qualification under `tests/`. Reserve the root `platform/` tree for profiles,

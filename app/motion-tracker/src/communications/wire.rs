@@ -1,7 +1,8 @@
 //! Transport-independent snapshots.
-use super::{reading_status, Snapshot};
-use crate::text::Text;
-use navigation::observations::Reading;
+use crate::{
+    text::Text,
+    tracker::{status, Reading, Snapshot},
+};
 use std::{
     fmt::{self, Write},
     io,
@@ -10,7 +11,7 @@ use std::{
 pub(super) type Frame = Text<768>;
 
 fn imu_json(out: &mut impl Write, reading: Reading<imu::ImuSample>) -> fmt::Result {
-    write!(out, "{{\"state\":\"{}\"", reading_status(&reading))?;
+    write!(out, "{{\"state\":\"{}\"", status(Some(reading)))?;
     if let Reading::Live(sample) = reading {
         let [ax, ay, az] = sample.accel_mps2;
         let [gx, gy, gz] = sample.gyro_rps;
@@ -24,7 +25,7 @@ fn imu_json(out: &mut impl Write, reading: Reading<imu::ImuSample>) -> fmt::Resu
 }
 
 fn gnss_json(out: &mut impl Write, reading: Reading<gnss::GnssFix>) -> fmt::Result {
-    write!(out, "{{\"state\":\"{}\"", reading_status(&reading))?;
+    write!(out, "{{\"state\":\"{}\"", status(Some(reading)))?;
     if let Reading::Live(fix) = reading {
         write!(
             out,
@@ -46,7 +47,7 @@ fn encode(out: &mut impl Write, snapshot: &Snapshot) -> fmt::Result {
         imu_json(out, reading)?;
     }
     out.write_str("],\"gnss\":")?;
-    gnss_json(out, snapshot.gnss)?;
+    gnss_json(out, snapshot.gnss.ok_or(fmt::Error)?)?;
     out.write_str("}\n")
 }
 
@@ -64,14 +65,14 @@ mod tests {
     fn wire_preserves_sensor_order_and_omits_unavailable_coordinates() {
         let mut snapshot = Snapshot {
             imu: [Some(Reading::Fault), Some(Reading::Waiting)],
-            gnss: Reading::Stale,
+            gnss: Some(Reading::Stale),
         };
         assert_eq!(
             frame(&snapshot).unwrap().as_ref(),
             b"{\"v\":1,\"imu\":[{\"state\":\"fault\"},{\"state\":\"waiting\"}],\"gnss\":{\"state\":\"stale\"}}\n",
         );
         snapshot.imu[1] = None;
-        snapshot.gnss = Reading::Waiting;
+        snapshot.gnss = Some(Reading::Waiting);
         assert_eq!(
             frame(&snapshot).unwrap().as_ref(),
             b"{\"v\":2,\"imu\":[{\"state\":\"fault\"}],\"gnss\":{\"state\":\"waiting\"}}\n",

@@ -2,7 +2,10 @@
 //! HALs acquire and deliver samples. The caller dispatches events and deadlines.
 
 use messaging::{DeliveryResult, Sender};
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::{Duration, Instant};
+
+static NEXT_SESSION: AtomicU32 = AtomicU32::new(0);
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Reading<T> {
@@ -59,64 +62,11 @@ impl<T: Copy> Source<T> {
     }
 }
 
-/// Observations for one acquisition lifetime. Faults remain visible for that
-/// lifetime, even if a sample that was already queued arrives afterward.
-pub struct Observations<const IMUS: usize> {
-    imu: [Source<imu::ImuSample>; IMUS],
-    gnss: Option<Source<gnss::GnssFix>>,
-}
-
+/// One observation per configured source. An absent source has no reading.
 #[derive(Clone, Copy)]
 pub struct Snapshot<const IMUS: usize> {
-    pub imu: [Reading<imu::ImuSample>; IMUS],
-    /// An unconfigured receiver has no reading. A configured receiver without a
-    /// fix reports `Waiting`.
+    pub imu: [Option<Reading<imu::ImuSample>>; IMUS],
     pub gnss: Option<Reading<gnss::GnssFix>>,
-}
-
-impl<const IMUS: usize> Observations<IMUS> {
-    pub fn new(imu_fresh_for: Duration, gnss_fresh_for: Option<Duration>) -> Self {
-        Self {
-            imu: [Source::new(imu_fresh_for); IMUS],
-            gnss: gnss_fresh_for.map(Source::new),
-        }
-    }
-
-    /// Record a sample for an IMU ordinal configured by the caller.
-    ///
-    /// # Panics
-    ///
-    /// Panics if `index` is outside the configured IMU array.
-    pub fn imu_sample(&mut self, index: usize, sample: imu::ImuSample, received: Instant) {
-        self.imu[index].receive(sample, received);
-    }
-
-    /// Return whether this is the first fault for the configured IMU ordinal.
-    ///
-    /// # Panics
-    ///
-    /// Panics if `index` is outside the configured IMU array.
-    pub fn imu_failed(&mut self, index: usize) -> bool {
-        self.imu[index].fail()
-    }
-
-    pub fn gnss_fix(&mut self, fix: gnss::GnssFix, received: Instant) {
-        if let Some(source) = &mut self.gnss {
-            source.receive(fix, received);
-        }
-    }
-
-    /// Return whether the configured receiver has just entered the fault state.
-    pub fn gnss_failed(&mut self) -> bool {
-        self.gnss.as_mut().is_some_and(Source::fail)
-    }
-
-    pub fn snapshot(&self, now: Instant) -> Snapshot<IMUS> {
-        Snapshot {
-            imu: self.imu.each_ref().map(|source| source.reading(now)),
-            gnss: self.gnss.as_ref().map(|source| source.reading(now)),
-        }
-    }
 }
 
 enum Input {
@@ -127,6 +77,7 @@ enum Input {
 pub struct Observation {
     input: Input,
     received: Instant,
+    session: u32,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -135,156 +86,251 @@ pub enum SensorFault {
     Gnss(gnss::DeviceError),
 }
 
-/// One owner for the sessions and their readings. The caller supplies the
-/// inbox, allowing sensor events to share its wait point with other inputs.
-/// Session handles are allocated once on open to support heterogeneous devices.
+impl std::fmt::Display for SensorFault {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Imu(index, error) => write!(f, "IMU {}: {error:?}", index.saturating_add(1)),
+            Self::Gnss(error) => write!(f, "GNSS: {error:?}"),
+        }
+    }
+}
+
+impl std::error::Error for SensorFault {}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum Requirement {
+    Required,
+    /// Unsupported devices are absent. Other failures remain visible.
+    Optional,
+}
+
+/// Receives the caller's device selections during one startup transaction.
+pub struct Inputs<'a, const IMUS: usize, E> {
+    service: &'a mut ObservationService<IMUS>,
+    imu_fresh_for: Duration,
+    gnss_fresh_for: Option<Duration>,
+    sender: Sender<E>,
+    wrap: fn(Observation) -> E,
+}
+
+impl<const IMUS: usize, E: Send + 'static> Inputs<'_, IMUS, E> {
+    pub fn imu(
+        &mut self,
+        index: usize,
+        device: &'static impl imu::Device,
+        requirement: Requirement,
+    ) -> Result<(), SensorFault> {
+        let Some(value) = self.service.imu_values.get_mut(index) else {
+            return Err(SensorFault::Imu(index, imu::DeviceError::InvalidData));
+        };
+        if value.is_some() {
+            return Err(SensorFault::Imu(index, imu::DeviceError::Busy));
+        }
+        let receive = sink(
+            self.sender.clone(),
+            move |event| Input::Imu(index, event),
+            self.wrap,
+            self.service.session,
+        );
+        match device.open_default(receive) {
+            Ok(session) => {
+                *value = Some(Source::new(self.imu_fresh_for));
+                self.service.imu[index] = Some(Box::new(session));
+            }
+            Err(imu::DeviceError::Unsupported) if requirement == Requirement::Optional => {}
+            Err(error) => {
+                let fault = SensorFault::Imu(index, error);
+                if requirement == Requirement::Required {
+                    return Err(fault);
+                }
+                *value = Some(Source::new(self.imu_fresh_for));
+                report_fault(value, fault);
+            }
+        }
+        Ok(())
+    }
+
+    pub fn gnss(
+        &mut self,
+        device: &'static impl gnss::Device,
+        requirement: Requirement,
+    ) -> Result<(), SensorFault> {
+        let fresh_for = self
+            .gnss_fresh_for
+            .ok_or(SensorFault::Gnss(gnss::DeviceError::InvalidData))?;
+        let value = &mut self.service.gnss_value;
+        if value.is_some() {
+            return Err(SensorFault::Gnss(gnss::DeviceError::Busy));
+        }
+        let receive = sink(
+            self.sender.clone(),
+            Input::Gnss,
+            self.wrap,
+            self.service.session,
+        );
+        match device.open(receive) {
+            Ok(session) => {
+                *value = Some(Source::new(fresh_for));
+                self.service.gnss = Some(Box::new(session));
+            }
+            Err(gnss::DeviceError::Unsupported) if requirement == Requirement::Optional => {}
+            Err(error) => {
+                let fault = SensorFault::Gnss(error);
+                if requirement == Requirement::Required {
+                    return Err(fault);
+                }
+                *value = Some(Source::new(fresh_for));
+                report_fault(value, fault);
+            }
+        }
+        Ok(())
+    }
+}
+
+/// Owns acquisition sessions and typed readings. The caller supplies one inbox
+/// for sensor events and any other inputs it needs to dispatch.
 pub struct ObservationService<const IMUS: usize> {
-    values: Observations<IMUS>,
+    session: u32,
+    imu_values: [Option<Source<imu::ImuSample>>; IMUS],
+    gnss_value: Option<Source<gnss::GnssFix>>,
     imu: [Option<Box<dyn imu::Session + Send>>; IMUS],
     gnss: Option<Box<dyn gnss::Session + Send>>,
+    imu_drops: [u32; IMUS],
+    gnss_drops: u32,
     stopping: bool,
 }
 
 impl<const IMUS: usize> ObservationService<IMUS> {
-    pub fn new(imu_fresh_for: Duration, gnss_fresh_for: Option<Duration>) -> Self {
-        crate::diagnostics::configured(IMUS, gnss_fresh_for.is_some());
+    fn new() -> Self {
         Self {
-            values: Observations::new(imu_fresh_for, gnss_fresh_for),
+            session: NEXT_SESSION.fetch_add(1, Ordering::Relaxed),
+            imu_values: [None; IMUS],
+            gnss_value: None,
             imu: std::array::from_fn(|_| None),
             gnss: None,
+            imu_drops: [0; IMUS],
+            gnss_drops: 0,
             stopping: false,
         }
     }
 
-    pub fn start_imu<E: Send + 'static>(
-        &mut self,
-        index: usize,
-        device: &'static impl imu::Device,
+    /// Open the selected sources using the caller's inbox. If configuration or
+    /// required startup fails, cancel and join all sessions already opened.
+    pub fn start<E: Send + 'static>(
+        imu_fresh_for: Duration,
+        gnss_fresh_for: Option<Duration>,
         sender: Sender<E>,
         wrap: fn(Observation) -> E,
-    ) -> Result<(), SensorFault> {
-        let Some(slot) = self.imu.get_mut(index) else {
-            return Err(SensorFault::Imu(index, imu::DeviceError::InvalidData));
-        };
-        if self.stopping || slot.is_some() || matches!(self.values.imu[index].latest, Latest::Fault)
-        {
-            return Err(SensorFault::Imu(index, imu::DeviceError::Busy));
+        configure: impl FnOnce(&mut Inputs<'_, IMUS, E>) -> Result<(), SensorFault>,
+    ) -> Result<Self, SensorFault> {
+        let mut service = Self::new();
+        if let Err(error) = configure(&mut Inputs {
+            service: &mut service,
+            imu_fresh_for,
+            gnss_fresh_for,
+            sender,
+            wrap,
+        }) {
+            let _ = service.join();
+            return Err(error);
         }
-        match device.open_default(sink(sender, move |event| Input::Imu(index, event), wrap)) {
-            Ok(session) => {
-                *slot = Some(Box::new(session));
-                Ok(())
-            }
-            Err(error) => {
-                self.values.imu_failed(index);
-                Err(SensorFault::Imu(index, error))
-            }
-        }
+        crate::diagnostics::configured(IMUS, gnss_fresh_for.is_some());
+        Ok(service)
     }
 
-    pub fn start_gnss<E: Send + 'static>(
-        &mut self,
-        device: &'static impl gnss::Device,
-        sender: Sender<E>,
-        wrap: fn(Observation) -> E,
-    ) -> Result<(), SensorFault> {
-        let Some(source) = &self.values.gnss else {
-            return Err(SensorFault::Gnss(gnss::DeviceError::Unsupported));
-        };
-        if self.stopping || self.gnss.is_some() || matches!(source.latest, Latest::Fault) {
-            return Err(SensorFault::Gnss(gnss::DeviceError::Busy));
+    pub fn observe(&mut self, observation: Observation) {
+        // The shared inbox may still contain events from a rolled-back start.
+        if observation.session != self.session {
+            return;
         }
-        match device.open(sink(sender, Input::Gnss, wrap)) {
-            Ok(session) => {
-                self.gnss = Some(Box::new(session));
-                Ok(())
-            }
-            Err(error) => {
-                self.values.gnss_failed();
-                Err(SensorFault::Gnss(error))
-            }
-        }
-    }
-
-    pub fn observe(&mut self, observation: Observation) -> Option<SensorFault> {
         let received = observation.received;
         match observation.input {
             Input::Imu(index, imu::Event::Sample(sample)) => {
-                self.values.imu_sample(index, sample, received)
+                if let Some(source) = &mut self.imu_values[index] {
+                    source.receive(sample, received);
+                }
             }
-            Input::Gnss(gnss::Event::Fix(fix)) => self.values.gnss_fix(fix, received),
+            Input::Gnss(gnss::Event::Fix(fix)) => {
+                if let Some(source) = &mut self.gnss_value {
+                    source.receive(fix, received);
+                }
+            }
             Input::Gnss(gnss::Event::InvalidFrame) => {}
             Input::Imu(index, imu::Event::Failed(error)) => {
-                return self
-                    .values
-                    .imu_failed(index)
-                    .then_some(SensorFault::Imu(index, error));
+                report_fault(&mut self.imu_values[index], SensorFault::Imu(index, error));
             }
             Input::Gnss(gnss::Event::Failed(error)) => {
-                return self
-                    .values
-                    .gnss_failed()
-                    .then_some(SensorFault::Gnss(error));
+                report_fault(&mut self.gnss_value, SensorFault::Gnss(error));
             }
         }
-        None
     }
 
-    /// Reconcile terminal results before publishing a snapshot, including
-    /// faults whose notification could not be admitted to the inbox.
-    pub fn reap_finished(&mut self, mut report: impl FnMut(SensorFault)) {
+    /// Reconcile completed sessions before reading their state. Terminal faults
+    /// remain visible even if the failure event could not enter the inbox.
+    pub fn snapshot(&mut self, now: Instant) -> Snapshot<IMUS> {
+        let log_drops = log::log_enabled!(log::Level::Warn);
         for (index, slot) in self.imu.iter_mut().enumerate() {
-            if slot.as_ref().is_some_and(|session| session.is_finished()) {
-                let error = slot
+            if let Some(session) = slot {
+                if log_drops {
+                    let count = session.dropped();
+                    if count > self.imu_drops[index] {
+                        log::warn!("IMU {} queue drops: {count}", index + 1);
+                        self.imu_drops[index] = count;
+                    }
+                }
+                if session.is_finished() {
+                    let error = slot
+                        .take()
+                        .unwrap()
+                        .join()
+                        .err()
+                        .unwrap_or(imu::DeviceError::Io);
+                    report_fault(&mut self.imu_values[index], SensorFault::Imu(index, error));
+                }
+            }
+        }
+        if let Some(session) = &mut self.gnss {
+            if log_drops {
+                let count = session.dropped();
+                if count > self.gnss_drops {
+                    log::warn!("GNSS queue drops: {count}");
+                    self.gnss_drops = count;
+                }
+            }
+            if session.is_finished() {
+                let error = self
+                    .gnss
                     .take()
                     .unwrap()
                     .join()
                     .err()
-                    .unwrap_or(imu::DeviceError::Io);
-                if self.values.imu_failed(index) {
-                    report(SensorFault::Imu(index, error));
-                }
+                    .unwrap_or(gnss::DeviceError::Io);
+                report_fault(&mut self.gnss_value, SensorFault::Gnss(error));
             }
         }
-        if self
-            .gnss
-            .as_ref()
-            .is_some_and(|session| session.is_finished())
-        {
-            let error = self
-                .gnss
-                .take()
-                .unwrap()
-                .join()
-                .err()
-                .unwrap_or(gnss::DeviceError::Io);
-            if self.values.gnss_failed() {
-                report(SensorFault::Gnss(error));
-            }
+        Snapshot {
+            imu: self
+                .imu_values
+                .each_ref()
+                .map(|source| source.as_ref().map(|source| source.reading(now))),
+            gnss: self.gnss_value.as_ref().map(|source| source.reading(now)),
         }
     }
 
-    pub fn snapshot(&self, now: Instant) -> Snapshot<IMUS> {
-        self.values.snapshot(now)
-    }
-
-    /// Samples dropped while the corresponding sessions are active.
-    pub fn dropped(&self) -> ([Option<u32>; IMUS], Option<u32>) {
-        (
-            std::array::from_fn(|index| self.imu[index].as_ref().map(|session| session.dropped())),
-            self.gnss.as_ref().map(|session| session.dropped()),
-        )
-    }
-
-    /// Request cancellation of every session before the caller joins any of its workers.
-    pub fn request_stop(&mut self, mut report: impl FnMut(SensorFault)) {
+    /// Signal every session before the caller joins any worker. Attempt all
+    /// cancellations even on failure and return the first error.
+    pub fn request_stop(&mut self) -> Result<(), SensorFault> {
+        if self.stopping {
+            return Ok(());
+        }
         self.stopping = true;
-        for (index, session) in self.imu.iter_mut().enumerate() {
-            if let Some(error) = session
+        let mut first = None;
+        for (index, slot) in self.imu.iter_mut().enumerate() {
+            if let Some(error) = slot
                 .as_mut()
                 .and_then(|session| session.request_stop().err())
             {
-                report(SensorFault::Imu(index, error));
+                record_cleanup(&mut first, SensorFault::Imu(index, error));
             }
         }
         if let Some(error) = self
@@ -292,15 +338,17 @@ impl<const IMUS: usize> ObservationService<IMUS> {
             .as_mut()
             .and_then(|session| session.request_stop().err())
         {
-            report(SensorFault::Gnss(error));
+            record_cleanup(&mut first, SensorFault::Gnss(error));
         }
+        first.map_or(Ok(()), Err)
     }
 
-    /// Join every session after cancellation has been requested.
-    pub fn join(&mut self, mut report: impl FnMut(SensorFault)) {
+    /// Join all sessions, requesting cancellation first if needed.
+    pub fn join(mut self) -> Result<(), SensorFault> {
+        let mut first = self.request_stop().err();
         for (index, slot) in self.imu.iter_mut().enumerate() {
             if let Some(error) = slot.take().and_then(|mut session| session.join().err()) {
-                report(SensorFault::Imu(index, error));
+                record_cleanup(&mut first, SensorFault::Imu(index, error));
             }
         }
         if let Some(error) = self
@@ -308,20 +356,34 @@ impl<const IMUS: usize> ObservationService<IMUS> {
             .take()
             .and_then(|mut session| session.join().err())
         {
-            report(SensorFault::Gnss(error));
+            record_cleanup(&mut first, SensorFault::Gnss(error));
         }
+        first.map_or(Ok(()), Err)
     }
+}
+
+fn report_fault<T: Copy>(source: &mut Option<Source<T>>, fault: SensorFault) {
+    if source.as_mut().is_some_and(Source::fail) {
+        log::warn!("{fault}");
+    }
+}
+
+fn record_cleanup(first: &mut Option<SensorFault>, fault: SensorFault) {
+    log::warn!("acquisition cleanup: {fault}");
+    first.get_or_insert(fault);
 }
 
 fn sink<T: Copy, E>(
     sender: Sender<E>,
     input: impl Fn(T) -> Input,
     wrap: fn(Observation) -> E,
+    session: u32,
 ) -> impl FnMut(T) -> DeliveryResult<T> {
     crate::inbox_sink(sender, move |value| {
         wrap(Observation {
             input: input(value),
             received: Instant::now(),
+            session,
         })
     })
 }
@@ -330,6 +392,77 @@ fn sink<T: Copy, E>(
 mod tests {
     use super::*;
     use messaging::DeliveryError;
+    use std::sync::atomic::AtomicU8;
+
+    struct ReceiverSession(&'static AtomicU8);
+
+    impl gnss::Session for ReceiverSession {
+        fn request_stop(&mut self) -> Result<(), gnss::DeviceError> {
+            assert_eq!(self.0.swap(2, Ordering::Relaxed), 1);
+            Ok(())
+        }
+
+        fn join(&mut self) -> Result<(), gnss::DeviceError> {
+            assert_eq!(self.0.swap(0, Ordering::Relaxed), 2);
+            Ok(())
+        }
+
+        fn is_finished(&self) -> bool {
+            false
+        }
+
+        fn dropped(&self) -> u32 {
+            0
+        }
+    }
+
+    #[test]
+    fn startup_failure_joins_open_sessions_and_discards_their_queued_events_on_retry() {
+        static STATE: AtomicU8 = AtomicU8::new(0);
+        fn open(inputs: &mut Inputs<'_, 0, Observation>) -> Result<(), SensorFault> {
+            assert_eq!(STATE.swap(1, Ordering::Relaxed), 0);
+            inputs.service.gnss = Some(Box::new(ReceiverSession(&STATE)));
+            inputs.service.gnss_value = inputs.gnss_fresh_for.map(Source::new);
+            inputs
+                .sender
+                .try_send(Observation {
+                    input: Input::Gnss(gnss::Event::Failed(gnss::DeviceError::Io)),
+                    received: Instant::now(),
+                    session: inputs.service.session,
+                })
+                .ok()
+                .unwrap();
+            Ok(())
+        }
+
+        let (sender, inbox) = messaging::bounded(2);
+        let freshness = Duration::from_secs(1);
+        let failure = SensorFault::Imu(0, imu::DeviceError::Unsupported);
+        let failed = ObservationService::<0>::start(
+            freshness,
+            Some(freshness),
+            sender.clone(),
+            std::convert::identity,
+            |inputs| {
+                open(inputs)?;
+                Err(failure)
+            },
+        );
+        assert_eq!(failed.err(), Some(failure));
+        let mut retry = ObservationService::<0>::start(
+            freshness,
+            Some(freshness),
+            sender,
+            std::convert::identity,
+            open,
+        )
+        .unwrap();
+        retry.observe(inbox.try_recv().unwrap());
+        assert_eq!(retry.snapshot(Instant::now()).gnss, Some(Reading::Waiting));
+        retry.observe(inbox.try_recv().unwrap());
+        assert_eq!(retry.snapshot(Instant::now()).gnss, Some(Reading::Fault));
+        retry.join().unwrap();
+    }
 
     struct FinishedImu;
 
@@ -353,10 +486,16 @@ mod tests {
 
     #[test]
     fn reaping_recovers_a_terminal_fault_with_no_inbox_capacity() {
-        let mut service = ObservationService::<1>::new(Duration::from_millis(500), None);
+        let mut service = ObservationService::<1>::new();
+        service.imu_values[0] = Some(Source::new(Duration::from_millis(500)));
         service.imu[0] = Some(Box::new(FinishedImu));
         let (sender, inbox) = messaging::bounded(1);
-        let mut deliver = sink(sender, |event| Input::Imu(0, event), |event| event);
+        let mut deliver = sink(
+            sender,
+            |event| Input::Imu(0, event),
+            |event| event,
+            service.session,
+        );
         let sample = imu::ImuSample {
             sequence: 1,
             timestamp_ms: 0,
@@ -368,22 +507,20 @@ mod tests {
         let failure = deliver(imu::Event::Failed(imu::DeviceError::Io)).unwrap_err();
         assert_eq!(failure.error, DeliveryError::Full);
 
-        let mut faults = Vec::new();
-        service.reap_finished(|fault| faults.push(fault));
-        service.reap_finished(|fault| faults.push(fault));
-        assert_eq!(faults, [SensorFault::Imu(0, imu::DeviceError::Io)]);
-        assert!(service.observe(inbox.try_recv().unwrap()).is_none());
-        assert_eq!(service.snapshot(Instant::now()).imu, [Reading::Fault]);
+        assert_eq!(service.snapshot(Instant::now()).imu, [Some(Reading::Fault)]);
+        assert!(service.imu[0].is_none());
+        service.observe(inbox.try_recv().unwrap());
+        assert_eq!(service.snapshot(Instant::now()).imu, [Some(Reading::Fault)]);
     }
 
     #[test]
-    fn one_imu_can_run_without_gnss_and_faults_survive_late_samples() {
+    fn snapshot_distinguishes_absent_waiting_live_and_stale_sources() {
         let freshness = Duration::from_millis(500);
         let time = Instant::now();
-        let mut observations = Observations::<1>::new(freshness, None);
-        assert_eq!(observations.snapshot(time).gnss, None);
-        assert!(!observations.gnss_failed());
-        assert_eq!(observations.snapshot(time).imu, [Reading::Waiting]);
+        let mut service = ObservationService::<2>::new();
+        service.imu_values[0] = Some(Source::new(freshness));
+        assert_eq!(service.snapshot(time).gnss, None);
+        assert_eq!(service.snapshot(time).imu, [Some(Reading::Waiting), None]);
 
         let sample = imu::ImuSample {
             sequence: 4,
@@ -392,19 +529,18 @@ mod tests {
             accel_mps2: [0.0, 0.0, 9.8],
             gyro_rps: [0.0; 3],
         };
-        observations.imu_sample(0, sample, time);
-        assert_eq!(observations.snapshot(time).imu, [Reading::Live(sample)]);
+        service.observe(Observation {
+            input: Input::Imu(0, imu::Event::Sample(sample)),
+            received: time,
+            session: service.session,
+        });
         assert_eq!(
-            observations.snapshot(time + freshness).imu,
-            [Reading::Stale]
+            service.snapshot(time).imu,
+            [Some(Reading::Live(sample)), None]
         );
-
-        assert!(observations.imu_failed(0));
-        observations.imu_sample(0, sample, time + freshness);
-        assert!(!observations.imu_failed(0));
         assert_eq!(
-            observations.snapshot(time + freshness).imu,
-            [Reading::Fault]
+            service.snapshot(time + freshness).imu,
+            [Some(Reading::Stale), None]
         );
     }
 }

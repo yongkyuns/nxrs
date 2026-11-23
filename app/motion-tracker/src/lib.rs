@@ -1,7 +1,6 @@
 //! Motion observations and available outputs.
 #![forbid(unsafe_code)]
 
-mod charts;
 mod communications;
 mod preferences;
 mod run;

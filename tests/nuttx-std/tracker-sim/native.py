@@ -173,7 +173,7 @@ def run(image, log):
                     assert first_fault <= len(guest.samples) - len(tail), guest.samples
                     assert any(sample['imu'][0]['state'] == 'live'
                                for sample in guest.samples[:first_fault]), guest.samples
-                    assert b'motion-tracker IMU 1: Io\n' in transcript, transcript
+                    assert b'[WARN navigation::observations] IMU 1: Io\n' in transcript, transcript
                     for sample in guest.samples[first_fault:]:
                         assert sample['imu'][0] == {'state': 'fault'}, sample
                         assert sample['imu'][1]['state'] == 'live', sample
@@ -185,7 +185,7 @@ def run(image, log):
                     if scenario == b'queue':
                         before, marker, after = transcript.partition(b'TRACKER_PANEL_STALL\n')
                         assert marker, transcript
-                        drop_line = rb'motion-tracker (IMU [12]|GNSS) queue drops: ([1-9]\d*)\n'
+                        drop_line = rb'\[WARN navigation::observations\] (IMU [12]|GNSS) queue drops: ([1-9]\d*)\n'
                         baseline = {name: int(count) for name, count in re.findall(drop_line, before)}
                         drops = list(re.finditer(drop_line, after))
                         assert any(int(drop[2]) > baseline.get(drop[1], 0) for drop in drops), transcript

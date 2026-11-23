@@ -1,15 +1,14 @@
 use crate::communications::{Cellular, Collector, Outputs, Reports, View};
-use crate::{charts, screen, tracker, ReportOptions};
+use crate::{screen, tracker, ReportOptions};
 use battery::Device as _;
-use charts::{History, SAMPLE_INTERVAL};
 use messaging::bounded;
-use navigation::observations::{Observation, ObservationService, SensorFault};
-use screen::{Action, Dashboard, Screen};
+use navigation::observations::{Observation, ObservationService, Requirement};
+use screen::{Action, Dashboard, Screen, SAMPLE_INTERVAL};
 use std::io::{self, Write};
 use std::sync::mpsc::{RecvTimeoutError, TrySendError};
 use std::time::Instant;
 use touch::Session as _;
-use tracker::{report_fault, FIX_FRESH, IMU_FRESH};
+use tracker::{FIX_FRESH, IMU_FRESH};
 
 struct Options {
     reports: ReportOptions,
@@ -91,7 +90,6 @@ pub(super) fn run(args: impl Iterator<Item = String>) -> io::Result<()> {
         Ok(device) => Some((
             Screen::new(device).map_err(display_error)?,
             Dashboard::default(),
-            History::new(),
         )),
         Err(display::Error::Unsupported) => None,
         Err(error) => return Err(display_error(error)),
@@ -111,32 +109,23 @@ pub(super) fn run(args: impl Iterator<Item = String>) -> io::Result<()> {
         }
     };
     let mut view = View::default();
-    let mut sensors = ObservationService::<2>::new(IMU_FRESH, Some(FIX_FRESH));
-    let required = sensors
-        .start_gnss(
-            composition::gnss::primary_gnss(),
-            events.clone(),
-            Event::Sensor,
-        )
-        .and_then(|()| {
-            sensors.start_imu(
-                0,
-                composition::imu::primary_imu(),
-                events.clone(),
-                Event::Sensor,
-            )
-        });
-    if let Err(fault) = required {
-        sensors.request_stop(report_fault);
-        sensors.join(report_fault);
-        return Err(io::Error::other(format!("open required sensor: {fault:?}")));
-    }
-    let secondary = composition::imu::optional::secondary().is_some_and(|device| {
-        available(sensors.start_imu(1, device, events.clone(), Event::Sensor))
-    });
+    let mut sensors = ObservationService::<2>::start(
+        IMU_FRESH,
+        Some(FIX_FRESH),
+        events.clone(),
+        Event::Sensor,
+        |inputs| {
+            inputs.gnss(composition::gnss::primary_gnss(), Requirement::Required)?;
+            inputs.imu(0, composition::imu::primary_imu(), Requirement::Required)?;
+            if let Some(device) = composition::imu::optional::secondary() {
+                inputs.imu(1, device, Requirement::Optional)?;
+            }
+            Ok(())
+        },
+    )
+    .map_err(io::Error::other)?;
     let mut reports = match Reports::start(
         interval,
-        secondary,
         Outputs {
             usb: options.reports.usb_stream,
             archive: options.reports.archive,
@@ -147,8 +136,7 @@ pub(super) fn run(args: impl Iterator<Item = String>) -> io::Result<()> {
     ) {
         Ok(reports) => reports,
         Err(error) => {
-            sensors.request_stop(report_fault);
-            sensors.join(report_fault);
+            let _ = sensors.join();
             return Err(error);
         }
     };
@@ -171,7 +159,6 @@ pub(super) fn run(args: impl Iterator<Item = String>) -> io::Result<()> {
         }
     });
 
-    let mut reported_drops = [0; 3];
     let mut rendered = 0_u32;
     let mut next_plot = reports.deadline();
     let mut redraw = true;
@@ -185,7 +172,7 @@ pub(super) fn run(args: impl Iterator<Item = String>) -> io::Result<()> {
             let update = reports.view(view);
             if update != view {
                 redraw = true;
-                if let Some((_, dashboard, _)) = &mut display {
+                if let Some((_, dashboard)) = &mut display {
                     if let Some(key) = update.key {
                         if let Err(error) = dashboard.show_code(&key) {
                             break Err(display_error(error));
@@ -197,29 +184,16 @@ pub(super) fn run(args: impl Iterator<Item = String>) -> io::Result<()> {
                 view = update;
             }
         }
-        if report_due {
-            if options.reports.usb_stream {
-                let ([primary, secondary], gnss) = sensors.dropped();
-                for ((name, count), reported) in ["IMU 1", "IMU 2", "GNSS"]
-                    .into_iter()
-                    .zip([primary, secondary, gnss])
-                    .zip(&mut reported_drops)
-                {
-                    if let Some(count) = count.filter(|count| *count > *reported) {
-                        eprintln!("motion-tracker {name} queue drops: {count}");
-                        *reported = count;
-                    }
-                }
-            }
-            sensors.reap_finished(report_fault);
+        let paint = display.is_some() && (plot_due || redraw);
+        let snapshot = (report_due || paint).then(|| sensors.snapshot(now));
+        if let Some(snapshot) = snapshot.filter(|_| report_due) {
             if touch.as_ref().is_some_and(touch::Session::is_finished) {
                 let mut finished = touch.take().unwrap();
                 eprintln!("motion-tracker touch stopped: {:?}", finished.join());
             }
-            let snapshot = match reports.publish(&sensors, now) {
-                Ok(snapshot) => snapshot,
-                Err(error) => break Err(error),
-            };
+            if let Err(error) = reports.publish(snapshot, now) {
+                break Err(error);
+            }
             if options.reports.frames.is_some() {
                 rendered += 1;
                 if options.reports.frames == Some(rendered) {
@@ -228,13 +202,13 @@ pub(super) fn run(args: impl Iterator<Item = String>) -> io::Result<()> {
                         interval.as_millis(),
                         tracker::status(snapshot.imu[0]),
                         tracker::status(snapshot.imu[1]),
-                        tracker::reading_status(&snapshot.gnss),
+                        tracker::status(snapshot.gnss),
                     );
                     // Preserve a failing status for bring-up scripts.
                     use tracker::Reading::{Fault, Live};
                     break if !matches!(snapshot.imu[0], Some(Live(_)))
                         || snapshot.imu[1].is_some_and(|reading| !matches!(reading, Live(_)))
-                        || matches!(snapshot.gnss, Fault)
+                        || matches!(snapshot.gnss, None | Some(Fault))
                     {
                         Err(io::Error::other(
                             "sensor acquisition failed or an IMU never reported",
@@ -245,17 +219,14 @@ pub(super) fn run(args: impl Iterator<Item = String>) -> io::Result<()> {
                 }
             }
         }
-        if let Some((screen, dashboard, history)) = display.as_mut().filter(|_| plot_due || redraw)
+        if let (Some((screen, dashboard)), Some(snapshot)) =
+            (display.as_mut().filter(|_| paint), snapshot)
         {
-            let snapshot = match reports.snapshot(&sensors, now) {
-                Ok(snapshot) => snapshot,
-                Err(error) => break Err(error),
-            };
             if plot_due {
-                history.record(&snapshot, now);
+                dashboard.record(&snapshot, now);
                 next_plot = now + SAMPLE_INTERVAL;
             }
-            if let Err(error) = screen.render(dashboard, view.link, &snapshot, history, now) {
+            if let Err(error) = screen.render(dashboard, view.link, &snapshot, now) {
                 break Err(display_error(error));
             }
             redraw = false;
@@ -272,13 +243,9 @@ pub(super) fn run(args: impl Iterator<Item = String>) -> io::Result<()> {
         };
         match inbox.wait(Some(wake.saturating_duration_since(Instant::now()))) {
             Ok(Event::LinkChanged) => links_changed = true,
-            Ok(Event::Sensor(event)) => {
-                if let Some(fault) = sensors.observe(event) {
-                    report_fault(fault);
-                }
-            }
+            Ok(Event::Sensor(event)) => sensors.observe(event),
             Ok(Event::Touch { event, missed }) => {
-                let Some((screen, dashboard, _)) = &mut display else {
+                let Some((screen, dashboard)) = &mut display else {
                     continue;
                 };
                 if missed {
@@ -303,14 +270,9 @@ pub(super) fn run(args: impl Iterator<Item = String>) -> io::Result<()> {
     };
 
     // Ask all workers to stop before waiting for any one join.
-    let mut sensor_failed = false;
-    let mut report = |fault| {
-        sensor_failed = true;
-        report_fault(fault);
-    };
-    sensors.request_stop(&mut report);
+    let stop_sensors = sensors.request_stop();
     let stop_touch = touch.as_mut().map(touch::Session::request_stop);
-    sensors.join(report);
+    let join_sensors = sensors.join();
     let join_touch = touch.as_mut().map(touch::Session::join);
     let finish_reports = reports.finish();
     for (operation, failed) in [
@@ -324,21 +286,9 @@ pub(super) fn run(args: impl Iterator<Item = String>) -> io::Result<()> {
             }
         }
     }
-    if sensor_failed && result.is_ok() {
-        return Err(io::Error::other("stop sensor acquisition"));
-    }
-    result.and(finish_reports)
-}
-
-fn available(result: Result<(), SensorFault>) -> bool {
-    match result {
-        Err(SensorFault::Imu(_, imu::DeviceError::Unsupported)) => false,
-        Err(fault) => {
-            report_fault(fault);
-            true
-        }
-        Ok(()) => true,
-    }
+    result
+        .and(stop_sensors.and(join_sensors).map_err(io::Error::other))
+        .and(finish_reports)
 }
 
 fn failed<T>(result: Option<Result<(), T>>) -> bool {

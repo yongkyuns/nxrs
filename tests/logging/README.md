@@ -1,9 +1,9 @@
 # Cross-platform service logging
 
-Navigation emits optional diagnostics through Rust `log` with its `probe` feature.
-Qualification startup installs one logger before creating services. The observation service's configuration
-record is the same in the desktop, browser and NuttX tests. Tracker
-measurements continue through the typed observation stream.
+Navigation emits acquisition faults and queue-drop diagnostics through Rust
+`log`. Its `probe` feature also emits the configuration record used by the
+desktop, browser and NuttX qualifications. Qualification startup installs the
+logger. Tracker measurements continue through the typed observation stream.
 
 ## Desktop
 
