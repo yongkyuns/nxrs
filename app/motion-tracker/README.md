@@ -109,9 +109,11 @@ The export sends each received IMU sample at the configured 100 Hz and each
 valid GNSS fix at 2 Hz on the dual-IMU CoreS3 profiles. The GNSS driver verifies
 a 500 ms navigation period in receiver RAM and restores the previous
 configuration on shutdown. The phone shows acceleration and gyroscope for
-both IMUs, recent fixes on the map, observed rates, and sequence gaps. The
-export queue is bounded. Slow phone reads can leave gaps while the sensors and
-display keep running.
+both IMUs, recent fixes on the map, observed rates, and sequence gaps. Export
+starts with each authenticated connection. If the tracker fills its export
+buffer, it delivers the samples already queued and reports an incomplete
+export. Sensor acquisition and the display continue. The phone also marks an
+export incomplete if it detects a sequence gap.
 
 Pairing is opt-in for each run. The TLS 1.2 PSK cipher is
 `TLS_PSK_WITH_AES_128_GCM_SHA256` and the PSK identity is `nxrs-tracker-v1`.
@@ -132,7 +134,8 @@ the unchanged `3400`, `3401` and `3402` UUIDs and handles, and is advertised
 in the scan response. Dashboard snapshots retain the v1 NDJSON
 layout used by USB and cellular. Binary export begins after the authenticated
 client sends the bytes `4e 58 52 53 01`. Each batch starts with `a5 01` and a
-little-endian 16-bit payload length. It contains up to 16 records. Each record
+little-endian 16-bit payload length. A zero payload length reports capture
+buffer overflow. A data batch contains up to 16 records. Each record
 has a one-byte kind (IMU 1, IMU 2, GNSS are 1, 2, 3), the low 32 bits of the
 source sequence, and the low 32 bits of monotonic reception time in
 milliseconds. All numbers are little-endian. IMU values are six float32s

@@ -37,7 +37,7 @@ public struct TrackerFrames {
     private var pending = Data()
     public init() {}
 
-    public enum FrameError: Error { case invalidRecord }
+    public enum FrameError: Error { case invalidRecord, captureOverflow }
 
     public mutating func receive(_ bytes: Data, emit: (TrackerTelemetry) -> Void) throws {
         for byte in bytes {
@@ -98,9 +98,11 @@ public struct TrackerExportFrames {
             if pending[0] == 0xa5 {
                 guard pending.count >= 4 else { continue }
                 let count = Int(pending[2]) | (Int(pending[3]) << 8)
-                guard pending[1] == 1, (29...528).contains(count) else {
+                guard pending[1] == 1 else {
                     throw TrackerFrames.FrameError.invalidRecord
                 }
+                if count == 0 { throw TrackerFrames.FrameError.captureOverflow }
+                guard (29...528).contains(count) else { throw TrackerFrames.FrameError.invalidRecord }
                 if pending.count == count + 4 {
                     try Self.decode(pending, emit: measurement)
                     pending.removeAll(keepingCapacity: true)

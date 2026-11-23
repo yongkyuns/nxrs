@@ -11,18 +11,29 @@ pub const REQUEST: &[u8; 5] = b"NXRS\x01";
 const QUEUE: usize = 128;
 const BATCH: usize = 16;
 pub const MAX_BYTES: usize = 4 + BATCH * 33;
+pub const OVERFLOW_FRAME: [u8; 4] = [0xa5, 1, 0, 0];
 
 #[derive(Default)]
 pub struct Capture {
     enabled: AtomicBool,
-    samples: Mutex<VecDeque<Measurement>>,
+    samples: Mutex<Samples>,
+}
+
+#[derive(Default)]
+struct Samples {
+    queue: VecDeque<Measurement>,
+    overflowed: bool,
 }
 
 impl Capture {
     pub fn enable(&self) -> io::Result<()> {
         let mut samples = self.samples.lock().unwrap();
-        samples.clear();
-        samples.try_reserve_exact(QUEUE).map_err(io::Error::other)?;
+        samples.queue.clear();
+        samples
+            .queue
+            .try_reserve_exact(QUEUE)
+            .map_err(io::Error::other)?;
+        samples.overflowed = false;
         self.enabled.store(true, Ordering::Release);
         Ok(())
     }
@@ -32,23 +43,42 @@ impl Capture {
     }
 
     pub fn record(&self, sample: Measurement) {
-        if self.enabled.load(Ordering::Acquire) {
-            if let Ok(mut samples) = self.samples.try_lock() {
-                if self.enabled.load(Ordering::Relaxed) && samples.len() < QUEUE {
-                    samples.push_back(sample);
-                }
-            }
+        if !self.enabled.load(Ordering::Acquire) {
+            return;
         }
+        // This runs in the acquisition task. The consumer holds the lock
+        // only for a bounded copy, with no encoding or transport I/O.
+        let mut samples = self.samples.lock().unwrap();
+        if !self.enabled.load(Ordering::Relaxed) {
+            return;
+        }
+        if samples.queue.len() == QUEUE {
+            samples.overflowed = true;
+            self.disable();
+            return;
+        }
+        samples.queue.push_back(sample);
     }
 
     pub fn take(&self, output: &mut [u8; MAX_BYTES]) -> usize {
-        let mut samples = self.samples.lock().unwrap();
-        let count = samples.len().min(BATCH);
-        if count == 0 {
-            return 0;
-        }
+        let mut batch = [None; BATCH];
+        let count = {
+            let mut samples = self.samples.lock().unwrap();
+            let count = samples.queue.len().min(BATCH);
+            if count == 0 {
+                if samples.overflowed {
+                    output[..OVERFLOW_FRAME.len()].copy_from_slice(&OVERFLOW_FRAME);
+                    return OVERFLOW_FRAME.len();
+                }
+                return 0;
+            }
+            for sample in &mut batch[..count] {
+                *sample = samples.queue.pop_front();
+            }
+            count
+        };
         let mut end = 4;
-        for sample in samples.drain(..count) {
+        for sample in batch.into_iter().take(count).flatten() {
             end += encode(sample, &mut output[end..]);
         }
         output[..2].copy_from_slice(&[0xa5, 1]);
@@ -81,5 +111,68 @@ fn encode(sample: Measurement, output: &mut [u8]) -> usize {
             output[25..29].copy_from_slice(&fix.speed_mps.to_le_bytes());
             29
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::{sync::mpsc, thread, time::Duration};
+
+    fn fix(sequence: u64) -> Measurement {
+        Measurement::Gnss(gnss::GnssFix {
+            sequence,
+            timestamp_ms: sequence * 500,
+            latitude_deg: 45.0,
+            longitude_deg: -76.0,
+            speed_mps: 2.0,
+            course_rad: None,
+        })
+    }
+
+    #[test]
+    fn arrival_during_queue_access_is_delivered() {
+        let capture = Capture::default();
+        capture.enable().unwrap();
+        thread::scope(|scope| {
+            let queue = capture.samples.lock().unwrap();
+            let (started, ready) = mpsc::channel();
+            let (finished, complete) = mpsc::channel();
+            let capture = &capture;
+            scope.spawn(move || {
+                started.send(()).unwrap();
+                capture.record(fix(1));
+                finished.send(()).unwrap();
+            });
+            ready.recv().unwrap();
+            let early = complete.recv_timeout(Duration::from_millis(40));
+            drop(queue);
+            assert_eq!(early, Err(mpsc::RecvTimeoutError::Timeout));
+            complete.recv().unwrap();
+        });
+        let mut bytes = [0; MAX_BYTES];
+        assert_eq!(capture.take(&mut bytes), 33);
+        assert_eq!(bytes[4], 3);
+        assert_eq!(&bytes[5..9], &1_u32.to_le_bytes());
+    }
+
+    #[test]
+    fn overflow_drains_admitted_records_and_stops_the_export() {
+        let capture = Capture::default();
+        capture.enable().unwrap();
+        for sequence in 0..=(QUEUE + 1) {
+            capture.record(fix(sequence as u64));
+        }
+        let mut bytes = [0; MAX_BYTES];
+        for first in (0..QUEUE).step_by(BATCH) {
+            assert_eq!(capture.take(&mut bytes), 4 + BATCH * 29);
+            assert_eq!(&bytes[5..9], &(first as u32).to_le_bytes());
+        }
+        assert_eq!(capture.take(&mut bytes), OVERFLOW_FRAME.len());
+        assert_eq!(&bytes[..OVERFLOW_FRAME.len()], &OVERFLOW_FRAME);
+        capture.enable().unwrap();
+        assert_eq!(capture.take(&mut bytes), 0);
+        capture.record(fix(QUEUE as u64 + 2));
+        assert_eq!(capture.take(&mut bytes), 33);
     }
 }

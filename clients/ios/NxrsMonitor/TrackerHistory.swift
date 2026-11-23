@@ -47,6 +47,7 @@ struct TrackerHistory {
     var positions: [Position] = []
     var counts: [Count] = [.init(), .init(), .init()]
     var hasData: Bool { counts.contains { $0.received != 0 } }
+    var hasGaps: Bool { counts.contains { $0.dropped != 0 } }
 
     mutating func append(_ measurement: TrackerMeasurement) {
         switch measurement {

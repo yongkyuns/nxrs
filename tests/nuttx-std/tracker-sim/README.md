@@ -213,8 +213,8 @@ collector receives fresh data again. Use `--shift 3` for a faster continuity
 check. Accelerated timings include the effect of QEMU's virtual clock on the
 host-driven BLE controller.
 
-Use `--export` to exercise the notification service. The peer receives both
-IMU streams and the GNSS stream without sequence gaps, disconnects, and uses
+Use `--export` to exercise the notification service. The peer receives at
+least 6,000 consecutive samples per IMU and 120 GNSS fixes, disconnects, and uses
 the same pairing key to start a new export while the cellular TLS connection
 remains active.
 

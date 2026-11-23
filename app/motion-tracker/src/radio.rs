@@ -1,5 +1,5 @@
 use crate::{
-    export::{Capture, MAX_BYTES, REQUEST},
+    export::{Capture, MAX_BYTES, OVERFLOW_FRAME, REQUEST},
     text::Text,
     tracker::Snapshot,
     wire,
@@ -197,7 +197,11 @@ impl<'a, L: Listener> Output<'a, L> {
                 };
                 if notifications && self.request_len == REQUEST.len() && now >= self.next_export {
                     self.export_len = self.capture.take(&mut self.export);
-                    self.next_export = now + Duration::from_millis(40);
+                    self.next_export = if self.export_len == OVERFLOW_FRAME.len() {
+                        self.expires
+                    } else {
+                        now + Duration::from_millis(40)
+                    };
                     if self.export_len != 0 {
                         Self::write_export(conn, &self.export[..self.export_len], &mut self.sent)?;
                         if self.sent == self.export_len {

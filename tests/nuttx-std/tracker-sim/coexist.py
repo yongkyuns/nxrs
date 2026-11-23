@@ -17,6 +17,7 @@ from upload import COLLECTOR, TcpStamp, collector, is_live, network
 
 RAM_UART_SIZE = 2048
 FRAMES = 80
+EXPORT_FRAMES = 160
 INTERVAL_MS = 500
 BLE_READ_TIMEOUT = 5
 MAX_WALL_BLE_GAP = 2.5
@@ -158,7 +159,7 @@ class Scenario:
     async def sample_export(self, guest, panel, phone, key):
         before = self.collector_samples[1]['imu'][0]['seq']
         previous = None
-        for minimum in (500, 200):
+        for minimum in (6_000, 200):
             connection, rx, tx = await connect(phone, export=True)
             assert await Peer(connection).request_mtu(247) >= 64
             await tx.discover_descriptors()
@@ -185,7 +186,7 @@ class Scenario:
         latest = [None] * 3
         count = [0] * 3
         dashboard = 0
-        async with asyncio.timeout(35):
+        async with asyncio.timeout(75):
             while min(count[:2]) < minimum or count[2] < minimum // 50 or dashboard < 2:
                 record = await stream.export_record()
                 if isinstance(record, dict):
@@ -222,7 +223,8 @@ class Scenario:
         await guest.wait_text(b'nsh>')
         offset = len(guest.buffer)
         guest.command(
-            f'motion_tracker --frames {FRAMES} --interval-ms {INTERVAL_MS} --stream-usb --ble '
+            f'motion_tracker --frames {EXPORT_FRAMES if args.export else FRAMES} '
+            f'--interval-ms {INTERVAL_MS} --stream-usb --ble '
             f'--cellular-apn nxrs.test --collector {COLLECTOR}:{stamp.port} --collector-pin {self.pin}')
         key = await panel.pairing_key()
         await wait_until(lambda: self.collector_live(1), 'initial cellular TLS telemetry', 12)

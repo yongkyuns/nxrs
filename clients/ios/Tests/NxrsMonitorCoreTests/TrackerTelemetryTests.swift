@@ -61,4 +61,15 @@ extension TrackerTelemetryTests {
             XCTAssertThrowsError(try parser.receive(bytes, snapshot: { _ in XCTFail() }, measurement: { _ in XCTFail() }))
         }
     }
+
+    func testExportDetectsTrackerBufferOverflow() throws {
+        var parser = TrackerExportFrames()
+        try parser.receive(Data([0xa5, 1, 0]), snapshot: { _ in XCTFail() }, measurement: { _ in XCTFail() })
+        XCTAssertThrowsError(try parser.receive(Data([0]), snapshot: { _ in XCTFail() },
+                                                measurement: { _ in XCTFail() })) { error in
+            guard case TrackerFrames.FrameError.captureOverflow = error else {
+                return XCTFail("Expected an explicit capture overflow")
+            }
+        }
+    }
 }

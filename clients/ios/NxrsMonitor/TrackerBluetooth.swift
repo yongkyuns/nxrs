@@ -320,8 +320,15 @@ import NxrsMonitorCore
                             self.reading = newest
                             self.lastReading = .now
                             self.retries = 0
+                        }
+                        if self.capture.hasGaps {
+                            self.status = "Sensor export incomplete. Samples missing."
+                        } else if newest != nil {
                             self.status = self.notifying ? "Secure connection" : "Dashboard only"
                         }
+                    } catch TrackerFrames.FrameError.captureOverflow {
+                        self.stop("Sensor export incomplete. Tracker buffer filled.")
+                        return
                     } catch {
                         self.stop("Invalid tracker telemetry")
                         return
