@@ -1,12 +1,17 @@
 use crate::{charts, communications, screen, tracker, wire, ReportOptions};
 use battery::Device as _;
 use charts::{History, SAMPLE_INTERVAL};
-use communications::{CellularConfig, Collector, Communications, Pairing, View};
+use communications::{
+    Capture, CellularConfig, Collector, Communications, LinkStatus, Pairing, View,
+};
 use messaging::bounded;
-use navigation::observations::{Observation, ObservationService};
+use navigation::observations::{Measurement, Observation, ObservationService};
 use screen::{Action, Dashboard, Screen};
 use std::io::{self, Write};
-use std::sync::mpsc::{RecvTimeoutError, TrySendError};
+use std::sync::{
+    mpsc::{RecvTimeoutError, TrySendError},
+    Arc, Mutex,
+};
 use std::time::Instant;
 use touch::Session as _;
 use tracker::{report_fault, Snapshot, FIX_FRESH, IMU_FRESH};
@@ -47,9 +52,7 @@ impl Options {
         }
         let collector = match (collector, pin) {
             (None, None) => None,
-            (Some(address), Some(pin)) if apn.is_some() => {
-                Some(Collector::parse(&address, &pin)?)
-            }
+            (Some(address), Some(pin)) if apn.is_some() => Some(Collector::parse(&address, &pin)?),
             _ => {
                 return Err(io::Error::new(
                     io::ErrorKind::InvalidInput,
@@ -99,28 +102,61 @@ pub(super) fn run(args: impl Iterator<Item = String>) -> io::Result<()> {
             let _ = events.try_send(Event::LinkChanged);
         }
     };
+    use imu::Device as _;
+    let primary = composition::imu::primary_imu();
+    let secondary = composition::imu::secondary();
+    let primary_scale = primary.default_config().and_then(|config| primary.resolve(config));
+    let secondary_scale = secondary.default_config().and_then(|config| secondary.resolve(config));
+    let capture = Arc::new(Capture::new(
+        [primary_scale, secondary_scale]
+            .map(|applied| applied.ok().and_then(|config| config.counts_scale)),
+    ));
+    let latest = Arc::new(Mutex::new([None, None, None]));
+    let sensor_event = {
+        let capture = capture.clone();
+        let latest = latest.clone();
+        move |event: Observation| {
+            let Some(sample) = event.measurement() else {
+                return Some(Event::Sensor(event));
+            };
+            capture.record(sample);
+            let index = match sample {
+                Measurement::Imu(index, _) => index,
+                Measurement::Gnss(_) => 2,
+            };
+            latest.lock().unwrap()[index] = Some(event);
+            None
+        }
+    };
     let mut communications = (options.ble || options.cellular.is_some())
-        .then(|| Communications::start(options.ble, options.cellular, notify_links.clone()))
+        .then(|| {
+            Communications::start(
+                options.ble,
+                options.cellular,
+                capture.clone(),
+                notify_links.clone(),
+            )
+        })
         .transpose()?;
     let mut view = View::default();
     let mut sensors = ObservationService::<2>::new(IMU_FRESH, Some(FIX_FRESH));
     for result in [
-        sensors.start_imu(
+        sensors.start_imu_with(
             0,
-            composition::imu::primary_imu(),
+            primary,
             events.clone(),
-            Event::Sensor,
+            sensor_event.clone(),
         ),
-        sensors.start_imu(
+        sensors.start_imu_with(
             1,
-            composition::imu::secondary(),
+            secondary,
             events.clone(),
-            Event::Sensor,
+            sensor_event.clone(),
         ),
-        sensors.start_gnss(
+        sensors.start_gnss_with(
             composition::gnss::primary_gnss(),
             events.clone(),
-            Event::Sensor,
+            sensor_event.clone(),
         ),
     ] {
         if let Err(fault) = result {
@@ -162,8 +198,19 @@ pub(super) fn run(args: impl Iterator<Item = String>) -> io::Result<()> {
                         }
                     } else {
                         dashboard.hide_code();
+                        if update.link == LinkStatus::Paired {
+                            dashboard.open_menu();
+                        }
                     }
                     view = update;
+                }
+            }
+        }
+        if report_due || plot_due || redraw {
+            let current = std::mem::take(&mut *latest.lock().unwrap());
+            for event in current.into_iter().flatten() {
+                if let Some(fault) = sensors.observe(event) {
+                    report_fault(fault);
                 }
             }
         }
@@ -188,7 +235,8 @@ pub(super) fn run(args: impl Iterator<Item = String>) -> io::Result<()> {
             }
         }
         if report_due {
-            let snapshot = Snapshot::from(sensors.snapshot(now));
+            let mut snapshot = Snapshot::from(sensors.snapshot(now));
+            snapshot.clock = capture.clock();
             if let Some(serial) = &mut serial {
                 let mut writer = serial.lock();
                 let written = wire::frame(&snapshot)
@@ -233,8 +281,10 @@ pub(super) fn run(args: impl Iterator<Item = String>) -> io::Result<()> {
                 history.record(&snapshot, now);
                 next_plot = now + SAMPLE_INTERVAL;
             }
-            if let Err(error) = screen.render(&dashboard, view.link, &snapshot, &history, now) {
-                break Err(display_error(error));
+            if let Err(error) = render(view.link, || {
+                screen.render(&dashboard, view.link, &snapshot, &history, now)
+            }) {
+                break Err(error);
             }
             redraw = false;
             let finished = Instant::now();
@@ -258,7 +308,12 @@ pub(super) fn run(args: impl Iterator<Item = String>) -> io::Result<()> {
                 match screen.input(&mut dashboard, view.link, event) {
                     Some(Action::Pair) => match &communications {
                         Some(links) => links.pair(Pairing::Start),
-                        None => match Communications::start(true, None, notify_links.clone()) {
+                        None => match Communications::start(
+                            true,
+                            None,
+                            capture.clone(),
+                            notify_links.clone(),
+                        ) {
                             Ok(links) => communications = Some(links),
                             Err(error) => eprintln!("motion-tracker pairing: {error}"),
                         },
@@ -314,6 +369,27 @@ fn failed<T>(result: Option<Result<(), T>>) -> bool {
 
 fn display_error(error: display::Error) -> io::Error {
     io::Error::other(format!("tracker display: {error:?}"))
+}
+
+fn render(link: LinkStatus, paint: impl FnOnce() -> Result<(), display::Error>) -> io::Result<()> {
+    if link != LinkStatus::Connected {
+        return paint().map_err(display_error);
+    }
+    // The display provider's synchronous SPI draws run at the product's
+    // background priority, below acquisition and Bluetooth host workers.
+    match execution::configure_current(execution::Priority::Background) {
+        Ok(()) => {}
+        Err(execution::Error::Unsupported) => return paint().map_err(display_error),
+        Err(error) => {
+            return Err(io::Error::other(format!(
+                "tracker display priority: {error:?}"
+            )))
+        }
+    }
+    let painted = paint().map_err(display_error);
+    let restored = execution::configure_current(execution::Priority::Normal)
+        .map_err(|error| io::Error::other(format!("tracker restore priority: {error:?}")));
+    painted.and(restored)
 }
 
 fn report_battery() -> io::Result<()> {

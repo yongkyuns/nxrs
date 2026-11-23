@@ -122,3 +122,14 @@ method. Repeat for three independent runs with fresh captures.
 If cellular data goes silent and NuttX still reports PPP online, record it as
 an IP blackhole. Blocking the collector alone exercises TLS reconnect over
 existing PPP. A CoreS3 reset invalidates the BLE continuity measurement.
+
+## iPhone full-rate BLE export
+
+With the same qualified cellular collector and the CoreS3 display active,
+open Motion Tracker on iPhone and scan the CoreS3 pairing code. Confirm the
+acceleration and gyroscope plots respond on both IMUs, and the map shows the
+tracker's GNSS fix. Observe the **Sensor export** counters for at least 60
+seconds after all sources are live. Require zero new sequence gaps and zero
+reconnects, roughly 6,000 new samples from each IMU and 120 new valid fixes,
+and fresh cellular records at the collector throughout the same window.
+Record the rates and count deltas without saving location or pairing keys.

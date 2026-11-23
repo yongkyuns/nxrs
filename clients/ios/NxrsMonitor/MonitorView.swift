@@ -23,7 +23,7 @@ struct MonitorView: View {
                     }
             }
         }
-        .sheet(isPresented: $showTracker) { TrackerView() }
+        .sheet(isPresented: $showTracker) { TrackerView(connectionChanged: model.setTrackerActive) }
         .tint(HomeTheme.forest)
         .preferredColorScheme(settings.colorScheme)
         .overlay(alignment: .top) {

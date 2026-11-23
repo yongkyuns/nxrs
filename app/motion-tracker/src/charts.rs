@@ -147,6 +147,7 @@ mod tests {
             Reading::Live(gnss::GnssFix {
                 sequence,
                 timestamp_ms: 0,
+                receiver_utc_ms: None,
                 latitude_deg: 0.0,
                 longitude_deg,
                 speed_mps: 0.0,
@@ -154,6 +155,7 @@ mod tests {
             })
         };
         let mut snapshot = Snapshot {
+            clock: None,
             imu: [Reading::Waiting; 2],
             gnss: fix(1, 179.9999),
         };

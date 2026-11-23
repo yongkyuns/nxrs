@@ -32,13 +32,16 @@ mod diagnostics {
 
 fn inbox_sink<T: Copy, E>(
     sender: messaging::Sender<E>,
-    wrap: impl Fn(T) -> E,
+    wrap: impl Fn(T) -> Option<E>,
 ) -> impl FnMut(T) -> messaging::DeliveryResult<T> {
     use messaging::{DeliveryError, Rejected};
     use std::sync::mpsc::TrySendError;
 
     move |value| {
-        sender.try_send(wrap(value)).map_err(|error| Rejected {
+        let Some(event) = wrap(value) else {
+            return Ok(());
+        };
+        sender.try_send(event).map_err(|error| Rejected {
             value,
             error: match error {
                 TrySendError::Full(_) => DeliveryError::Full,

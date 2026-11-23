@@ -1,5 +1,6 @@
 /* Tracker device models below the real NuttX I2C, SPI, touch and MTD drivers. */
 #include <nuttx/config.h>
+#include <nuttx/arch.h>
 #include <nuttx/i2c/i2c_master.h>
 #include <nuttx/input/ft5x06.h>
 #include <nuttx/mtd/configdata.h>
@@ -60,6 +61,8 @@ volatile uint32_t tracker_frame_sequence;
 volatile uint32_t tracker_touch_input = 1u << 30;
 volatile uint32_t tracker_touch_reads;
 volatile uint32_t tracker_model_error;
+volatile uint32_t tracker_panel_work_us;
+volatile uint32_t tracker_panel_busy_rows;
 static unsigned int g_color_count;
 static unsigned int g_column, g_last_column, g_page, g_last_page;
 static unsigned int g_x, g_y;
@@ -139,6 +142,12 @@ static void panel_exchange(const uint8_t *bytes, size_t size)
     }
   else if (!g_lcd_cmd && g_lcd_register == 0x2c)
     {
+      if (tracker_panel_work_us != 0 && g_y % 8 == 0)
+        {
+          tracker_panel_busy_rows++;
+          up_udelay(tracker_panel_work_us);
+        }
+
       draw_pixels(bytes, size);
     }
 }
@@ -343,11 +352,12 @@ static void spi_exchange(struct spi_dev_s *dev, const void *tx, void *rx,
           nxmutex_lock(&g_i2c_lock);
           g_inject_imu_failure = scenario && strcmp(scenario, "imu") == 0;
           nxmutex_unlock(&g_i2c_lock);
-          g_stall_panel = scenario && strcmp(scenario, "queue") == 0;
+          g_stall_panel = scenario && strcmp(scenario, "paint") == 0;
         }
-      else if (g_stall_panel && g_lcd_register == 0x2c)
+      else if (g_stall_panel && g_lcd_register == 0x2c &&
+               access("/tracker-fixture/stall-panel", F_OK) == 0)
         {
-          /* Delay the app's first paint while acquisition threads keep running. */
+          /* Delay one paint after the host sees live telemetry. */
           g_stall_panel = false;
           puts("TRACKER_PANEL_STALL");
           usleep(1000000);

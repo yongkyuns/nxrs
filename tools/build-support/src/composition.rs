@@ -112,6 +112,15 @@ impl Composition {
                     ),
                 ));
             }
+            if let Some(period) = device.navigation_period_ms {
+                if owners[0] != "gnss" || !(40..=10_000).contains(&period) {
+                    return Err(diagnostic(
+                        origins,
+                        &format!("devices.{id}.navigation-period-ms"),
+                        "requires a GNSS device and a period of 40–10000 ms",
+                    ));
+                }
+            }
         }
         for (capability, _) in catalogs.packages() {
             self.accessors(catalogs, capability)
@@ -281,6 +290,12 @@ pub(crate) struct Device {
     #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) wake: Option<Wake>,
+    #[serde(
+        default,
+        rename = "navigation-period-ms",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub(crate) navigation_period_ms: Option<u16>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]

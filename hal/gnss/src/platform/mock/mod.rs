@@ -21,6 +21,7 @@ impl SyntheticGnss {
         Ok(GnssFix {
             sequence: self.sequence,
             timestamp_ms: now_ms,
+            receiver_utc_ms: None,
             latitude_deg: f64::from(self.north_m) / 111_319.490_793,
             longitude_deg: f64::from(self.east_m) / 111_319.490_793,
             speed_mps: 4.0,

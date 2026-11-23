@@ -43,16 +43,17 @@ class Guest:
         self.stale = False
         self.pause_fixes = False
         self.fail_imu = fixture / 'fail-imu'
-        self.inject_imu_failure = False
+        self.stall_panel = fixture / 'stall-panel'
+        self.fault_trigger = None
 
     def record(self, sample):
         self.samples.append(sample)
-        if self.inject_imu_failure and sample['gnss']['state'] == 'live' and all(
+        if self.fault_trigger is not None and sample['gnss']['state'] == 'live' and all(
             source['state'] == 'live' for source in sample['imu']
         ):
             check_live(sample)
-            self.fail_imu.touch()
-            self.inject_imu_failure = False
+            self.fault_trigger.touch()
+            self.fault_trigger = None
         if self.pause_fixes:
             if not self.live and sample['gnss']['state'] == 'live':
                 check_live(sample)
@@ -130,8 +131,9 @@ class Guest:
         self.receiver = None
         self.live = self.stale = False
         self.pause_fixes = pause_fixes
-        self.inject_imu_failure = scenario == b'imu'
         self.fail_imu.unlink(missing_ok=True)
+        self.stall_panel.unlink(missing_ok=True)
+        self.fault_trigger = {b'imu': self.fail_imu, b'paint': self.stall_panel}.get(scenario)
         if scenario:
             self.until(b'nsh> ', self.command(b'set TRACKER_SIM_CASE ' + scenario))
         else:
@@ -163,7 +165,7 @@ def run(image, log):
             status = guest.command(b'echo fixture-mount:$?')
             guest.until(b'nsh> ', status)
             assert b'fixture-mount:0\n' in guest.console[status:], guest.console[status:]
-            for scenario in (b'', b'imu', b'queue', b''):
+            for scenario in (b'', b'imu', b'paint', b''):
                 transcript = guest.tracker(scenario, 12 if not scenario else 9,
                                            pause_fixes=not scenario, status=int(scenario == b'imu'))
                 tail = guest.samples[-3:] if scenario else guest.samples[-2:]
@@ -182,15 +184,20 @@ def run(image, log):
                         check_fix(sample)
                     print('PASS: primary IMU fails while secondary IMU and GNSS keep reporting', flush=True)
                 else:
-                    if scenario == b'queue':
+                    if scenario == b'paint':
                         before, marker, after = transcript.partition(b'TRACKER_PANEL_STALL\n')
                         assert marker, transcript
-                        drop_line = rb'motion-tracker (IMU [12]|GNSS) queue drops: ([1-9]\d*)\n'
-                        baseline = {name: int(count) for name, count in re.findall(drop_line, before)}
-                        drops = list(re.finditer(drop_line, after))
-                        assert any(int(drop[2]) > baseline.get(drop[1], 0) for drop in drops), transcript
-                        assert after[drops[-1].end():].count(b'{"v":1,') > len(tail), transcript
-                        print('PASS: tracker inbox drops samples during a stalled paint and recovers', flush=True)
+                        first_after = before.count(b'{"v":1,')
+                        assert first_after > 0 and after.count(b'{"v":1,') > len(tail), transcript
+                        previous, resumed = guest.samples[first_after - 1:first_after + 1]
+                        check_live(previous)
+                        check_live(resumed)
+                        for old, new in zip(previous['imu'], resumed['imu']):
+                            assert new['seq'] - old['seq'] >= 80, (old, new)
+                            assert new['received_ms'] - old['received_ms'] >= 800, (old, new)
+                        assert not re.search(rb'motion-tracker (IMU [12]|GNSS) queue drops:', transcript), transcript
+                        print('PASS: both IMUs keep sampling during stalled paint and telemetry resumes fresh',
+                              flush=True)
                     else:
                         assert guest.stale, guest.samples
                     for sample in tail:

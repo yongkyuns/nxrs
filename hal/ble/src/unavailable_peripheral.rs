@@ -1,8 +1,8 @@
-use crate::peripheral::{Link, Listener};
-use crate::{Error, Uuid};
+use crate::peripheral::{Link, Listener, Service};
+use crate::Error;
 use std::io::{self, Read, Write};
 
-pub(crate) fn open(_: Uuid, _: Uuid, _: Uuid) -> Result<impl Listener, Error> {
+pub(crate) fn open(_: Service, _: Option<Service>) -> Result<impl Listener, Error> {
     Err::<Unavailable, _>(Error::Unsupported)
 }
 

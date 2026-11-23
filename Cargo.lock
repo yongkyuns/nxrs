@@ -1107,6 +1107,7 @@ dependencies = [
  "nxrs-cellular",
  "nxrs-composition",
  "nxrs-display",
+ "nxrs-execution",
  "nxrs-gnss",
  "nxrs-imu",
  "nxrs-messaging",
