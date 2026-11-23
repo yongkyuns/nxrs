@@ -31,6 +31,12 @@ impl Line {
     }
 }
 
+impl AsRef<[u8]> for Line {
+    fn as_ref(&self) -> &[u8] {
+        self.as_bytes()
+    }
+}
+
 impl Write for Line {
     fn write_str(&mut self, text: &str) -> fmt::Result {
         for mut ch in text.chars() {

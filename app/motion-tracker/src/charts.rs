@@ -75,7 +75,7 @@ impl History {
         self.motion.push_back(Motion {
             time: now,
             sensors: snapshot.imu.map(|reading| match reading {
-                Reading::Live(sample) => Some(sample),
+                Some(Reading::Live(sample)) => Some(sample),
                 _ => None,
             }),
         });
@@ -154,7 +154,7 @@ mod tests {
             })
         };
         let mut snapshot = Snapshot {
-            imu: [Reading::Waiting; 2],
+            imu: [Some(Reading::Waiting); 2],
             gnss: fix(1, 179.9999),
         };
         history.record(&snapshot, now);

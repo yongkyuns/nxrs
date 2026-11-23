@@ -12,6 +12,7 @@ use display::{Display, Error, Rect, Size};
 use gesture::{Contact, Gesture};
 use qrcodegen::{QrCode, QrCodeEcc};
 use std::{fmt::Write, time::Instant};
+use telemetry_service::motion::LinkStatus;
 
 const STRIP: u16 = 8;
 const GRIP_HEIGHT: i32 = 8;
@@ -33,15 +34,6 @@ enum Page {
     Onboard,
     Module,
     Gnss,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum LinkStatus {
-    Idle,
-    Pairing,
-    Paired,
-    Connected,
-    Unavailable,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -465,7 +457,7 @@ impl<'a> Body<'a> {
                     }
                 }
             }
-            if let Reading::Live(sample) = snapshot.imu[index] {
+            if let Some(Reading::Live(sample)) = snapshot.imu[index] {
                 for value in ui.metric.read(sample) {
                     limit = limit.max(value.abs());
                 }
@@ -546,7 +538,7 @@ impl<'a> Body<'a> {
                     previous = Some((x, ys));
                 }
                 match snapshot.imu[*index] {
-                    Reading::Live(sample) => {
+                    Some(Reading::Live(sample)) => {
                         for (axis, value) in ui.metric.read(sample).into_iter().enumerate() {
                             let mut label = Text::<20>::new();
                             let _ = write!(label, "{} {value:+.2}", char::from(b'X' + axis as u8));
@@ -642,7 +634,7 @@ impl<'a> Body<'a> {
                             MINT,
                         );
                     }
-                    reading => status(canvas, footer, reading, b"WAITING FOR SATELLITES"),
+                    reading => status(canvas, footer, Some(reading), b"WAITING FOR SATELLITES"),
                 }
                 canvas.text(12, footer + 12, b"RECENT FIXES", 1, MUTED);
             }
@@ -650,12 +642,13 @@ impl<'a> Body<'a> {
     }
 }
 
-fn status<T>(canvas: &mut Canvas<'_>, y: i32, reading: Reading<T>, waiting: &[u8]) {
+fn status<T>(canvas: &mut Canvas<'_>, y: i32, reading: Option<Reading<T>>, waiting: &[u8]) {
     let (text, color) = match reading {
-        Reading::Waiting => (waiting, GOLD),
-        Reading::Stale => (b"READING STALE".as_slice(), GOLD),
-        Reading::Fault => (b"SENSOR FAULT".as_slice(), RED),
-        Reading::Live(_) => unreachable!(),
+        None => (b"SENSOR UNAVAILABLE".as_slice(), MUTED),
+        Some(Reading::Waiting) => (waiting, GOLD),
+        Some(Reading::Stale) => (b"READING STALE".as_slice(), GOLD),
+        Some(Reading::Fault) => (b"SENSOR FAULT".as_slice(), RED),
+        Some(Reading::Live(_)) => unreachable!(),
     };
     canvas.text(12, y, text, 1, color);
 }
@@ -728,7 +721,7 @@ mod tests {
         assert_eq!(ui.metric, Metric::Rotation);
         let now = Instant::now();
         let snapshot = Snapshot {
-            imu: [Reading::Waiting; 2],
+            imu: [Some(Reading::Waiting); 2],
             gnss: Reading::Waiting,
         };
         let history = History::new();

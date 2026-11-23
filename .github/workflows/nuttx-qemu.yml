@@ -65,7 +65,7 @@ jobs:
             --target-c-source tests/nuttx-std/tracker-sim/devices.c \
             --target-c-source tests/nuttx-std/tracker-sim/logging/init.c \
             --out target/nuttx-qemu/tracker
-          node tests/nuttx-std/tracker-sim/headless.mjs \
+          python3 tests/nuttx-std/tracker-sim/headless.py \
             target/nuttx-qemu/tracker/nuttx/nuttx.merged.bin target/nuttx-qemu/tracker-report.json
 
       - name: Build the tracker emulator with UART2 and user networking

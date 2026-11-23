@@ -1,17 +1,19 @@
 # Motion tracker
 
-## Headless portability
+## Optional devices
 
-The headless build uses the profile's primary IMU and emits version 2 JSON.
-The desktop smoke test builds and runs the application with one mock IMU.
-The NuttX QEMU profile runs the same headless application with a modeled
-BMI270 on I²C. Both checks require fresh IMU telemetry and a clean exit.
+The primary IMU and a GNSS receiver are required. Tracking can start while GNSS
+is waiting for its first fix. Motion Tracker uses the same event loop when the
+display or second IMU is absent. The desktop smoke test uses mock sensors, and
+the one-IMU QEMU fixture uses modeled BMI270 and NEO-M9N devices.
+Two-IMU configurations use version 1 JSON. Version 2 carries one IMU and GNSS.
+The `--ble` command uses on-screen QR pairing and requires a display.
 
 ```sh
 python3 tests/native/motion_tracker.py
 ```
 
-[Headless NuttX build and verification](../../tests/nuttx-std/tracker-sim/README.md#headless-one-imu-tracker)
+[One-IMU NuttX build and verification](../../tests/nuttx-std/tracker-sim/README.md#one-imu-qualification)
 
 ## Dashboard
 
@@ -77,6 +79,11 @@ module sensors. Each live entry carries the source sequence and monotonic
 reception timestamp. The IMU entries include nominal sample period, acceleration
 in m/s² and angular velocity in rad/s. Live GNSS entries include latitude and
 longitude in degrees and speed in m/s. The dashboard's speed is in km/h.
+
+Use `--archive PATH MAX_BYTES` to save the same telemetry with one rotated
+`.1` file. Use a writable path reserved for that tracker session. The telemetry
+publisher queues up to four frames for the file worker and reports drops on
+exit. Rotation can split a line between files. Read the rotated file first.
 
 `motion_tracker --battery` prints one AXP2101 reading and exits. It reports
 the estimated charge percentage, the direction of charge and whether

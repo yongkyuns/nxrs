@@ -1,5 +1,9 @@
 //! Reconnect policy for live tracker telemetry. The modem task owns blocking I/O.
-use crate::{text::Text, tracker::Snapshot, wire};
+use super::{
+    wire::{self, Frame},
+    Snapshot,
+};
+use crate::stream::Publisher;
 use cellular::Session as _;
 use std::io::{self, Read};
 use std::net::{SocketAddr, SocketAddrV4, TcpStream};
@@ -9,7 +13,6 @@ use std::sync::{
 };
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
-use telemetry_service::stream::Publisher;
 
 const LINK_POLL: Duration = Duration::from_millis(100);
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(3);
@@ -274,7 +277,7 @@ impl<'a> Upload<'a> {
 
     pub fn service(
         &mut self,
-        publication: &mut Publisher<Snapshot, Text<768>>,
+        publication: &mut Publisher<Snapshot, Frame>,
         now: Instant,
     ) -> io::Result<bool> {
         if !self.ready {

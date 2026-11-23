@@ -9,11 +9,11 @@ log = "0.4"
 nxrs-navigation-services = { path = "../../../../service/navigation", features = ["probe"] }
 nxrs-composition = { path = "../../../../platform", features = ["imu"] }
 nxrs-log-router = { path = "../../../../service/logging" }
-nxrs-motion-tracker = { path = "../../../../app/motion-tracker", default-features = false }
+nxrs-motion-tracker = { path = "../../../../app/motion-tracker" }
 
 [package.metadata.nxrs]
 qualification-only = true
-required-capabilities = ["imu"]
+required-capabilities = ["imu", "gnss"]
 
 [package.metadata.nxrs.firmware]
 command = "motion_tracker"

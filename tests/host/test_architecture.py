@@ -441,13 +441,19 @@ class ArchitectureTests(unittest.TestCase):
                     path.write_text(original + f'[features]\n{feature}=[]\n')
                     self.assertTrue(any('provider features' in error for error in self.violations()))
                 path.write_text(original)
+
+    def test_product_application_dependency_features_follow_profiles(self):
         self.add('app', 'storage', optional=True)
         path = Path(self.packages['app']['manifest_path'])
-        path.write_text(path.read_text() + '[dependencies]\n'
-                        'storage={path="../../hal/storage",optional=true}\n'
-                        '[features]\nrecording=["dep:storage", "storage?/compression"]\n')
+        manifest = (path.read_text() + '[dependencies]\n'
+                    'storage={path="../../hal/storage",optional=true}\n'
+                    '[features]\nrecording=["dep:storage", "storage?/compression"]\n')
         storage = Path(self.packages['storage']['manifest_path'])
         storage.write_text(storage.read_text() + '[features]\ncompression=[]\n')
+        path.write_text(manifest)
+        self.assertTrue(any('feature recording must not select product dependencies' in error
+                            for error in self.violations()))
+        path.write_text(manifest + '[package.metadata.nxrs]\nqualification-only=true\n')
         self.assertEqual(self.violations(), [])
 
     def test_services_consume_detector_contract_without_selecting_models(self):

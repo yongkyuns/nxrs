@@ -204,7 +204,7 @@ class FirmwareFrontendTests(unittest.TestCase):
                 expected["esp32s3-qemu-tracker-devices"] = tracker
                 expected["esp32s3-qemu-tracker-dashboard"] = {**tracker, "ble": "nuttx", "tls": "nuttx"}
                 expected["esp32s3-esp-emu-tracker"] = expected["esp32s3-qemu-tracker-dashboard"]
-                expected["esp32s3-qemu-tracker-headless"] = {"imu": "nuttx"}
+                expected["esp32s3-qemu-tracker-headless"] = {"imu": "nuttx", "gnss": "nuttx"}
                 expected["esp32s3-qemu-tracker-logging"] = expected["esp32s3-qemu-tracker-headless"]
                 expected["nuttx-sim-tracker"] = expected["esp32s3-qemu-tracker-dashboard"]
                 self.assertEqual(features, expected.get(profile_name,
@@ -516,6 +516,13 @@ class FirmwareFrontendTests(unittest.TestCase):
                     timeout=60,
                 )
                 self.assertNotEqual(result.returncode, 0)
+
+    def test_motion_tracker_requires_gnss_binding(self):
+        with self.assertRaises(subprocess.CalledProcessError) as rejected:
+            self.cargo_firmware(
+                "build", "--app", "motion-tracker", "--profile", "host-imu", "--dry-run",
+            )
+        self.assertIn("missing required capability gnss", rejected.exception.stderr)
 
 
 if __name__ == "__main__":

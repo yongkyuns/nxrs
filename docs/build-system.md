@@ -262,16 +262,18 @@ participate in native cache identity and build provenance.
 
 ## Cargo component selection
 
-Components are ordinary Cargo packages. Additive Cargo features may enable
-optional algorithms, formats, integrations and driver code. App/service code
-remains platform-free; OS selection stays at HAL module/factory boundaries.
-`probe` remains an explicit diagnostic opt-in. The detector's model features
-still follow the selected product profile.
+Components are ordinary Cargo packages. The product profile selects
+capabilities and optional product dependencies. When Cargo needs feature
+activation to resolve those dependencies, NXRS derives it from the profile.
+App/service code remains platform-free, and OS selection stays at HAL
+module and factory boundaries.
 
-`build` accepts repeated `--features` (or the compatible `--feature` spelling)
-with comma- or space-separated values, plus `--no-default-features`. The same
-feature arguments reach the native, NuttX and Web Cargo invocations. Cargo owns
-the dependency and feature semantics, including dependencies' own defaults.
+For explicit qualification, `build` accepts repeated `--features` with comma-
+or space-separated values and `--no-default-features`. For example, `probe`
+is an explicit diagnostic opt-in. SDK product applications reject manual feature
+selection on their dependencies. Their normal runtime handles unavailable
+optional capabilities through the owning HAL API.
+
 The controller queries Cargo's production graph using that complete build command,
 including the real target/compiler and any Cargo configuration. Cargo resolves
 optional and target dependencies, aliases and workspace inheritance. A profile's
@@ -281,10 +283,11 @@ external transitive-only detector cannot be given a feature by Cargo and fails
 with a direct-dependency diagnostic.
 
 Dry runs reject backend-incompatible switches before any build starts. Their
-`dependency_resolution` is `pending`, with null `model_features` and `driver_features`.
+`dependency_resolution` is pending, with `model_features` and `driver_features`
+set to null.
 Resolving a NuttX custom target waits for its actual compiler and target spec.
-Completed builds record the Cargo-selected packages and the model and driver
-feature requests added by the frontend. The `driver_features` report includes
+Completed builds record the Cargo-selected packages and the feature requests
+the frontend added for models and drivers. The `driver_features` report includes
 the catalogue's required resource features as well as chip features.
 Dry runs do not claim compiler, SDK, binary-target or physical-resource qualification.
 

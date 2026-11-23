@@ -85,13 +85,24 @@ pub(crate) fn render_instances(
         instances.insert(id, name);
     }
 
+    let accessors = graph.accessors(catalogs, capability)?;
     source.push_str("pub mod devices {\n");
-    for (accessor, id) in graph.accessors(catalogs, capability)? {
+    for (accessor, id) in &accessors {
         let instance = instances
             .get(id)
             .ok_or("accessor references an inactive device")?;
         source.push_str(&format!(
             "pub fn r#{accessor}() -> &'static impl super::Device {{ &super::{instance} }}\n"
+        ));
+    }
+    if capability == "imu" {
+        let secondary = if accessors.contains_key("secondary") {
+            "Some(super::secondary())"
+        } else {
+            "false.then(super::primary_imu)"
+        };
+        source.push_str(&format!(
+            "pub mod optional {{\npub fn secondary() -> Option<&'static impl super::super::Device> {{ {secondary} }}\n}}\n"
         ));
     }
     source.push_str("}\n");

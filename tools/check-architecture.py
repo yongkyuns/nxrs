@@ -304,6 +304,13 @@ def inspect_sources(metadata: dict, root: Path) -> list[str]:
             continue
         has_binary = any('bin' in target.get('kind', []) for target in package.get('targets', [{'kind': ['bin']}]))
         if role == 'app' and has_binary:
+            nxrs = data.get('package', {}).get('metadata', {}).get('nxrs', {})
+            if not nxrs.get('qualification-only'):
+                # Cargo metadata includes implicit optional-dependency features.
+                features = package.get('features', data.get('features', {}))
+                for feature, values in features.items():
+                    if any('/' in value or value.startswith('dep:') for value in values):
+                        errors.append(f"{package['name']}: feature {feature} must not select product dependencies")
             source = directory / 'src/main.rs'
             text = source.read_text(encoding='utf-8') if source.is_file() else ''
             if not re.search(r'\bfn\s+main\s*\(', text) or '#![forbid(unsafe_code)]' not in text:

@@ -1,11 +1,11 @@
 //! One task steps both TLS sessions under the SDK's single identity lease.
-use crate::{radio, screen::LinkStatus, tracker::Snapshot, uplink};
+use super::{radio, uplink, LinkStatus, Snapshot};
+use crate::stream::Publisher;
 use std::cell::OnceCell;
 use std::io;
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
-use telemetry_service::stream::Publisher;
 
 const ACTIVE_POLL: Duration = Duration::from_millis(15);
 

@@ -1136,8 +1136,6 @@ name = "nxrs-motion-tracker"
 version = "0.1.0"
 dependencies = [
  "nxrs-battery",
- "nxrs-ble",
- "nxrs-cellular",
  "nxrs-composition",
  "nxrs-display",
  "nxrs-gnss",
@@ -1146,7 +1144,6 @@ dependencies = [
  "nxrs-navigation-services",
  "nxrs-settings",
  "nxrs-telemetry-service",
- "nxrs-tls",
  "nxrs-touch",
  "qrcodegen",
 ]
@@ -1431,7 +1428,14 @@ dependencies = [
 name = "nxrs-telemetry-service"
 version = "0.1.0"
 dependencies = [
+ "nxrs-ble",
  "nxrs-camera",
+ "nxrs-cellular",
+ "nxrs-gnss",
+ "nxrs-imu",
+ "nxrs-log-router",
+ "nxrs-navigation-services",
+ "nxrs-tls",
  "nxrs-transport",
 ]
 

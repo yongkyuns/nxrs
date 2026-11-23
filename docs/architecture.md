@@ -41,10 +41,10 @@ canonical instances with direct device accessors and aliases.
 HAL crates retain runtime contracts/implementations, native ABI source and
 declarative support metadata. Shared tooling in `tools/build-support` and the
 controller in `tools/build` own configuration generation and native preparation,
-with tooling-owned Cargo adapters selected by package manifests. Ordinary
-additive Cargo features enable implementations, and profiles define physical
-devices and aliases. See the [build reference](build-system.md) for the current
-prepared-input and consumed-package boundaries.
+with tooling-owned Cargo adapters selected by package manifests. Profiles define
+physical devices and aliases. The build frontend derives any Cargo feature
+activation needed to compile their implementations. The
+[build reference](build-system.md) describes prepared inputs and consumed packages.
 Each active IMU or GNSS device has one canonical static opaque object
 with private instance state and an exclusive acquisition lease. Multiple aliases
 can refer to that same object; multiple devices can use the same implementation.
@@ -547,8 +547,19 @@ Configuration chooses:
 The product platform owns HAL bindings, execution target/board, and
 target-specific configuration. Firmware builds select it through the frontend's
 `--platform` or `--profile` argument; host/test Cargo invocations use
-`NXRS_PLATFORM`. Cargo features select optional software and driver code, not
-per-HAL operating-system providers.
+`NXRS_PLATFORM`.
+
+The resolved profile is the only product-build input for selecting capabilities
+and dependencies. Cargo manifests declare the available dependencies. Product
+builds must derive any required Cargo activation from the profile. Avoid
+independent mode flags, default features that select product dependencies, and
+manual `--features` switches for profile-managed dependencies. Reserve explicit
+feature selection for narrow standalone library or qualification use.
+
+Apps use portable HAL APIs and handle `Unsupported` on optional devices in the
+normal application path. Profiles select the concrete providers and hardware
+instances. The architecture check rejects dependency-selecting features in
+product application manifests.
 
 Handwritten Rust chooses service topology.
 

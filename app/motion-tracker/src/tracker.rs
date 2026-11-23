@@ -1,42 +1,13 @@
 pub use navigation::observations::Reading;
 use navigation::observations::SensorFault;
 use std::time::Duration;
+pub use telemetry_service::motion::{reading_status, Snapshot};
 
 pub const IMU_FRESH: Duration = Duration::from_millis(500);
+pub const FIX_FRESH: Duration = Duration::from_secs(3);
 
-#[cfg(feature = "dashboard")]
-mod dashboard {
-    use super::{Duration, Reading};
-
-    pub const FIX_FRESH: Duration = Duration::from_secs(3);
-
-    /// The dashboard and its v1 peers have two IMU channels and one receiver.
-    #[derive(Clone, Copy)]
-    pub struct Snapshot {
-        pub imu: [Reading<imu::ImuSample>; 2],
-        pub gnss: Reading<gnss::GnssFix>,
-    }
-
-    impl From<navigation::observations::Snapshot<2>> for Snapshot {
-        fn from(snapshot: navigation::observations::Snapshot<2>) -> Self {
-            Self {
-                imu: snapshot.imu,
-                gnss: snapshot.gnss.expect("the dashboard configures GNSS"),
-            }
-        }
-    }
-}
-
-#[cfg(feature = "dashboard")]
-pub use dashboard::{FIX_FRESH, Snapshot};
-
-pub fn reading_status<T>(reading: &Reading<T>) -> &'static str {
-    match reading {
-        Reading::Waiting => "waiting",
-        Reading::Live(_) => "live",
-        Reading::Stale => "stale",
-        Reading::Fault => "fault",
-    }
+pub fn status<T>(reading: Option<Reading<T>>) -> &'static str {
+    reading.as_ref().map_or("unavailable", reading_status)
 }
 
 pub fn report_fault(fault: SensorFault) {

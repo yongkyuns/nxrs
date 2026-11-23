@@ -5,7 +5,7 @@ mod facade;
 mod file;
 
 pub use facade::{install, Line};
-pub use file::{start_file, FileLog};
+pub use file::{start_file, FileArchive, FileLog};
 
 use std::fs::{self, OpenOptions};
 use std::io::{self, Read, Write};

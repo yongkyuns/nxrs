@@ -10,4 +10,6 @@ pub use summary::{
 };
 
 #[cfg(feature = "stream")]
+pub mod motion;
+#[cfg(feature = "stream")]
 pub mod stream;
