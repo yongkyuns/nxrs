@@ -1,11 +1,10 @@
 """Byte layout for the tracker tile transport witnesses."""
 import struct
+import sys
+from pathlib import Path
 
-MAGIC = b"NXM4"
-REQUEST = struct.Struct(">4sBII")
-SIDE = 170
-PALETTE_BYTES = 32
-BODY_BYTES = PALETTE_BYTES + SIDE * SIDE // 2
+sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "tools" / "tracker-map"))
+from tracker_tile_packet import BODY_BYTES, MAGIC, PALETTE_BYTES, REQUEST, SIDE, pack
 
 
 def solid(color):

@@ -58,7 +58,7 @@ class Receive(socketserver.BaseRequestHandler):
                         request = stream.read(tile_fixture.REQUEST.size)
                         assert request[:4] == tile_fixture.MAGIC
                         self.server.events.put((connection, 'tile', tile_fixture.REQUEST.unpack(request)[1:]))
-                        packet = request + b'\0' + tile_fixture.solid(0x001f)
+                        packet = request + b'\0' + tile_fixture.pack(tile_fixture.solid(0x001f))
                         for offset in range(0, len(packet), 512):
                             secure.sendall(packet[offset:offset + 512])
                         return

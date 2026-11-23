@@ -52,13 +52,53 @@ public struct TrackerTile: Decodable, Equatable, Sendable {
     }
 
     func reply(pixels: Data?) -> Data {
-        var result = Data("NXM4".utf8)
+        var result = Data("NXM5".utf8)
         result.append(zoom)
         for coordinate in [x, y] {
             withUnsafeBytes(of: coordinate.bigEndian) { result.append(contentsOf: $0) }
         }
         result.append(pixels == nil ? 1 : 0)
-        if let pixels { result.append(pixels) }
+        if let pixels { result.append(Self.packRows(pixels)) }
+        return result
+    }
+
+    private static func packRows(_ pixels: Data) -> Data {
+        let paletteBytes = 32
+        let rowBytes = side / 2
+        var lengths = Data()
+        var payload = Data()
+        var runs = [UInt8]()
+        lengths.reserveCapacity(side)
+        payload.reserveCapacity(side * rowBytes)
+        runs.reserveCapacity(rowBytes)
+        pixels.withUnsafeBytes { (bytes: UnsafeRawBufferPointer) in
+            for row in 0..<side {
+                let offset = paletteBytes + row * rowBytes
+                func color(_ x: Int) -> UInt8 {
+                    let pair = bytes[offset + x / 2]
+                    return x.isMultiple(of: 2) ? pair >> 4 : pair & 15
+                }
+                runs.removeAll(keepingCapacity: true)
+                var start = 0
+                while start < side && runs.count < rowBytes {
+                    let value = color(start)
+                    var end = start + 1
+                    while end < min(side, start + 16) && color(end) == value { end += 1 }
+                    runs.append(UInt8(end - start - 1) << 4 | value)
+                    start = end
+                }
+                if runs.count < rowBytes {
+                    lengths.append(UInt8(runs.count))
+                    payload.append(contentsOf: runs)
+                } else {
+                    lengths.append(UInt8(rowBytes))
+                    payload.append(contentsOf: bytes[offset..<(offset + rowBytes)])
+                }
+            }
+        }
+        var result = Data(pixels.prefix(paletteBytes))
+        result.append(lengths)
+        result.append(payload)
         return result
     }
 

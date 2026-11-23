@@ -51,12 +51,15 @@ before the tracker crosses into it. The part already loaded stays
 visible while the next tile arrives. If no matching tile is available,
 the dashboard uses the route plot.
 
-A transfer carries 14,482 bytes for a 170 × 170 tile with its palette,
-plus a fourteen-byte header. The tile matches the CoreS3 map area pixel for
+A transfer carries a lossless row encoding of the 170 × 170 tile. A
+fully uncompressed reply, including the palette, row lengths and header,
+is 14,666 bytes. The tile matches the CoreS3 map area pixel for
 pixel with the menu closed. The tracker keeps up to two complete tiles and
 one partial reply. It releases off-screen tiles before a new request and
 stores each row losslessly in small blocks to limit heap pressure during
-sensor export. It waits at least five seconds between requests.
+sensor export. The tracker waits at least five seconds between requests.
+Once eligible, a new tile request can go out with the next available
+snapshot. Tile arrival wakes the display for a redraw.
 Direct IP dialing uses a temporary 8 KiB stack and opens a
 separate TLS session for the reply. The phone or relay fetches the PNG
 over HTTPS and uses HTTP caching. It lightly sharpens the raster after
@@ -113,18 +116,23 @@ each tile on the same TLS connection while the tracker sends sensor
 batches in the other direction. The legacy dashboard service also accepts
 tile replies. The phone retries an acknowledged write the tracker rejects
 before enqueuing it. Over IP, the tracker opens one pinned TLS 1.3 connection per
-request, writes the 13 bytes `NXM4 | zoom:u8 | x:u32 | y:u32`, and reads one
+request, writes the 13 bytes `NXM5 | zoom:u8 | x:u32 | y:u32`, and reads one
 response. Both paths use the same response bytes.
 
 | Bytes | Meaning |
 | --- | --- |
 | 0–12 | Request header, including zoom and the requested X and Y |
 | 13 | Status byte. Zero is success, one is temporarily unavailable |
-| 14 onward | On success, 16 big-endian RGB565 palette entries followed by 170 × 170 four-bit indexes, north row first. An unavailable response has no body |
+| 14–45 | On success, 16 big-endian RGB565 palette entries |
+| 46–215 | 170 row lengths in bytes, north row first. Each length is 1–85 |
+| 216 onward | Rows in order, with no padding. An unavailable response has no body |
 
-Pack the left pixel in the high nibble and the right pixel in the low nibble. Split writes into TLS chunks of at most
-1,024 bytes. The tracker renders only complete responses matching its
-current viewport. USB and cellular telemetry omit the map field.
+A row of 85 bytes packs the left pixel in the high nibble and the right
+pixel in the low nibble. Shorter rows encode runs. Each byte stores the
+run length minus one in the high nibble and the color index in the low
+nibble. Expand each row to exactly 170 pixels. Split writes into TLS
+chunks of at most 1,024 bytes. The tracker renders complete responses
+matching its viewport. USB and cellular telemetry omit the map field.
 
 ## CoreS3 and M135 setup
 

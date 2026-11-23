@@ -113,7 +113,7 @@ impl Options {
 
 enum Event {
     Sensor(Observation),
-    LinkChanged,
+    LinksUpdated,
     Touch { event: touch::Event, missed: bool },
 }
 
@@ -135,14 +135,18 @@ pub(super) fn run(args: impl Iterator<Item = String>) -> io::Result<()> {
         let events = events.clone();
         move || {
             // The current view remains available if the inbox is full.
-            let _ = events.try_send(Event::LinkChanged);
+            let _ = events.try_send(Event::LinksUpdated);
         }
     };
     use imu::Device as _;
     let primary = composition::imu::primary_imu();
     let secondary = composition::imu::secondary();
-    let primary_scale = primary.default_config().and_then(|config| primary.resolve(config));
-    let secondary_scale = secondary.default_config().and_then(|config| secondary.resolve(config));
+    let primary_scale = primary
+        .default_config()
+        .and_then(|config| primary.resolve(config));
+    let secondary_scale = secondary
+        .default_config()
+        .and_then(|config| secondary.resolve(config));
     let capture = Arc::new(Capture::new(
         [primary_scale, secondary_scale]
             .map(|applied| applied.ok().and_then(|config| config.counts_scale)),
@@ -179,18 +183,8 @@ pub(super) fn run(args: impl Iterator<Item = String>) -> io::Result<()> {
     let mut view = View::default();
     let mut sensors = ObservationService::<2>::new(IMU_FRESH, Some(FIX_FRESH));
     for result in [
-        sensors.start_imu_with(
-            0,
-            primary,
-            events.clone(),
-            sensor_event.clone(),
-        ),
-        sensors.start_imu_with(
-            1,
-            secondary,
-            events.clone(),
-            sensor_event.clone(),
-        ),
+        sensors.start_imu_with(0, primary, events.clone(), sensor_event.clone()),
+        sensors.start_imu_with(1, secondary, events.clone(), sensor_event.clone()),
         sensors.start_gnss_with(
             composition::gnss::primary_gnss(),
             events.clone(),
@@ -348,7 +342,10 @@ pub(super) fn run(args: impl Iterator<Item = String>) -> io::Result<()> {
         }
         let wake = next.min(next_plot);
         match inbox.wait(Some(wake.saturating_duration_since(Instant::now()))) {
-            Ok(Event::LinkChanged) => links_changed = true,
+            Ok(Event::LinksUpdated) => {
+                links_changed = true;
+                redraw = true;
+            }
             Ok(Event::Sensor(event)) => {
                 if let Some(fault) = sensors.observe(event) {
                     report_fault(fault);

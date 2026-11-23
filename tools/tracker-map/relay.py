@@ -10,9 +10,8 @@ import struct
 from PIL import Image, ImageFilter
 from requests import RequestException
 from requests_cache import CachedSession
+from tracker_tile_packet import MAGIC, REQUEST, SIDE, pack
 
-REQUEST = struct.Struct(">4sBII")
-SIDE = 170
 MAX_PNG = 256 * 1024
 USER_AGENT = "NxrsTrackerTileRelay/1 (+https://github.com/yongkyuns/nxrs)"
 
@@ -50,10 +49,10 @@ def raster(png):
 
 def reply(request, fetch):
     magic, zoom, x, y = REQUEST.unpack(request)
-    if magic != b"NXM4" or not (15 <= zoom <= 18 and x < 1 << zoom and y < 1 << zoom):
+    if magic != MAGIC or not (15 <= zoom <= 18 and x < 1 << zoom and y < 1 << zoom):
         raise ValueError("invalid tile request")
     try:
-        pixels = fetch(zoom, x, y)
+        pixels = pack(fetch(zoom, x, y))
     except (OSError, ValueError, RequestException, Image.DecompressionBombError):
         return request + b"\x01"
     return request + b"\x00" + pixels

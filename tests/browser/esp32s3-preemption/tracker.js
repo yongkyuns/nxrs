@@ -95,7 +95,7 @@ export async function probe({ commands, symbols, timeoutMs, ble, tiles }) {
             }
             await drain();
             if (command?.includes('--stream-usb') && cycles >= nextFix) {
-                const data = await window.gnssFix();
+                const data = await window.gnssFix(Math.floor((cycles - start) / cyclesPerMs));
                 if (data.length) send('gnss', { uartRx: { data: Uint8Array.from(data) } });
                 nextFix += fixPeriod;
             }
@@ -106,7 +106,7 @@ export async function probe({ commands, symbols, timeoutMs, ble, tiles }) {
                     if (!ble) image = candidate;
                     else if (!qrDecoded) qrDecoded = await window.pairingPanel(candidate);
                     else if (tiles) {
-                        const ready = await window.mapPanel(candidate);
+                        const ready = await window.mapPanel(candidate, Math.floor((cycles - start) / cyclesPerMs));
                         if (ready && !openedGnss) {
                             for (const [contact, x, y] of [
                                 [0, 160, 6], [2, 160, 65], [1, 160, 65],

@@ -13,7 +13,11 @@ fn utc_json(out: &mut impl Write, utc_ms: Option<i64>) -> fmt::Result {
     }
 }
 
-fn imu_json(out: &mut impl Write, reading: Reading<imu::ImuSample>, utc_ms: Option<i64>) -> fmt::Result {
+fn imu_json(
+    out: &mut impl Write,
+    reading: Reading<imu::ImuSample>,
+    utc_ms: Option<i64>,
+) -> fmt::Result {
     write!(out, "{{\"state\":\"{}\"", reading_status(&reading))?;
     if let Reading::Live(sample) = reading {
         let [ax, ay, az] = sample.accel_mps2;
@@ -33,7 +37,11 @@ mod version {
     use super::*;
     use crate::{map::Key, tracker::Snapshot};
 
-    fn gnss_json(out: &mut impl Write, reading: Reading<gnss::GnssFix>, utc_ms: Option<i64>) -> fmt::Result {
+    fn gnss_json(
+        out: &mut impl Write,
+        reading: Reading<gnss::GnssFix>,
+        utc_ms: Option<i64>,
+    ) -> fmt::Result {
         write!(out, "{{\"state\":\"{}\"", reading_status(&reading))?;
         if let Reading::Live(fix) = reading {
             write!(
@@ -92,7 +100,11 @@ mod version {
         out.write_str("}\n")
     }
 
-    fn build(snapshot: &Snapshot, scales: Option<[Option<[u32; 2]>; 2]>, tile: Option<Key>) -> io::Result<Text<768>> {
+    fn build(
+        snapshot: &Snapshot,
+        scales: Option<[Option<[u32; 2]>; 2]>,
+        tile: Option<Key>,
+    ) -> io::Result<Text<768>> {
         let mut frame = Text::<768>::new();
         encode(&mut frame, snapshot, scales, tile).map_err(|_| io::ErrorKind::InvalidData)?;
         Ok(frame)
@@ -106,7 +118,11 @@ mod version {
         build(snapshot, None, tile)
     }
 
-    pub fn export_frame(snapshot: &Snapshot, scales: [Option<[u32; 2]>; 2], tile: Option<Key>) -> io::Result<Text<768>> {
+    pub fn export_frame(
+        snapshot: &Snapshot,
+        scales: [Option<[u32; 2]>; 2],
+        tile: Option<Key>,
+    ) -> io::Result<Text<768>> {
         build(snapshot, Some(scales), tile)
     }
 

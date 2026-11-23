@@ -65,6 +65,7 @@ pub struct Output<'a, L: Listener> {
     key: [u8; 32],
     capture: &'a Capture,
     tile: Receiver,
+    advertised_tile: Option<Key>,
     request: [u8; REQUEST_LEN],
     request_len: usize,
     export: [u8; MAX_BYTES],
@@ -98,6 +99,7 @@ impl<'a, L: Listener> Output<'a, L> {
             key,
             capture,
             tile: Receiver::default(),
+            advertised_tile: None,
             request: [0; REQUEST_LEN],
             request_len: 0,
             export: [0; MAX_BYTES],
@@ -161,6 +163,7 @@ impl<'a, L: Listener> Output<'a, L> {
         self.connection = None;
         self.capture.disable();
         self.tile = Receiver::default();
+        self.advertised_tile = None;
         self.request_len = 0;
         self.export_len = 0;
         self.next_export = None;
@@ -226,13 +229,22 @@ impl<'a, L: Listener> Output<'a, L> {
                 let requested_tile = wanted.filter(|_| tile_ready);
                 if !self.publication.is_idle() {
                     self.drained = if notifications {
-                        self.publication.enqueue(conn, now, self.expires, |snapshot| {
-                            wire::export_frame(snapshot, self.capture.scales(), requested_tile)
-                        })?
+                        self.publication
+                            .enqueue(conn, now, self.expires, |snapshot| {
+                                let frame = wire::export_frame(
+                                    snapshot,
+                                    self.capture.scales(),
+                                    requested_tile,
+                                )?;
+                                self.advertised_tile = requested_tile;
+                                Ok(frame)
+                            })?
                     } else {
                         self.publication
                             .service(conn, now, self.expires, |snapshot| {
-                                wire::ble_frame(snapshot, requested_tile)
+                                let frame = wire::ble_frame(snapshot, requested_tile)?;
+                                self.advertised_tile = requested_tile;
+                                Ok(frame)
                             })?
                     };
                     return Ok(None);
@@ -280,11 +292,14 @@ impl<'a, L: Listener> Output<'a, L> {
         }
     }
 
-    pub fn offer(&mut self, snapshot: &Snapshot, now: Instant) {
+    pub fn offer(&mut self, snapshot: &Snapshot, now: Instant, wanted: Option<Key>) {
+        let new_tile = wanted.is_some()
+            && wanted != self.advertised_tile
+            && (!self.listener.notifying() || self.request_len == REQUEST_LEN);
         if self.live
             && (self.drained || self.listener.notifying())
             && self.publication.is_idle()
-            && now >= self.next_frame
+            && (now >= self.next_frame || new_tile)
         {
             self.publication.offer(*snapshot);
             self.next_frame = now + Duration::from_secs(1);

@@ -5,10 +5,10 @@ pub const SIDE: usize = 170;
 const PALETTE_BYTES: usize = 32;
 const ROW_BYTES: usize = SIDE / 2;
 const PIXEL_BYTES: usize = ROW_BYTES * SIDE;
-const TILE_BYTES: usize = PALETTE_BYTES + PIXEL_BYTES;
+const METADATA_BYTES: usize = PALETTE_BYTES + SIDE;
 const BLOCK_BYTES: usize = 1024;
 const BLOCKS: usize = PIXEL_BYTES.div_ceil(BLOCK_BYTES);
-const MAGIC: &[u8; 4] = b"NXM4";
+const MAGIC: &[u8; 4] = b"NXM5";
 pub const REQUEST_BYTES: usize = 13;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -252,9 +252,8 @@ impl Tile {
     }
 }
 
-// Pack runs of equal palette indexes one row at a time. Retain packed
-// pixels verbatim if the runs would use more storage. Small blocks avoid
-// needing a contiguous tile allocation while BLE export and PPP are active.
+// Keep validated scanlines in their wire encoding. Small blocks avoid
+// requiring a contiguous tile allocation during BLE export and PPP.
 struct Pixels {
     blocks: Vec<Vec<u8>>,
     row_ends: Vec<u16>,
@@ -269,10 +268,8 @@ impl Pixels {
         Ok(Self { blocks, row_ends })
     }
 
-    fn push(&mut self, row: &[u8; ROW_BYTES]) -> Result<(), std::collections::TryReserveError> {
+    fn push(&mut self, mut bytes: &[u8]) -> Result<(), std::collections::TryReserveError> {
         let mut offset = usize::from(self.row_ends.last().copied().unwrap_or(0));
-        let mut runs = [0; ROW_BYTES];
-        let mut bytes = encode_row(row, &mut runs);
         while !bytes.is_empty() {
             if offset % BLOCK_BYTES == 0 {
                 let mut block = Vec::new();
@@ -313,35 +310,48 @@ impl Pixels {
     }
 }
 
-fn encode_row<'a>(row: &'a [u8; ROW_BYTES], runs: &'a mut [u8; ROW_BYTES]) -> &'a [u8] {
-    let color = |index: usize| (row[index / 2] >> (4 * (1 - index % 2))) & 0x0f;
-    let mut start = 0;
-    for (index, run) in runs.iter_mut().enumerate() {
-        let value = color(start);
-        let mut end = start + 1;
-        while end < SIDE.min(start + 16) && color(end) == value {
-            end += 1;
-        }
-        *run = ((end - start - 1) as u8) << 4 | value;
-        start = end;
-        if start == SIDE {
-            return if index + 1 < ROW_BYTES {
-                &runs[..=index]
-            } else {
-                row
-            };
-        }
-    }
-    row
+struct Scanline {
+    bytes: [u8; ROW_BYTES],
+    row: usize,
+    filled: usize,
 }
 
-/// One response can be split at any byte. No network-supplied allocation size.
+impl Scanline {
+    fn append(&mut self, pixels: &mut Pixels, lengths: &[u8], mut bytes: &[u8]) -> io::Result<()> {
+        while !bytes.is_empty() {
+            let length = usize::from(lengths[self.row]);
+            let count = (length - self.filled).min(bytes.len());
+            self.bytes[self.filled..self.filled + count].copy_from_slice(&bytes[..count]);
+            self.filled += count;
+            bytes = &bytes[count..];
+            if self.filled == length {
+                let row = &self.bytes[..length];
+                if length < ROW_BYTES
+                    && row
+                        .iter()
+                        .map(|run| usize::from(run >> 4) + 1)
+                        .sum::<usize>()
+                        != SIDE
+                {
+                    return Err(io::ErrorKind::InvalidData.into());
+                }
+                pixels.push(row).map_err(|_| io::ErrorKind::OutOfMemory)?;
+                self.row += 1;
+                self.filled = 0;
+            }
+        }
+        Ok(())
+    }
+}
+
+/// One response can be split at any byte. Fixed metadata bounds the payload.
 pub struct Receiver {
     header: [u8; REQUEST_BYTES + 1],
     received: usize,
+    remaining: usize,
     pixels: Option<Pixels>,
-    palette: [u8; PALETTE_BYTES],
-    scanline: [u8; ROW_BYTES],
+    metadata: [u8; METADATA_BYTES],
+    scanline: Scanline,
 }
 
 impl Default for Receiver {
@@ -349,9 +359,14 @@ impl Default for Receiver {
         Self {
             header: [0; REQUEST_BYTES + 1],
             received: 0,
+            remaining: 0,
             pixels: None,
-            palette: [0; PALETTE_BYTES],
-            scanline: [0; ROW_BYTES],
+            metadata: [0; METADATA_BYTES],
+            scanline: Scanline {
+                bytes: [0; ROW_BYTES],
+                row: 0,
+                filled: 0,
+            },
         }
     }
 }
@@ -386,6 +401,8 @@ impl Receiver {
             }
             match self.header[REQUEST_BYTES] {
                 0 => {
+                    self.scanline.row = 0;
+                    self.scanline.filled = 0;
                     if wanted == Some(key) {
                         self.pixels = Pixels::allocate()
                             .inspect_err(|_| {
@@ -399,27 +416,41 @@ impl Receiver {
                 _ => return Err(io::ErrorKind::InvalidData.into()),
             }
         } else {
-            let offset = self.received - self.header.len();
             self.retain(wanted);
+            let offset = self.received - self.header.len();
+            if offset < METADATA_BYTES {
+                self.received += read(source, &mut self.metadata[offset..])?;
+                if self.received == self.header.len() + METADATA_BYTES {
+                    let lengths = &self.metadata[PALETTE_BYTES..];
+                    if lengths
+                        .iter()
+                        .any(|&length| length == 0 || usize::from(length) > ROW_BYTES)
+                    {
+                        return Err(io::ErrorKind::InvalidData.into());
+                    }
+                    self.remaining = lengths.iter().map(|&length| usize::from(length)).sum();
+                }
+                return Ok(None);
+            }
             let mut buffer = [0; 512];
-            let limit = (TILE_BYTES - offset).min(buffer.len());
+            let limit = self.remaining.min(buffer.len());
             let count = read(source, &mut buffer[..limit])?;
-            self.received += count;
+            self.remaining -= count;
             if let Some(pixels) = &mut self.pixels {
-                if append(
+                match self.scanline.append(
                     pixels,
-                    &mut self.palette,
-                    &mut self.scanline,
-                    offset,
+                    &self.metadata[PALETTE_BYTES..],
                     &buffer[..count],
-                )
-                .is_err()
-                {
-                    eprintln!("motion-tracker map: insufficient tile storage");
-                    self.pixels = None;
+                ) {
+                    Ok(()) => {}
+                    Err(error) if error.kind() == io::ErrorKind::OutOfMemory => {
+                        eprintln!("motion-tracker map: insufficient tile storage");
+                        self.pixels = None;
+                    }
+                    Err(error) => return Err(error),
                 }
             }
-            if self.received - self.header.len() < TILE_BYTES {
+            if self.remaining != 0 {
                 return Ok(None);
             }
             let Some(pixels) = self.pixels.take() else {
@@ -429,7 +460,7 @@ impl Receiver {
             Response::Tile(Tile {
                 key: self.key().unwrap(),
                 palette: std::array::from_fn(|index| {
-                    u16::from_be_bytes([self.palette[index * 2], self.palette[index * 2 + 1]])
+                    u16::from_be_bytes([self.metadata[index * 2], self.metadata[index * 2 + 1]])
                 }),
                 pixels,
             })
@@ -444,32 +475,6 @@ impl Receiver {
         let y = u32::from_be_bytes(self.header[9..13].try_into().unwrap());
         (x < zoom.tiles() && y < zoom.tiles()).then_some(Key { zoom, x, y })
     }
-}
-
-fn append(
-    pixels: &mut Pixels,
-    palette: &mut [u8; PALETTE_BYTES],
-    scanline: &mut [u8; ROW_BYTES],
-    mut offset: usize,
-    mut bytes: &[u8],
-) -> Result<(), std::collections::TryReserveError> {
-    if offset < PALETTE_BYTES {
-        let count = (PALETTE_BYTES - offset).min(bytes.len());
-        palette[offset..offset + count].copy_from_slice(&bytes[..count]);
-        offset += count;
-        bytes = &bytes[count..];
-    }
-    while !bytes.is_empty() {
-        let column = (offset - PALETTE_BYTES) % ROW_BYTES;
-        let count = (ROW_BYTES - column).min(bytes.len());
-        scanline[column..column + count].copy_from_slice(&bytes[..count]);
-        if column + count == ROW_BYTES {
-            pixels.push(scanline)?;
-        }
-        offset += count;
-        bytes = &bytes[count..];
-    }
-    Ok(())
 }
 
 fn read(source: &mut dyn Read, buffer: &mut [u8]) -> io::Result<usize> {
@@ -504,11 +509,10 @@ mod tests {
         let mut pixels = Pixels::allocate().unwrap();
         let mut literal = [0x12; ROW_BYTES];
         literal[0] = 0x34;
-        assert_eq!(encode_row(&literal, &mut [0; ROW_BYTES]).len(), ROW_BYTES);
         pixels.push(&literal).unwrap();
         let repeated = [0xab; ROW_BYTES];
-        let flat = [0xaa; ROW_BYTES];
-        assert!(encode_row(&flat, &mut [0; ROW_BYTES]).len() < ROW_BYTES);
+        let mut flat = [0xfa; 11];
+        flat[10] = 0x9a;
         pixels.push(&flat).unwrap();
         pixels.push(&repeated).unwrap();
         let mut row = [0; SIDE];
@@ -626,11 +630,13 @@ mod tests {
             x: 0x0002_fffe,
             y: 0x0003_ffff,
         };
-        assert_eq!(&key.request(), b"NXM4\x12\0\x02\xff\xfe\0\x03\xff\xff");
+        assert_eq!(&key.request(), b"NXM5\x12\0\x02\xff\xfe\0\x03\xff\xff");
         let mut receiver = Receiver::default();
         let mut frame = key.request().to_vec();
         frame.push(0);
-        frame.extend(vec![0xab; TILE_BYTES]);
+        frame.extend([0xab; PALETTE_BYTES]);
+        frame.extend([ROW_BYTES as u8; SIDE]);
+        frame.extend(vec![0xab; PIXEL_BYTES]);
         for part in frame[..frame.len() - 1].chunks(17) {
             let mut data = part;
             while !data.is_empty() {
@@ -662,13 +668,39 @@ mod tests {
             .is_err());
     }
     #[test]
+    fn rejects_scanlines_with_invalid_lengths_or_pixel_counts() {
+        let key = tile_key(1, 2);
+        let mut frame = key.request().to_vec();
+        frame.push(0);
+        frame.extend([0; PALETTE_BYTES]);
+        for length in [0, ROW_BYTES as u8 + 1, 1] {
+            let mut packet = frame.clone();
+            packet.extend([length; SIDE]);
+            packet.extend([0xfa; SIDE]);
+            let mut data = packet.as_slice();
+            let mut receiver = Receiver::default();
+            assert!(receiver.poll(&mut data, Some(key)).unwrap().is_none());
+            let result = receiver.poll(&mut data, Some(key));
+            let invalid = if length == 1 {
+                assert!(result.unwrap().is_none());
+                receiver.poll(&mut data, Some(key))
+            } else {
+                result
+            };
+            assert!(matches!(invalid, Err(error) if error.kind() == io::ErrorKind::InvalidData));
+        }
+    }
+
+    #[test]
     fn abandoning_a_partial_tile_releases_it_and_preserves_stream_framing() {
         let old = tile_key(1, 2);
         let new = tile_key(3, 4);
         let mut receiver = Receiver::default();
         let mut frame = old.request().to_vec();
         frame.push(0);
-        frame.extend(vec![0; TILE_BYTES]);
+        frame.extend([0; PALETTE_BYTES]);
+        frame.extend([ROW_BYTES as u8; SIDE]);
+        frame.extend(vec![0; PIXEL_BYTES]);
         frame.extend(new.request());
         frame.push(1);
         let mut data = frame.as_slice();

@@ -118,6 +118,16 @@ synthetic check. The test uses a public London route at the tracker default
 of zoom 18. Add `--map-zoom 16` or `--map-zoom 17` to compare wider views.
 [OpenStreetMap attribution](https://www.openstreetmap.org/copyright)
 
+Add `--move-mps 1.5` for walking, `--move-mps 15` for eastbound driving,
+or `--move-mps -15` for the westbound crossing at zoom 18.
+First run the real-tile probe once to populate the HTTP cache,
+then place the timed report beside it. The replay loads the first tile,
+advances GNSS every 500 ms, and crosses the boundary on schedule. It
+reports tile request, transfer completion, and paint times in guest
+milliseconds, plus any lead or lateness at the crossing. It checks the
+full sensor sequence numbers throughout. This measures delivery from a
+warm HTTP cache in ESP-EMU.
+
 Add `--deny-entropy` to run the control with Web Crypto disabled in the
 test page. UART2 still boots and the app refuses TLS pairing. The UART2 model
 supports one guest per module and moves bytes at browser batch boundaries.

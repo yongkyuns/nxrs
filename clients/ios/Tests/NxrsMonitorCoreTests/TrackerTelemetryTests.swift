@@ -24,9 +24,9 @@ final class TrackerTelemetryTests: XCTestCase {
     func testMapRequestAndNorthUpRaster() throws {
         let tile = try JSONDecoder().decode(TrackerTile.self, from: Data("[15,10,20]".utf8))
         XCTAssertThrowsError(try JSONDecoder().decode(TrackerTile.self, from: Data("[15,32768,20]".utf8)))
-        XCTAssertEqual(tile.reply(pixels: nil), Data([78, 88, 77, 52, 15, 0, 0, 0, 10, 0, 0, 0, 20, 1]))
+        XCTAssertEqual(tile.reply(pixels: nil), Data([78, 88, 77, 53, 15, 0, 0, 0, 10, 0, 0, 0, 20, 1]))
         let detail = try JSONDecoder().decode(TrackerTile.self, from: Data("[18,196606,262143]".utf8))
-        XCTAssertEqual(detail.reply(pixels: nil), Data([78, 88, 77, 52, 18, 0, 2, 255, 254, 0, 3, 255, 255, 1]))
+        XCTAssertEqual(detail.reply(pixels: nil), Data([78, 88, 77, 53, 18, 0, 2, 255, 254, 0, 3, 255, 255, 1]))
         XCTAssertThrowsError(try JSONDecoder().decode(TrackerTile.self, from: Data("[18,262144,20]".utf8)))
         XCTAssertThrowsError(try JSONDecoder().decode(TrackerTile.self, from: Data("[19,10,20]".utf8)))
         let source = Data(Array(repeating: [UInt8(236), 167, 123, 255], count: 256 * 128).flatMap { $0 }
@@ -44,7 +44,19 @@ final class TrackerTelemetryTests: XCTestCase {
         XCTAssertEqual(pixels.count, 14482)
         XCTAssertEqual(pixels[32], 0xdd)
         XCTAssertEqual(pixels.last, 0x88)
-        XCTAssertEqual(tile.reply(pixels: pixels).count, 14496)
+        let packet = tile.reply(pixels: pixels)
+        XCTAssertLessThan(packet.count, 2500)
+        XCTAssertEqual(packet[14..<46], pixels.prefix(32))
+        let scanlines = packet[46..<216]
+        var offset = 216
+        for (row, length) in scanlines.enumerated() {
+            let bytes = packet[offset..<(offset + Int(length))]
+            let original = pixels[(32 + row * 85)..<(32 + (row + 1) * 85)]
+            let decoded = bytes.flatMap { Array(repeating: $0 & 15, count: Int($0 >> 4) + 1) }
+            XCTAssertEqual(decoded, original.flatMap { [$0 >> 4, $0 & 15] })
+            offset += Int(length)
+        }
+        XCTAssertEqual(packet.count, offset)
     }
 }
 
@@ -147,7 +159,7 @@ extension TrackerTelemetryTests {
         try parser.receive(binary.prefix(16), snapshot: { _ in XCTFail() }, measurement: { _ in XCTFail() })
         try parser.receive(Data(binary.dropFirst(16)) + snapshot, snapshot: { record in
             snapshots += 1
-            XCTAssertEqual(record.tile?.reply(pixels: nil), Data([78, 88, 77, 52, 18, 0, 1, 255, 167, 0, 1, 84, 129, 1]))
+            XCTAssertEqual(record.tile?.reply(pixels: nil), Data([78, 88, 77, 53, 18, 0, 1, 255, 167, 0, 1, 84, 129, 1]))
         },
                            measurement: { samples.append($0) })
         XCTAssertEqual(snapshots, 1)

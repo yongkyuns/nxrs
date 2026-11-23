@@ -57,9 +57,10 @@ async def run(args, osm=None):
     if args.ble:
         from tracker_ble import BlePeer
 
-        peer = BlePeer(tiles=args.tiles, osm=osm, zoom=args.map_zoom or 18)
+        peer = BlePeer(tiles=args.tiles, osm=osm, zoom=args.map_zoom or 18, move_mps=args.move_mps)
         if args.tiles:
-            command = "motion_tracker --ble --frames 240 --stream-usb"
+            frames = 300 if args.move_mps is not None and abs(args.move_mps) < 5 else 240
+            command = f"motion_tracker --ble --frames {frames} --stream-usb"
             if args.map_zoom is not None:
                 command += f" --map-zoom {args.map_zoom}"
             commands = [command]
@@ -75,12 +76,12 @@ async def run(args, osm=None):
         wire.pending.clear()
         return reply
 
-    def gnss_fix():
+    def gnss_fix(elapsed_ms):
         nonlocal fixes
         if receiver.rate != 1:
             return []
         fixes += 1
-        return list(receiver.fix_packet(fixes * receiver.navigation[0], **(peer.fix if peer else {})))
+        return list(receiver.fix_packet(fixes * receiver.navigation[0], **(peer.position(elapsed_ms) if peer else {})))
 
     with TemporaryDirectory(prefix="esp-emu-tracker-") as directory:
         site = Path(directory)
@@ -191,7 +192,11 @@ async def run(args, osm=None):
         print("PASS: UART2 H4, dashboard QR, TLS-PSK and three advancing BLE telemetry snapshots")
         if args.tiles:
             assert report["modelError"] == 0 and report["ble"]["tileCrossing"]
-            print("PASS: requested the next tile before crossing and painted both sides of the seam")
+            crossing = report["ble"]["tileCrossing"]
+            if args.move_mps is None:
+                print("PASS: requested the next tile before crossing and painted both sides of the seam")
+            else:
+                print(f"Timed crossing: next tile lead {crossing['leadMs']} ms at {args.move_mps:g} m/s eastward")
     elif not args.command:
         battery, tracker = report["commands"]
         snapshots = [json.loads(line[line.index('{"v":1,'):])
@@ -218,6 +223,7 @@ if __name__ == "__main__":
     parser.add_argument("--ble", action="store_true", help="verify QR and authenticated BLE telemetry")
     parser.add_argument("--tiles", action="store_true", help="verify motion-aware tile rendering over BLE")
     parser.add_argument("--map-zoom", type=int, choices=range(15, 19))
+    parser.add_argument("--move-mps", type=float, help="eastward speed across a cold tile boundary, negative for west")
     parser.add_argument("--osm-tiles", action="store_true", help="download two real OpenStreetMap tiles")
     parser.add_argument("--deny-entropy", action="store_true", help="run the TLS entropy denial control")
     parser.add_argument("--timeout", type=int, default=25, help="wall seconds per guest command")
@@ -228,6 +234,9 @@ if __name__ == "__main__":
         parser.error("--tiles requires --ble with entropy enabled")
     if args.osm_tiles and not args.tiles:
         parser.error("--osm-tiles requires --tiles")
+    if args.move_mps is not None and (not args.osm_tiles or args.map_zoom not in (None, 18)
+                                    or not 1.5 <= abs(args.move_mps) <= 20):
+        parser.error("--move-mps requires real tiles at zoom 18 and a speed magnitude of 1.5–20 m/s")
     if args.deny_entropy and not args.ble:
         parser.error("--deny-entropy requires --ble")
     with ExitStack() as resources:
@@ -242,5 +251,6 @@ if __name__ == "__main__":
             session = resources.enter_context(CachedSession(cache, cache_control=True,
                                                            expire_after=7 * 86400, serializer="json"))
             session.headers["User-Agent"] = USER_AGENT
+            session.settings.only_if_cached = args.move_mps is not None
             osm = fetcher(session)
         asyncio.run(run(args, osm))

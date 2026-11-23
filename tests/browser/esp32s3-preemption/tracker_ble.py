@@ -19,7 +19,7 @@ import tile_fixture
 
 
 class BlePeer:
-    def __init__(self, *, tiles, osm, zoom):
+    def __init__(self, *, tiles, osm, zoom, move_mps=None):
         self.pending = bytearray()
         self.source = ParserSource()
         link = BluetoothLink()
@@ -35,12 +35,19 @@ class BlePeer:
         self.tiles = tiles
         self.osm = osm
         self.zoom = zoom
+        self.move_mps = move_mps
         self.latitude, self.longitude = (51.5074, -0.12145) if osm else (48.1173, -11.5166667)
+        if move_mps is not None and move_mps < 0:
+            scale = (1 << zoom) / 360
+            boundary = (int((180 + self.longitude) * scale) + 1) / scale - 180
+            self.longitude = 2 * boundary - self.longitude
         self.fix = {"latitude_deg": self.latitude, "longitude_deg": self.longitude}
         self.map_ready = False
         self.map_frames = {}
         self.want_paint = None
         self.last_panel = None
+        self.elapsed_ms = 0
+        self.motion = None
 
     def on_packet(self, packet):
         self.pending.extend(packet)
@@ -65,7 +72,16 @@ class BlePeer:
         self.key.set_result(bytes.fromhex(code.text[6:]))
         return True
 
-    def map_panel(self, png):
+    def position(self, elapsed_ms):
+        self.elapsed_ms = elapsed_ms
+        if self.motion is not None:
+            self.fix.update(self.motion.position(elapsed_ms))
+        return self.fix
+
+    def map_panel(self, png, elapsed_ms):
+        self.elapsed_ms = elapsed_ms
+        if self.motion is not None:
+            self.motion.observe(png, elapsed_ms)
         if self.want_paint is not None:
             self.last_panel = png
             name, pixels = self.want_paint
@@ -83,8 +99,9 @@ class BlePeer:
         latitude = math.radians(self.latitude)
         x = int((180 + self.longitude) * scale)
         y = int((1 - math.asinh(math.tan(latitude)) / math.pi) / 2 * world)
-        boundary = (x + 1) / scale - 180
-        west, east = [self.zoom, x, y], [self.zoom, x + 1, y]
+        direction = -1 if self.move_mps is not None and self.move_mps < 0 else 1
+        boundary = (x + max(direction, 0)) / scale - 180
+        current, neighbor = [self.zoom, x, y], [self.zoom, x + direction, y]
         tiles = {}
 
         async def request(tile):
@@ -116,19 +133,49 @@ class BlePeer:
             while self.want_paint is not None:
                 await session.sample()
 
-        await request(west)
-        await load(west, 0x001f)
-        await paint("initial", 0, [(90, 50), (120, 80), (210, 60)], west)
+        await request(current)
+        await load(current, 0x001f)
+        await paint("initial", 0, [(90, 50), (120, 80), (210, 60)], current)
+        if self.move_mps is not None:
+            self.motion = TimedCrossing(self.longitude, boundary, self.latitude, scale,
+                                        self.move_mps, self.elapsed_ms)
+            self.phase = "awaiting the next tile request during continuous motion"
+            early = await request(neighbor)
+            request_ms = self.elapsed_ms
+            await load(neighbor, 0xf800)
+            self.motion.color_at = color_at
+            self.phase = "sending and verifying the next tile during continuous motion"
+            reply_bytes = await session.send_tile(*neighbor, pixels=tiles[neighbor[1]])
+            self.motion.sent_ms = self.elapsed_ms
+            while self.motion.painted_ms is None or self.motion.crossed_ms is None:
+                await session.sample()
+            self.map_frames["next-tile"] = self.motion.frame
+            return {
+                "currentTile": current,
+                "nextTile": neighbor,
+                "tileSource": "OpenStreetMap HTTPS (warm HTTP cache)",
+                "speedMps": self.move_mps,
+                "motionStartMs": self.motion.start_ms,
+                "requestMs": request_ms,
+                "sendCompleteMs": self.motion.sent_ms,
+                "replyBytes": reply_bytes,
+                "crossingMs": self.motion.crossed_ms,
+                "paintedMs": self.motion.painted_ms,
+                "leadMs": self.motion.crossed_ms - self.motion.painted_ms,
+                "longitudeAtRequest": early["gnss"]["lon_deg"],
+                "boundaryLongitude": boundary,
+                "panelFrames": list(self.map_frames),
+            }
         distance = min(0.0003, (boundary - self.longitude) / 2)
         before = boundary - distance
         self.fix.update(longitude_deg=before, speed_mps=15)
         self.phase = "waiting for a request ahead of the boundary"
-        early = await request(east)
+        early = await request(neighbor)
         assert early["gnss"]["lon_deg"] < boundary
-        await load(east, 0xf800)
+        await load(neighbor, 0xf800)
         self.phase = "checking guest LCD before the boundary"
         await paint("before-crossing", 0.5 - distance * scale,
-                    [(105, 60), (160, 50), (220, 50), (230, 90)], east)
+                    [(105, 60), (160, 50), (220, 50), (230, 90)], neighbor)
         self.fix.update(longitude_deg=boundary + 0.00015, speed_mps=15)
         self.phase = "checking guest LCD after the boundary"
         await paint("after-crossing", 0.5 + 0.00015 * scale,
@@ -139,7 +186,7 @@ class BlePeer:
                 assert all(imu["state"] == "live" and imu["seq"] > previous["seq"]
                            for imu, previous in zip(sample["imu"], last["imu"]))
                 break
-        return {"currentTile": west, "nextTile": east,
+        return {"currentTile": current, "nextTile": neighbor,
                 "tileSource": "OpenStreetMap HTTPS" if self.osm else "synthetic",
                 "tileSha256": [hashlib.sha256(tiles[key]).hexdigest() for key in (x, x + 1)],
                 "boundaryLongitude": boundary, "longitudeAtRequest": early["gnss"]["lon_deg"],
@@ -186,7 +233,53 @@ class BlePeer:
                     await session.sample()
                 crossing["exportSamplesWithoutGaps"] = session.sample_counts
                 crossing["exportRatesHz"] = session.export_rates()
+                crossing["maxExportBatchGapHostMs"] = round(session.max_batch_gap * 1000)
             self.phase = "disconnecting BLE central"
             await connection.disconnect()
         return {"qrDecoded": True, "tls": session.tls.version(),
                 "cipher": session.tls.cipher()[0], "samples": samples, "tileCrossing": crossing}
+
+
+class TimedCrossing:
+    def __init__(self, longitude, boundary, latitude, scale, speed, start_ms):
+        self.start = longitude
+        self.boundary = boundary
+        self.scale = scale
+        self.speed = abs(speed)
+        self.direction = 1 if speed > 0 else -1
+        self.start_ms = start_ms
+        self.deg_per_ms = speed / (1000 * 111_319.49 * math.cos(math.radians(latitude)))
+        self.end = boundary + self.direction * 0.18 / scale
+        self.recent = []
+        self.color_at = None
+        self.sent_ms = None
+        self.crossed_ms = None
+        self.painted_ms = None
+        self.frame = None
+
+    def position(self, elapsed_ms):
+        longitude = self.start + (elapsed_ms - self.start_ms) * self.deg_per_ms
+        stopped = self.direction * (longitude - self.end) >= 0
+        if stopped:
+            longitude = self.end
+        self.recent = [*self.recent[-1:], longitude]
+        if self.direction * (longitude - self.boundary) >= 0 and self.crossed_ms is None:
+            self.crossed_ms = elapsed_ms
+        return {"longitude_deg": longitude, "speed_mps": 0 if stopped else self.speed}
+
+    def observe(self, png, elapsed_ms):
+        if self.sent_ms is None or self.painted_ms is not None:
+            return
+        points = [(226, 50), (239, 61), (232, 87), (241, 105)]
+        if self.direction < 0:
+            points = [(319 - x, y) for x, y in points]
+        with Image.open(BytesIO(base64.b64decode(png))) as image:
+            for longitude in self.recent:
+                offset = 0.5 * self.direction + (longitude - self.boundary) * self.scale
+                seam = 75 + round((max(self.direction, 0) - offset) * 170)
+                if all((x >= seam) == (self.direction > 0)
+                       and image.getpixel((x, y))[:3] == self.color_at(offset, x, y)
+                       for x, y in points):
+                    self.painted_ms = elapsed_ms
+                    self.frame = png
+                    return

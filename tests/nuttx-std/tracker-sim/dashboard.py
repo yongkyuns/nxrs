@@ -373,6 +373,8 @@ class SecureStream:
         self.sample_counts = [0] * 3
         self.sample_sequences = [None] * 3
         self.sample_ticks = [None] * 3
+        self.last_batch_received = None
+        self.max_batch_gap = 0
 
     async def subscribe(self):
         self.notifications = asyncio.Event()
@@ -483,6 +485,10 @@ class SecureStream:
         return record
 
     def count_export(self, record):
+        now = time.monotonic()
+        if self.last_batch_received is not None:
+            self.max_batch_gap = max(self.max_batch_gap, now - self.last_batch_received)
+        self.last_batch_received = now
         measurements, _ = record
         for source, seq, tick, _, _ in measurements:
             index = source - 1
@@ -499,7 +505,7 @@ class SecureStream:
     async def send_tile(self, zoom, x, y, color=0x001f, pixels=None):
         pixels = tile_fixture.solid(color) if pixels is None else pixels
         assert len(pixels) == tile_fixture.BODY_BYTES, 'unexpected tile size'
-        packet = tile_fixture.REQUEST.pack(tile_fixture.MAGIC, zoom, x, y) + bytes([0]) + pixels
+        packet = tile_fixture.REQUEST.pack(tile_fixture.MAGIC, zoom, x, y) + bytes([0]) + tile_fixture.pack(pixels)
         for offset in range(0, len(packet), 512):
             self.tls.write(packet[offset:offset + 512])
             await self.poll()
@@ -507,6 +513,7 @@ class SecureStream:
                 while (record := self.export_ready()) is not None:
                     if isinstance(record, tuple):
                         self.count_export(record)
+        return len(packet)
 
     async def sample(self):
         if self.notifications is not None:

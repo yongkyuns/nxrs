@@ -212,7 +212,7 @@ fn run(
                     next_radio = now + ACTIVE_POLL;
                 }
                 if let Some(snapshot) = &sample {
-                    output.offer(snapshot, now);
+                    output.offer(snapshot, now, tiles.phone_request());
                 }
                 if output.live() {
                     View {
