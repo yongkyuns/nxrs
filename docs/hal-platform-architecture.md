@@ -391,8 +391,10 @@ their contract and unavailable factory. Keep this selection in HAL wiring so
 shared algorithms can use explicit resources and capability information.
 Product builds and detached Cargo consumers use the same resolver.
 
-Ordinary driver dependencies remain Cargo declarations; a HAL build script
-cannot enable an optional dependency after Cargo has resolved the graph.
+Cargo manifests declare the available dependencies. The resolved profile owns
+product dependency selection, and the build frontend derives any required
+Cargo activation before resolution. A HAL build script cannot enable an
+optional dependency after Cargo has resolved the graph.
 
 Keep conditional compilation at a small set of ownership boundaries:
 
@@ -400,7 +402,7 @@ Keep conditional compilation at a small set of ownership boundaries:
 | --- | --- | --- |
 | `platform` | HAL module/acquisition wiring | Select the resolved platform implementation or the unavailable factory |
 | `target_os` | OS module/factory wiring | Compile only the actual OS implementation |
-| `replay`, `recording`, `udp` | Owning HAL and its consumers' Cargo manifests | Include explicit std software operations; do not select or require a hardware backend |
+| `replay`, `recording`, `udp` | Owning HAL and standalone consumers | Expose explicit std software operations for library and qualification use |
 | `person-model`, `pico-model` | Detector HAL, derived by product builds | Include the profile-selected model and its optional compute dependencies; explicit only for HAL qualification |
 | `probe` | Owning crate and qualification fixtures | Enable optional measurements and test witnesses |
 

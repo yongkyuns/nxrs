@@ -100,10 +100,15 @@ def expected_case(case):
     if case in MATRIX_CASES:
         accessors["imu"] |= {"primary_alias": "PRIMARY_DEVICE", "secondary": "DEVICE_1"}
         accessors["gnss"]["primary_alias"] = "PRIMARY_DEVICE"
+    secondary_body = "Some(super::secondary())" if case in MATRIX_CASES else "false.then(super::primary_imu)"
+    optional_imu = ("pub mod optional {\n"
+                    "pub fn secondary() -> Option<&'static impl super::super::Device> "
+                    f"{{ {secondary_body} }}\n}}\n")
     generated = {cap: "// Generated canonical device instances.\n" + "\n".join(declarations[cap])
                  + "\npub mod devices {\n" + "".join(
                      f"pub fn r#{name}() -> &'static impl super::Device {{ &super::{instance} }}\n"
-                     for name, instance in sorted(accessors[cap].items())) + "}\n"
+                     for name, instance in sorted(accessors[cap].items()))
+                 + (optional_imu if cap == "imu" else "") + "}\n"
                  for cap in capabilities}
     drivers = {driver for _, _, driver, _ in imus} if "imu" in capabilities else set()
     features = drivers | ({"i2c"} if "imu" in capabilities else set()) | ({"ubx"} if "gnss" in capabilities else set())

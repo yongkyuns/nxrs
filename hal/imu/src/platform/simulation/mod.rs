@@ -104,4 +104,10 @@ pub mod devices {
     pub fn primary_imu() -> &'static impl crate::Device {
         &super::DEVICE
     }
+
+    pub mod optional {
+        pub fn secondary() -> Option<&'static impl crate::Device> {
+            false.then(super::primary_imu)
+        }
+    }
 }

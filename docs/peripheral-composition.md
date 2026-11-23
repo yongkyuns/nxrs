@@ -499,6 +499,9 @@ IMU/GNSS named accessors refer to per-device static objects; default aliases
 select among those objects. Their HALs own acquisition and cleanup. Contract-only
 builds retain explicit unavailable factories. Test fixtures require an explicit
 profile or test injection.
+For a portable caller, `composition::imu::optional::secondary()` borrows the
+secondary IMU when the alias is available and returns `None` when absent.
+Acquisition still uses the normal IMU HAL and reports its typed errors.
 Selected exports remain named and factory-local. Generated wiring needs audit
 coverage and cannot introduce OS branches into shared algorithms.
 

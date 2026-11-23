@@ -72,20 +72,20 @@ boots with the original QEMU build and 20 with the patched build.
 The patched wall-clock control also passed. The timings above used the
 RUNSTALL patch before the UART receive-timeout patch was added.
 
-## Headless one-IMU tracker
+## One-IMU qualification
 
-Use the production app with its dashboard feature disabled. The qualification
-profile registers one modeled BMI270 on NuttX's I²C driver and exposes NSH over
-UART0. The headless JSON stream is version 2 with one IMU entry. The verifier
-checks live readings, a successful exit, and reacquisition in the same boot.
+The qualification profile registers one modeled BMI270 on I²C and connects
+the NEO-M9N peer over UART1. The normal tracker loop emits version 2 JSON with
+one IMU and GNSS. The verifier checks that reporting starts before the first
+fix, both sensors report live readings, and both sessions reopen in one boot.
 
 ```sh
-cargo nxrs build --app motion-tracker --no-default-features \
+cargo nxrs build --app motion-tracker \
   --profile esp32s3-qemu-tracker-headless \
   --target-c-source tests/nuttx-std/tracker-sim/devices.c \
   --target-c-source tests/nuttx-std/tracker-sim/native_init.c \
   --out target/tracker-headless
-node tests/nuttx-std/tracker-sim/headless.mjs \
+python3 tests/nuttx-std/tracker-sim/headless.py \
   target/tracker-headless/nuttx/nuttx.merged.bin target/tracker-headless/report.json
 ```
 
@@ -94,8 +94,8 @@ node tests/nuttx-std/tracker-sim/headless.mjs \
 The logging qualification profile extends the one-IMU profile. Its boot
 fixture mounts TMPFS and starts the Rust archive as a separate NuttX task
 before starting NSH. The task installs the Rust `log` adapter for NuttX
-`syslog` and drains RAMLOG at `/dev/kmsg` using a blocking file read. The same
-headless tracker runs as a separate NSH invocation.
+`syslog` and drains RAMLOG at `/dev/kmsg` using a blocking file read. The tracker
+runs as a separate NSH invocation.
 
 ```sh
 cargo nxrs build --manifest-path tests/nuttx-std/tracker-sim/logging/Cargo.toml \
@@ -103,7 +103,7 @@ cargo nxrs build --manifest-path tests/nuttx-std/tracker-sim/logging/Cargo.toml 
   --target-c-source tests/nuttx-std/tracker-sim/devices.c \
   --target-c-source tests/nuttx-std/tracker-sim/logging/init.c \
   --out target/tracker-logging
-node tests/nuttx-std/tracker-sim/headless.mjs \
+python3 tests/nuttx-std/tracker-sim/headless.py \
   target/tracker-logging/nuttx/nuttx.merged.bin target/tracker-logging/report.json
 ```
 
@@ -112,8 +112,9 @@ bytes each. Rotation preserves byte order and can split a log line. TMPFS is
 volatile, and the kernel RAMLOG can overwrite unread data during a burst.
 The verifier checks the boot SYSLOG marker before the tracker runs, the
 modeled driver’s SYSLOG markers, the observation service's Rust log records
-during two tracker runs, and retention after repeated rotations. Tracker
-measurements use the typed snapshot stream. [Desktop and browser qualification](../../logging/README.md)
+during two tracker runs, and retention after repeated rotations. It also
+compares the rotated measurement archive byte for byte with USB telemetry
+from the same typed snapshots. [Desktop and browser qualification](../../logging/README.md)
 
 ## Full dashboard and BLE/TLS
 

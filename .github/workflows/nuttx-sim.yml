@@ -99,7 +99,8 @@ jobs:
             command -v "$tool" || { echo "Missing build tool: $tool" >&2; exit 1; }
           done
           cargo nxrs fetch tls
-          cargo nxrs build --app motion-tracker --profile nuttx-sim-tracker \
+          cargo nxrs build --manifest-path tests/nuttx-std/tracker-sim/logging/Cargo.toml \
+            --profile nuttx-sim-tracker \
             --target-c-source tests/nuttx-std/tracker-sim/devices.c \
             --target-c-source tests/nuttx-std/tracker-sim/native_init.c \
             --out target/nuttx-sim-tracker

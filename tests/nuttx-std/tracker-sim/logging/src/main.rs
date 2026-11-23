@@ -20,12 +20,13 @@ fn archive(mut args: impl Iterator<Item = String>) -> io::Result<()> {
     if args.next().is_some() {
         return Err(io::ErrorKind::InvalidInput.into());
     }
-    #[cfg(target_os = "nuttx")]
-    syslog::install(log::LevelFilter::Info).map_err(io::Error::other)?;
     logging::archive(File::open(source)?, Path::new(&active), limit)
 }
 
 fn main() -> ExitCode {
+    // The archive task and repeated tracker commands share this logger.
+    #[cfg(target_os = "nuttx")]
+    let _ = syslog::install(log::LevelFilter::Info);
     let mut args = std::env::args().skip(1).peekable();
     if args.peek().map(String::as_str) != Some("--drain-system-log") {
         return nxrs_motion_tracker::run(args);

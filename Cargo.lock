@@ -1069,6 +1069,7 @@ version = "0.1.0"
 dependencies = [
  "log",
  "nxrs-log-router",
+ "nxrs-messaging",
  "nxrs-navigation-services",
 ]
 
@@ -1109,6 +1110,7 @@ dependencies = [
  "nxrs-display",
  "nxrs-gnss",
  "nxrs-imu",
+ "nxrs-log-router",
  "nxrs-messaging",
  "nxrs-navigation-services",
  "nxrs-settings",

@@ -44,4 +44,10 @@ pub mod devices {
     pub fn secondary() -> &'static impl crate::Device {
         &super::SECONDARY
     }
+
+    pub mod optional {
+        pub fn secondary() -> Option<&'static impl crate::Device> {
+            None::<&super::super::SelectedDevice>
+        }
+    }
 }

@@ -12,8 +12,9 @@ to apply only to the revisions and configurations they measured.
 
 HAL packages own runtime contracts and acquisition. The platform composition crate owns
 concrete construction and imports driver-owned supported binding declarations. The shared build system resolves profiles and generates
-validated configuration and instance declarations. Cargo features enable the
-required implementations. Every configured physical device in the firmware's
+validated configuration and instance declarations. The profile is the product
+dependency selector. Cargo feature activation derived by the frontend enables
+the required implementations. Every configured physical device in the firmware's
 active instance set has one canonical, statically allocated, opaque object with
 its own configuration, persistent
 instance storage and ownership/fault state. Aliases refer to those objects.

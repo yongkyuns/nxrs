@@ -1,17 +1,15 @@
-//! Reconnect policy for live tracker telemetry. The modem task owns blocking I/O.
-use crate::{text::Text, tracker::Snapshot, wire};
-use cellular::Session as _;
+//! Collector TCP and TLS delivery over an available cellular link.
+use super::publication::Publisher;
+use super::{
+    wire::{self, Frame},
+    Snapshot,
+};
 use std::io::{self, Read};
 use std::net::{SocketAddr, SocketAddrV4, TcpStream};
-use std::sync::{
-    atomic::{AtomicBool, Ordering},
-    Arc, Mutex,
-};
+use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
-use super::publication::Publisher;
 
-const LINK_POLL: Duration = Duration::from_millis(100);
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(3);
 const SESSION_LIFETIME: Duration = Duration::from_secs(3600);
 
@@ -63,71 +61,92 @@ pub struct Config {
     pub collector: Option<Collector>,
 }
 
-struct Signals {
-    link_worker: thread::Thread,
-    stopping: AtomicBool,
-    exchange: Mutex<Exchange>,
-}
-
-struct Exchange {
-    generation: u32,
+#[derive(Default)]
+struct DialState {
+    generation: Option<u32>,
     requested: bool,
-    socket: Option<TcpStream>,
+    ready: Option<io::Result<TcpStream>>,
+    stopping: bool,
 }
 
-pub struct Modem {
-    signals: Arc<Signals>,
-    task: Option<JoinHandle<io::Result<()>>>,
+/// A blocking TCP dial must not hold up the communications owner or BLE.
+pub struct Dialer {
+    state: Arc<Mutex<DialState>>,
+    task: Option<JoinHandle<()>>,
 }
 
-impl Modem {
-    pub fn start(config: Config) -> io::Result<Self> {
-        let signals = Arc::new(Signals {
-            link_worker: thread::current(),
-            stopping: AtomicBool::new(false),
-            exchange: Mutex::new(Exchange {
-                generation: 0,
-                requested: config.collector.is_some(),
-                socket: None,
-            }),
-        });
-        let control = signals.clone();
+impl Dialer {
+    pub fn start(collector: Collector) -> io::Result<Self> {
+        let state = Arc::new(Mutex::new(DialState::default()));
+        let worker = state.clone();
+        let notify = thread::current();
         let task = thread::Builder::new()
-            .name("tracker-modem".into())
+            .name("tracker-collector".into())
             .stack_size(16 * 1024)
-            .spawn(move || supervise(config, &control))?;
+            .spawn(move || loop {
+                let request = {
+                    let mut state = worker.lock().unwrap();
+                    if state.stopping {
+                        break;
+                    }
+                    if std::mem::take(&mut state.requested) {
+                        state.generation
+                    } else {
+                        None
+                    }
+                };
+                if let Some(generation) = request {
+                    let result = TcpStream::connect_timeout(
+                        &SocketAddr::V4(collector.address),
+                        CONNECT_TIMEOUT,
+                    );
+                    let mut state = worker.lock().unwrap();
+                    if state.generation == Some(generation) && !state.stopping {
+                        state.ready = Some(result);
+                        drop(state);
+                        notify.unpark();
+                    }
+                } else {
+                    thread::park();
+                }
+            })?;
         Ok(Self {
-            signals,
+            state,
             task: Some(task),
         })
     }
 
-    pub fn receive(&self) -> (u32, Option<TcpStream>) {
-        let mut exchange = self.signals.exchange.lock().unwrap();
-        (exchange.generation, exchange.socket.take())
+    pub fn set_link(&self, generation: Option<u32>) {
+        let stale = {
+            let mut state = self.state.lock().unwrap();
+            state.generation = generation;
+            state.requested = false;
+            state.ready.take()
+        };
+        drop(stale);
     }
 
-    pub fn request_socket(&self, generation: u32) {
-        let mut exchange = self.signals.exchange.lock().unwrap();
-        if exchange.generation == generation && exchange.socket.is_none() {
-            exchange.requested = true;
-            drop(exchange);
-            self.task.as_ref().unwrap().thread().unpark();
-        }
+    pub fn request(&self) {
+        self.state.lock().unwrap().requested = true;
+        self.task.as_ref().unwrap().thread().unpark();
+    }
+
+    pub fn receive(&self) -> Option<io::Result<TcpStream>> {
+        self.state.lock().unwrap().ready.take()
     }
 
     pub fn stop(&mut self) -> io::Result<()> {
-        self.signals.stopping.store(true, Ordering::Release);
         if let Some(task) = self.task.take() {
+            self.state.lock().unwrap().stopping = true;
             task.thread().unpark();
             task.join()
-                .map_err(|_| io::Error::other("tracker modem task panicked"))??;
+                .map_err(|_| io::Error::other("tracker collector dial task panicked"))?;
         }
         Ok(())
     }
 }
 
-impl Drop for Modem {
+impl Drop for Dialer {
     fn drop(&mut self) {
         let _ = self.stop();
     }
@@ -152,106 +171,6 @@ impl Retry {
     }
 }
 
-fn supervise(config: Config, signals: &Signals) -> io::Result<()> {
-    use cellular::{Error, Status};
-    let mut retry = Retry::new();
-    while !signals.stopping.load(Ordering::Acquire) {
-        if Instant::now() < retry.next {
-            thread::park_timeout(retry.next.saturating_duration_since(Instant::now()));
-            continue;
-        }
-
-        let failure = match cellular::connect(&config.apn) {
-            Ok(mut session) => {
-                let mut reported = None;
-                let mut socket_retry = Retry::new();
-                while !signals.stopping.load(Ordering::Acquire) {
-                    let status = session.status();
-                    if reported != Some(status) {
-                        if matches!(status, Status::Online { .. }) {
-                            retry = Retry::new();
-                        }
-                        eprintln!("motion-tracker cellular {status:?}");
-                        reported = Some(status);
-                    }
-                    match status {
-                        Status::Online { .. } => {
-                            if let Some(collector) = config.collector {
-                                if signals.exchange.lock().unwrap().requested
-                                    && Instant::now() >= socket_retry.next
-                                {
-                                    match TcpStream::connect_timeout(
-                                        &SocketAddr::V4(collector.address),
-                                        CONNECT_TIMEOUT,
-                                    ) {
-                                        Ok(socket)
-                                            if matches!(
-                                                session.status(),
-                                                Status::Online { .. }
-                                            ) =>
-                                        {
-                                            let mut exchange = signals.exchange.lock().unwrap();
-                                            exchange.requested = false;
-                                            exchange.socket = Some(socket);
-                                            drop(exchange);
-                                            signals.link_worker.unpark();
-                                            socket_retry = Retry::new();
-                                        }
-                                        Ok(_) => {}
-                                        Err(error) => {
-                                            eprintln!(
-                                                "motion-tracker collector TCP: {}",
-                                                error.kind()
-                                            );
-                                            socket_retry.later();
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        Status::Connecting => {}
-                        Status::Failed(_) | Status::Stopped => break,
-                    }
-                    thread::park_timeout(LINK_POLL);
-                }
-                let socket = {
-                    let mut exchange = signals.exchange.lock().unwrap();
-                    exchange.generation = exchange.generation.wrapping_add(1);
-                    exchange.requested = config.collector.is_some();
-                    exchange.socket.take()
-                };
-                drop(socket);
-                signals.link_worker.unpark();
-                let result = session.stop();
-                if signals.stopping.load(Ordering::Acquire) {
-                    // Expected network failures have already been handed to the retry policy.
-                    return match result {
-                        Err(error) if fatal(error) => Err(io::Error::other(error)),
-                        _ => Ok(()),
-                    };
-                }
-                result.err().unwrap_or(Error::LinkLost)
-            }
-            Err(error) => error,
-        };
-        eprintln!("motion-tracker cellular retry: {failure}");
-        if fatal(failure) {
-            return Err(io::Error::other(failure));
-        }
-        retry.later();
-    }
-    Ok(())
-}
-
-fn fatal(error: cellular::Error) -> bool {
-    matches!(
-        error,
-        cellular::Error::InvalidApn
-            | cellular::Error::Unsupported
-            | cellular::Error::RecoveryRequired
-    )
-}
-
 pub struct Upload<'a> {
     connection: tls::Connection<'a>,
     ready: bool,
@@ -274,7 +193,7 @@ impl<'a> Upload<'a> {
 
     pub fn service(
         &mut self,
-        publication: &mut Publisher<Snapshot, Text<768>>,
+        publication: &mut Publisher<Snapshot, Frame>,
         now: Instant,
     ) -> io::Result<bool> {
         if !self.ready {

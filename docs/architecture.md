@@ -43,10 +43,10 @@ canonical instances with direct device accessors and aliases.
 HAL crates retain runtime contracts/implementations, native ABI source and
 declarative support metadata. Shared tooling in `tools/build-support` and the
 controller in `tools/build` own configuration generation and native preparation,
-with tooling-owned Cargo adapters selected by package manifests. Ordinary
-additive Cargo features enable implementations, and profiles define physical
-devices and aliases. See the [build reference](build-system.md) for the current
-prepared-input and consumed-package boundaries.
+with tooling-owned Cargo adapters selected by package manifests. Profiles define
+physical devices and aliases. The build frontend derives any Cargo feature
+activation needed to compile their implementations. The
+[build reference](build-system.md) describes prepared inputs and consumed packages.
 Each active IMU or GNSS device has one canonical static opaque object
 with private instance state and an exclusive acquisition lease. Multiple aliases
 can refer to that same object; multiple devices can use the same implementation.
@@ -143,11 +143,15 @@ contract, so gateway ingest can read it with the camera-side server disabled.
 `camera::capture::Session` owns frame validation, fixed history and stop.
 `wifi::Reconnector` owns station retry and rejoin; its caller supplies credentials
 and drives polling. Home-cam composes those APIs with streaming and detection.
-Motion Tracker's `communications` module owns the BLE and cellular sessions and
-their common bounded publisher. Its dashboard consumes link status. Navigation
-supplies reusable observation and fusion behavior. The camera qualification's
-recording and packet-summary adapters live with that fixture. Network data paths
-use `std::net`.
+Motion Tracker's `communications` module owns BLE pairing, collector TCP/TLS
+retries, and their common bounded publisher. The cellular HAL maintains the PPP
+link and wakes communications on state changes. It identifies each online
+interval so the publisher can retire sockets from an earlier link. The app
+encodes the same typed snapshots for USB and the rotating archive.
+Navigation owns observation startup, rollback, and terminal reconciliation.
+The app supplies the selected devices and shares one typed snapshot between
+the dashboard and publisher. The camera qualification's recording and
+packet-summary adapters live with that fixture. Network data paths use `std::net`.
 
 Keep OS adapters in their owning capability HAL, and keep adapters used only
 for qualification under `tests/`. Reserve the root `platform/` tree for profiles,
@@ -588,8 +592,19 @@ Configuration chooses:
 The product platform owns HAL bindings, execution target/board, and
 target-specific configuration. Firmware builds select it through the frontend's
 `--platform` or `--profile` argument; host/test Cargo invocations use
-`NXRS_PLATFORM`. Cargo features select optional software and driver code, not
-per-HAL operating-system providers.
+`NXRS_PLATFORM`.
+
+The resolved profile is the only product-build input for selecting capabilities
+and dependencies. Cargo manifests declare the available dependencies. Product
+builds must derive any required Cargo activation from the profile. Avoid
+independent mode flags, default features that select product dependencies, and
+manual `--features` switches for profile-managed dependencies. Reserve explicit
+feature selection for narrow standalone library or qualification use.
+
+Apps use portable HAL APIs and handle `Unsupported` on optional devices in the
+normal application path. Profiles select the concrete providers and hardware
+instances. The architecture check rejects dependency-selecting features in
+product application manifests.
 
 Handwritten Rust chooses service topology.
 

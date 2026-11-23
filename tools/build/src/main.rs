@@ -336,6 +336,17 @@ fn project_command(root: &Path, args: &[String], operation: Operation<'_>) -> Re
         _ => return Err("choose one --app or --manifest-path".into()),
     };
     let mut app = App::load(&path, bin.as_deref())?;
+    if app.manifest.starts_with(root.join("app")) {
+        if let Some(feature) = options.features.iter().find(|feature| {
+            feature
+                .split_once('/')
+                .is_some_and(|(package, _)| package != app.package)
+        }) {
+            return Err(format!(
+                "product dependencies are selected by the profile. Remove manual Cargo feature {feature}"
+            ));
+        }
+    }
     if expected_package.is_some_and(|s| s != app.package) {
         return Err("requested package differs from selected manifest".into());
     }

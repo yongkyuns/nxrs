@@ -12,3 +12,8 @@ pub fn connect(_: &str) -> Result<impl Session, Error> {
     }
     Err::<Unavailable, _>(Error::Unsupported)
 }
+
+/// Open a maintained link with a task-context wake callback.
+pub fn maintain(apn: &str, _: impl FnMut() + Send + 'static) -> Result<impl Session, Error> {
+    connect(apn)
+}

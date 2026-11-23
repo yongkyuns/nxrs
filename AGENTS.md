@@ -164,9 +164,16 @@ portability, dependency, native-boundary and lifecycle coverage. The OS/provider
   internal `platform` value at their module boundary. It names the exact
   validated binding (`nuttx`, `linux`, `macos`, `windows`, `mock` or `simulation`),
   with no selector for unbound capabilities; do not collapse OS names to `hardware`.
-- Cargo manifests own component dependencies. Ordinary additive features may
-  select optional functionality, formats, algorithms and driver code at their
-  owning module boundary. Do not maintain a global feature-name allowlist.
+- Profiles are the sole product-build input for capabilities and dependency
+  selection. Cargo manifests declare available dependencies. Do not introduce
+  product mode flags, Cargo feature overrides, or defaults that independently
+  select a product dependency. When Cargo needs a feature to compile the
+  resolved graph, derive that activation from the profile in the build frontend.
+  Use independently selectable features sparingly, for standalone library
+  functionality or explicit qualification. Do not maintain a global
+  feature-name allowlist.
+  Apps use their normal path when an optional HAL returns `Unsupported`.
+  Do not add application build modes for absent devices.
   Keep OS selection in target configuration and physical resource instances in
   explicit configuration/ownership. Optional diagnostic instrumentation uses
   the explicit `probe` feature. The detector product/model rules below still apply.

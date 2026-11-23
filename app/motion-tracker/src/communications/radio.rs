@@ -1,11 +1,14 @@
-use crate::{text::Text, tracker::Snapshot, wire};
+use super::publication::Publisher;
+use super::{
+    wire::{self, Frame},
+    Snapshot,
+};
 use ble::{
     peripheral::{self, Link, Listener},
     Uuid,
 };
 use std::io::{self, Read, Write};
 use std::time::{Duration, Instant};
-use super::publication::Publisher;
 
 fn uuid(last: u8) -> Uuid {
     Uuid([
@@ -48,7 +51,7 @@ pub struct Output<'a, L: Listener> {
     identity: &'a tls::Identity,
     key: [u8; 32],
     connection: Option<tls::Connection<'a, Bearer<L::Transport>>>,
-    publication: Publisher<Snapshot, Text<768>>,
+    publication: Publisher<Snapshot, Frame>,
     live: bool,
     paired: bool,
     drained: bool,
