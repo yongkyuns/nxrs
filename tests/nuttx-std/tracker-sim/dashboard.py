@@ -377,6 +377,7 @@ class SecureStream:
         while True:
             if self.buffer[:1] == b'\xa5' and len(self.buffer) >= 4:
                 size = 4 + int.from_bytes(self.buffer[2:4], 'little')
+                assert size != 4, 'tracker reported sensor export buffer overflow'
                 assert self.buffer[1] == 1 and 33 <= size <= 532
                 if len(self.buffer) >= size:
                     batch = bytes(self.buffer[4:size])

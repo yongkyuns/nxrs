@@ -14,6 +14,9 @@ const ATT_CHUNK: usize = 20;
 const NOTIFY_CHUNK: usize = 244;
 const OFFSET_BYTES: usize = 4;
 const REPLAY_AFTER: Duration = Duration::from_millis(180);
+// Keep the per-poll ceiling high enough to drain a replay backlog even on a
+// controller that can carry only 16 ciphertext bytes per ACL packet.
+const NOTIFY_BURST: usize = 16;
 const HANDLE_MASK: u32 = 0x0fff;
 const CONNECTED: u32 = 1 << 12;
 const RETIRED: u32 = 1 << 13;
@@ -319,7 +322,7 @@ impl Listener for Peripheral {
             output.replay_at = Some(now + REPLAY_AFTER);
         }
         let mut bytes = [0; NOTIFY_CHUNK];
-        for _ in 0..8 {
+        for _ in 0..NOTIFY_BURST {
             if !self.notifying() || output.next == output.queue.bytes.len() {
                 break;
             }
