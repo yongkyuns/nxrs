@@ -8,7 +8,7 @@ Extend [your first application](first-application.md) with a worker and a bounde
 
 Keep mutable state with the code that updates it. When a component needs independent execution, give it one event loop and send typed commands to that loop. The application constructs the components, connects them, and controls startup and shutdown.
 
-The camera and Wi-Fi HALs own their device lifecycle and can be polled from the app. HALs can also run workers for blocking device operations, as IMU and GNSS acquisition do. Extract a service when reusable policy or a protocol has an independent contract. A parser or calculation can stay an ordinary function.
+The camera and Wi-Fi HALs own their device lifecycle and can be polled from the app. A HAL can also own a worker for device readiness and blocking reads. Extract a service when reusable policy or a protocol has an independent contract. A parser or calculation can stay an ordinary function.
 
 | Requirement | Start with |
 | --- | --- |
