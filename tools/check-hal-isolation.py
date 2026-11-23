@@ -11,8 +11,8 @@ import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
 HOST_PLATFORM = {"darwin": "macos", "win32": "windows"}.get(sys.platform, "linux")
-CAPABILITIES = ("camera", "storage", "transport", "led", "imu", "gnss", "wifi", "ble")
-EXAMPLE_FEATURES = {"camera": "replay", "storage": "recording", "transport": "udp"}
+CAPABILITIES = ("camera", "storage", "led", "imu", "gnss", "wifi", "ble")
+EXAMPLE_FEATURES = {"camera": "replay", "storage": "recording"}
 
 
 def host_dependencies(metadata, target_packages):
@@ -185,8 +185,8 @@ def run(out, capabilities=CAPABILITIES):
             cases.append(("mock-wasm", "mock", "mock", "wasm32-unknown-unknown", None))
         if capability in {"imu", "gnss"}:
             cases.append(("simulation-host", "simulation", "simulation", None, None))
-        if capability in {"camera", "storage", "transport"}:
-            example = {"camera": "native_replay", "storage": "native_record", "transport": "native_send"}[capability]
+        if capability in {"camera", "storage"}:
+            example = {"camera": "native_replay", "storage": "native_record"}[capability]
             cases.append((HOST_PLATFORM, HOST_PLATFORM, "none", None, example))
         for label, profile, provider, target, example in cases:
             expected = set(base_expected)
@@ -224,14 +224,11 @@ def run(out, capabilities=CAPABILITIES):
                 if example:
                     executables = [r["executable"] for r in records if r.get("reason") == "compiler-artifact" and r.get("executable")]
                     assert len(executables) == 1
-                    if capability == "transport":
-                        oracle("transport").execute(executables[0], out)
-                    else:
-                        destination = source if capability == "camera" else out / "records"
-                        execution = subprocess.run([executables[0], str(destination)], check=True, capture_output=True, text=True, timeout=15)
-                        assert execution.stdout.strip() == capability.upper() + "_ONLY_PASS"
-                        if capability == "storage":
-                            oracle("storage").check_records(destination)
+                    destination = source if capability == "camera" else out / "records"
+                    execution = subprocess.run([executables[0], str(destination)], check=True, capture_output=True, text=True, timeout=15)
+                    assert execution.stdout.strip() == capability.upper() + "_ONLY_PASS"
+                    if capability == "storage":
+                        oracle("storage").check_records(destination)
                 report.append({"case": label, "platform": profile, "provider": provider, "target": target,
                                "features": [EXAMPLE_FEATURES[capability]] if example else [],
                                "compiled_packages": sorted({names[identity] for ids in compiled.values() for identity in ids}),

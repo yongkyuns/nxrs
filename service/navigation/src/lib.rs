@@ -19,8 +19,7 @@ mod diagnostics {
     pub(super) fn configured(imus: usize, gnss: bool) {
         log::info!(
             target: "navigation::observations",
-            "configured {} IMU channels, GNSS {}",
-            imus,
+            "configured {imus} IMU channels, GNSS {}",
             if gnss { "enabled" } else { "disabled" }
         );
     }
@@ -29,6 +28,24 @@ mod diagnostics {
 #[cfg(not(feature = "probe"))]
 mod diagnostics {
     pub(super) fn configured(_: usize, _: bool) {}
+}
+
+fn inbox_sink<T: Copy, E>(
+    sender: messaging::Sender<E>,
+    wrap: impl Fn(T) -> E,
+) -> impl FnMut(T) -> messaging::DeliveryResult<T> {
+    use messaging::{DeliveryError, Rejected};
+    use std::sync::mpsc::TrySendError;
+
+    move |value| {
+        sender.try_send(wrap(value)).map_err(|error| Rejected {
+            value,
+            error: match error {
+                TrySendError::Full(_) => DeliveryError::Full,
+                TrySendError::Disconnected(_) => DeliveryError::Closed,
+            },
+        })
+    }
 }
 
 #[cfg(test)]

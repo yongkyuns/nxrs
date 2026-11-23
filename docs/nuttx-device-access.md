@@ -337,7 +337,7 @@ ordinary I/O.
 
 ## 11. Current repository migration direction
 
-The desired direction is already demonstrated by the NuttX transport provider,
+The desired direction is already demonstrated by the NuttX standard UDP qualification,
 which uses `std::net::UdpSocket` directly and contains no socket wrapper layer.
 
 Some older camera/storage compatibility providers still route ordinary

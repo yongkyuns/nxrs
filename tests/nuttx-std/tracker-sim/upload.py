@@ -179,6 +179,7 @@ def qualify(process, modem, gnss_wire, transcript, log, ethernet, server, pin, r
     dropped_at_usb = None
     offline_from = None
     redial_at_usb = None
+    last_recovered = None
     started_at = time.monotonic()
     for wire in (modem, gnss_wire):
         wire.settimeout(1)
@@ -234,6 +235,8 @@ def qualify(process, modem, gnss_wire, transcript, log, ethernet, server, pin, r
                 records.append(raw)
                 if is_live(sample):
                     check_live(sample)
+                    if connection == 3:
+                        last_recovered = sample
                     if not any(previous == connection for previous, _ in received):
                         received.append((connection, raw))
                         if connection == 2:
@@ -270,7 +273,10 @@ def qualify(process, modem, gnss_wire, transcript, log, ethernet, server, pin, r
         assert len(offline) >= 5, f'only {len(offline)} USB reports while PPP was down'
         for sample in offline:
             check_live(sample)
-        check_progress([offline[0], offline[-1], json.loads(received[2][1])])
+        # TLS can recover before the next 800 ms GNSS fix. The first upload
+        # above proves post-redial delivery, and later uploads prove progression.
+        assert last_recovered is not None
+        check_progress([offline[0], offline[-1], last_recovered])
         assert transcript.count(b'motion-tracker collector TLS online') == 3
         print(f'PASS: {len(offline)} live USB reports while PPP was down, with advancing IMU and GNSS samples')
         print(f'PASS: TLS 1.3 uploads matched console frames {positions} before and after collector/PPP loss '

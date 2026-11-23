@@ -42,7 +42,7 @@ A static catalogue handle identifies the configured device. For the composed acq
 
 ## Capability HALs
 
-A capability HAL presents a subsystem interface, such as storage, transport, a camera, or a data-acquisition device. It owns its public Rust API, errors, resource lifetime, and OS-specific implementation selection.
+A capability HAL presents a subsystem interface, such as storage, Wi-Fi, a camera, or a data-acquisition device. It owns its public Rust API, errors, resource lifetime, and OS-specific implementation selection.
 
 The application can acquire a capability through its documented constructor or select a named device through the portable catalogue. Services consume that interface rather than constructing board-specific drivers. A synchronous driver call and a streaming acquisition session are different APIs because their lifetimes differ.
 

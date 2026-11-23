@@ -1,5 +1,5 @@
 use super::{Failure, Result};
-use detection_wire::VideoFrame;
+use detection_service::wire::VideoFrame;
 use std::collections::VecDeque;
 
 const MAX_PENDING: usize = 32;
@@ -75,7 +75,7 @@ pub fn insertion_point(packet: &[u8]) -> Result<usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use detection_wire::Version;
+    use detection_service::wire::Version;
 
     #[test]
     fn only_the_exact_queued_picture_can_consume_an_annotation() {

@@ -13,13 +13,9 @@ mod mode;
 mod mode;
 mod preferences;
 #[cfg(feature = "dashboard")]
-mod radio;
-#[cfg(feature = "dashboard")]
 mod screen;
 mod text;
 mod tracker;
-#[cfg(feature = "dashboard")]
-mod uplink;
 mod wire;
 
 use preferences::Interval;

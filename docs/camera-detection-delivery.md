@@ -11,10 +11,11 @@ of playback status. A stale video view never displays a current person state.
 wire contract. [monitoring-api.json](monitoring-api.json) describes the public
 subscription. The shared golden fixture is
 `clients/ios/Tests/NxrsMonitorCoreTests/Fixtures/detection.json`; Rust, Swift and
-JSON Schema tests consume those same bytes. `service/detection-wire` owns the
-Rust wire types and bounded serializer/parser. It depends on no HAL or model.
-The application maps its typed detection snapshot into that protocol; the HAL
-continues to own only inference and its common capability API.
+JSON Schema tests consume those same bytes. `service/detection` owns the alert
+policy, event history and publication. Its `wire` module owns the Rust types
+and bounded JSON codec. Home-cam sends the resulting metadata, and the gateway
+validates it with inference disabled. The detector HAL owns model execution
+and its portable capability API.
 
 `Source` carries a publication ID, owner-clock emission time, confirmed presence,
 localization capability, optional latest observation, and eight retained events.

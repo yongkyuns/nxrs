@@ -3,25 +3,23 @@
 #![forbid(unsafe_code)]
 
 pub mod bootstrap;
-mod detection;
 mod microphone;
 pub mod network;
-mod publication;
 pub mod startup;
 mod tls;
 pub mod update;
-pub use detection::{DetectionSnapshot, SecurityDetection, SecurityEvent};
 pub use tls::{RefreshStep, TimeChannel, TlsIdentity, TlsOptions, TlsStats, Worker as TlsOutput};
 
 use camera::{Camera, Format, PixelFormat};
-use camera_service::{CameraService, CaptureProgress, Frames};
+use camera::capture::{Frames, Progress as CaptureProgress, Session as CaptureSession};
+use detection_service::{Input as DetectionInput, Session as DetectionSession};
 use std::io;
 use std::net::TcpListener;
 use stream_service::{Options, Progress, Server, ServerStats};
 
 #[derive(Debug)]
 pub enum Error {
-    Camera(camera_service::Error),
+    Camera(camera::capture::Error),
     Network(io::Error),
     Detection(detection_service::Error),
     Tls(::tls::Error),
@@ -44,9 +42,9 @@ pub struct Stats {
 pub struct LiveCamera<D, const BYTES: usize, B, O = Server<B>> {
     // Join TLS before releasing camera storage, including implicit teardown.
     server: O,
-    capture: CameraService<D, BYTES, 1, B>,
+    capture: CaptureSession<D, BYTES, 1, B>,
     stats: Stats,
-    detection: Option<SecurityDetection>,
+    detection: Option<DetectionSession>,
 }
 
 /// The camera owns one output with explicit polling and retirement. Implementations
@@ -122,7 +120,7 @@ impl<D: Camera, const BYTES: usize, B: AsRef<[u8]> + AsMut<[u8]>> LiveCamera<D, 
         options: Options,
     ) -> Result<Self, Error> {
         let capture =
-            CameraService::with_buffers(device, [history], staging).map_err(Error::Camera)?;
+            CaptureSession::with_buffers(device, [history], staging).map_err(Error::Camera)?;
         let server = Server::new(listener, outgoing, options).map_err(Error::Network)?;
         Ok(Self {
             capture,
@@ -154,7 +152,7 @@ impl<D: Camera, const BYTES: usize, B: AsRef<[u8]> + AsMut<[u8]>> LiveCamera<D, 
         B: Send + 'static,
     {
         let capture =
-            CameraService::with_buffers(device, [history], staging).map_err(Error::Camera)?;
+            CaptureSession::with_buffers(device, [history], staging).map_err(Error::Camera)?;
         let server =
             tls::Worker::spawn(listener, outgoing, handoff, options, resources, initialize)?;
         Ok(LiveCamera {
@@ -185,17 +183,17 @@ impl<D: Camera, const BYTES: usize, B: AsRef<[u8]> + AsMut<[u8]>, O: StreamOutpu
     LiveCamera<D, BYTES, B, O>
 {
     /// Attach opt-in inference before capture starts. The product supplies an
-    /// initialized worker; inference neither takes camera ownership nor
+    /// initialized session; inference neither takes camera ownership nor
     /// competes for the single video client. Results stay in typed Rust state.
-    pub fn attach_detection(&mut self, detection: SecurityDetection) -> Result<(), Error> {
-        if self.capture.state() != camera_service::CameraState::Stopped {
-            return Err(Error::Camera(camera_service::Error::AlreadyRunning));
+    pub fn attach_detection(&mut self, detection: DetectionSession) -> Result<(), Error> {
+        if self.capture.state() != camera::capture::State::Stopped {
+            return Err(Error::Camera(camera::capture::Error::AlreadyRunning));
         }
         self.detection = Some(detection);
         Ok(())
     }
 
-    pub fn detection(&self) -> Option<&SecurityDetection> {
+    pub fn detection(&self) -> Option<&DetectionSession> {
         self.detection.as_ref()
     }
 
@@ -206,7 +204,7 @@ impl<D: Camera, const BYTES: usize, B: AsRef<[u8]> + AsMut<[u8]>, O: StreamOutpu
         if self
             .detection
             .as_ref()
-            .is_some_and(SecurityDetection::stopped)
+            .is_some_and(DetectionSession::stopped)
         {
             return Err(Error::Detection(detection_service::Error::Stopped));
         }
@@ -222,7 +220,7 @@ impl<D: Camera, const BYTES: usize, B: AsRef<[u8]> + AsMut<[u8]>, O: StreamOutpu
             // Negotiation is allowed by Camera, but this transport does not
             // encode raw pixels. Stop before accepting an unusable stream.
             self.capture.stop().map_err(Error::Camera)?;
-            return Err(Error::Camera(camera_service::Error::InvalidFormat));
+            return Err(Error::Camera(camera::capture::Error::InvalidFormat));
         }
         Ok(actual)
     }
@@ -239,12 +237,12 @@ impl<D: Camera, const BYTES: usize, B: AsRef<[u8]> + AsMut<[u8]>, O: StreamOutpu
                 return Err(Error::Camera(error));
             }
         };
+        let latest = self
+            .capture
+            .next_after(self.capture.latest_sequence().saturating_sub(1));
         if let CaptureProgress::Published(_) = captured {
             self.stats.captured = self.stats.captured.saturating_add(1);
-            if let Some(frame) = self
-                .capture
-                .next_after(self.capture.latest_sequence().saturating_sub(1))
-            {
+            if let Some(frame) = latest {
                 self.stats.captured_bytes = self
                     .stats
                     .captured_bytes
@@ -253,18 +251,26 @@ impl<D: Camera, const BYTES: usize, B: AsRef<[u8]> + AsMut<[u8]>, O: StreamOutpu
             }
         }
         if let Some(detection) = self.detection.as_mut() {
-            let latest = self
-                .capture
-                .next_after(self.capture.latest_sequence().saturating_sub(1));
-            detection.poll(now_ms, latest);
+            let input = latest.map(|frame| DetectionInput {
+                image: detector::Image::jpeg(
+                    frame.bytes,
+                    frame.capture.format.width,
+                    frame.capture.format.height,
+                ),
+                sequence: frame.sequence,
+                captured_ms: frame.capture.timestamp_ms,
+            });
+            detection.poll(now_ms, input);
         }
-        let latest = self
-            .capture
-            .next_after(self.capture.latest_sequence().saturating_sub(1));
         let metadata = self
             .detection
             .as_ref()
-            .and_then(SecurityDetection::metadata);
+            .and_then(DetectionSession::publication)
+            .map(|(revision, bytes)| stream_service::Metadata {
+                revision,
+                content_type: detection_service::wire::METADATA_TYPE,
+                bytes,
+            });
         self.server.poll(now_ms, online, latest, metadata)
     }
 
@@ -288,7 +294,7 @@ impl<D: Camera, const BYTES: usize, B: AsRef<[u8]> + AsMut<[u8]>, O: StreamOutpu
         let detection = self
             .detection
             .as_mut()
-            .map(SecurityDetection::stop)
+            .map(DetectionSession::stop)
             .unwrap_or(Ok(()))
             .map_err(Error::Detection);
         camera.and(detection).and(network)
@@ -343,7 +349,7 @@ mod tests {
         let retired = Rc::new(Cell::new(false));
         let mut live = LiveCamera {
             server: Output(retired.clone()),
-            capture: CameraService::<_, 4, 1, _>::with_buffers(Failed, [[0; 4]], [0; 4]).unwrap(),
+            capture: CaptureSession::<_, 4, 1, _>::with_buffers(Failed, [[0; 4]], [0; 4]).unwrap(),
             stats: Stats::default(),
             detection: None,
         };

@@ -15,7 +15,7 @@ INPUTS = (
     "gateway/Cargo.toml",
     "gateway/matter",
     "gateway/tests/matter",
-    "service/detection-wire",
+    "service/detection",
     "tools/prepare-matter-fixture.py",
     "tools/build-matter-gateway.py",
 )
