@@ -11,10 +11,12 @@ mod ffi;
 
 const CAPACITY: usize = 2048;
 const ATT_CHUNK: usize = 20;
+const NOTIFY_CHUNK: usize = 244;
 const HANDLE_MASK: u32 = 0x0fff;
 const CONNECTED: u32 = 1 << 12;
 const RETIRED: u32 = 1 << 13;
 const GENERATION: u32 = 1 << 14;
+static NOTIFY: AtomicBool = AtomicBool::new(false);
 static OPEN: AtomicBool = AtomicBool::new(false);
 static REGISTERED: Mutex<Option<[Uuid; 3]>> = Mutex::new(None);
 // One atomic tracks the HCI handle, its generation and the link state.
@@ -61,6 +63,7 @@ fn pop(queue: &mut VecDeque<u8>, bytes: &mut [u8]) -> usize {
 #[no_mangle]
 extern "C" fn peripheral_connection_rust(connected: bool, handle: u16) {
     // The host delivers connection callbacks in order on its HCI worker.
+    NOTIFY.store(false, Ordering::Release);
     let stamp = STAMP.load(Ordering::Relaxed);
     if connected {
         let generation = (stamp & !(GENERATION - 1)).wrapping_add(GENERATION);
@@ -88,8 +91,13 @@ fn disconnect(stamp: u32) {
 }
 
 #[no_mangle]
+extern "C" fn peripheral_notify_rust(enabled: bool) {
+    NOTIFY.store(enabled, Ordering::Release);
+}
+
+#[no_mangle]
 unsafe extern "C" fn peripheral_read_rust(output: *mut u8, count: u8) -> i32 {
-    if count == 0 {
+    if count == 0 || NOTIFY.load(Ordering::Acquire) {
         return 0;
     }
     let mut data = match current(STAMP.load(Ordering::Acquire)) {
@@ -182,6 +190,41 @@ pub(crate) fn open_peripheral(
 
 impl Listener for Peripheral {
     type Transport = Transport;
+
+    fn notifying(&self) -> bool {
+        NOTIFY.load(Ordering::Acquire)
+    }
+
+    fn service(&mut self) -> io::Result<()> {
+        if !self.notifying() {
+            return Ok(());
+        }
+        let stamp = STAMP.load(Ordering::Acquire);
+        let Some(peer) = ffi::Peer::lookup((stamp & HANDLE_MASK) as u16) else {
+            return Ok(());
+        };
+        let mut bytes = [0; NOTIFY_CHUNK];
+        for _ in 0..8 {
+            let mut queues = match current(stamp) {
+                Ok(queues) => queues,
+                Err(error) if error.kind() == io::ErrorKind::WouldBlock => break,
+                Err(error) => return Err(error),
+            };
+            if !self.notifying() || queues.output.is_empty() {
+                break;
+            }
+            let len = bytes.len().min(queues.output.len());
+            for (out, value) in bytes[..len].iter_mut().zip(&queues.output) {
+                *out = *value;
+            }
+            let sent = peer.notify(&bytes[..len])?;
+            if sent == 0 {
+                break;
+            }
+            queues.output.drain(..sent);
+        }
+        Ok(())
+    }
 
     fn accept(&mut self) -> Result<Option<Self::Transport>, Error> {
         let stamp = STAMP.load(Ordering::Acquire);

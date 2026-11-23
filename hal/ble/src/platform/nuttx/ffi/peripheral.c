@@ -1,6 +1,8 @@
 /* Bluetooth SDK declarations, descriptor layouts and callback translations. */
 #include <nuttx/config.h>
 #include <stdbool.h>
+#include <errno.h>
+#include <sys/param.h>
 #include <stdint.h>
 #include <string.h>
 #include <nuttx/wireless/bluetooth/bt_core.h>
@@ -12,6 +14,7 @@
 
 extern void peripheral_connection_rust(bool connected, uint16_t handle);
 extern int peripheral_read_rust(void *data, uint8_t count);
+extern void peripheral_notify_rust(bool enabled);
 extern int peripheral_write_rust(const void *data, uint8_t count);
 
 const unsigned int peripheral_max_connections = CONFIG_BLUETOOTH_MAX_CONN;
@@ -56,14 +59,22 @@ static struct bt_gatt_chrc_s incoming = {
   .uuid = &input, .value_handle = 3, .properties = BT_GATT_CHRC_WRITE,
 };
 static struct bt_gatt_chrc_s outgoing = {
-  .uuid = &output, .value_handle = 5, .properties = BT_GATT_CHRC_READ,
+  .uuid = &output, .value_handle = 5, .properties = BT_GATT_CHRC_READ | BT_GATT_CHRC_NOTIFY,
 };
+static struct bt_gatt_ccc_cfg_s notify_config[1];
+
+static void notify_changed(uint16_t value)
+{
+  peripheral_notify_rust(value == BT_GATT_CCC_NOTIFY);
+}
+
 static const struct bt_gatt_attr_s database[] = {
   BT_GATT_PRIMARY_SERVICE(1, &service),
   BT_GATT_CHARACTERISTIC(2, &incoming),
   BT_GATT_DESCRIPTOR(3, &input, BT_GATT_PERM_WRITE, NULL, receive, NULL),
   BT_GATT_CHARACTERISTIC(4, &outgoing),
   BT_GATT_DESCRIPTOR(5, &output, BT_GATT_PERM_READ, transmit, NULL, NULL),
+  BT_GATT_CCC(6, 5, notify_config, notify_changed),
 };
 
 void peripheral_register(const uint8_t *uuids)
@@ -95,4 +106,11 @@ void peripheral_stop(void)
 void peripheral_disconnect(struct bt_conn_s *connection)
 {
   (void)bt_conn_disconnect(connection, BT_HCI_ERR_REMOTE_USER_TERM_CONN);
+}
+
+int peripheral_notify(struct bt_conn_s *connection, const uint8_t *data,
+                      size_t count)
+{
+  int result = bt_att_try_notify(connection, 5, data, count);
+  return result == -EAGAIN ? 0 : result;
 }

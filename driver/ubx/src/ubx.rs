@@ -5,6 +5,7 @@ use kinavis_ubx::{config, ConfigKey, Deframer, Event as WireEvent, Layers, Messa
 pub(super) enum Event {
     NavPvt(Result<NavPvt, DriverError>),
     Rate(u8),
+    Navigation { measurement: u16, cycles: u16 },
     Ack(bool),
     Invalid,
 }
@@ -86,14 +87,29 @@ impl Decoder {
                 }) => emit(Event::Ack(false)),
                 Ok(Message::CfgValget(p)) => {
                     let mut values = p.values();
-                    match values.next() {
-                        Some(Ok((ConfigKey::MSGOUT_NAV_PVT_UART1, rate)))
-                            if p.layer == 0
-                                && p.position == 0
-                                && rate <= u8::MAX.into()
-                                && values.next().is_none() =>
+                    match (
+                        p.layer,
+                        p.position,
+                        values.next(),
+                        values.next(),
+                        values.next(),
+                    ) {
+                        (0, 0, Some(Ok((ConfigKey::MSGOUT_NAV_PVT_UART1, rate))), None, None)
+                            if rate <= u8::MAX.into() =>
                         {
                             emit(Event::Rate(rate as u8))
+                        }
+                        (
+                            0,
+                            0,
+                            Some(Ok((ConfigKey::RATE_MEAS, measurement))),
+                            Some(Ok((ConfigKey::RATE_NAV, cycles))),
+                            None,
+                        ) if measurement <= u16::MAX.into() && cycles <= u16::MAX.into() => {
+                            emit(Event::Navigation {
+                                measurement: measurement as u16,
+                                cycles: cycles as u16,
+                            })
                         }
                         _ => emit(Event::Invalid),
                     }
@@ -135,5 +151,31 @@ pub(super) fn set_rate(rate: u8) -> Command {
         &mut out.bytes,
     )
     .expect("one U1 value fits the fixed command buffer");
+    out
+}
+
+pub(super) fn get_navigation() -> Command {
+    let mut out = Command::default();
+    out.used = config::valget(
+        PollLayer::Ram,
+        0,
+        &[ConfigKey::RATE_MEAS, ConfigKey::RATE_NAV],
+        &mut out.bytes,
+    )
+    .expect("two keys fit the fixed command buffer");
+    out
+}
+
+pub(super) fn set_navigation(measurement: u16, cycles: u16) -> Command {
+    let mut out = Command::default();
+    out.used = config::valset(
+        Layers::RAM,
+        &[
+            (ConfigKey::RATE_MEAS, measurement.into()),
+            (ConfigKey::RATE_NAV, cycles.into()),
+        ],
+        &mut out.bytes,
+    )
+    .expect("two U2 values fit the fixed command buffer");
     out
 }

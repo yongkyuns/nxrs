@@ -120,7 +120,8 @@
       "0133-esp32s3-qemu-host-entropy.patch",
       "0134-sim-macos-pty.patch",
       "0135-sim-macos-libc-symbol-prefix.patch",
-      "0136-sim-replace-macos-archive-members.patch"
+      "0136-sim-replace-macos-archive-members.patch",
+      "0137-bluetooth-nonblocking-notify.patch"
     ]
   },
   "mcuboot": {

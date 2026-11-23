@@ -130,6 +130,23 @@ pub struct Observation {
     received: Instant,
 }
 
+/// A sample carried by an observation, with its original acquisition metadata.
+#[derive(Clone, Copy)]
+pub enum Measurement {
+    Imu(usize, imu::ImuSample),
+    Gnss(gnss::GnssFix),
+}
+
+impl Observation {
+    pub fn measurement(&self) -> Option<Measurement> {
+        match self.input {
+            Input::Imu(index, imu::Event::Sample(sample)) => Some(Measurement::Imu(index, sample)),
+            Input::Gnss(gnss::Event::Fix(fix)) => Some(Measurement::Gnss(fix)),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SensorFault {
     Imu(usize, imu::DeviceError),
@@ -162,7 +179,7 @@ impl<const IMUS: usize> ObservationService<IMUS> {
         index: usize,
         device: &'static impl imu::Device,
         sender: Sender<E>,
-        wrap: fn(Observation) -> E,
+        wrap: impl Fn(Observation) -> E + Send + 'static,
     ) -> Result<(), SensorFault> {
         let Some(slot) = self.imu.get_mut(index) else {
             return Err(SensorFault::Imu(index, imu::DeviceError::InvalidData));
@@ -187,7 +204,7 @@ impl<const IMUS: usize> ObservationService<IMUS> {
         &mut self,
         device: &'static impl gnss::Device,
         sender: Sender<E>,
-        wrap: fn(Observation) -> E,
+        wrap: impl Fn(Observation) -> E + Send + 'static,
     ) -> Result<(), SensorFault> {
         let Some(source) = &self.values.gnss else {
             return Err(SensorFault::Gnss(gnss::DeviceError::Unsupported));
@@ -317,7 +334,7 @@ impl<const IMUS: usize> ObservationService<IMUS> {
 fn sink<T: Copy, E>(
     sender: Sender<E>,
     input: impl Fn(T) -> Input,
-    wrap: fn(Observation) -> E,
+    wrap: impl Fn(Observation) -> E + Send + 'static,
 ) -> impl FnMut(T) -> DeliveryResult<T> {
     move |value| {
         let observation = Observation {

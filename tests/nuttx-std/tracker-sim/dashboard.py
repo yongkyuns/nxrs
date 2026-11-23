@@ -231,12 +231,20 @@ class SecureStream:
         self.rx = rx
         self.tx = tx
         self.buffer = bytearray()
+        self.notifications = None
+
+    async def subscribe(self):
+        self.notifications = asyncio.Queue(maxsize=64)
+        await self.tx.subscribe(self.notifications.put_nowait)
 
     async def poll(self):
         while self.outgoing.pending:
             chunk = self.outgoing.read(20)
             await self.rx.write_value(chunk, with_response=True)
-        data = await self.tx.read_value(no_long_read=True)
+        if self.notifications is None:
+            data = await self.tx.read_value(no_long_read=True)
+        else:
+            data = await self.notifications.get()
         if data:
             self.incoming.write(data)
         else:
@@ -249,6 +257,25 @@ class SecureStream:
                 assert self.tls.version() == 'TLSv1.2'
                 assert self.tls.cipher()[0] == 'PSK-AES128-GCM-SHA256'
                 return
+            except ssl.SSLWantReadError:
+                await self.poll()
+
+    async def export_record(self):
+        while True:
+            if self.buffer[:1] == b'\xa5' and len(self.buffer) >= 4:
+                size = 4 + int.from_bytes(self.buffer[2:4], 'little')
+                assert self.buffer[1] == 1 and 33 <= size <= 532
+                if len(self.buffer) >= size:
+                    batch = bytes(self.buffer[4:size])
+                    del self.buffer[:size]
+                    return batch
+            elif self.buffer[:1] == b'{' and b'\n' in self.buffer:
+                end = self.buffer.index(b'\n')
+                snapshot = json.loads(self.buffer[:end])
+                del self.buffer[:end + 1]
+                return snapshot
+            try:
+                self.buffer.extend(self.tls.read(768))
             except ssl.SSLWantReadError:
                 await self.poll()
 

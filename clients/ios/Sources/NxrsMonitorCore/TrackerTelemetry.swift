@@ -73,3 +73,80 @@ public struct TrackerFrames {
         return (-90...90).contains(latitude) && (-180...180).contains(longitude) && speed.isFinite && speed >= 0
     }
 }
+
+public enum TrackerMeasurement: Equatable {
+    case imu(index: Int, sequence: UInt32, receivedMS: UInt32, accel: [Float], gyro: [Float])
+    case fix(sequence: UInt32, receivedMS: UInt32, latitude: Double, longitude: Double, speed: Float)
+}
+
+/// The authenticated byte stream combines dashboard JSON with versioned binary batches.
+public struct TrackerExportFrames {
+    public static let request = Data([0x4e, 0x58, 0x52, 0x53, 1])
+
+    private var dashboard = TrackerFrames()
+    private var pending = Data()
+
+    public init() {}
+
+    public mutating func receive(
+        _ bytes: Data,
+        snapshot: (TrackerTelemetry) -> Void,
+        measurement: (TrackerMeasurement) -> Void
+    ) throws {
+        for byte in bytes {
+            pending.append(byte)
+            if pending[0] == 0xa5 {
+                guard pending.count >= 4 else { continue }
+                let count = Int(pending[2]) | (Int(pending[3]) << 8)
+                guard pending[1] == 1, (29...528).contains(count) else {
+                    throw TrackerFrames.FrameError.invalidRecord
+                }
+                if pending.count == count + 4 {
+                    try Self.decode(pending, emit: measurement)
+                    pending.removeAll(keepingCapacity: true)
+                }
+            } else {
+                guard pending[0] == 0x7b, pending.count <= 768 else {
+                    throw TrackerFrames.FrameError.invalidRecord
+                }
+                if byte == 10 {
+                    try dashboard.receive(pending, emit: snapshot)
+                    pending.removeAll(keepingCapacity: true)
+                }
+            }
+        }
+    }
+
+    private static func decode(_ bytes: Data, emit: (TrackerMeasurement) -> Void) throws {
+        func word<T: FixedWidthInteger>(_ index: Int, as _: T.Type) -> T {
+            bytes.withUnsafeBytes { T(littleEndian: $0.loadUnaligned(fromByteOffset: index, as: T.self)) }
+        }
+        var start = 4
+        var batch: [TrackerMeasurement] = []
+        while start < bytes.count {
+            let kind = bytes[start]
+            let size = kind == 3 ? 29 : 33
+            guard (1...3).contains(kind), start + size <= bytes.count, batch.count < 16 else {
+                throw TrackerFrames.FrameError.invalidRecord
+            }
+            let sequence = word(start + 1, as: UInt32.self)
+            let time = word(start + 5, as: UInt32.self)
+            if kind == 3 {
+                let latitude = Double(bitPattern: word(start + 9, as: UInt64.self))
+                let longitude = Double(bitPattern: word(start + 17, as: UInt64.self))
+                let speed = Float(bitPattern: word(start + 25, as: UInt32.self))
+                guard (-90...90).contains(latitude), (-180...180).contains(longitude),
+                      speed.isFinite, speed >= 0 else { throw TrackerFrames.FrameError.invalidRecord }
+                batch.append(.fix(sequence: sequence, receivedMS: time, latitude: latitude,
+                                  longitude: longitude, speed: speed))
+            } else {
+                let axes = (0..<6).map { Float(bitPattern: word(start + 9 + 4 * $0, as: UInt32.self)) }
+                guard axes.allSatisfy(\.isFinite) else { throw TrackerFrames.FrameError.invalidRecord }
+                batch.append(.imu(index: Int(kind - 1), sequence: sequence, receivedMS: time,
+                                  accel: Array(axes.prefix(3)), gyro: Array(axes.suffix(3))))
+            }
+            start += size
+        }
+        batch.forEach(emit)
+    }
+}

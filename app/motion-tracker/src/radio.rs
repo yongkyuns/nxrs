@@ -1,4 +1,9 @@
-use crate::{text::Text, tracker::Snapshot, wire};
+use crate::{
+    export::{Capture, MAX_BYTES, REQUEST},
+    text::Text,
+    tracker::Snapshot,
+    wire,
+};
 use ble::{
     peripheral::{self, Link, Listener},
     Uuid,
@@ -14,10 +19,13 @@ fn uuid(last: u8) -> Uuid {
     ])
 }
 
-pub fn pair(identity: &tls::Identity) -> io::Result<Output<'_, impl Listener>> {
+pub fn pair<'a>(
+    identity: &'a tls::Identity,
+    capture: &'a Capture,
+) -> io::Result<Output<'a, impl Listener>> {
     let listener = peripheral::open(uuid(0), uuid(1), uuid(2))
         .map_err(|error| io::Error::other(format!("BLE: {error:?}")))?;
-    Output::start(listener, identity)
+    Output::start(listener, identity, capture)
 }
 
 struct Bearer<T>(T);
@@ -47,6 +55,13 @@ pub struct Output<'a, L: Listener> {
     listener: L,
     identity: &'a tls::Identity,
     key: [u8; 32],
+    capture: &'a Capture,
+    request: [u8; REQUEST.len()],
+    request_len: usize,
+    export: [u8; MAX_BYTES],
+    export_len: usize,
+    sent: usize,
+    next_export: Instant,
     connection: Option<tls::Connection<'a, Bearer<L::Transport>>>,
     publication: Publisher<Snapshot, Text<768>>,
     live: bool,
@@ -57,7 +72,11 @@ pub struct Output<'a, L: Listener> {
 }
 
 impl<'a, L: Listener> Output<'a, L> {
-    pub fn start(listener: L, identity: &'a tls::Identity) -> io::Result<Self> {
+    pub fn start(
+        listener: L,
+        identity: &'a tls::Identity,
+        capture: &'a Capture,
+    ) -> io::Result<Self> {
         let key = identity
             .pairing_key()
             .map_err(|error| io::Error::other(format!("Pairing key: {error:?}")))?;
@@ -66,6 +85,13 @@ impl<'a, L: Listener> Output<'a, L> {
             listener,
             identity,
             key,
+            capture,
+            request: [0; REQUEST.len()],
+            request_len: 0,
+            export: [0; MAX_BYTES],
+            export_len: 0,
+            sent: 0,
+            next_export: now,
             connection: None,
             publication: Publisher::default(),
             live: false,
@@ -92,6 +118,10 @@ impl<'a, L: Listener> Output<'a, L> {
     pub fn service(&mut self, now: Instant) {
         if self.poll(now).is_err() {
             self.connection = None;
+            self.capture.disable();
+            self.request_len = 0;
+            self.export_len = 0;
+            self.sent = 0;
             self.live = false;
             self.drained = false;
             self.publication = Publisher::default();
@@ -99,6 +129,7 @@ impl<'a, L: Listener> Output<'a, L> {
     }
 
     fn poll(&mut self, now: Instant) -> io::Result<()> {
+        self.listener.service()?;
         if self.connection.is_none() {
             if let Some(stream) = self
                 .listener
@@ -116,19 +147,69 @@ impl<'a, L: Listener> Output<'a, L> {
             self.live = conn.poll().map_err(|_| io::ErrorKind::PermissionDenied)?;
             if self.live {
                 self.paired = true;
-                self.drained = if self.publication.is_idle() {
-                    match conn.flush() {
-                        Ok(()) => true,
-                        Err(error) if error.kind() == io::ErrorKind::WouldBlock => false,
+                let notifications = self.listener.notifying();
+                if notifications && self.request_len < REQUEST.len() && self.publication.is_idle() {
+                    match conn.read(&mut self.request[self.request_len..]) {
+                        Ok(0) => return Err(io::ErrorKind::UnexpectedEof.into()),
+                        Ok(count) => {
+                            self.request_len += count;
+                            if self.request[..self.request_len] != REQUEST[..self.request_len] {
+                                return Err(io::ErrorKind::InvalidData.into());
+                            }
+                            if self.request_len == REQUEST.len() {
+                                self.capture.enable()?;
+                                self.next_export = now + Duration::from_millis(40);
+                            }
+                        }
+                        Err(error) if error.kind() == io::ErrorKind::WouldBlock => {}
                         Err(error) => return Err(error),
                     }
-                } else {
-                    self.publication
-                        .service(conn, now, self.expires, wire::frame)?
+                }
+                if self.export_len != 0 {
+                    Self::write_export(conn, &self.export[..self.export_len], &mut self.sent)?;
+                    if self.sent == self.export_len {
+                        self.sent = 0;
+                        self.export_len = 0;
+                    }
+                    return Ok(());
+                }
+                if !self.publication.is_idle() {
+                    self.drained =
+                        self.publication
+                            .service(conn, now, self.expires, wire::frame)?;
+                    return Ok(());
+                }
+                self.drained = match conn.flush() {
+                    Ok(()) => true,
+                    Err(error) if error.kind() == io::ErrorKind::WouldBlock => false,
+                    Err(error) => return Err(error),
                 };
+                if notifications && self.request_len == REQUEST.len() && now >= self.next_export {
+                    self.export_len = self.capture.take(&mut self.export);
+                    self.next_export = now + Duration::from_millis(40);
+                    if self.export_len != 0 {
+                        Self::write_export(conn, &self.export[..self.export_len], &mut self.sent)?;
+                        if self.sent == self.export_len {
+                            self.sent = 0;
+                            self.export_len = 0;
+                        }
+                    }
+                }
             }
         }
         Ok(())
+    }
+
+    fn write_export(conn: &mut impl Write, bytes: &[u8], sent: &mut usize) -> io::Result<()> {
+        match conn.write(&bytes[*sent..]) {
+            Ok(0) => Err(io::ErrorKind::WriteZero.into()),
+            Ok(count) => {
+                *sent += count;
+                Ok(())
+            }
+            Err(error) if error.kind() == io::ErrorKind::WouldBlock => Ok(()),
+            Err(error) => Err(error),
+        }
     }
 
     pub fn offer(&mut self, snapshot: &Snapshot, now: Instant) {
@@ -141,6 +222,7 @@ impl<'a, L: Listener> Output<'a, L> {
 impl<L: Listener> Drop for Output<'_, L> {
     fn drop(&mut self) {
         self.connection = None;
+        self.capture.disable();
         self.key.fill(0);
     }
 }

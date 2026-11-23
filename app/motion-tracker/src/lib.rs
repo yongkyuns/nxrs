@@ -6,6 +6,8 @@ mod charts;
 #[cfg(feature = "dashboard")]
 mod communications;
 #[cfg(feature = "dashboard")]
+mod export;
+#[cfg(feature = "dashboard")]
 #[path = "dashboard.rs"]
 mod mode;
 #[cfg(not(feature = "dashboard"))]

@@ -32,6 +32,8 @@ pub struct Driver<R> {
     io: R,
     decoder: ubx::Decoder,
     saved_rate: Option<u8>,
+    navigation_period_ms: Option<u16>,
+    saved_navigation: Option<(u16, u16)>,
 }
 
 impl<R: Read + Write> Driver<R> {
@@ -40,7 +42,38 @@ impl<R: Read + Write> Driver<R> {
             io,
             decoder: ubx::Decoder::default(),
             saved_rate: None,
+            navigation_period_ms: None,
+            saved_navigation: None,
         }
+    }
+
+    /// Configure the navigation period in receiver RAM for each active session.
+    pub fn with_navigation_period(mut self, milliseconds: u16) -> Self {
+        self.navigation_period_ms = Some(milliseconds);
+        self
+    }
+
+    fn query_navigation(&mut self, deadline: Instant) -> Result<(u16, u16), DriverError> {
+        self.send(&ubx::get_navigation(), deadline)?;
+        self.wait(deadline, |event| match event {
+            ubx::Event::Navigation {
+                measurement,
+                cycles,
+            } => Some(Ok((measurement, cycles))),
+            _ => None,
+        })
+    }
+
+    fn set_navigation(&mut self, values: (u16, u16), deadline: Instant) -> Result<(), DriverError> {
+        self.send(&ubx::set_navigation(values.0, values.1), deadline)?;
+        self.wait(deadline, |event| match event {
+            ubx::Event::Ack(true) => Some(Ok(())),
+            _ => None,
+        })?;
+        if self.query_navigation(deadline)? != values {
+            return Err(DriverError::InvalidData);
+        }
+        Ok(())
     }
 
     pub fn io(&self) -> &R {
@@ -187,16 +220,26 @@ impl<R> AsMut<R> for Driver<R> {
 impl<R: Read + Write> peripheral::gnss::Receiver for Driver<R> {
     fn configure(&mut self, deadline: Instant) -> Result<(), DriverError> {
         self.saved_rate = Some(self.query_nav_pvt_uart1_rate(deadline)?);
+        if let Some(period) = self.navigation_period_ms {
+            self.saved_navigation = Some(self.query_navigation(deadline)?);
+            self.set_navigation((period, 1), deadline)?;
+        }
         self.set_and_verify_nav_pvt_uart1_rate(1, deadline)?;
         self.reset_decoder();
         Ok(())
     }
     fn restore(&mut self, deadline: Instant) -> Result<(), DriverError> {
-        if let Some(rate) = self.saved_rate {
+        let rate = self.saved_rate.map_or(Ok(()), |rate| {
             self.set_and_verify_nav_pvt_uart1_rate(rate, deadline)?;
             self.saved_rate = None;
-        }
-        Ok(())
+            Ok(())
+        });
+        let navigation = self.saved_navigation.map_or(Ok(()), |values| {
+            self.set_navigation(values, deadline)?;
+            self.saved_navigation = None;
+            Ok(())
+        });
+        rate.and(navigation)
     }
     fn read_available(
         &mut self,

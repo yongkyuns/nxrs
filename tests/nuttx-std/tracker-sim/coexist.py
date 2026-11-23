@@ -8,6 +8,8 @@ import struct
 import tempfile
 import time
 
+from bumble.device import Peer
+
 from dashboard import SecureStream, Stream, connect, pump, run, wait_until
 from sensors import check_live
 from upload import COLLECTOR, TcpStamp, collector, is_live, network
@@ -152,6 +154,51 @@ class Scenario:
                 self.collector_samples[number] = value[1]
         return connection in self.tls_connections and connection in self.collector_samples
 
+    async def sample_export(self, guest, phone, key):
+        connection, rx, tx = await connect(phone)
+        assert await Peer(connection).request_mtu(247) >= 64
+        stream = SecureStream(rx, tx, key)
+        await stream.subscribe()
+        await asyncio.wait_for(stream.handshake(), 8)
+        before = self.collector_samples[1]['imu'][0]['seq']
+        stream.tls.write(b'NXRS\x01')
+        first = [None] * 3
+        latest = [None] * 3
+        count = [0] * 3
+        dashboard = 0
+        async with asyncio.timeout(35):
+            while min(count[:2]) < 500 or count[2] < 10 or dashboard < 2:
+                record = await stream.export_record()
+                if isinstance(record, dict):
+                    check_live(record)
+                    dashboard += 1
+                    continue
+                pos = 0
+                while pos < len(record):
+                    tag, seq, tick = struct.unpack_from('<BII', record, pos)
+                    assert 1 <= tag <= 3
+                    index = tag - 1
+                    if tag == 3:
+                        lat, lon, _ = struct.unpack_from('<ddf', record, pos + 9)
+                        assert abs(lat - 48.1173) < 1e-6 and abs(lon + 11.5166667) < 1e-6
+                    else:
+                        x, = struct.unpack_from('<f', record, pos + 9)
+                        assert x < 0 if tag == 1 else x > 0
+                    pos += 29 if tag == 3 else 33
+                    if latest[index] is None:
+                        first[index] = tick
+                    else:
+                        assert seq == latest[index][0] + 1, (tag, seq, latest[index], count)
+                    latest[index] = (seq, tick)
+                    count[index] += 1
+        assert guest.gnss.navigation == (500, 1)
+        assert self.collector_live(1) and self.collector_samples[1]['imu'][0]['seq'] > before
+        rates = [(n - 1) * 1000 / (end[1] - start) for n, end, start in zip(count, latest, first)]
+        assert all(92 <= rate <= 108 for rate in rates[:2]) and 1.8 <= rates[2] <= 2.2, rates
+        await connection.disconnect()
+        print(f'PASS: BLE export counts {count}, rates {[round(rate, 2) for rate in rates]}, '
+              f'zero sequence gaps, {dashboard} dashboard snapshots and continuing cellular TLS', flush=True)
+
     async def exercise(self, guest, panel, phone, args):
         stamp = self.stamp
         await guest.wait_text(b'nsh>')
@@ -161,6 +208,9 @@ class Scenario:
             f'--cellular-apn nxrs.test --collector {COLLECTOR}:{stamp.port} --collector-pin {self.pin}')
         key = await panel.pairing_key()
         await wait_until(lambda: self.collector_live(1), 'initial cellular TLS telemetry', 12)
+        if args.export:
+            await self.sample_export(guest, phone, key)
+            return
         stamp.begin_hold()
         await wait_until(lambda: stamp.held_tcp, 'cellular TLS data to stall before pairing')
         connection, rx, tx = await connect(phone)
@@ -289,6 +339,7 @@ def main():
     clock = parser.add_mutually_exclusive_group()
     clock.add_argument('--shift', type=int, choices=range(11), help='optional QEMU clock acceleration')
     clock.add_argument('--wall-clock', action='store_true', help='use wall-clock timing (default)')
+    parser.add_argument('--export', action='store_true', help='qualify authenticated full-rate BLE export')
     parser.add_argument('--timeout', default=100, type=float)
     parser.add_argument('--log', type=Path, default=Path('target/tracker-coexist-sim/coexist.log'))
     args = parser.parse_args()

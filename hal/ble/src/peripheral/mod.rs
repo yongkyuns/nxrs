@@ -10,6 +10,14 @@ pub trait Link: Read + Write {
 pub trait Listener {
     type Transport: Link;
     fn accept(&mut self) -> Result<Option<Self::Transport>, Error>;
+    /// Whether the central has subscribed to the egress characteristic.
+    fn notifying(&self) -> bool {
+        false
+    }
+    /// Progress bounded transport work from the owner's existing wait loop.
+    fn service(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
 }
 
 /// Advertise one service with a write-with-response ingress and a read egress

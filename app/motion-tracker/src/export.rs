@@ -1,0 +1,85 @@
+//! Bounded capture for the authenticated tracker export stream.
+use navigation::observations::Measurement;
+use std::collections::VecDeque;
+use std::io;
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Mutex,
+};
+
+pub const REQUEST: &[u8; 5] = b"NXRS\x01";
+const QUEUE: usize = 128;
+const BATCH: usize = 16;
+pub const MAX_BYTES: usize = 4 + BATCH * 33;
+
+#[derive(Default)]
+pub struct Capture {
+    enabled: AtomicBool,
+    samples: Mutex<VecDeque<Measurement>>,
+}
+
+impl Capture {
+    pub fn enable(&self) -> io::Result<()> {
+        let mut samples = self.samples.lock().unwrap();
+        samples.clear();
+        samples.try_reserve_exact(QUEUE).map_err(io::Error::other)?;
+        self.enabled.store(true, Ordering::Release);
+        Ok(())
+    }
+
+    pub fn disable(&self) {
+        self.enabled.store(false, Ordering::Release);
+    }
+
+    pub fn record(&self, sample: Measurement) {
+        if self.enabled.load(Ordering::Acquire) {
+            if let Ok(mut samples) = self.samples.try_lock() {
+                if self.enabled.load(Ordering::Relaxed) && samples.len() < QUEUE {
+                    samples.push_back(sample);
+                }
+            }
+        }
+    }
+
+    pub fn take(&self, output: &mut [u8; MAX_BYTES]) -> usize {
+        let mut samples = self.samples.lock().unwrap();
+        let count = samples.len().min(BATCH);
+        if count == 0 {
+            return 0;
+        }
+        let mut end = 4;
+        for sample in samples.drain(..count) {
+            end += encode(sample, &mut output[end..]);
+        }
+        output[..2].copy_from_slice(&[0xa5, 1]);
+        output[2..4].copy_from_slice(&((end - 4) as u16).to_le_bytes());
+        end
+    }
+}
+
+fn encode(sample: Measurement, output: &mut [u8]) -> usize {
+    let (tag, sequence, time) = match sample {
+        Measurement::Imu(index, sample) => (1 + index as u8, sample.sequence, sample.timestamp_ms),
+        Measurement::Gnss(fix) => (3, fix.sequence, fix.timestamp_ms),
+    };
+    output[0] = tag;
+    output[1..5].copy_from_slice(&(sequence as u32).to_le_bytes());
+    output[5..9].copy_from_slice(&(time as u32).to_le_bytes());
+    match sample {
+        Measurement::Imu(_, sample) => {
+            for (field, value) in output[9..33]
+                .chunks_exact_mut(4)
+                .zip(sample.accel_mps2.into_iter().chain(sample.gyro_rps))
+            {
+                field.copy_from_slice(&value.to_le_bytes());
+            }
+            33
+        }
+        Measurement::Gnss(fix) => {
+            output[9..17].copy_from_slice(&fix.latitude_deg.to_le_bytes());
+            output[17..25].copy_from_slice(&fix.longitude_deg.to_le_bytes());
+            output[25..29].copy_from_slice(&fix.speed_mps.to_le_bytes());
+            29
+        }
+    }
+}

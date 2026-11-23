@@ -2,3 +2,6 @@
 extends = "esp32s3-qemu-tracker-upload"
 nuttx-config = "esp32s3-qemu-tracker-coexist.conf"
 hal = { ble = "nuttx" }
+
+[devices.navigation]
+navigation-period-ms = 500

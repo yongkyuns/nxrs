@@ -1,0 +1,153 @@
+Subject: [PATCH] Bluetooth: admit one ATT notification without waiting
+
+Limit each queued value to the negotiated ATT and ACL payload. A full
+controller queue leaves the value with the producer for a later retry.
+
+diff --git a/wireless/bluetooth/bt_queue.c b/wireless/bluetooth/bt_queue.c
+--- a/wireless/bluetooth/bt_queue.c
++++ b/wireless/bluetooth/bt_queue.c
+@@ -173,6 +173,17 @@
+  *
+  ****************************************************************************/
+ 
++int bt_queue_try_send(struct file *mqd, FAR struct bt_buf_s *buf)
++{
++  struct bt_bufmsg_s msg = { .buf = buf };
++  const struct timespec deadline = { 0, 0 };
++
++  /* A past deadline preserves a successful immediate enqueue. */
++
++  return file_mq_timedsend(mqd, (FAR const char *)&msg, sizeof(msg),
++                           BT_NORMAL_PRIO, &deadline);
++}
++
+ int bt_queue_send(struct file *mqd,
+                   FAR struct bt_buf_s *buf,
+                   unsigned int priority)
+diff --git a/wireless/bluetooth/bt_queue.h b/wireless/bluetooth/bt_queue.h
+--- a/wireless/bluetooth/bt_queue.h
++++ b/wireless/bluetooth/bt_queue.h
+@@ -67,6 +67,8 @@
+ 
+ struct bt_buf_s; /* Forward Reference */
+ 
++int bt_queue_try_send(FAR struct file *mqd, FAR struct bt_buf_s *buf);
++
+ /****************************************************************************
+  * Name: bt_queue_open
+  *
+diff --git a/wireless/bluetooth/bt_att.c b/wireless/bluetooth/bt_att.c
+--- a/wireless/bluetooth/bt_att.c
++++ b/wireless/bluetooth/bt_att.c
+@@ -47,6 +47,7 @@
+ #include <errno.h>
+ #include <nuttx/debug.h>
+ 
++#include <nuttx/mm/iob.h>
+ #include <nuttx/net/bluetooth.h>
+ #include <nuttx/wireless/bluetooth/bt_hci.h>
+ #include <nuttx/wireless/bluetooth/bt_core.h>
+@@ -56,6 +57,7 @@
+ #include "bt_hcicore.h"
+ #include "bt_conn.h"
+ #include "bt_l2cap.h"
++#include "bt_queue.h"
+ #include "bt_att.h"
+ 
+ /****************************************************************************
+@@ -1899,6 +1901,83 @@
+   return buf;
+ }
+ 
++/* Queue one complete ACL packet without waiting for TX space. The caller
++ * retains its value bytes until a positive return. Splitting ATT values is
++ * left to the caller, so a packet cannot be partially queued.
++ */
++
++int bt_att_try_notify(FAR struct bt_conn_s *conn, uint16_t handle,
++                      FAR const uint8_t *value, size_t len)
++{
++  FAR struct bt_att_s *att = conn->att;
++  FAR struct bt_l2cap_hdr_s *l2cap;
++  FAR struct bt_hci_acl_hdr_s *acl;
++  FAR struct bt_att_hdr_s *hdr;
++  FAR struct bt_att_notify_s *nfy;
++  FAR struct bt_buf_s *buf;
++  FAR struct iob_s *iob;
++  const size_t att_head = sizeof(*hdr) + sizeof(*nfy);
++  const size_t acl_head = sizeof(*l2cap) + att_head;
++  const size_t reserve = g_btdev.btdev->head_reserve;
++  const size_t head = reserve + sizeof(*acl) + acl_head;
++  irqstate_t flags;
++  int ret;
++
++  if (!att || conn->state != BT_CONN_CONNECTED)
++    {
++      return -ENOTCONN;
++    }
++
++  if (att->mtu <= att_head || g_btdev.le_mtu <= acl_head ||
++      BLUETOOTH_MAX_FRAMELEN <= head || CONFIG_IOB_BUFSIZE <= head)
++    {
++      return -EMSGSIZE;
++    }
++
++  len = MIN(len, att->mtu - att_head);
++  len = MIN(len, g_btdev.le_mtu - acl_head);
++  len = MIN(len, BLUETOOTH_MAX_FRAMELEN - head);
++  len = MIN(len, CONFIG_IOB_BUFSIZE - head);
++  iob = iob_tryalloc(true);
++  if (!iob)
++    {
++      return -EAGAIN;
++    }
++
++  iob->io_offset = reserve;
++  iob->io_len = reserve;
++  buf = bt_buf_alloc(BT_ACL_OUT, iob, 0);
++  if (!buf)
++    {
++      iob_free(iob);
++      return -EAGAIN;
++    }
++
++  acl = bt_buf_extend(buf, sizeof(*acl));
++  acl->handle = BT_HOST2LE16(conn->handle);
++  acl->len = BT_HOST2LE16(acl_head + len);
++  l2cap = bt_buf_extend(buf, sizeof(*l2cap));
++  l2cap->cid = BT_HOST2LE16(BT_L2CAP_CID_ATT);
++  l2cap->len = BT_HOST2LE16(att_head + len);
++  hdr = bt_buf_extend(buf, sizeof(*hdr));
++  hdr->code = BT_ATT_OP_NOTIFY;
++  nfy = bt_buf_extend(buf, sizeof(*nfy) + len);
++  nfy->handle = BT_HOST2LE16(handle);
++  memcpy(nfy->value, value, len);
++
++  flags = enter_critical_section();
++  ret = conn->state == BT_CONN_CONNECTED ?
++        bt_queue_try_send(&conn->tx_queue, buf) : -ENOTCONN;
++  leave_critical_section(flags);
++  if (ret < 0)
++    {
++      bt_buf_release(buf);
++      return ret == -ETIMEDOUT ? -EAGAIN : ret;
++    }
++
++  return len;
++}
++
+ int bt_att_send(FAR struct bt_conn_s *conn, FAR struct bt_buf_s *buf,
+                 bt_att_func_t func, FAR void *user_data,
+                 bt_att_destroy_t destroy)
+diff --git a/wireless/bluetooth/bt_att.h b/wireless/bluetooth/bt_att.h
+--- a/wireless/bluetooth/bt_att.h
++++ b/wireless/bluetooth/bt_att.h
+@@ -436,6 +436,8 @@
+ 
+ /* Send ATT PDU over a connection */
+ 
++int bt_att_try_notify(FAR struct bt_conn_s *conn, uint16_t handle,
++                      FAR const uint8_t *value, size_t len);
+ int bt_att_send(FAR struct bt_conn_s *conn, FAR struct bt_buf_s *buf,
+                 bt_att_func_t func, FAR void *user_data,
+                 bt_att_destroy_t destroy);

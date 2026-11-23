@@ -1,5 +1,5 @@
 //! One task steps both TLS sessions under the SDK's single identity lease.
-use crate::{radio, screen::LinkStatus, tracker::Snapshot, uplink};
+use crate::{export::Capture, radio, screen::LinkStatus, tracker::Snapshot, uplink};
 use std::cell::OnceCell;
 use std::io;
 use std::sync::{Arc, Mutex};
@@ -46,6 +46,7 @@ impl Communications {
     pub fn start(
         pair: bool,
         cellular: Option<uplink::Config>,
+        capture: Arc<Capture>,
         notify: impl FnMut() + Send + 'static,
     ) -> io::Result<Self> {
         let shared = Arc::new(Mutex::new(Shared::default()));
@@ -53,7 +54,7 @@ impl Communications {
         let task = thread::Builder::new()
             .name("tracker-links".into())
             .stack_size(24 * 1024)
-            .spawn(move || run(&incoming, pair, cellular, notify))?;
+            .spawn(move || run(&incoming, pair, cellular, &capture, notify))?;
         Ok(Self {
             shared,
             task: Some(task),
@@ -108,6 +109,7 @@ fn run(
     shared: &Mutex<Shared>,
     pair: bool,
     cellular: Option<uplink::Config>,
+    capture: &Capture,
     mut notify: impl FnMut(),
 ) -> io::Result<()> {
     let collector = cellular.as_ref().and_then(|config| config.collector);
@@ -136,7 +138,7 @@ fn run(
             radio = None;
             pairing_failed = false;
             if matches!(pair, Pairing::Start) {
-                match tls_identity(&identity).and_then(radio::pair) {
+                match tls_identity(&identity).and_then(|identity| radio::pair(identity, capture)) {
                     Ok(output) => radio = Some(output),
                     Err(error) => {
                         eprintln!("motion-tracker pairing: {error}");

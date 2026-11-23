@@ -8,6 +8,9 @@ import NxrsMonitorCore
     @Published private(set) var status = "Disconnected"
     @Published private(set) var reading: TrackerTelemetry?
     @Published private(set) var active = false
+    @Published private(set) var history = TrackerHistory()
+    @Published private(set) var exporting = false
+    @Published private(set) var interruptions = 0
 
     private static let service = CBUUID(string: "3CB1DE6E-A955-49B7-BE4F-C4572D3F3400")
     private static let ingress = CBUUID(string: "3CB1DE6E-A955-49B7-BE4F-C4572D3F3401")
@@ -26,7 +29,11 @@ import NxrsMonitorCore
     private var pairedTracker: UUID?
     private var foreground = true
     private var retries = 0
-    private var frames = TrackerFrames()
+    private var frames = TrackerExportFrames()
+    private var capture = TrackerHistory()
+    private var lastPlot: ContinuousClock.Instant?
+    private var notifying = false
+    private var relayBytes = 0
     private var pending: Data?
     private var operation: Operation?
     private var relaySending = false
@@ -41,6 +48,7 @@ import NxrsMonitorCore
             return
         }
         pairingKey = bytes
+        interruptions = 0
         active = true
         connect()
     }
@@ -84,6 +92,7 @@ import NxrsMonitorCore
             stop(message)
             return
         }
+        interruptions += 1
         retireConnection()
         status = "Reconnecting to tracker"
         let delay = 1 << retries
@@ -119,7 +128,13 @@ import NxrsMonitorCore
         pending = nil
         operation = nil
         relaySending = false
-        frames = TrackerFrames()
+        notifying = false
+        relayBytes = 0
+        frames = TrackerExportFrames()
+        capture = TrackerHistory()
+        history = TrackerHistory()
+        lastPlot = nil
+        exporting = false
     }
 
     private static func parseKey(_ value: String) -> [UInt8]? {
@@ -217,6 +232,15 @@ import NxrsMonitorCore
                         return
                     }
                     self.status = "Secure connection"
+                    if self.notifying {
+                        self.exporting = true
+                        client.send(content: TrackerExportFrames.request, completion: .contentProcessed { [weak self] error in
+                            MainActor.assumeIsolated {
+                                guard let self, self.generation == token, error != nil else { return }
+                                self.recover("Could not request sensor export")
+                            }
+                        })
+                    }
                     self.receiveTelemetry(client, token: token)
                 case .failed: self.recover("Tracker authentication or connection failed")
                 default: break
@@ -234,7 +258,17 @@ import NxrsMonitorCore
                 if let data {
                     do {
                         var newest: TrackerTelemetry?
-                        try self.frames.receive(data) { newest = $0 }
+                        var measurements: [TrackerMeasurement] = []
+                        try self.frames.receive(data, snapshot: { newest = $0 }, measurement: { measurements.append($0) })
+                        if !measurements.isEmpty {
+                            for item in measurements { self.capture.append(item) }
+                            self.capture.trim()
+                            let now = ContinuousClock.now
+                            if self.lastPlot.map({ $0.duration(to: now) >= .milliseconds(100) }) ?? true {
+                                self.lastPlot = now
+                                self.history = self.capture
+                            }
+                        }
                         if let newest {
                             self.pairedTracker = self.peripheral?.identifier
                             self.reading = newest
@@ -273,7 +307,7 @@ import NxrsMonitorCore
         if let pending {
             operation = .write
             peripheral.writeValue(pending, for: ingress, type: .withResponse)
-        } else {
+        } else if !notifying {
             operation = .read
             peripheral.readValue(for: egress)
         }
@@ -334,7 +368,21 @@ extension TrackerBluetooth: @preconcurrency CBCentralManagerDelegate, @preconcur
             stop("Tracker transport unavailable")
             return
         }
-        establishRelay()
+        if let egress, egress.properties.contains(.notify) {
+            peer.setNotifyValue(true, for: egress)
+        } else {
+            establishRelay()
+        }
+    }
+
+    func peripheral(_ peer: CBPeripheral, didUpdateNotificationStateFor characteristic: CBCharacteristic, error: Error?) {
+        guard peer === peripheral, characteristic === egress else { return }
+        if listener == nil {
+            notifying = error == nil && characteristic.isNotifying
+            establishRelay()
+        } else if notifying && (error != nil || !characteristic.isNotifying) {
+            recover("Tracker notifications stopped")
+        }
     }
 
     func peripheral(_ peer: CBPeripheral, didWriteValueFor characteristic: CBCharacteristic, error: Error?) {
@@ -347,22 +395,28 @@ extension TrackerBluetooth: @preconcurrency CBCentralManagerDelegate, @preconcur
     }
 
     func peripheral(_ peer: CBPeripheral, didUpdateValueFor characteristic: CBCharacteristic, error: Error?) {
-        guard peer === peripheral, characteristic === egress, operation == .read else { return }
-        guard error == nil, let data = characteristic.value, data.count <= 20, let relay else {
-            recover("Bluetooth read failed")
+        guard peer === peripheral, characteristic === egress, notifying || operation == .read else { return }
+        guard error == nil, let data = characteristic.value,
+              data.count <= (notifying ? 244 : 20), let relay else {
+            recover("Bluetooth data failed")
             return
         }
-        operation = nil
-        if !data.isEmpty {
-            relaySending = true
-            let token = generation
-            relay.send(content: data, completion: .contentProcessed { [weak self] error in
-                MainActor.assumeIsolated {
-                    guard let self, self.generation == token else { return }
-                    self.relaySending = false
-                    if error != nil { self.recover("Secure connection closed") }
-                }
-            })
+        if !notifying { operation = nil }
+        guard !data.isEmpty else { return }
+        guard relayBytes + data.count <= 8192 else {
+            recover("Bluetooth receiver fell behind")
+            return
         }
+        relayBytes += data.count
+        relaySending = !notifying
+        let token = generation
+        relay.send(content: data, completion: .contentProcessed { [weak self] error in
+            MainActor.assumeIsolated {
+                guard let self, self.generation == token else { return }
+                self.relayBytes -= data.count
+                self.relaySending = false
+                if error != nil { self.recover("Secure connection closed") }
+            }
+        })
     }
 }

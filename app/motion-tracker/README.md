@@ -97,10 +97,18 @@ the live dashboard.
    temporary drop or when you return to the screen. The pairing key stays in
    memory while the tracker screen is open. Tap Disconnect to clear it.
 
-The CoreS3 serves a BLE GATT byte stream. The phone relays TLS ciphertext over
-20-byte reads and acknowledged writes. The device publishes the latest snapshot
-at up to 1 Hz and waits for the output to drain between records. Use the USB
-stream for higher-cadence bench captures.
+The CoreS3 sends the latest dashboard snapshot at up to 1 Hz. Current iPhone
+builds subscribe to GATT notifications and request binary sensor data after
+TLS pairing. Earlier clients can still read the dashboard using 20-byte GATT
+reads. The same authenticated session carries both records.
+
+The export sends each received IMU sample at the configured 100 Hz and each
+valid GNSS fix at 2 Hz on the dual-IMU CoreS3 profiles. The GNSS driver verifies
+a 500 ms navigation period in receiver RAM and restores the previous
+configuration on shutdown. The phone shows acceleration and gyroscope for
+both IMUs, recent fixes on the map, observed rates, and sequence gaps. The
+export queue is bounded. Slow phone reads can leave gaps while the sensors and
+display keep running.
 
 Pairing is opt-in for each run. The TLS 1.2 PSK cipher is
 `TLS_PSK_WITH_AES_128_GCM_SHA256` and the PSK identity is `nxrs-tracker-v1`.
@@ -115,11 +123,16 @@ remain separate from the firmware build.
 [Espressif RNG requirements](https://docs.espressif.com/projects/esp-idf/en/stable/esp32s3/api-reference/system/random.html)
 
 The BLE UUIDs end in `3400` (service), `3401` (phone writes ciphertext), and
-`3402` (phone reads ciphertext). Their full prefix is
-`3CB1DE6E-A955-49B7-BE4F-C4572D3F`. Android can use the same GATT byte stream and
-TLS configuration. Each decrypted record is the same v1 NDJSON frame used by
-USB. Frame readers handle split or joined lines and reject records longer
-than 768 bytes including the newline. Cellular upload uses the same frames.
+`3402` (phone reads or subscribes to ciphertext). Their full prefix is
+`3CB1DE6E-A955-49B7-BE4F-C4572D3F`. Dashboard snapshots retain the v1 NDJSON
+layout used by USB and cellular. Binary export begins after the authenticated
+client sends the bytes `4e 58 52 53 01`. Each batch starts with `a5 01` and a
+little-endian 16-bit payload length. It contains up to 16 records. Each record
+has a one-byte kind (IMU 1, IMU 2, GNSS are 1, 2, 3), the low 32 bits of the
+source sequence, and the low 32 bits of monotonic reception time in
+milliseconds. All numbers are little-endian. IMU values are six float32s
+(acceleration, then gyroscope in X/Y/Z order). GNSS values are float64 latitude
+and longitude, then float32 ground speed in m/s.
 
 BLE and cellular share the telemetry stream publisher. Each connection keeps
 one frame in progress and coalesces waiting snapshots to the latest value.

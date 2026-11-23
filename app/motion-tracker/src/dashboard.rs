@@ -1,4 +1,6 @@
-use crate::{charts, communications, screen, tracker, uplink, wire, ReportOptions};
+use crate::{
+    charts, communications, export::Capture, screen, tracker, uplink, wire, ReportOptions,
+};
 use battery::Device as _;
 use charts::{History, SAMPLE_INTERVAL};
 use communications::{Communications, Pairing, View};
@@ -6,7 +8,10 @@ use messaging::bounded;
 use navigation::observations::{Observation, ObservationService};
 use screen::{Action, Dashboard, Screen};
 use std::io::{self, Write};
-use std::sync::mpsc::{RecvTimeoutError, TrySendError};
+use std::sync::{
+    mpsc::{RecvTimeoutError, TrySendError},
+    Arc,
+};
 use std::time::Instant;
 use touch::Session as _;
 use tracker::{report_fault, Snapshot, FIX_FRESH, IMU_FRESH};
@@ -99,8 +104,25 @@ pub(super) fn run(args: impl Iterator<Item = String>) -> io::Result<()> {
             let _ = events.try_send(Event::LinkChanged);
         }
     };
+    let capture = Arc::new(Capture::default());
+    let sensor_event = {
+        let capture = capture.clone();
+        move |event: Observation| {
+            if let Some(sample) = event.measurement() {
+                capture.record(sample);
+            }
+            Event::Sensor(event)
+        }
+    };
     let mut communications = (options.ble || options.cellular.is_some())
-        .then(|| Communications::start(options.ble, options.cellular, notify_links.clone()))
+        .then(|| {
+            Communications::start(
+                options.ble,
+                options.cellular,
+                capture.clone(),
+                notify_links.clone(),
+            )
+        })
         .transpose()?;
     let mut view = View::default();
     let mut sensors = ObservationService::<2>::new(IMU_FRESH, Some(FIX_FRESH));
@@ -109,18 +131,18 @@ pub(super) fn run(args: impl Iterator<Item = String>) -> io::Result<()> {
             0,
             composition::imu::primary_imu(),
             events.clone(),
-            Event::Sensor,
+            sensor_event.clone(),
         ),
         sensors.start_imu(
             1,
             composition::imu::secondary(),
             events.clone(),
-            Event::Sensor,
+            sensor_event.clone(),
         ),
         sensors.start_gnss(
             composition::gnss::primary_gnss(),
             events.clone(),
-            Event::Sensor,
+            sensor_event.clone(),
         ),
     ] {
         if let Err(fault) = result {
@@ -258,7 +280,12 @@ pub(super) fn run(args: impl Iterator<Item = String>) -> io::Result<()> {
                 match screen.input(&mut dashboard, view.link, event) {
                     Some(Action::Pair) => match &communications {
                         Some(links) => links.pair(Pairing::Start),
-                        None => match Communications::start(true, None, notify_links.clone()) {
+                        None => match Communications::start(
+                            true,
+                            None,
+                            capture.clone(),
+                            notify_links.clone(),
+                        ) {
                             Ok(links) => communications = Some(links),
                             Err(error) => eprintln!("motion-tracker pairing: {error}"),
                         },
