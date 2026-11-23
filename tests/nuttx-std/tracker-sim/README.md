@@ -218,6 +218,11 @@ It adds CPU work to display SPI transfers while both IMUs, GNSS and cellular
 TLS stay active. It paces the BLE ciphertext at 5.5 kB/s, with a 4.8 kB/s
 interval matching the slower physical link trace. It withholds three bursts of
 controller transmit credits and injects notification and acknowledgment loss.
+During the 4.8 kB/s interval, it drops ten isolated notifications spaced by
+5,500 new ciphertext bytes. Each drop consumes its scheduled link time and
+controller completions still arrive. This covers a replay loop that can stall
+export even with the link up. A receiver that discards data after a gap
+also has to recover during the legacy export reconnect.
 The test requires contiguous sequences, queue recovery, an advancing cellular
 stream, and one UTC mapping for sensor records on BLE, USB and cellular TLS.
 A legacy export reconnect uses the same pairing key.

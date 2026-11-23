@@ -21,6 +21,7 @@ INTERVAL_MS = 500
 BLE_READ_TIMEOUT = 5
 MAX_WALL_BLE_GAP = 2.5
 TCP_HOLD_MS = 3200
+SPACED_NOTIFICATION_LOSSES = 10
 
 
 class RamUart:
@@ -160,7 +161,7 @@ class Scenario:
         await panel.query(f'writel {panel_work:#x} 0x7d0')
         busy_before = await panel.word('tracker_panel_busy_rows')
 
-        async def authenticated_link():
+        async def authenticated_link(*, retain_out_of_order=True):
             connection, rx, tx = await connect(phone, export=True)
             disconnected = asyncio.Event()
             connection.once(connection.EVENT_DISCONNECTION, lambda _: disconnected.set())
@@ -168,7 +169,7 @@ class Scenario:
             await tx.discover_descriptors()
             ccc = tx.get_descriptor(GATT_CLIENT_CHARACTERISTIC_CONFIGURATION_DESCRIPTOR)
             assert ccc is not None and await ccc.read_value(no_long_read=True) == b'\0\0'
-            stream = SecureStream(rx, tx, key)
+            stream = SecureStream(rx, tx, key, retain_out_of_order=retain_out_of_order)
             await stream.subscribe()
             await asyncio.wait_for(stream.handshake(), 8)
             return connection, stream, disconnected
@@ -182,7 +183,7 @@ class Scenario:
                 await rejected.flush()
                 await asyncio.wait_for(retired.wait(), 5)
                 print('PASS: tracker retires the link after an invalid export request', flush=True)
-            connection, stream, disconnected = await authenticated_link()
+            connection, stream, disconnected = await authenticated_link(retain_out_of_order=previous is None)
             latest = await self.export_window(guest, stream, minimum, previous, disconnected)
             after = len(guest.buffer)
             await connection.disconnect()
@@ -228,6 +229,7 @@ class Scenario:
         hold_points = iter((500, 2_500, 4_500)) if previous is None else iter(())
         next_hold = next(hold_points, None)
         loss_injected = False
+        repeated_loss_started = False
         slow_window = previous is None
         async with asyncio.timeout(15 + minimum / 92), asyncio.TaskGroup() as stalls:
             while min(count[:2]) < minimum or count[2] < minimum // 50 or len(dashboard) < 2:
@@ -235,7 +237,10 @@ class Scenario:
                     record = await asyncio.wait_for(stream.export_record(), timeout=6)
                 except TimeoutError as error:
                     raise AssertionError(f'BLE export stalled at ciphertext byte {stream.offset}, after {count} samples '
-                                         f'and {len(dashboard)} dashboard snapshots') from error
+                                         f'and {len(dashboard)} dashboard snapshots. '
+                                         f'Last ACK {stream.last_acknowledged}, sent through byte '
+                                         f'{link.notification_end}, replayed {link.replayed_bytes} bytes, '
+                                         f'{stream.out_of_order} notifications beyond a gap') from error
                 assert not disconnected.is_set(), 'unexpected BLE disconnect during export'
                 if isinstance(record, dict):
                     check_live(record)
@@ -261,7 +266,7 @@ class Scenario:
                         assert tick >= latest[index][1]
                     latest[index] = (seq, tick)
                     count[index] += 1
-                if slow_window and count[0] >= 2_000:
+                if slow_window and count[0] >= 4_100:
                     link.notification_rate = 5_500
                     slow_window = False
                 if next_hold is not None and count[0] >= next_hold:
@@ -272,6 +277,15 @@ class Scenario:
                     link.notification_rate = 4_800
                     guest.ble_link.notifications_to_drop = 2
                     guest.ble_link.acknowledgements_to_drop = 2
+                    loss_injected = True
+                if previous is None and not repeated_loss_started and count[0] >= 2_800:
+                    # A sparse missing ATT notification still consumes airtime.
+                    # Later packets and controller completions keep arriving.
+                    link.next_spaced_loss = link.notification_end
+                    link.spaced_losses_remaining = SPACED_NOTIFICATION_LOSSES
+                    repeated_loss_started = True
+                if previous is not None and not loss_injected and count[0] >= 40:
+                    link.notifications_to_drop = 2
                     loss_injected = True
         if previous is None:
             link.notification_rate = 0
@@ -288,7 +302,13 @@ class Scenario:
                   flush=True)
             assert loss_injected and stream.out_of_order > 0, 'the peer never witnessed the notification gap'
             assert not guest.ble_link.notifications_to_drop and not guest.ble_link.acknowledgements_to_drop
-            print('PASS: replay recovered two lost notifications and two lost acknowledgments', flush=True)
+            assert repeated_loss_started and not link.spaced_losses_remaining
+            print(f'PASS: recovered {SPACED_NOTIFICATION_LOSSES + 2} lost notifications and two lost '
+                  f'acknowledgments, replaying {link.replayed_bytes} ciphertext bytes',
+                  flush=True)
+        else:
+            assert loss_injected and not link.notifications_to_drop and stream.out_of_order > 0
+            print('PASS: a receiver that discards out-of-order packets still recovers', flush=True)
         rates = [(n - 1) * 1000 / (end[1] - start) for n, end, start in zip(count, latest, first)]
         assert all(92 <= rate <= 108 for rate in rates[:2]) and 1.8 <= rates[2] <= 2.2, rates
         times = [started, *dashboard, time.monotonic()]

@@ -88,15 +88,30 @@ import XCTest
         XCTAssertFalse(tracker.refreshTelemetry(at: later))
     }
 
-    func testNotificationReplayOnlyAdmitsContiguousCiphertext() {
+    func testNotificationReplayReleasesRetainedCiphertextWhenTheGapCloses() {
         var stream = TrackerNotificationStream()
         XCTAssertEqual(stream.accept(Data([0, 0, 0, 0, 10, 11])), Data([10, 11]))
         XCTAssertNil(stream.accept(Data([4, 0, 0, 0, 14, 15])), "A gap must never reach TLS")
         XCTAssertEqual(stream.acknowledgement, Data([1, 2, 0, 0, 0]))
-        XCTAssertEqual(stream.accept(Data([1, 0, 0, 0, 11, 12, 13, 14])), Data([12, 13, 14]))
+        XCTAssertNil(stream.accept(Data([4, 0, 0, 0, 14, 15])))
+        XCTAssertEqual(stream.bufferedCount, 2)
+        XCTAssertEqual(stream.accept(Data([1, 0, 0, 0, 11, 12, 13, 14])), Data([12, 13, 14, 15]))
         XCTAssertNil(stream.accept(Data([2, 0, 0, 0, 12, 13])))
-        XCTAssertEqual(stream.accept(Data([5, 0, 0, 0, 15])), Data([15]))
+        XCTAssertNil(stream.accept(Data([5, 0, 0, 0, 15])))
+        XCTAssertEqual(stream.bufferedCount, 0)
         XCTAssertEqual(stream.acknowledgement, Data([1, 6, 0, 0, 0]))
+    }
+
+    func testNotificationWindowStaysBoundedAcrossOffsetWrap() {
+        var stream = TrackerNotificationStream(offset: .max - 1)
+        XCTAssertNil(stream.accept(Data([254, 7, 0, 0, 99])), "Outside the 2 KiB window")
+        XCTAssertNil(stream.accept(Data([0, 0, 0, 0, 3, 4])))
+        XCTAssertNil(stream.accept(Data([4, 0, 0, 0, 7])))
+        XCTAssertEqual(stream.accept(Data([254, 255, 255, 255, 1, 2])), Data([1, 2, 3, 4]))
+        XCTAssertEqual(stream.acknowledgement, Data([1, 2, 0, 0, 0]))
+        XCTAssertEqual(stream.bufferedCount, 1, "A second gap must stay buffered")
+        XCTAssertEqual(stream.accept(Data([2, 0, 0, 0, 5, 6])), Data([5, 6, 7]))
+        XCTAssertEqual(stream.acknowledgement, Data([1, 5, 0, 0, 0]))
     }
 
     private func batch(_ ticks: Range<Int>) -> Data {
