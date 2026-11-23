@@ -725,6 +725,7 @@ mod tests {
         assert_eq!(ui.metric, Metric::Rotation);
         let now = Instant::now();
         let snapshot = Snapshot {
+            clock: None,
             imu: [Reading::Waiting; 2],
             gnss: Reading::Waiting,
         };

@@ -15,6 +15,7 @@ mod dashboard {
     pub struct Snapshot {
         pub imu: [Reading<imu::ImuSample>; 2],
         pub gnss: Reading<gnss::GnssFix>,
+        pub(crate) clock: Option<crate::clock::ClockAnchor>,
     }
 
     impl From<navigation::observations::Snapshot<2>> for Snapshot {
@@ -22,6 +23,7 @@ mod dashboard {
             Self {
                 imu: snapshot.imu,
                 gnss: snapshot.gnss.expect("the dashboard configures GNSS"),
+                clock: None,
             }
         }
     }

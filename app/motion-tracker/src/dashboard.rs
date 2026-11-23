@@ -102,7 +102,15 @@ pub(super) fn run(args: impl Iterator<Item = String>) -> io::Result<()> {
             let _ = events.try_send(Event::LinkChanged);
         }
     };
-    let capture = Arc::new(Capture::default());
+    use imu::Device as _;
+    let primary = composition::imu::primary_imu();
+    let secondary = composition::imu::secondary();
+    let primary_scale = primary.default_config().and_then(|config| primary.resolve(config));
+    let secondary_scale = secondary.default_config().and_then(|config| secondary.resolve(config));
+    let capture = Arc::new(Capture::new(
+        [primary_scale, secondary_scale]
+            .map(|applied| applied.ok().and_then(|config| config.counts_scale)),
+    ));
     let latest = Arc::new(Mutex::new([None, None, None]));
     let sensor_event = {
         let capture = capture.clone();
@@ -135,13 +143,13 @@ pub(super) fn run(args: impl Iterator<Item = String>) -> io::Result<()> {
     for result in [
         sensors.start_imu_with(
             0,
-            composition::imu::primary_imu(),
+            primary,
             events.clone(),
             sensor_event.clone(),
         ),
         sensors.start_imu_with(
             1,
-            composition::imu::secondary(),
+            secondary,
             events.clone(),
             sensor_event.clone(),
         ),
@@ -227,7 +235,8 @@ pub(super) fn run(args: impl Iterator<Item = String>) -> io::Result<()> {
             }
         }
         if report_due {
-            let snapshot = Snapshot::from(sensors.snapshot(now));
+            let mut snapshot = Snapshot::from(sensors.snapshot(now));
+            snapshot.clock = capture.clock();
             if let Some(serial) = &mut serial {
                 let mut writer = serial.lock();
                 let written = wire::frame(&snapshot)

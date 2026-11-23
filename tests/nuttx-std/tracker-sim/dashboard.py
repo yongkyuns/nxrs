@@ -38,29 +38,43 @@ EXPORT_RX = UUID('3CB1DE6E-A955-49B7-BE4F-C4572D3F3421')
 EXPORT_TX = UUID('3CB1DE6E-A955-49B7-BE4F-C4572D3F3422')
 TRACKER = Address('F0:F1:F2:F3:F4:01', Address.PUBLIC_DEVICE_ADDRESS)
 
-def decode_compact_batch(payload):
-    """Expand the compact wire format for the existing sequence checks."""
+def decode_batch(payload, version, scales):
+    """Decode each batch into full timestamps, SI measurements, and optional UTC."""
+    timed = version == 3
+    utc_offset = struct.unpack_from('<q', payload)[0] if timed else None
     previous = {}
-    expanded = bytearray()
-    pos = 0
+    records = []
+    pos = 8 if timed else 0
     while pos < len(payload):
         tag = payload[pos]
-        source = tag & 0x7f
-        assert source in (1, 2, 3)
-        header = 2 if tag & 0x80 else 9
-        end = pos + header + (20 if source == 3 else 24)
-        assert end <= len(payload), 'partial compact tracker record'
-        if header == 2:
+        delta = version >= 2 and tag & 0x80
+        counts = timed and tag & 0x40
+        source = tag & (0x1f if timed else 0x7f)
+        assert source in (1, 2, 3) and (source != 3 or not counts)
+        header = 2 if delta else 13 if timed else 9
+        end = pos + header + (20 if source == 3 else 12 if counts else 24)
+        assert end <= len(payload), 'partial tracker record'
+        if delta:
             seq, stamp = previous[source]
             seq = (seq + 1) & 0xffffffff
-            stamp = (stamp + payload[pos + 1]) & 0xffffffff
+            stamp += payload[pos + 1]
+            if not timed:
+                stamp &= 0xffffffff
         else:
-            seq, stamp = struct.unpack_from('<II', payload, pos + 1)
+            seq, stamp = struct.unpack_from('<IQ' if timed else '<II', payload, pos + 1)
         previous[source] = seq, stamp
-        expanded.extend(struct.pack('<BII', source, seq, stamp))
-        expanded.extend(payload[pos + header:end])
+        utc = (stamp + utc_offset
+               if timed and utc_offset != -(1 << 63) and not tag & 0x20 else None)
+        offset = pos + header
+        if counts:
+            points = struct.unpack_from('<6h', payload, offset)
+            scale = scales[source - 1]
+            values = tuple(point * scale[axis // 3] for axis, point in enumerate(points))
+        else:
+            values = struct.unpack_from('<ddf' if source == 3 else '<6f', payload, offset)
+        records.append((source, seq, stamp, utc, values))
         pos = end
-    return bytes(expanded)
+    return records
 
 
 def luminance(rgb):
@@ -83,6 +97,9 @@ class Stream:
 class BluetoothLink(LocalLink):
     notifications_to_drop = 0
     acknowledgements_to_drop = 0
+    notification_rate = 0
+    paced_notifications = 0
+    next_notification = 0.0
 
     def send_acl_data(self, sender, destination, transport, data):
         # Bumble 0.0.236 otherwise uses the sender's random address for all LE ACL.
@@ -97,7 +114,17 @@ class BluetoothLink(LocalLink):
         peer = self.find_le_controller(destination)
         if peer is not None:
             source = sender.le_connections[destination].self_address
-            asyncio.get_running_loop().call_soon(peer.on_link_acl_data, source, transport, data)
+            loop = asyncio.get_running_loop()
+            if self.notification_rate and data[2:5] == b'\x04\x00\x1b':
+                # Pace the ciphertext payload, excluding the L2CAP, ATT and
+                # replay headers. Keep emitting link credits and ACKs normally.
+                self.next_notification = max(loop.time(), self.next_notification) + (
+                    (len(data) - 11) / self.notification_rate
+                )
+                self.paced_notifications += 1
+                loop.call_at(self.next_notification, peer.on_link_acl_data, source, transport, data)
+            else:
+                loop.call_soon(peer.on_link_acl_data, source, transport, data)
 
 
 class H4Controller(Controller):
@@ -338,6 +365,7 @@ class SecureStream:
         self.out_of_order = 0
         self.acknowledgement_pending = False
         self.acknowledge_at = 0.0
+        self.scales = (None, None)
 
     async def subscribe(self):
         self.notifications = asyncio.Event()
@@ -410,12 +438,11 @@ class SecureStream:
                 size = 4 + int.from_bytes(self.buffer[2:4], 'little')
                 version = self.buffer[1]
                 assert size not in (4, 9), 'tracker reported sensor export buffer overflow'
-                assert version in (1, 2) and 33 <= size <= 532
+                assert version in (1, 2, 3) and 33 <= size <= (604 if version == 3 else 532)
                 if len(self.buffer) >= size:
                     batch = bytes(self.buffer[4:size])
                     del self.buffer[:size]
-                    records = decode_compact_batch(batch) if version == 2 else batch
-                    return records, len(batch)
+                    return decode_batch(batch, version, self.scales), len(batch)
             elif self.buffer[:1] == b'{' and b'\n' in self.buffer:
                 end = self.buffer.index(b'\n')
                 snapshot = json.loads(self.buffer[:end])
@@ -435,6 +462,11 @@ class SecureStream:
         end = self.buffer.index(b'\n')
         value = json.loads(self.buffer[:end])
         del self.buffer[:end + 1]
+        if 'imu_scale_bits' in value:
+            self.scales = tuple(
+                None if bits is None else struct.unpack('<ff', struct.pack('<II', *bits))
+                for bits in value['imu_scale_bits']
+            )
         return value
 
 

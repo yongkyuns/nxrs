@@ -4,6 +4,8 @@ import NxrsMonitorCore
 struct TrackerHistory: Sendable {
     struct Motion: Identifiable, Sendable {
         let sequence: UInt32
+        let receivedMS: UInt64
+        let utcMS: Int64?
         let acceleration: [Float]
         let gyro: [Float]
         var id: UInt32 { sequence }
@@ -11,6 +13,8 @@ struct TrackerHistory: Sendable {
 
     struct Position: Identifiable, Sendable {
         let sequence: UInt32
+        let receivedMS: UInt64
+        let utcMS: Int64?
         let latitude: Double
         let longitude: Double
         let speed: Float
@@ -21,15 +25,15 @@ struct TrackerHistory: Sendable {
         private(set) var received: UInt64 = 0
         private(set) var dropped: UInt64 = 0
         var last: UInt32?
-        var firstTime: UInt32?
-        var lastTime: UInt32?
+        var firstTime: UInt64?
+        var lastTime: UInt64?
         var rate: Double? {
             guard let firstTime, let lastTime else { return nil }
-            let elapsed = lastTime &- firstTime
+            let elapsed = lastTime >= firstTime ? lastTime - firstTime : UInt64(UInt32(truncatingIfNeeded: lastTime) &- UInt32(truncatingIfNeeded: firstTime))
             return elapsed >= 2_000 ? Double(received - 1) * 1_000 / Double(elapsed) : nil
         }
 
-        mutating func accept(_ sequence: UInt32, time: UInt32) -> Bool {
+        mutating func accept(_ sequence: UInt32, time: UInt64) -> Bool {
             if let last {
                 let step = sequence &- last
                 guard step > 0, step < 0x8000_0000 else { return false }
@@ -51,12 +55,12 @@ struct TrackerHistory: Sendable {
 
     mutating func append(_ measurement: TrackerMeasurement) {
         switch measurement {
-        case let .imu(index, sequence, time, acceleration, gyro):
+        case let .imu(index, sequence, time, acceleration, gyro, utc):
             guard counts[index].accept(sequence, time: time) else { return }
-            motion[index].append(Motion(sequence: sequence, acceleration: acceleration, gyro: gyro))
-        case let .fix(sequence, time, latitude, longitude, speed):
+            motion[index].append(Motion(sequence: sequence, receivedMS: time, utcMS: utc, acceleration: acceleration, gyro: gyro))
+        case let .fix(sequence, time, latitude, longitude, speed, utc):
             guard counts[2].accept(sequence, time: time) else { return }
-            positions.append(Position(sequence: sequence, latitude: latitude, longitude: longitude, speed: speed))
+            positions.append(Position(sequence: sequence, receivedMS: time, utcMS: utc, latitude: latitude, longitude: longitude, speed: speed))
         }
     }
 

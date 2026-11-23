@@ -451,7 +451,7 @@ final class TrackerConnection: NSObject, @unchecked Sendable {
         if let newest {
             presentation.reading = newest
             lastReading = now
-            requestExport(version: newest.exportVersion, at: now)
+            requestExport(telemetry: newest, at: now)
         }
         if capture.hasGaps {
             presentation.status = "Sensor export incomplete. Samples missing."
@@ -461,11 +461,16 @@ final class TrackerConnection: NSObject, @unchecked Sendable {
         return true
     }
 
-    private func requestExport(version: Int?, at now: ContinuousClock.Instant) {
+    private func requestExport(telemetry: TrackerTelemetry, at now: ContinuousClock.Instant) {
         guard notifying, !requestedExport, let tlsClient else { return }
         requestedExport = true
         lastExportData = now
-        let request = version == 2 ? TrackerExportFrames.compactRequest : TrackerExportFrames.request
+        let request: Data
+        if telemetry.imuScaleBits?.count == 2 {
+            request = TrackerExportFrames.timedRequest
+        } else {
+            request = telemetry.exportVersion == 2 ? TrackerExportFrames.compactRequest : TrackerExportFrames.request
+        }
         let token = generation
         tlsClient.send(content: request, completion: .contentProcessed { [weak self] error in
             guard let self, self.generation == token, error != nil else { return }

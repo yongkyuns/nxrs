@@ -22,6 +22,47 @@ final class TrackerTelemetryTests: XCTestCase {
 }
 
 extension TrackerTelemetryTests {
+    func testTimedBatchDecodesCountsAndBothClocks() throws {
+        let scale = [Float(0.125).bitPattern, Float(0.25).bitPattern]
+        let advertisement = """
+        {"v":1,"imu_scale_bits":[[\(scale[0]),\(scale[1])],null],"imu":[{"state":"waiting"},{"state":"waiting"}],"gnss":{"state":"waiting"}}
+        """
+        let first = UInt64(UInt32.max)
+        let utc: Int64 = 1_767_225_600_000
+        var payload = Data()
+        func append<T: FixedWidthInteger>(_ value: T) {
+            var word = value.littleEndian
+            withUnsafeBytes(of: &word) { payload.append(contentsOf: $0) }
+        }
+        append(utc - Int64(first + 3))
+        payload.append(0x61)
+        append(UInt32(1))
+        append(first)
+        let counts: [Int16] = [.min, 0, .max, -1, 4, .max]
+        counts.forEach(append)
+        payload.append(3)
+        append(UInt32(4))
+        append(first + 3)
+        append(Double(45).bitPattern)
+        append(Double(-75).bitPattern)
+        append(Float(2).bitPattern)
+        payload.append(contentsOf: [0xc1, 9])
+        counts.forEach(append)
+        var parser = TrackerExportFrames()
+        try parser.receive(Data((advertisement + "\n").utf8), snapshot: { _ in }, measurement: { _ in XCTFail() })
+        let frame = Data([0xa5, 3, UInt8(payload.count), 0]) + payload
+        var actual: [TrackerMeasurement] = []
+        try parser.receive(frame.prefix(21), snapshot: { _ in XCTFail() }, measurement: { _ in XCTFail() })
+        try parser.receive(Data(frame.dropFirst(21)), snapshot: { _ in XCTFail() }, measurement: { actual.append($0) })
+        let accel: [Float] = [-4096, 0, 4095.875]
+        let gyro: [Float] = [-0.25, 1, 8191.75]
+        XCTAssertEqual(actual, [
+            .imu(index: 0, sequence: 1, receivedMS: first, accel: accel, gyro: gyro),
+            .fix(sequence: 4, receivedMS: first + 3, latitude: 45, longitude: -75, speed: 2, utcMS: utc),
+            .imu(index: 0, sequence: 2, receivedMS: first + 9, accel: accel, gyro: gyro, utcMS: utc + 6)
+        ])
+    }
+
     func testCompactBatchRestoresSequencesAndTimestampsAcrossWrap() throws {
         let payload = [UInt8](repeating: 0, count: 24)
         let first: [UInt8] = [1, 255, 255, 255, 255, 250, 255, 255, 255]
@@ -32,7 +73,7 @@ extension TrackerTelemetryTests {
         try parser.receive(Data([0x81, 11] + payload),
                            snapshot: { _ in XCTFail() }, measurement: { samples.append($0) })
         XCTAssertEqual(samples, [
-            .imu(index: 0, sequence: .max, receivedMS: .max - 5, accel: [0, 0, 0], gyro: [0, 0, 0]),
+            .imu(index: 0, sequence: .max, receivedMS: UInt64(UInt32.max) - 5, accel: [0, 0, 0], gyro: [0, 0, 0]),
             .imu(index: 0, sequence: 0, receivedMS: 5, accel: [0, 0, 0], gyro: [0, 0, 0])
         ])
         let orphan = Data([0xa5, 2, 52, 0] + [0x81, 1] + payload + [0x81, 1] + payload)

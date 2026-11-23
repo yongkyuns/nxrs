@@ -13,6 +13,7 @@ use std::{
 pub struct NavPvt {
     /// Receiver time of week in milliseconds.
     pub itow_ms: u32,
+    pub receiver_utc_ms: Option<i64>,
     pub latitude_deg: f64,
     pub longitude_deg: f64,
     pub speed_mps: f32,
@@ -248,6 +249,7 @@ impl<R: Read + Write> peripheral::gnss::Receiver for Driver<R> {
         self.poll(|event| {
             emit(event.map(|report| peripheral::gnss::Measurement {
                 epoch_ms: u64::from(report.itow_ms),
+                receiver_utc_ms: report.receiver_utc_ms,
                 latitude_deg: report.latitude_deg,
                 longitude_deg: report.longitude_deg,
                 speed_mps: report.speed_mps,

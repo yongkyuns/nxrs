@@ -1,5 +1,6 @@
 """Shared UBX receiver model and tracker telemetry checks."""
 import struct
+from datetime import datetime, timedelta
 
 
 def ubx(kind, identifier, payload):
@@ -65,6 +66,10 @@ class NeoM9n:
     def fix_packet(tow_ms):
         position = bytearray(92)
         struct.pack_into('<I', position, 0, tow_ms)
+        utc = datetime(2026, 1, 1) + timedelta(milliseconds=tow_ms)
+        struct.pack_into('<H6B', position, 4,
+                         utc.year, utc.month, utc.day, utc.hour, utc.minute, utc.second, 7)
+        struct.pack_into('<i', position, 16, utc.microsecond * 1000)
         position[20:22] = b'\3\1'
         struct.pack_into('<ii', position, 24, -115166667, 481173000)
         return ubx(1, 7, position)

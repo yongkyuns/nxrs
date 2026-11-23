@@ -139,15 +139,41 @@ Phone-to-tracker ciphertext uses acknowledged ingress writes prefixed with
 without acknowledgment progress. The original dashboard service uses
 the unchanged `3400`, `3401` and `3402` UUIDs and handles, and is advertised
 in the scan response. Dashboard snapshots retain the v1 NDJSON
-layout used by USB and cellular. Binary export begins after the authenticated
-client sends the bytes `4e 58 52 53 01`. Each batch starts with `a5 01` and a
-little-endian 16-bit payload length. A zero payload length reports capture
-buffer overflow. A data batch contains up to 16 records. Each record
-has a one-byte kind (IMU 1, IMU 2, GNSS are 1, 2, 3), the low 32 bits of the
-source sequence, and the low 32 bits of monotonic reception time in
-milliseconds. All numbers are little-endian. IMU values are six float32s
-(acceleration, then gyroscope in X/Y/Z order). GNSS values are float64 latitude
-and longitude, then float32 ground speed in m/s.
+layout used by USB and cellular. Each live reading has a monotonic
+`received_ms` on the same clock as both IMUs and GNSS. Each has `utc_ms`
+in Unix milliseconds after the first valid GNSS UTC solution, or `null`
+before that. All three outputs share one UTC offset for the run. This pairs
+the receiver's solution time with host reception and includes UART latency.
+IMU samples drained in one FIFO read can share a reception timestamp. Use
+the source sequence and nominal sampling interval to order those samples.
+
+The notification dashboard advertises `imu_scale_bits`. It contains one
+pair of IEEE float32 scale bit patterns per IMU, or `null` for a float-only
+source. New clients request timed export with `4e 58 52 53 03`. The batch
+starts with `a5 03`, a little-endian 16-bit payload length and a signed
+64-bit UTC offset. An offset of `i64::MIN` means UTC is unavailable.
+The offset plus the sample's monotonic timestamp gives the absolute time
+unless the sample was received before the UTC anchor.
+
+A data batch carries up to 16 records. The low five bits of the tag
+identify IMU 1, IMU 2 or GNSS as 1, 2 or 3. The first record for a
+source, one after a sequence gap, or one with a time delta above 255 ms
+carries a 32-bit sequence and a
+64-bit monotonic reception timestamp in milliseconds. When bit 7 is
+set, the record instead carries an 8-bit time delta from that source's
+previous record in the batch and advances its sequence by one. Bit 5
+marks samples received before the UTC anchor. Bit 6 marks six signed
+16-bit IMU counts. Multiplying each group of three counts by its scale
+reconstructs the same float32 values used by the navigation filter.
+The alternate IMU payload is six float32s. Both use acceleration then
+gyroscope in X/Y/Z order. GNSS sends float64 latitude and longitude and
+float32 ground speed. A five-byte payload contains only the source and
+sequence of the first missing sample. Multibyte values are little-endian.
+
+The `NXRS 01` and `NXRS 02` requests still select the original 32-bit
+timestamp layouts. Version 1 uses full float records and an empty overflow
+payload. Version 2 also accepts delta headers and identifies the first
+missing source and sequence.
 
 BLE and cellular share the telemetry stream publisher. Each connection keeps
 one frame in progress and coalesces waiting snapshots to the latest value.

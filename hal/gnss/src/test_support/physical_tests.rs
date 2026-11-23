@@ -52,6 +52,7 @@ impl Receiver for Source {
         self.epoch += 1;
         emit(Ok(Measurement {
             epoch_ms: self.epoch,
+            receiver_utc_ms: None,
             latitude_deg: 1.0,
             longitude_deg: 2.0,
             speed_mps: 0.0,

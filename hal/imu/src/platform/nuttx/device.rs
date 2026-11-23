@@ -7,7 +7,7 @@ use core::sync::atomic::{AtomicBool, Ordering};
 use peripheral::imu::{Buffering, Error, Imu};
 use std::{
     fs::File,
-    time::{Duration, Instant},
+    time::Duration,
 };
 
 pub(super) type Irq = gpio_resource::Interrupt<&'static DeviceState>;
@@ -93,7 +93,6 @@ impl<S: Imu> Device<S> {
         wake: &File,
         emit: &mut dyn FnMut(Event) -> bool,
     ) -> Result<(), DeviceError> {
-        let origin = Instant::now();
         let mut sequence = 0u64;
         let sample_interval_us = 1_000_000_000u32.div_ceil(self.applied.rate_millihz);
         let result = (|| {
@@ -102,7 +101,7 @@ impl<S: Imu> Device<S> {
                     break;
                 };
                 self.trace.wake(ready.periodic_deadline);
-                let now = origin.elapsed().as_millis().try_into().unwrap_or(u64::MAX);
+                let now = acquisition::monotonic_ms();
                 let drained = self.sensor.read_available(|sample| {
                     sequence = sequence.saturating_add(1);
                     emit(Event::Sample(ImuSample {

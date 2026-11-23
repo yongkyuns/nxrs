@@ -72,6 +72,13 @@ impl Decoder {
                     .then(|| p.heading_of_motion.degrees().to_radians() as f32);
                     emit(Event::NavPvt(Ok(NavPvt {
                         itow_ms: p.itow,
+                        // UBX-NAV-PVT valid.fullyResolved. instant() also checks
+                        // the valid date/time flags and handles the signed fraction.
+                        receiver_utc_ms: (frame.payload[11] & 4 != 0)
+                            .then(|| p.instant().ok())
+                            .flatten()
+                            .and_then(|utc| utc.checked_unix_nanos())
+                            .map(|nanos| nanos.div_euclid(1_000_000)),
                         latitude_deg: p.position.latitude().degrees(),
                         longitude_deg: p.position.longitude().degrees(),
                         speed_mps: speed as f32,

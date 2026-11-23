@@ -215,19 +215,12 @@ host-driven BLE controller.
 
 The ESP32-S3 QEMU workflow runs `--export` against the notification service.
 It adds CPU work to display SPI transfers while both IMUs, GNSS and cellular
-TLS stay active. It withholds three bursts of controller transmit credits and
-drops two notifications and two acknowledgments. Credits return both in one
-completion event and in a burst of individual events.
-The peer must receive at least 6,000 consecutive samples
-per IMU and 120 GNSS fixes without disconnecting. The test then checks that the
-tracker disconnects a peer that sends an invalid export request and accepts a
-new export with the same pairing key. For a longer run, add
-`--export-seconds 180 --timeout 260`. The first connection negotiates compact
-frames from the authenticated dashboard's `export_version` field. Compact
-records carry a timestamp delta and the next sequence only when they follow
-another record from the same sensor in the batch. The reconnect uses the
-original fixed records. An overflow in a compact session includes the source
-and sequence of the first missing sample.
+TLS stay active. It paces the BLE ciphertext at 5.5 kB/s, with a 4.8 kB/s
+interval matching the slower physical link trace. It withholds three bursts of
+controller transmit credits and injects notification and acknowledgment loss.
+The test requires contiguous sequences, queue recovery, an advancing cellular
+stream, and one UTC mapping for sensor records on BLE, USB and cellular TLS.
+A legacy export reconnect uses the same pairing key.
 
 CoreS3 production qualification uses the physical display, both IMUs at
 100 Hz, GNSS at 2 Hz and a cellular TLS collector while a physical iPhone

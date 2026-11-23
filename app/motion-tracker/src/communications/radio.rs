@@ -194,7 +194,7 @@ impl<'a, L: Listener> Output<'a, L> {
                                 self.capture.enable()?;
                                 self.last_export_service = Some(now);
                                 self.max_service_gap = Duration::ZERO;
-                                self.next_export = Some((version, now + Duration::from_millis(40)));
+                                self.next_export = Some((version, now + version.batch_interval()));
                             }
                         }
                         Err(error) if error.kind() == io::ErrorKind::WouldBlock => {}
@@ -211,8 +211,9 @@ impl<'a, L: Listener> Output<'a, L> {
                 }
                 if !self.publication.is_idle() {
                     self.drained = if notifications {
-                        self.publication
-                            .enqueue(conn, now, self.expires, wire::export_frame)?
+                        self.publication.enqueue(conn, now, self.expires, |snapshot| {
+                            wire::export_frame(snapshot, self.capture.scales())
+                        })?
                     } else {
                         self.publication
                             .service(conn, now, self.expires, wire::frame)?
@@ -233,7 +234,7 @@ impl<'a, L: Listener> Output<'a, L> {
                     {
                         self.export_len = batch.len;
                         self.next_export =
-                            (!batch.terminal).then(|| (version, now + Duration::from_millis(40)));
+                            (!batch.terminal).then(|| (version, now + version.batch_interval()));
                         Self::write_export(conn, &self.export[..self.export_len], &mut self.sent)?;
                         if self.sent == self.export_len {
                             self.sent = 0;

@@ -205,10 +205,18 @@ class Scenario:
         print('PASS: the tracker offers its pairing code again after disconnect', flush=True)
 
     async def export_window(self, guest, stream, minimum, previous, disconnected):
-        version = 2 if previous is None else 1
-        if version == 2:
+        version = 3 if previous is None else 1
+        link = guest.ble_link
+        if version == 3:
             capabilities = await asyncio.wait_for(stream.sample(), 5)
-            assert capabilities['export_version'] == 2
+            assert capabilities['export_version'] == 2 and all(stream.scales)
+            link.notification_rate = 5_500
+            assert all(reading['utc_ms'] is not None for reading in
+                       [*capabilities['imu'], capabilities['gnss']])
+            offsets = {reading['utc_ms'] - reading['received_ms'] for reading in
+                       [*capabilities['imu'], capabilities['gnss']]}
+            assert len(offsets) == 1
+            clock_offset, = offsets
         stream.tls.write(b'NXRS' + bytes([version]))
         fixed_bytes = 0
         wire_bytes = 0
@@ -220,6 +228,7 @@ class Scenario:
         hold_points = iter((500, 2_500, 4_500)) if previous is None else iter(())
         next_hold = next(hold_points, None)
         loss_injected = False
+        slow_window = previous is None
         async with asyncio.timeout(15 + minimum / 92), asyncio.TaskGroup() as stalls:
             while min(count[:2]) < minimum or count[2] < minimum // 50 or len(dashboard) < 2:
                 try:
@@ -233,37 +242,48 @@ class Scenario:
                     dashboard.append(time.monotonic())
                     continue
                 record, encoded = record
-                fixed_bytes += len(record)
                 wire_bytes += encoded
-                pos = 0
-                while pos < len(record):
-                    tag, seq, tick = struct.unpack_from('<BII', record, pos)
-                    assert 1 <= tag <= 3
+                for tag, seq, tick, utc, values in record:
                     index = tag - 1
+                    fixed_bytes += 29 if tag == 3 else 33
                     if tag == 3:
-                        lat, lon, _ = struct.unpack_from('<ddf', record, pos + 9)
+                        lat, lon, _ = values
                         assert abs(lat - 48.1173) < 1e-6 and abs(lon + 11.5166667) < 1e-6
                     else:
-                        x, = struct.unpack_from('<f', record, pos + 9)
-                        assert x < 0 if tag == 1 else x > 0
-                    pos += 29 if tag == 3 else 33
+                        assert values[0] < 0 if tag == 1 else values[0] > 0
+                    if version == 3:
+                        assert utc == tick + clock_offset, (tag, seq, tick, utc, clock_offset)
                     if latest[index] is None:
                         first[index] = tick
                         assert previous is None or seq > previous[index][0], (tag, seq, previous)
                     else:
                         assert seq == latest[index][0] + 1, (tag, seq, latest[index], count)
+                        assert tick >= latest[index][1]
                     latest[index] = (seq, tick)
                     count[index] += 1
+                if slow_window and count[0] >= 2_000:
+                    link.notification_rate = 5_500
+                    slow_window = False
                 if next_hold is not None and count[0] >= next_hold:
                     # Keep consuming packets the controller has already sent.
                     stalls.create_task(self.hold_acl_credits(guest, individual=next_hold == 2_500))
                     next_hold = next(hold_points, None)
                 if previous is None and not loss_injected and count[0] >= 1_400:
+                    link.notification_rate = 4_800
                     guest.ble_link.notifications_to_drop = 2
                     guest.ble_link.acknowledgements_to_drop = 2
                     loss_injected = True
         if previous is None:
-            assert wire_bytes < 0.9 * fixed_bytes, (wire_bytes, fixed_bytes)
+            link.notification_rate = 0
+            assert link.paced_notifications > 100 and not slow_window
+            assert wire_bytes < 0.65 * fixed_bytes, (wire_bytes, fixed_bytes)
+            usb_tick = guest.samples[-1]['imu'][0]['received_ms']
+            assert usb_tick - latest[0][1] < 800, (usb_tick, latest[0][1])
+            collector = self.collector_samples[1]
+            for reading in [*collector['imu'], collector['gnss']]:
+                assert reading['utc_ms'] - reading['received_ms'] == clock_offset
+            print('PASS: the 4.8–5.5 kB/s BLE limit retained all samples, with one UTC mapping on BLE, USB and TLS',
+                  flush=True)
             print(f'PASS: compact export used {wire_bytes} payload bytes versus {fixed_bytes} fixed bytes',
                   flush=True)
             assert loss_injected and stream.out_of_order > 0, 'the peer never witnessed the notification gap'
