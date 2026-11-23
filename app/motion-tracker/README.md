@@ -165,5 +165,7 @@ when TCP retransmits. The buffered sender queues writes in a fixed kernel pool.
 A modem that cannot recover command mode reports the fault and stops redialing.
 
 The [simulator qualification](../../tests/nuttx-std/tracker-sim/README.md)
-exercises the full tracker and a local collector over PPP. Physical modem and
-carrier operation remain unverified.
+exercises the full tracker and a local collector over PPP. The
+[CoreS3 and Stamp test](../../tests/nuttx-std/tracker-hardware/README.md)
+checks BLE delivery and TLS recovery on a real carrier. That test has not yet
+been run on hardware.

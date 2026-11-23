@@ -21,7 +21,7 @@ jobs:
   esp32s3:
     name: Xtensa firmware execution (qualification)
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -32,7 +32,10 @@ jobs:
           toolchain: 1.90.0
       - name: Install build and emulator dependencies
         run: |
-          bash .github/scripts/install-ubuntu-packages.sh bison flex gperf kconfig-frontends genromfs libncurses-dev zlib1g-dev libgcrypt20 libglib2.0-0 libpixman-1-0 libsdl2-2.0-0 libslirp0
+          bash .github/scripts/install-ubuntu-packages.sh \
+            bison flex gperf kconfig-frontends genromfs libncurses-dev zlib1g-dev \
+            libgcrypt20-dev libglib2.0-dev libpixman-1-dev libsdl2-2.0-0 libslirp-dev libfdt-dev \
+            ninja-build cmake netcat-openbsd pkg-config
           python3 -m venv target/qemu-venv
           target/qemu-venv/bin/pip install kconfiglib==14.1.0 esptool==4.8.1
           echo "$GITHUB_WORKSPACE/target/qemu-venv/bin" >> "$GITHUB_PATH"
@@ -65,6 +68,23 @@ jobs:
           node tests/nuttx-std/tracker-sim/headless.mjs \
             target/nuttx-qemu/tracker/nuttx/nuttx.merged.bin target/nuttx-qemu/tracker-report.json
 
+      - name: Build the tracker emulator with UART2 and user networking
+        run: bash tools/build-tracker-qemu.sh
+      - name: Build the production motion tracker for the modem fixture
+        shell: bash
+        run: |
+          cargo nxrs fetch tls
+          cargo nxrs build --app motion-tracker --profile esp32s3-qemu-tracker-upload \
+            --target-c-source tests/nuttx-std/tracker-sim/devices.c \
+            --target-c-source tests/nuttx-std/tracker-sim/dashboard_init.c \
+            --out target/tracker-upload-sim 2>&1 | tee target/tracker-upload-build.log
+      - name: Verify live sensor reports and TLS recovery after PPP loss
+        run: |
+          python3 tests/nuttx-std/tracker-sim/upload.py \
+            target/tracker-upload-sim/nuttx/nuttx.merged.bin \
+            --qemu target/tracker-qemu/qemu-system-xtensa --qemu-data target/tracker-qemu \
+            --network-qemu target/tracker-qemu/qemu-system-xtensa \
+            --wall-clock --log target/tracker-upload-sim/upload.log
       - name: Retain firmware, provenance, linkage and execution evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -80,3 +100,7 @@ jobs:
             target/nuttx-qemu/*.log
             target/nuttx-qemu/tracker-report.json
             target/nuttx-qemu/harness-source.tar
+            target/tracker-upload-build.log
+            target/tracker-upload-sim/*upload*.log
+            target/tracker-upload-sim/abi-report.json
+            target/tracker-upload-sim/provenance.txt
