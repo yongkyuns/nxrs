@@ -1,4 +1,5 @@
 import Foundation
+import UIKit
 import XCTest
 @testable import NxrsMonitor
 
@@ -6,6 +7,29 @@ import XCTest
     private let dashboard = Data(("""
         {"v":1,"imu":[{"state":"waiting"},{"state":"waiting"}],"gnss":{"state":"live","lat_deg":45,"lon_deg":-76,"speed_mps":2}}
         """ + "\n").utf8)
+
+    func testActiveTrackerKeepsScreenAwakeOnlyInForegroundWhenEnabled() throws {
+        let suite = "TrackerSessionTests.\(UUID())"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        let initial = UIApplication.shared.isIdleTimerDisabled
+        defer {
+            UIApplication.shared.isIdleTimerDisabled = initial
+            defaults.removePersistentDomain(forName: suite)
+        }
+        let settings = HomeSettings(defaults: defaults)
+        let model = MonitorModel(settings: settings)
+        model.setTrackerActive(true)
+        XCTAssertTrue(UIApplication.shared.isIdleTimerDisabled)
+        model.setForeground(false)
+        XCTAssertFalse(UIApplication.shared.isIdleTimerDisabled)
+        model.setForeground(true)
+        XCTAssertTrue(UIApplication.shared.isIdleTimerDisabled)
+        model.setTrackerActive(false)
+        XCTAssertFalse(UIApplication.shared.isIdleTimerDisabled)
+        settings.preferences.keepScreenAwake = false
+        model.setTrackerActive(true)
+        XCTAssertFalse(UIApplication.shared.isIdleTimerDisabled)
+    }
 
     func testTwoMinutesOfSensorBatchesKeepWorkingAfterTheDashboardExpires() throws {
         let tracker = TrackerBluetooth()

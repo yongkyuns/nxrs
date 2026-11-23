@@ -5,6 +5,8 @@ import VisionKit
 import NxrsMonitorCore
 
 struct TrackerView: View {
+    let connectionChanged: (Bool) -> Void
+
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
     @StateObject private var tracker = TrackerBluetooth()
@@ -107,7 +109,12 @@ struct TrackerView: View {
                 key = ""
             }
         }
-        .onDisappear { tracker.stop(); key = "" }
+        .onChange(of: tracker.active, perform: connectionChanged)
+        .onDisappear {
+            tracker.stop()
+            connectionChanged(false)
+            key = ""
+        }
         .sheet(isPresented: $showScanner) {
             NavigationStack {
                 PairingScanner { key in
