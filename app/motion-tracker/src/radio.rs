@@ -5,6 +5,7 @@ use ble::{
 };
 use std::io::{self, Read, Write};
 use std::time::{Duration, Instant};
+use telemetry_service::stream::Publisher;
 
 fn uuid(last: u8) -> Uuid {
     Uuid([
@@ -47,7 +48,7 @@ pub struct Output<'a, L: Listener> {
     identity: &'a tls::Identity,
     key: [u8; 32],
     connection: Option<tls::Connection<'a, Bearer<L::Transport>>>,
-    pending: Option<(Text<768>, usize)>,
+    publication: Publisher<Snapshot, Text<768>>,
     live: bool,
     paired: bool,
     drained: bool,
@@ -66,7 +67,7 @@ impl<'a, L: Listener> Output<'a, L> {
             identity,
             key,
             connection: None,
-            pending: None,
+            publication: Publisher::default(),
             live: false,
             paired: false,
             drained: false,
@@ -88,16 +89,16 @@ impl<'a, L: Listener> Output<'a, L> {
         now >= self.expires
     }
 
-    pub fn service(&mut self) {
-        if self.poll().is_err() {
+    pub fn service(&mut self, now: Instant) {
+        if self.poll(now).is_err() {
             self.connection = None;
             self.live = false;
             self.drained = false;
-            self.pending = None;
+            self.publication = Publisher::default();
         }
     }
 
-    fn poll(&mut self) -> io::Result<()> {
+    fn poll(&mut self, now: Instant) -> io::Result<()> {
         if self.connection.is_none() {
             if let Some(stream) = self
                 .listener
@@ -115,33 +116,24 @@ impl<'a, L: Listener> Output<'a, L> {
             self.live = conn.poll().map_err(|_| io::ErrorKind::PermissionDenied)?;
             if self.live {
                 self.paired = true;
-                self.drained = match conn.flush() {
-                    Ok(()) => true,
-                    Err(error) if error.kind() == io::ErrorKind::WouldBlock => false,
-                    Err(error) => return Err(error),
-                };
-                if let Some((frame, sent)) = self.pending.as_mut() {
-                    self.drained = false;
-                    match conn.write(&frame.bytes()[*sent..]) {
-                        Ok(0) => return Err(io::ErrorKind::WriteZero.into()),
-                        Ok(count) => {
-                            *sent += count;
-                            if *sent == frame.bytes().len() {
-                                self.pending = None;
-                            }
-                        }
-                        Err(error) if error.kind() == io::ErrorKind::WouldBlock => {}
+                self.drained = if self.publication.is_idle() {
+                    match conn.flush() {
+                        Ok(()) => true,
+                        Err(error) if error.kind() == io::ErrorKind::WouldBlock => false,
                         Err(error) => return Err(error),
                     }
-                }
+                } else {
+                    self.publication
+                        .service(conn, now, self.expires, wire::frame)?
+                };
             }
         }
         Ok(())
     }
 
     pub fn offer(&mut self, snapshot: &Snapshot, now: Instant) {
-        if self.live && self.drained && self.pending.is_none() && now >= self.next_frame {
-            self.pending = wire::frame(snapshot).ok().map(|frame| (frame, 0));
+        if self.live && self.drained && self.publication.is_idle() && now >= self.next_frame {
+            self.publication.offer(*snapshot);
             self.next_frame = now + Duration::from_secs(1);
         }
     }

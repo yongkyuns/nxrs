@@ -1,0 +1,10 @@
+[package]
+name = "nxrs-log-router"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+name = "logging"
+
+[dependencies]
+log = { version = "0.4", features = ["std"] }

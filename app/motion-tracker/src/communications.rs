@@ -5,6 +5,7 @@ use std::io;
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
+use telemetry_service::stream::Publisher;
 
 const ACTIVE_POLL: Duration = Duration::from_millis(15);
 
@@ -42,13 +43,17 @@ pub struct Communications {
 }
 
 impl Communications {
-    pub fn start(pair: bool, cellular: Option<uplink::Config>) -> io::Result<Self> {
+    pub fn start(
+        pair: bool,
+        cellular: Option<uplink::Config>,
+        notify: impl FnMut() + Send + 'static,
+    ) -> io::Result<Self> {
         let shared = Arc::new(Mutex::new(Shared::default()));
         let incoming = shared.clone();
         let task = thread::Builder::new()
             .name("tracker-links".into())
             .stack_size(24 * 1024)
-            .spawn(move || run(&incoming, pair, cellular))?;
+            .spawn(move || run(&incoming, pair, cellular, notify))?;
         Ok(Self {
             shared,
             task: Some(task),
@@ -99,7 +104,12 @@ fn tls_identity(slot: &OnceCell<tls::Identity>) -> io::Result<&tls::Identity> {
     Ok(slot.get().unwrap())
 }
 
-fn run(shared: &Mutex<Shared>, pair: bool, cellular: Option<uplink::Config>) -> io::Result<()> {
+fn run(
+    shared: &Mutex<Shared>,
+    pair: bool,
+    cellular: Option<uplink::Config>,
+    mut notify: impl FnMut(),
+) -> io::Result<()> {
     let collector = cellular.as_ref().and_then(|config| config.collector);
     let mut modem = cellular.map(uplink::Modem::start).transpose()?;
     let identity = OnceCell::new();
@@ -110,7 +120,7 @@ fn run(shared: &Mutex<Shared>, pair: bool, cellular: Option<uplink::Config>) -> 
     let mut retry_pending = false;
     let mut link_generation = 0;
     let mut pairing_failed = false;
-    let mut latest = None;
+    let mut publication = Publisher::default();
     let mut command = pair.then_some(Pairing::Start);
 
     loop {
@@ -141,7 +151,7 @@ fn run(shared: &Mutex<Shared>, pair: bool, cellular: Option<uplink::Config>) -> 
         let view = match radio.as_mut() {
             Some(output) => {
                 if now >= next_radio {
-                    output.service();
+                    output.service(now);
                     next_radio = now + ACTIVE_POLL;
                 }
                 if let Some(snapshot) = &sample {
@@ -170,15 +180,19 @@ fn run(shared: &Mutex<Shared>, pair: bool, cellular: Option<uplink::Config>) -> 
             },
             None => View::default(),
         };
-        shared.lock().unwrap().view = view;
+        let previous = std::mem::replace(&mut shared.lock().unwrap().view, view);
+        if view != previous {
+            notify();
+        }
         if let (Some(collector), Some(modem)) = (collector, modem.as_ref()) {
-            if sample.is_some() {
-                latest = sample;
+            if let Some(sample) = sample {
+                publication.offer(sample);
             }
             let (generation, socket) = modem.receive();
             if generation != link_generation {
                 link_generation = generation;
                 upload = None;
+                publication.reset_stream();
                 retry = uplink::Retry::new();
                 retry_pending = false;
             }
@@ -187,12 +201,13 @@ fn run(shared: &Mutex<Shared>, pair: bool, cellular: Option<uplink::Config>) -> 
                     .and_then(|identity| uplink::Upload::open(identity, socket, collector))
                     .map(|connection| {
                         upload = Some(connection);
+                        publication.reset_stream();
                         false
                     })
             } else {
-                upload
-                    .as_mut()
-                    .map_or(Ok(false), |connection| connection.service(&mut latest))
+                upload.as_mut().map_or(Ok(false), |connection| {
+                    connection.service(&mut publication, now)
+                })
             };
             match progress {
                 Ok(true) => retry = uplink::Retry::new(),
@@ -200,6 +215,7 @@ fn run(shared: &Mutex<Shared>, pair: bool, cellular: Option<uplink::Config>) -> 
                 Err(error) => {
                     eprintln!("motion-tracker collector retry: {error}");
                     upload = None;
+                    publication.reset_stream();
                     retry.later();
                     retry_pending = true;
                 }
@@ -211,8 +227,8 @@ fn run(shared: &Mutex<Shared>, pair: bool, cellular: Option<uplink::Config>) -> 
         }
         if radio.is_some() || upload.is_some() {
             thread::park_timeout(ACTIVE_POLL);
-        } else if collector.is_some() {
-            thread::park_timeout(Duration::from_millis(100));
+        } else if retry_pending {
+            thread::park_timeout(retry.next.saturating_duration_since(Instant::now()));
         } else {
             thread::park();
         }

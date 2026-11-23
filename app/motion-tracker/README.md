@@ -1,5 +1,20 @@
 # Motion tracker
 
+## Headless portability
+
+The headless build uses the profile's primary IMU and emits version 2 JSON.
+The desktop smoke test builds and runs the application with one mock IMU.
+The NuttX QEMU profile runs the same headless application with a modeled
+BMI270 on I²C. Both checks require fresh IMU telemetry and a clean exit.
+
+```sh
+python3 tests/native/motion_tracker.py
+```
+
+[Headless NuttX build and verification](../../tests/nuttx-std/tracker-sim/README.md#headless-one-imu-tracker)
+
+## Dashboard
+
 The CoreS3 opens on the graph. Swipe down to show **IMU 1**, **IMU 2**,
 **GNSS** and the pairing control in one row. Select a view, swipe up, or tap
 outside the row to hide it.
@@ -105,6 +120,11 @@ The BLE UUIDs end in `3400` (service), `3401` (phone writes ciphertext), and
 TLS configuration. Each decrypted record is the same v1 NDJSON frame used by
 USB. Frame readers handle split or joined lines and reject records longer
 than 768 bytes including the newline. Cellular upload uses the same frames.
+
+BLE and cellular share the telemetry stream publisher. Each connection keeps
+one frame in progress and coalesces waiting snapshots to the latest value.
+The communications worker posts link changes to the dashboard inbox. Pairing,
+wire encoding and transport-specific connection policy stay with the tracker.
 
 ## Stamp CatM cellular
 

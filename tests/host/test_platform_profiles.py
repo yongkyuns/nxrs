@@ -204,6 +204,8 @@ class FirmwareFrontendTests(unittest.TestCase):
                 expected["esp32s3-qemu-tracker-devices"] = tracker
                 expected["esp32s3-qemu-tracker-dashboard"] = {**tracker, "ble": "nuttx", "tls": "nuttx"}
                 expected["esp32s3-esp-emu-tracker"] = expected["esp32s3-qemu-tracker-dashboard"]
+                expected["esp32s3-qemu-tracker-headless"] = {"imu": "nuttx"}
+                expected["esp32s3-qemu-tracker-logging"] = expected["esp32s3-qemu-tracker-headless"]
                 expected["nuttx-sim-tracker"] = expected["esp32s3-qemu-tracker-dashboard"]
                 self.assertEqual(features, expected.get(profile_name,
                                  {"imu": "mock", "gnss": "mock"}))

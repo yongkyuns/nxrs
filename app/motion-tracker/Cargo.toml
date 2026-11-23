@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 
 [package.metadata.nxrs]
-required-capabilities = ["imu", "gnss", "display", "touch", "settings", "tls"]
+required-capabilities = ["imu"]
 
 [package.metadata.nxrs.firmware]
 bin = "motion-tracker"
@@ -16,16 +16,26 @@ stack-size = 32768
 name = "motion-tracker"
 path = "src/main.rs"
 
+[features]
+default = ["dashboard"]
+dashboard = [
+    "nxrs-composition/gnss", "nxrs-composition/battery",
+    "dep:nxrs-battery", "dep:nxrs-display", "dep:nxrs-touch", "dep:nxrs-gnss",
+    "dep:nxrs-cellular", "dep:nxrs-ble", "dep:nxrs-tls", "dep:nxrs-telemetry-service", "dep:qrcodegen",
+]
+
 [dependencies]
-nxrs-composition = { path = "../../platform", features = ["imu", "gnss", "battery"] }
-nxrs-battery = { path = "../../hal/battery" }
-nxrs-display = { path = "../../hal/display" }
-nxrs-touch = { path = "../../hal/touch" }
-nxrs-gnss = { path = "../../hal/gnss" }
+nxrs-composition = { path = "../../platform", features = ["imu"] }
+nxrs-battery = { path = "../../hal/battery", optional = true }
+nxrs-display = { path = "../../hal/display", optional = true }
+nxrs-touch = { path = "../../hal/touch", optional = true }
+nxrs-gnss = { path = "../../hal/gnss", optional = true }
 nxrs-imu = { path = "../../hal/imu" }
 nxrs-messaging = { path = "../../shared/messaging", features = ["channels"] }
+nxrs-navigation-services = { path = "../../service/navigation" }
 nxrs-settings = { path = "../../hal/settings" }
-nxrs-cellular = { path = "../../hal/cellular" }
-nxrs-ble = { path = "../../hal/ble", features = ["peripheral"] }
-nxrs-tls = { path = "../../hal/tls", features = ["pairing"] }
-qrcodegen = "1.8"
+nxrs-cellular = { path = "../../hal/cellular", optional = true }
+nxrs-ble = { path = "../../hal/ble", features = ["peripheral"], optional = true }
+nxrs-tls = { path = "../../hal/tls", features = ["pairing"], optional = true }
+nxrs-telemetry-service = { path = "../../service/telemetry", default-features = false, features = ["stream"], optional = true }
+qrcodegen = { version = "1.8", optional = true }

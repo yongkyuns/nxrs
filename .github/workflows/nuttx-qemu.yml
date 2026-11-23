@@ -56,6 +56,18 @@ jobs:
         run: |
           source target/qemu-tools/environment.sh
           python3 tests/host/test-nuttx-sim.py "$(command -v qemu-system-xtensa)" --qemu-image target/nuttx-qemu/nuttx/nuttx.merged.bin --log target/nuttx-qemu/console.log --cycles 1 --require-std-main
+      - name: Run one-IMU Motion Tracker and archive service logs
+        shell: bash
+        run: |
+          source target/qemu-tools/environment.sh
+          cargo nxrs build --manifest-path tests/nuttx-std/tracker-sim/logging/Cargo.toml \
+            --profile esp32s3-qemu-tracker-logging \
+            --target-c-source tests/nuttx-std/tracker-sim/devices.c \
+            --target-c-source tests/nuttx-std/tracker-sim/logging/init.c \
+            --out target/nuttx-qemu/tracker
+          node tests/nuttx-std/tracker-sim/headless.mjs \
+            target/nuttx-qemu/tracker/nuttx/nuttx.merged.bin target/nuttx-qemu/tracker-report.json
+
       - name: Build the tracker emulator with UART2 and user networking
         run: bash tools/build-tracker-qemu.sh
       - name: Build the production motion tracker for the modem fixture
@@ -86,6 +98,7 @@ jobs:
             target/nuttx-qemu/*.config
             target/nuttx-qemu/*.sha256
             target/nuttx-qemu/*.log
+            target/nuttx-qemu/tracker-report.json
             target/nuttx-qemu/harness-source.tar
             target/tracker-upload-build.log
             target/tracker-upload-sim/*upload*.log

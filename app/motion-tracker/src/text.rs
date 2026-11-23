@@ -29,3 +29,9 @@ impl<const N: usize> fmt::Write for Text<N> {
         Ok(())
     }
 }
+
+impl<const N: usize> AsRef<[u8]> for Text<N> {
+    fn as_ref(&self) -> &[u8] {
+        self.bytes()
+    }
+}
