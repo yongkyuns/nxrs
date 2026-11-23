@@ -1,5 +1,8 @@
 //! Exercise an independent boot-started archive task in the headless image.
-#![forbid(unsafe_code)]
+#![deny(unsafe_code)]
+
+#[cfg(target_os = "nuttx")]
+mod syslog;
 
 use std::fs::File;
 use std::io;
@@ -18,7 +21,7 @@ fn archive(mut args: impl Iterator<Item = String>) -> io::Result<()> {
         return Err(io::ErrorKind::InvalidInput.into());
     }
     #[cfg(target_os = "nuttx")]
-    log_adapters::nuttx::install(log::LevelFilter::Info).map_err(io::Error::other)?;
+    syslog::install(log::LevelFilter::Info).map_err(io::Error::other)?;
     logging::archive(File::open(source)?, Path::new(&active), limit)
 }
 

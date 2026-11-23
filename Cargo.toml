@@ -38,7 +38,6 @@ members = [
     "service/stream",
     "service/connectivity",
     "shared/acquisition",
-    "platform/logging",
     "shared/messaging",
     "shared/simulation",
     "service/navigation",

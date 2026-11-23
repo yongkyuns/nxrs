@@ -2,8 +2,9 @@
 
 Services emit diagnostics with the Rust `log` macros. Host startup installs
 one logger before creating services. The observation service's configuration
-record is the same in the desktop, browser and NuttX tests. Tracker
-measurements continue through the typed observation stream.
+record is enabled by the navigation crate's `probe` feature in the desktop,
+browser and NuttX fixtures. Tracker measurements use the typed observation
+stream.
 
 ## Desktop
 

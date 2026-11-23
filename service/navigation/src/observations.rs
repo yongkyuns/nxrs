@@ -148,15 +148,7 @@ pub struct ObservationService<const IMUS: usize> {
 
 impl<const IMUS: usize> ObservationService<IMUS> {
     pub fn new(imu_fresh_for: Duration, gnss_fresh_for: Option<Duration>) -> Self {
-        log::info!(
-            "configured {} IMU channels, GNSS {}",
-            IMUS,
-            if gnss_fresh_for.is_some() {
-                "enabled"
-            } else {
-                "disabled"
-            }
-        );
+        crate::diagnostics::configured(IMUS, gnss_fresh_for.is_some());
         Self {
             values: Observations::new(imu_fresh_for, gnss_fresh_for),
             imu: std::array::from_fn(|_| None),

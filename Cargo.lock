@@ -1097,19 +1097,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "nxrs-log-adapters"
-version = "0.1.0"
-dependencies = [
- "log",
- "nxrs-log-router",
-]
-
-[[package]]
 name = "nxrs-log-qualification"
 version = "0.1.0"
 dependencies = [
  "log",
- "nxrs-log-adapters",
  "nxrs-log-router",
  "nxrs-navigation-services",
 ]
@@ -1467,9 +1458,9 @@ version = "0.1.0"
 dependencies = [
  "log",
  "nxrs-composition",
- "nxrs-log-adapters",
  "nxrs-log-router",
  "nxrs-motion-tracker",
+ "nxrs-navigation-services",
 ]
 
 [[package]]

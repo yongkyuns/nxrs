@@ -14,6 +14,23 @@ mod health;
 mod imu;
 pub mod observations;
 
+#[cfg(feature = "probe")]
+mod diagnostics {
+    pub(super) fn configured(imus: usize, gnss: bool) {
+        log::info!(
+            target: "navigation::observations",
+            "configured {} IMU channels, GNSS {}",
+            imus,
+            if gnss { "enabled" } else { "disabled" }
+        );
+    }
+}
+
+#[cfg(not(feature = "probe"))]
+mod diagnostics {
+    pub(super) fn configured(_: usize, _: bool) {}
+}
+
 #[cfg(test)]
 mod transcript_tests;
 

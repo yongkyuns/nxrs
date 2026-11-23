@@ -9,6 +9,5 @@ crate-type = ["rlib", "cdylib"]
 
 [dependencies]
 log = "0.4"
-nxrs-log-adapters = { path = "../../platform/logging" }
 nxrs-log-router = { path = "../../service/logging" }
-nxrs-navigation-services = { path = "../../service/navigation" }
+nxrs-navigation-services = { path = "../../service/navigation", features = ["probe"] }
