@@ -279,9 +279,9 @@ class Scenario:
             assert wire_bytes < 0.65 * fixed_bytes, (wire_bytes, fixed_bytes)
             usb_tick = guest.samples[-1]['imu'][0]['received_ms']
             assert usb_tick - latest[0][1] < 800, (usb_tick, latest[0][1])
-            collector = self.collector_samples[1]
-            for reading in [*collector['imu'], collector['gnss']]:
-                assert reading['utc_ms'] - reading['received_ms'] == clock_offset
+            for snapshot in (guest.samples[-1], self.collector_samples[1]):
+                for reading in [*snapshot['imu'], snapshot['gnss']]:
+                    assert reading['utc_ms'] - reading['received_ms'] == clock_offset
             print('PASS: the 4.8–5.5 kB/s BLE limit retained all samples, with one UTC mapping on BLE, USB and TLS',
                   flush=True)
             print(f'PASS: compact export used {wire_bytes} payload bytes versus {fixed_bytes} fixed bytes',
