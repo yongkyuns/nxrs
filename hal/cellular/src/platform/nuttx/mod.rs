@@ -20,6 +20,8 @@ const COMMAND: Duration = Duration::from_secs(2);
 const DIAL: Duration = Duration::from_secs(120);
 const NEGOTIATION: Duration = Duration::from_secs(30);
 const RETRY_REQUEST: Duration = Duration::from_secs(3);
+const ECHO_INTERVAL: Duration = Duration::from_secs(5);
+const ECHO_MISSES: u8 = 3;
 const GUARD: Duration = Duration::from_millis(1100);
 static OWNED: Mutex<Lease> = Mutex::new(Lease::Available);
 
@@ -267,6 +269,9 @@ impl Modem<'_> {
         let mut frames = frames::Frames::default();
         let mut online = false;
         let deadline = Instant::now() + NEGOTIATION;
+        let mut echo_at = deadline;
+        let mut echo_id = 0u8;
+        let mut unanswered = 0;
         let mut request = PendingRequest {
             bytes: [0; 128],
             len: 0,
@@ -279,7 +284,20 @@ impl Modem<'_> {
         loop {
             let now = Instant::now();
             let until = if online {
-                now + Duration::from_secs(60)
+                if now >= echo_at {
+                    if unanswered == ECHO_MISSES {
+                        return Err(Error::LinkLost);
+                    }
+                    echo_id = echo_id.wrapping_add(1);
+                    let count = ppp
+                        .echo_request(echo_id, &mut tx)
+                        .map_err(|_| Error::Io)?
+                        .ok_or(Error::LinkLost)?;
+                    self.write(&tx[..count], now + COMMAND)?;
+                    unanswered += 1;
+                    echo_at = now + ECHO_INTERVAL;
+                }
+                echo_at
             } else {
                 if now >= deadline {
                     return Err(Error::Timeout);
@@ -314,6 +332,9 @@ impl Modem<'_> {
                                     _ => return Err(Error::Io),
                                 }
                             }
+                            PPPoSAction::EchoReply(id) if online && id == echo_id => {
+                                unanswered = 0;
+                            }
                             _ => (),
                         }
                     }
@@ -332,6 +353,7 @@ impl Modem<'_> {
                     .bring_up(address, ipv4.peer_address.unwrap_or(address))
                     .map_err(io_error)?;
                 online = true;
+                echo_at = Instant::now() + ECHO_INTERVAL;
                 *shared.status.lock().unwrap() = Status::Online { address };
             }
             if online {

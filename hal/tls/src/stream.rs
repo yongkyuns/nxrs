@@ -10,6 +10,14 @@ pub trait Stream: Read + Write {
     /// Retire this connection without waiting for the peer. Repeated calls
     /// have the same effect; no queued bytes may enter another connection.
     fn abort(&mut self);
+
+    /// Release an owned transport. Custom transports can notify their peer in `abort`.
+    fn retire(mut self)
+    where
+        Self: Sized,
+    {
+        self.abort();
+    }
 }
 
 impl Stream for TcpStream {
@@ -19,5 +27,11 @@ impl Stream for TcpStream {
 
     fn abort(&mut self) {
         let _ = self.shutdown(Shutdown::Both);
+    }
+
+    fn retire(self) {
+        // Close directly. On NuttX, shutdown disables the callback that
+        // reclaims queued TCP writes when the network device goes down.
+        drop(self);
     }
 }

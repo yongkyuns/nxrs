@@ -125,19 +125,22 @@ cargo nxrs build --app motion-tracker --profile esp32s3-qemu-tracker-upload \
   --out target/tracker-upload-sim
 python3 tests/nuttx-std/tracker-sim/upload.py \
   target/tracker-upload-sim/nuttx/nuttx.merged.bin \
-  --qemu /path/to/patched/qemu-system-xtensa --network-qemu qemu-system-xtensa
+  --qemu /path/to/patched/qemu-system-xtensa --network-qemu qemu-system-xtensa --wall-clock
 ```
 
-The first dial is rejected. The runner then closes the collector socket and
-terminates PPP. It checks that both IMUs and GNSS keep producing fresh USB
-reports between the PPP termination acknowledgement and modem redial. The
-collector compares its decrypted records byte for byte with the app’s USB
-output and requires a newer snapshot after recovery in the same app run. A
-fresh boot with a wrong pin exercises repeated TLS attempts and requires zero
-uploaded records.
+The first dial is rejected. The runner then closes the collector socket,
+terminates PPP and, after recovery, drops all PPP traffic on the open UART.
+The cellular HAL sends an LCP Echo-Request every five seconds and reports
+link loss after three unanswered probes. The runner checks the timeout in
+guest time, reports the host time to the first recovered TLS upload, and
+requires both IMUs and GNSS to keep advancing through each outage. Decrypted
+TLS records must match USB reports byte for byte, with fresh data after each
+reconnect in the same tracker run. A separate boot with a wrong pin must upload
+zero records. LCP echoes check the PPP peer. Carrier connectivity beyond the
+modem is measured separately on the [physical bench](../tracker-hardware/README.md).
 
 The **ESP32-S3 QEMU** CI workflow builds the patched emulator with
-`tools/build-tracker-qemu.sh` and runs both scenarios with `--wall-clock`.
+`tools/build-tracker-qemu.sh` and runs the same command with `--wall-clock`.
 
 ## BLE telemetry during PPP loss and reconnect
 

@@ -58,6 +58,7 @@ class Stamp:
         self.lcp = False
         self.ipcp = False
         self.echoes = []
+        self.echo_replies = 0
         self.commands = []
         self.negotiation = []
         self.dropped = None
@@ -100,6 +101,7 @@ class Stamp:
                 self.wire.sendall(b'\r\nNO CARRIER\r\n')
                 return
             self.lcp = self.ipcp = False
+            self.echo_replies = 0
             self.data_mode = True
             self.wire.sendall(b'\r\nCONNECT\r\n')
         elif line in [b'AT', b'ATE0', b'AT+CGDCONT=1,"IP","nxrs.test"', b'ATH']:
@@ -139,6 +141,10 @@ class Stamp:
         elif protocol == 0xc021 and code == 6:
             assert self.terminated and identifier == TERMINATE_ID and not self.terminate_ack
             self.terminate_ack = True
+        elif protocol == 0xc021 and code == 9:
+            assert self.ipcp and body[4:] == b'\0' * 4, packet.hex()
+            self.wire.sendall(control(protocol, 10, identifier, body[4:]))
+            self.echo_replies += 1
         else:
             assert code == 2 and protocol in (0xc021, 0x8021), packet.hex()
 

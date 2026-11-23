@@ -137,8 +137,9 @@ key from the guarded SDK source and convey it via a physically trusted path.
 This isolated mode has a one-hour connection limit and no forward secrecy.
 Enrolled and pinned connections keep their own peer authorization policy.
 `Stream` adapts reliable, nonblocking transports without exposing native BIO
-callbacks. Its TCP implementation retains the existing socket behavior. The
-PSK witness exercises matching and wrong keys over bounded 20-byte fragments.
+callbacks. TLS releases its owned transport on close or failure. TCP closes
+the socket directly so NuttX can reclaim queued writes when the link goes down.
+The PSK witness exercises matching and wrong keys over bounded 20-byte fragments.
 
 On the ESP32-S3, a Bluetooth-only profile can use the guarded random device
 with the Bluetooth PHY active. A Wi-Fi-enabled profile retains Wi-Fi-specific

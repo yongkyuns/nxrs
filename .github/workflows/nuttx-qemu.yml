@@ -66,7 +66,7 @@ jobs:
             --target-c-source tests/nuttx-std/tracker-sim/devices.c \
             --target-c-source tests/nuttx-std/tracker-sim/dashboard_init.c \
             --out target/tracker-upload-sim 2>&1 | tee target/tracker-upload-build.log
-      - name: Verify live sensor reports and TLS recovery after PPP loss
+      - name: Verify live reports and TLS recovery after explicit and silent PPP loss
         run: |
           python3 tests/nuttx-std/tracker-sim/upload.py \
             target/tracker-upload-sim/nuttx/nuttx.merged.bin \

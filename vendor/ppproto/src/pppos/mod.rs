@@ -8,8 +8,9 @@ use core::ops::Range;
 
 use self::frame_reader::FrameReader;
 use self::frame_writer::FrameWriter;
+use crate::ppp::option_fsm::State;
 use crate::ppp::PPP;
-use crate::wire::{Packet, ProtocolType};
+use crate::wire::{Code, Packet, ProtocolType};
 use crate::{Config, Status};
 
 pub use self::frame_writer::BufferFullError;
@@ -22,6 +23,8 @@ pub enum PPPoSAction {
     ///
     /// The packet is located in `rx_buf[range]`, you must pass it to higher layers for processing.
     Received(Range<usize>),
+    /// The identifier of a valid LCP Echo-Reply received while LCP is open.
+    EchoReply(u8),
     /// PPP wants to transmit some data.
     ///
     /// You must transmit `tx_buf[..n]` over the serial connection.
@@ -86,6 +89,16 @@ impl<'a> PPPoS<'a> {
             let proto = u16::from_be_bytes(pkt[0..2].try_into().unwrap());
             match proto.into() {
                 ProtocolType::IPv4 => return PPPoSAction::Received((range.start + 2)..range.end),
+                ProtocolType::LCP if pkt.get(2) == Some(&(Code::EchoReply as u8)) => {
+                    if let [_, _, _, id, hi, lo, _, _, _, _, ..] = *pkt {
+                        let length = usize::from(u16::from_be_bytes([hi, lo]));
+                        if self.ppp.lcp.state() == State::Opened
+                            && (8..=pkt.len() - 2).contains(&length)
+                        {
+                            return PPPoSAction::EchoReply(id);
+                        }
+                    }
+                }
                 _ => self.ppp.received(pkt, &mut tx),
             }
         }
@@ -98,6 +111,23 @@ impl<'a> PPPoS<'a> {
         } else {
             PPPoSAction::Transmit(r)
         }
+    }
+
+    /// Encode an LCP Echo-Request, or return `None` if LCP is closed.
+    pub fn echo_request(
+        &self,
+        id: u8,
+        tx_buf: &mut [u8],
+    ) -> Result<Option<usize>, BufferFullError> {
+        if self.ppp.lcp.state() != State::Opened {
+            return Ok(None);
+        }
+        let mut w = FrameWriter::new_with_asyncmap(tx_buf, self.ppp.lcp.proto().asyncmap_remote);
+        w.start()?;
+        // LCP protocol, Echo-Request, identifier, length, and zero Magic-Number.
+        w.append(&[0xc0, 0x21, Code::EchoReq as u8, id, 0, 8, 0, 0, 0, 0])?;
+        w.finish()?;
+        Ok(Some(w.len()))
     }
 
     /// Send an IP packet.
