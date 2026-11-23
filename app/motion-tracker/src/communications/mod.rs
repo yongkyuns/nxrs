@@ -129,6 +129,7 @@ fn run(
     capture: &Capture,
     mut notify: impl FnMut(),
 ) -> io::Result<()> {
+    capture.register_owner();
     let collector = cellular.as_ref().and_then(|config| config.collector);
     let mut modem = cellular.map(uplink::Modem::start).transpose()?;
     let identity = OnceCell::new();
@@ -174,7 +175,8 @@ fn run(
         }
         let view = match radio.as_mut() {
             Some(output) => {
-                if now >= next_radio {
+                let samples_ready = capture.take_ready();
+                if output.take_ready() || samples_ready || now >= next_radio {
                     output.service(now);
                     next_radio = now + ACTIVE_POLL;
                 }

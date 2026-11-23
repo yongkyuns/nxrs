@@ -32,7 +32,7 @@ import XCTest
     }
 
     func testTwoMinutesOfSensorBatchesKeepWorkingAfterTheDashboardExpires() throws {
-        let tracker = TrackerBluetooth()
+        let tracker = TrackerConnection { _ in }
         let start = ContinuousClock.now
         XCTAssertTrue(tracker.receiveAuthenticatedData(dashboard, at: start))
         for first in stride(from: 0, to: 12_000, by: 4) {
@@ -46,34 +46,46 @@ import XCTest
         // repeated sequence never increments the received count.
         let end = start.advanced(by: .milliseconds(120_100))
         XCTAssertTrue(tracker.receiveAuthenticatedData(batch(11_999..<12_000), at: end))
-        XCTAssertNil(tracker.reading, "Stale dashboard metadata clears while sensor batches continue")
-        XCTAssertEqual(tracker.history.counts.map(\.received), [12_000, 12_000, 240])
-        XCTAssertEqual(tracker.history.counts.map(\.dropped), [0, 0, 0])
-        XCTAssertEqual(tracker.history.motion.map(\.count), [500, 500])
-        XCTAssertEqual(tracker.history.positions.count, 240)
-        XCTAssertEqual(try XCTUnwrap(tracker.history.counts[0].rate), 100, accuracy: 0.01)
-        XCTAssertEqual(try XCTUnwrap(tracker.history.counts[2].rate), 2, accuracy: 0.01)
+        XCTAssertNil(tracker.presentation.reading, "Stale dashboard metadata clears while sensor batches continue")
+        XCTAssertEqual(tracker.presentation.history.counts.map(\.received), [12_000, 12_000, 240])
+        XCTAssertEqual(tracker.presentation.history.counts.map(\.dropped), [0, 0, 0])
+        XCTAssertEqual(tracker.presentation.history.motion.map(\.count), [500, 500])
+        XCTAssertEqual(tracker.presentation.history.positions.count, 240)
+        XCTAssertEqual(try XCTUnwrap(tracker.presentation.history.counts[0].rate), 100, accuracy: 0.01)
+        XCTAssertEqual(try XCTUnwrap(tracker.presentation.history.counts[2].rate), 2, accuracy: 0.01)
         XCTAssertTrue(tracker.refreshTelemetry(at: end.advanced(by: .seconds(12))))
         XCTAssertFalse(tracker.refreshTelemetry(at: end.advanced(by: .seconds(13))))
     }
 
     func testSampleGapMarksTheExportIncompleteAndRetirementResetsTheCounters() {
-        let tracker = TrackerBluetooth()
+        let tracker = TrackerConnection { _ in }
         let start = ContinuousClock.now
         XCTAssertTrue(tracker.receiveAuthenticatedData(batch(0..<1), at: start))
         XCTAssertTrue(tracker.receiveAuthenticatedData(batch(2..<3), at: start.advanced(by: .seconds(1))))
-        XCTAssertEqual(tracker.history.counts.map(\.dropped), [1, 1, 0])
-        XCTAssertEqual(tracker.status, "Sensor export incomplete. Samples missing.")
+        XCTAssertEqual(tracker.presentation.history.counts.map(\.dropped), [1, 1, 0])
+        XCTAssertEqual(tracker.presentation.status, "Sensor export incomplete. Samples missing.")
         tracker.stop()
         XCTAssertTrue(tracker.receiveAuthenticatedData(batch(12_000..<12_001), at: start.advanced(by: .seconds(2))))
-        XCTAssertEqual(tracker.history.counts.map(\.dropped), [0, 0, 0])
-        XCTAssertEqual(tracker.history.counts.map(\.received), [1, 1, 1])
+        XCTAssertEqual(tracker.presentation.history.counts.map(\.dropped), [0, 0, 0])
+        XCTAssertEqual(tracker.presentation.history.counts.map(\.received), [1, 1, 1])
     }
 
     func testCaptureOverflowEndsTheExportWithAnExplicitStatus() {
-        let tracker = TrackerBluetooth()
-        XCTAssertFalse(tracker.receiveAuthenticatedData(Data([0xa5, 1, 0, 0]), at: .now))
-        XCTAssertEqual(tracker.status, "Sensor export incomplete. Tracker buffer filled.")
+        let tracker = TrackerConnection { _ in }
+        let prefix = batch(0..<1)
+        let firstMissing = Data([0xa5, 2, 5, 0, 2, 1, 0, 0, 0])
+        XCTAssertFalse(tracker.receiveAuthenticatedData(prefix + firstMissing, at: .now))
+        XCTAssertEqual(tracker.presentation.history.counts.map(\.received), [1, 1, 1])
+        XCTAssertEqual(tracker.presentation.status, "Sensor export incomplete. First missing: Module IMU #1.")
+    }
+
+    func testDashboardTrafficDoesNotExtendSampleDeadline() {
+        let tracker = TrackerConnection { _ in }
+        let start = ContinuousClock.now
+        XCTAssertTrue(tracker.receiveAuthenticatedData(batch(0..<1), at: start))
+        let later = start.advanced(by: .seconds(13))
+        XCTAssertTrue(tracker.receiveAuthenticatedData(dashboard, at: later))
+        XCTAssertFalse(tracker.refreshTelemetry(at: later))
     }
 
     func testNotificationReplayOnlyAdmitsContiguousCiphertext() {

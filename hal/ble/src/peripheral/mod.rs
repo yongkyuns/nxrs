@@ -14,6 +14,11 @@ pub trait Listener {
     fn notifying(&self) -> bool {
         false
     }
+    /// Consume a readiness hint that may have woken the thread that opened
+    /// this listener. The owner still drives retry deadlines.
+    fn take_ready(&self) -> bool {
+        false
+    }
     /// Progress bounded transport work from the owner's existing wait loop.
     fn service(&mut self) -> std::io::Result<()> {
         Ok(())

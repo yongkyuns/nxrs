@@ -1,7 +1,9 @@
 use crate::{charts, communications, screen, tracker, wire, ReportOptions};
 use battery::Device as _;
 use charts::{History, SAMPLE_INTERVAL};
-use communications::{Capture, CellularConfig, Collector, Communications, LinkStatus, Pairing, View};
+use communications::{
+    Capture, CellularConfig, Collector, Communications, LinkStatus, Pairing, View,
+};
 use messaging::bounded;
 use navigation::observations::{Measurement, Observation, ObservationService};
 use screen::{Action, Dashboard, Screen};
@@ -270,8 +272,10 @@ pub(super) fn run(args: impl Iterator<Item = String>) -> io::Result<()> {
                 history.record(&snapshot, now);
                 next_plot = now + SAMPLE_INTERVAL;
             }
-            if let Err(error) = screen.render(&dashboard, view.link, &snapshot, &history, now) {
-                break Err(display_error(error));
+            if let Err(error) = render(view.link, || {
+                screen.render(&dashboard, view.link, &snapshot, &history, now)
+            }) {
+                break Err(error);
             }
             redraw = false;
             let finished = Instant::now();
@@ -356,6 +360,27 @@ fn failed<T>(result: Option<Result<(), T>>) -> bool {
 
 fn display_error(error: display::Error) -> io::Error {
     io::Error::other(format!("tracker display: {error:?}"))
+}
+
+fn render(link: LinkStatus, paint: impl FnOnce() -> Result<(), display::Error>) -> io::Result<()> {
+    if link != LinkStatus::Connected {
+        return paint().map_err(display_error);
+    }
+    // The display provider's synchronous SPI draws run at the product's
+    // background priority, below acquisition and Bluetooth host workers.
+    match execution::configure_current(execution::Priority::Background) {
+        Ok(()) => {}
+        Err(execution::Error::Unsupported) => return paint().map_err(display_error),
+        Err(error) => {
+            return Err(io::Error::other(format!(
+                "tracker display priority: {error:?}"
+            )))
+        }
+    }
+    let painted = paint().map_err(display_error);
+    let restored = execution::configure_current(execution::Priority::Normal)
+        .map_err(|error| io::Error::other(format!("tracker restore priority: {error:?}")));
+    painted.and(restored)
 }
 
 fn report_battery() -> io::Result<()> {

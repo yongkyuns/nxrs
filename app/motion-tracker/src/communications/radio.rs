@@ -1,5 +1,5 @@
 use super::{
-    export::{Capture, MAX_BYTES, OVERFLOW_FRAME, REQUEST},
+    export::{Capture, Version, MAX_BYTES, REQUEST_LEN, REQUEST_PREFIX},
     publication::Publisher,
 };
 use crate::{text::Text, tracker::Snapshot, wire};
@@ -59,12 +59,14 @@ pub struct Output<'a, L: Listener> {
     identity: &'a tls::Identity,
     key: [u8; 32],
     capture: &'a Capture,
-    request: [u8; REQUEST.len()],
+    request: [u8; REQUEST_LEN],
     request_len: usize,
     export: [u8; MAX_BYTES],
     export_len: usize,
     sent: usize,
-    next_export: Instant,
+    next_export: Option<(Version, Instant)>,
+    last_export_service: Option<Instant>,
+    max_service_gap: Duration,
     connection: Option<tls::Connection<'a, Bearer<L::Transport>>>,
     publication: Publisher<Snapshot, Text<768>>,
     live: bool,
@@ -89,12 +91,14 @@ impl<'a, L: Listener> Output<'a, L> {
             identity,
             key,
             capture,
-            request: [0; REQUEST.len()],
+            request: [0; REQUEST_LEN],
             request_len: 0,
             export: [0; MAX_BYTES],
             export_len: 0,
             sent: 0,
-            next_export: now,
+            next_export: None,
+            last_export_service: None,
+            max_service_gap: Duration::ZERO,
             connection: None,
             publication: Publisher::default(),
             live: false,
@@ -124,13 +128,30 @@ impl<'a, L: Listener> Output<'a, L> {
         now >= self.expires
     }
 
+    pub fn take_ready(&self) -> bool {
+        self.listener.take_ready()
+    }
+
     pub fn service(&mut self, now: Instant) {
+        if let Some(last) = self.last_export_service.as_mut() {
+            self.max_service_gap = self.max_service_gap.max(now.duration_since(*last));
+            *last = now;
+        }
         if let Err(error) = self.poll(now) {
             eprintln!("motion-tracker BLE session ended: {error}");
+            if self.last_export_service.take().is_some() {
+                self.capture.disable();
+                eprintln!(
+                    "motion-tracker BLE export: high_water={} samples max_service_gap={} us",
+                    self.capture.high_water(),
+                    self.max_service_gap.as_micros(),
+                );
+            }
             self.connection = None;
             self.capture.disable();
             self.request_len = 0;
             self.export_len = 0;
+            self.next_export = None;
             self.sent = 0;
             self.live = false;
             self.drained = false;
@@ -158,17 +179,22 @@ impl<'a, L: Listener> Output<'a, L> {
             if self.live {
                 self.paired = true;
                 let notifications = self.listener.notifying();
-                if notifications && self.request_len < REQUEST.len() && self.publication.is_idle() {
+                if notifications && self.request_len < REQUEST_LEN && self.publication.is_idle() {
                     match conn.read(&mut self.request[self.request_len..]) {
                         Ok(0) => return Err(io::ErrorKind::UnexpectedEof.into()),
                         Ok(count) => {
                             self.request_len += count;
-                            if self.request[..self.request_len] != REQUEST[..self.request_len] {
+                            let prefix_len = self.request_len.min(REQUEST_PREFIX.len());
+                            if self.request[..prefix_len] != REQUEST_PREFIX[..prefix_len] {
                                 return Err(io::ErrorKind::InvalidData.into());
                             }
-                            if self.request_len == REQUEST.len() {
+                            if self.request_len == REQUEST_LEN {
+                                let version = Version::from_request(self.request[REQUEST_LEN - 1])
+                                    .ok_or(io::ErrorKind::InvalidData)?;
                                 self.capture.enable()?;
-                                self.next_export = now + Duration::from_millis(40);
+                                self.last_export_service = Some(now);
+                                self.max_service_gap = Duration::ZERO;
+                                self.next_export = Some((version, now + Duration::from_millis(40)));
                             }
                         }
                         Err(error) if error.kind() == io::ErrorKind::WouldBlock => {}
@@ -184,24 +210,30 @@ impl<'a, L: Listener> Output<'a, L> {
                     return Ok(());
                 }
                 if !self.publication.is_idle() {
-                    self.drained =
+                    self.drained = if notifications {
                         self.publication
-                            .service(conn, now, self.expires, wire::frame)?;
+                            .enqueue(conn, now, self.expires, wire::export_frame)?
+                    } else {
+                        self.publication
+                            .service(conn, now, self.expires, wire::frame)?
+                    };
                     return Ok(());
                 }
-                self.drained = match conn.flush() {
-                    Ok(()) => true,
-                    Err(error) if error.kind() == io::ErrorKind::WouldBlock => false,
-                    Err(error) => return Err(error),
-                };
-                if notifications && self.request_len == REQUEST.len() && now >= self.next_export {
-                    self.export_len = self.capture.take(&mut self.export);
-                    self.next_export = if self.export_len == OVERFLOW_FRAME.len() {
-                        self.expires
-                    } else {
-                        now + Duration::from_millis(40)
+                if !notifications {
+                    self.drained = match conn.flush() {
+                        Ok(()) => true,
+                        Err(error) if error.kind() == io::ErrorKind::WouldBlock => false,
+                        Err(error) => return Err(error),
                     };
-                    if self.export_len != 0 {
+                }
+                if let Some((version, deadline)) = self.next_export.filter(|_| notifications) {
+                    if let Some(batch) =
+                        self.capture
+                            .take(&mut self.export, now >= deadline, version)
+                    {
+                        self.export_len = batch.len;
+                        self.next_export =
+                            (!batch.terminal).then(|| (version, now + Duration::from_millis(40)));
                         Self::write_export(conn, &self.export[..self.export_len], &mut self.sent)?;
                         if self.sent == self.export_len {
                             self.sent = 0;

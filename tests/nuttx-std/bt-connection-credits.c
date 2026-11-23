@@ -197,9 +197,18 @@ static struct bt_conn_s *tx_connection;
 static struct bt_buf_s tx_buffer;
 static int tx_result;
 static bool disconnect_in_send, complete_in_send;
-static unsigned int tx_calls, tx_releases, tx_cleanup;
+static unsigned int tx_calls, tx_releases, tx_cleanup, tx_disconnects;
 void bt_conn_tx_complete(struct bt_conn_s *, uint16_t);
 void bt_conn_set_state(struct bt_conn_s *, enum bt_conn_state_e);
+
+#define BT_HCI_ERR_REMOTE_USER_TERM_CONN 0x13
+static int bt_conn_disconnect(struct bt_conn_s *conn, uint8_t reason)
+{
+  assert(conn == tx_connection && critical_depth == 0);
+  assert(reason == BT_HCI_ERR_REMOTE_USER_TERM_CONN);
+  tx_disconnects++;
+  return OK;
+}
 
 static int bt_queue_receive(struct bt_queue_s *queue, struct bt_buf_s **buf)
 {
@@ -307,7 +316,6 @@ static void test_disconnect_reclaims_each_cycle(void)
 static void test_completion_and_connection_isolation(void)
 {
   struct bt_conn_s first, second;
-  struct bt_buf_s event_buf;
   uint8_t event_storage[sizeof(struct bt_hci_evt_num_completed_packets_s) +
                         2 * sizeof(((struct bt_hci_evt_num_completed_packets_s *)0)->h[0])] = {0};
   struct bt_hci_evt_num_completed_packets_s *event =
@@ -328,9 +336,7 @@ static void test_completion_and_connection_isolation(void)
   event->h[0].count = 1;
   event->h[1].handle = 0x42;
   event->h[1].count = 8; /* Clamp to this connection's one outstanding packet. */
-  event_buf.data = event_storage;
-  event_buf.len = sizeof(event_storage);
-  hci_num_completed_packets(&event_buf);
+  hci_num_completed_packets(event_storage, sizeof(event_storage));
   assert(first.pending_pkts == 1 && second.pending_pkts == 0);
   assert(g_btdev.le_pkts_sem == 2 && lookup_refs == 2);
   assert(first.refs == 2 && second.refs == 2); /* State plus no leaked lookup ref. */
@@ -338,9 +344,7 @@ static void test_completion_and_connection_isolation(void)
   event->num_handles = 1;
   event->h[0].handle = 0x43; /* Unknown handles do not mint credits. */
   event->h[0].count = 100;
-  event_buf.len = sizeof(struct bt_hci_evt_num_completed_packets_s) +
-                  sizeof(event->h[0]);
-  hci_num_completed_packets(&event_buf);
+  hci_num_completed_packets(event_storage, sizeof(*event) + sizeof(event->h[0]));
   assert(g_btdev.le_pkts_sem == 2 && lookup_refs == 2);
 
   bt_conn_set_state(&first, BT_CONN_DISCONNECTED);
@@ -349,7 +353,7 @@ static void test_completion_and_connection_isolation(void)
   assert(g_btdev.le_pkts_sem == 3);
   event->h[0].handle = 0x41;
   event->h[0].count = 1;
-  hci_num_completed_packets(&event_buf); /* Late and duplicate completions. */
+  hci_num_completed_packets(event_storage, sizeof(*event) + sizeof(event->h[0]));
   assert(g_btdev.le_pkts_sem == 3);
   assert(!bt_conn_reserve_tx(&first)); /* Disconnect wins against a later reserve. */
 }
@@ -384,10 +388,11 @@ static void test_actual_tx_driver_result(void)
       tx_result = scenario == 1 ? OK : -1;
       complete_in_send = scenario == 1;
       disconnect_in_send = scenario == 2;
-      tx_calls = tx_releases = tx_cleanup = 0;
+      tx_calls = tx_releases = tx_cleanup = tx_disconnects = 0;
       real_tx_thread = true;
       assert(actual_conn_tx_kthread(0, NULL) == EXIT_SUCCESS);
       assert(tx_calls == 1 && tx_releases == 1 && tx_cleanup == 1);
+      assert(tx_disconnects == (tx_result < 0));
       assert(conn.refs == 0 && conn.pending_pkts == 0);
       assert(g_btdev.le_pkts_sem == 1); /* Never lose or double-return a token. */
       real_tx_thread = false;

@@ -22,6 +22,37 @@ final class TrackerTelemetryTests: XCTestCase {
 }
 
 extension TrackerTelemetryTests {
+    func testCompactBatchRestoresSequencesAndTimestampsAcrossWrap() throws {
+        let payload = [UInt8](repeating: 0, count: 24)
+        let first: [UInt8] = [1, 255, 255, 255, 255, 250, 255, 255, 255]
+        var parser = TrackerExportFrames()
+        var samples: [TrackerMeasurement] = []
+        try parser.receive(Data([0xa5, 2, 59, 0] + first + payload),
+                           snapshot: { _ in XCTFail() }, measurement: { _ in XCTFail() })
+        try parser.receive(Data([0x81, 11] + payload),
+                           snapshot: { _ in XCTFail() }, measurement: { samples.append($0) })
+        XCTAssertEqual(samples, [
+            .imu(index: 0, sequence: .max, receivedMS: .max - 5, accel: [0, 0, 0], gyro: [0, 0, 0]),
+            .imu(index: 0, sequence: 0, receivedMS: 5, accel: [0, 0, 0], gyro: [0, 0, 0])
+        ])
+        let orphan = Data([0xa5, 2, 52, 0] + [0x81, 1] + payload + [0x81, 1] + payload)
+        XCTAssertThrowsError(try parser.receive(orphan, snapshot: { _ in XCTFail() },
+                                                measurement: { _ in XCTFail() }))
+    }
+
+    func testCompactOverflowReportsFirstMissingSourceAndSequence() throws {
+        var parser = TrackerExportFrames()
+        try parser.receive(Data([0xa5, 2, 5, 0, 2]), snapshot: { _ in XCTFail() },
+                           measurement: { _ in XCTFail() })
+        XCTAssertThrowsError(try parser.receive(Data([0x20, 0x03, 0, 0]),
+                                                snapshot: { _ in XCTFail() },
+                                                measurement: { _ in XCTFail() })) { error in
+            guard case TrackerFrames.FrameError.captureOverflowAt(source: 2, sequence: 800) = error else {
+                return XCTFail("Expected the first missing module IMU sample")
+            }
+        }
+    }
+
     func testExportDecodesSplitBatchAndPreservesDashboardFraming() throws {
         var binary = Data([0xa5, 1, 62, 0])
         func append<T: FixedWidthInteger>(_ value: T) {

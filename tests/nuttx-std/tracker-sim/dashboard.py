@@ -38,6 +38,30 @@ EXPORT_RX = UUID('3CB1DE6E-A955-49B7-BE4F-C4572D3F3421')
 EXPORT_TX = UUID('3CB1DE6E-A955-49B7-BE4F-C4572D3F3422')
 TRACKER = Address('F0:F1:F2:F3:F4:01', Address.PUBLIC_DEVICE_ADDRESS)
 
+def decode_compact_batch(payload):
+    """Expand the compact wire format for the existing sequence checks."""
+    previous = {}
+    expanded = bytearray()
+    pos = 0
+    while pos < len(payload):
+        tag = payload[pos]
+        source = tag & 0x7f
+        assert source in (1, 2, 3)
+        header = 2 if tag & 0x80 else 9
+        end = pos + header + (20 if source == 3 else 24)
+        assert end <= len(payload), 'partial compact tracker record'
+        if header == 2:
+            seq, stamp = previous[source]
+            seq = (seq + 1) & 0xffffffff
+            stamp = (stamp + payload[pos + 1]) & 0xffffffff
+        else:
+            seq, stamp = struct.unpack_from('<II', payload, pos + 1)
+        previous[source] = seq, stamp
+        expanded.extend(struct.pack('<BII', source, seq, stamp))
+        expanded.extend(payload[pos + header:end])
+        pos = end
+    return bytes(expanded)
+
 
 def luminance(rgb):
     red = (rgb >> 11) * 255 // 31
@@ -90,13 +114,20 @@ class H4Controller(Controller):
         assert self.withheld_completions is None
         self.withheld_completions = {}
 
-    def release_acl_credits(self):
+    def release_acl_credits(self, individual=False):
         counts = self.withheld_completions
         self.withheld_completions = None
         if counts:
-            # A real controller can return many credits in one HCI event.
-            self.send_hci_packet(HCI_Number_Of_Completed_Packets_Event(
-                connection_handles=list(counts), num_completed_packets=list(counts.values())))
+            if individual:
+                # A burst of independent events must fit the receiver's
+                # control path even when the host I/O pool is nearly full.
+                for handle, count in counts.items():
+                    for _ in range(count):
+                        self.send_hci_packet(HCI_Number_Of_Completed_Packets_Event(
+                            connection_handles=[handle], num_completed_packets=[1]))
+            else:
+                self.send_hci_packet(HCI_Number_Of_Completed_Packets_Event(
+                    connection_handles=list(counts), num_completed_packets=list(counts.values())))
         return sum(counts.values())
 
     def on_hci_host_number_of_completed_packets_command(self, _command):
@@ -377,12 +408,14 @@ class SecureStream:
         while True:
             if self.buffer[:1] == b'\xa5' and len(self.buffer) >= 4:
                 size = 4 + int.from_bytes(self.buffer[2:4], 'little')
-                assert size != 4, 'tracker reported sensor export buffer overflow'
-                assert self.buffer[1] == 1 and 33 <= size <= 532
+                version = self.buffer[1]
+                assert size not in (4, 9), 'tracker reported sensor export buffer overflow'
+                assert version in (1, 2) and 33 <= size <= 532
                 if len(self.buffer) >= size:
                     batch = bytes(self.buffer[4:size])
                     del self.buffer[:size]
-                    return batch
+                    records = decode_compact_batch(batch) if version == 2 else batch
+                    return records, len(batch)
             elif self.buffer[:1] == b'{' and b'\n' in self.buffer:
                 end = self.buffer.index(b'\n')
                 snapshot = json.loads(self.buffer[:end])

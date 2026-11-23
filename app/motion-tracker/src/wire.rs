@@ -1,7 +1,7 @@
 //! Transport-independent snapshots.
 use crate::{
     text::Text,
-    tracker::{Reading, reading_status},
+    tracker::{reading_status, Reading},
 };
 use std::fmt::{self, Write};
 use std::io;
@@ -37,8 +37,12 @@ mod version {
         out.write_char('}')
     }
 
-    fn encode(out: &mut impl Write, snapshot: &Snapshot) -> fmt::Result {
-        out.write_str("{\"v\":1,\"imu\":[")?;
+    fn encode(out: &mut impl Write, snapshot: &Snapshot, export: bool) -> fmt::Result {
+        out.write_str("{\"v\":1,")?;
+        if export {
+            out.write_str("\"export_version\":2,")?;
+        }
+        out.write_str("\"imu\":[")?;
         imu_json(out, snapshot.imu[0])?;
         out.write_char(',')?;
         imu_json(out, snapshot.imu[1])?;
@@ -49,7 +53,13 @@ mod version {
 
     pub fn frame(snapshot: &Snapshot) -> io::Result<Text<768>> {
         let mut frame = Text::<768>::new();
-        encode(&mut frame, snapshot).map_err(|_| io::ErrorKind::InvalidData)?;
+        encode(&mut frame, snapshot, false).map_err(|_| io::ErrorKind::InvalidData)?;
+        Ok(frame)
+    }
+
+    pub fn export_frame(snapshot: &Snapshot) -> io::Result<Text<768>> {
+        let mut frame = Text::<768>::new();
+        encode(&mut frame, snapshot, true).map_err(|_| io::ErrorKind::InvalidData)?;
         Ok(frame)
     }
 
@@ -87,4 +97,6 @@ mod version {
     }
 }
 
+#[cfg(feature = "dashboard")]
+pub use version::export_frame;
 pub use version::frame;

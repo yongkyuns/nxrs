@@ -52,6 +52,29 @@ impl<Sample, Frame: AsRef<[u8]>> Publisher<Sample, Frame> {
         deadline: Instant,
         encode: impl FnOnce(&Sample) -> io::Result<Frame>,
     ) -> io::Result<bool> {
+        self.step(output, now, deadline, true, encode)
+    }
+
+    /// Commit one frame to an ordered transport that owns its queued bytes.
+    /// Later frames can use any remaining space while the peer acknowledges it.
+    pub fn enqueue(
+        &mut self,
+        output: &mut impl Write,
+        now: Instant,
+        deadline: Instant,
+        encode: impl FnOnce(&Sample) -> io::Result<Frame>,
+    ) -> io::Result<bool> {
+        self.step(output, now, deadline, false, encode)
+    }
+
+    fn step(
+        &mut self,
+        output: &mut impl Write,
+        now: Instant,
+        deadline: Instant,
+        flush: bool,
+        encode: impl FnOnce(&Sample) -> io::Result<Frame>,
+    ) -> io::Result<bool> {
         if self.pending.is_none() {
             let Some(sample) = self.latest.take() else {
                 return Ok(false);
@@ -78,7 +101,8 @@ impl<Sample, Frame: AsRef<[u8]>> Publisher<Sample, Frame> {
         if pending.sent < bytes.len() {
             return Ok(false);
         }
-        match output.flush() {
+        let result = if flush { output.flush() } else { Ok(()) };
+        match result {
             Ok(()) => {
                 self.pending = None;
                 Ok(true)
@@ -153,6 +177,25 @@ mod tests {
         assert!(publisher.service(&mut peer, now, deadline, encode).unwrap());
         assert!(publisher.is_idle());
         assert_eq!(peer.received, b"abcnew");
+    }
+
+    #[test]
+    fn ordered_transport_can_enqueue_next_frame_before_acknowledgment() {
+        let now = Instant::now();
+        let deadline = now + Duration::from_secs(1);
+        let mut publisher = Publisher::default();
+        let mut peer = Peer {
+            flush_blocked: true,
+            ..Peer::default()
+        };
+        let encode = |sample: &&'static [u8]| Ok(*sample);
+        publisher.offer(b"abc" as &[u8]);
+        assert!(!publisher.enqueue(&mut peer, now, deadline, encode).unwrap());
+        assert!(publisher.enqueue(&mut peer, now, deadline, encode).unwrap());
+        publisher.offer(b"de");
+        assert!(publisher.enqueue(&mut peer, now, deadline, encode).unwrap());
+        assert!(publisher.is_idle());
+        assert_eq!(peer.received, b"abcde");
     }
 
     #[test]

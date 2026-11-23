@@ -1,15 +1,15 @@
 import Foundation
 import NxrsMonitorCore
 
-struct TrackerHistory {
-    struct Motion: Identifiable {
+struct TrackerHistory: Sendable {
+    struct Motion: Identifiable, Sendable {
         let sequence: UInt32
         let acceleration: [Float]
         let gyro: [Float]
         var id: UInt32 { sequence }
     }
 
-    struct Position: Identifiable {
+    struct Position: Identifiable, Sendable {
         let sequence: UInt32
         let latitude: Double
         let longitude: Double
@@ -17,7 +17,7 @@ struct TrackerHistory {
         var id: UInt32 { sequence }
     }
 
-    struct Count {
+    struct Count: Sendable {
         private(set) var received: UInt64 = 0
         private(set) var dropped: UInt64 = 0
         var last: UInt32?

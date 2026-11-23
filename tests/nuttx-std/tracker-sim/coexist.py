@@ -156,6 +156,10 @@ class Scenario:
         return connection in self.tls_connections and connection in self.collector_samples
 
     async def sample_export(self, guest, panel, phone, key, seconds):
+        panel_work = panel.addresses['tracker_panel_work_us']
+        await panel.query(f'writel {panel_work:#x} 0x7d0')
+        busy_before = await panel.word('tracker_panel_busy_rows')
+
         async def authenticated_link():
             connection, rx, tx = await connect(phone, export=True)
             disconnected = asyncio.Event()
@@ -180,11 +184,20 @@ class Scenario:
                 print('PASS: tracker retires the link after an invalid export request', flush=True)
             connection, stream, disconnected = await authenticated_link()
             latest = await self.export_window(guest, stream, minimum, previous, disconnected)
+            after = len(guest.buffer)
             await connection.disconnect()
+            metrics = re.compile(rb'motion-tracker BLE export: high_water=(\d+) samples max_service_gap=(\d+) us\n')
+            await wait_until(lambda: metrics.search(guest.buffer[after:]), 'completed export metrics', timeout=5)
+            peak, gap = map(int, metrics.search(guest.buffer[after:]).groups())
+            assert 0 < peak < 512 and 0 < gap <= 100_000, (peak, gap)
+            print(f'PASS: capture high-water {peak}/512 samples, maximum BLE service gap {gap} us',
+                  flush=True)
             previous = latest
         assert guest.gnss.navigation == (500, 1)
         assert self.collector_live(1) and self.collector_samples[1]['imu'][0]['seq'] > before
         assert self.tls_connections == {1} and not self.collector_closures
+        assert await panel.word('tracker_panel_busy_rows') > busy_before
+        await panel.query(f'writel {panel_work:#x} 0')
         print('PASS: full-rate export reconnected with the same pairing key and continuing cellular TLS', flush=True)
         await panel.wait_pixel(275, 33, 0x57f4)
         await panel.tap(275, 20)
@@ -192,7 +205,13 @@ class Scenario:
         print('PASS: the tracker offers its pairing code again after disconnect', flush=True)
 
     async def export_window(self, guest, stream, minimum, previous, disconnected):
-        stream.tls.write(b'NXRS\x01')
+        version = 2 if previous is None else 1
+        if version == 2:
+            capabilities = await asyncio.wait_for(stream.sample(), 5)
+            assert capabilities['export_version'] == 2
+        stream.tls.write(b'NXRS' + bytes([version]))
+        fixed_bytes = 0
+        wire_bytes = 0
         first = [None] * 3
         latest = [None] * 3
         count = [0] * 3
@@ -213,6 +232,9 @@ class Scenario:
                     check_live(record)
                     dashboard.append(time.monotonic())
                     continue
+                record, encoded = record
+                fixed_bytes += len(record)
+                wire_bytes += encoded
                 pos = 0
                 while pos < len(record):
                     tag, seq, tick = struct.unpack_from('<BII', record, pos)
@@ -234,13 +256,16 @@ class Scenario:
                     count[index] += 1
                 if next_hold is not None and count[0] >= next_hold:
                     # Keep consuming packets the controller has already sent.
-                    stalls.create_task(self.hold_acl_credits(guest))
+                    stalls.create_task(self.hold_acl_credits(guest, individual=next_hold == 2_500))
                     next_hold = next(hold_points, None)
                 if previous is None and not loss_injected and count[0] >= 1_400:
                     guest.ble_link.notifications_to_drop = 2
                     guest.ble_link.acknowledgements_to_drop = 2
                     loss_injected = True
         if previous is None:
+            assert wire_bytes < 0.9 * fixed_bytes, (wire_bytes, fixed_bytes)
+            print(f'PASS: compact export used {wire_bytes} payload bytes versus {fixed_bytes} fixed bytes',
+                  flush=True)
             assert loss_injected and stream.out_of_order > 0, 'the peer never witnessed the notification gap'
             assert not guest.ble_link.notifications_to_drop and not guest.ble_link.acknowledgements_to_drop
             print('PASS: replay recovered two lost notifications and two lost acknowledgments', flush=True)
@@ -253,7 +278,7 @@ class Scenario:
               f'zero sequence gaps and {len(dashboard)} dashboard snapshots with max gap {gap:.2f}s', flush=True)
         return latest
 
-    async def hold_acl_credits(self, guest):
+    async def hold_acl_credits(self, guest, individual=False):
         def source_time():
             return guest.samples[-1]['imu'][0].get('received_ms', 0)
 
@@ -266,9 +291,10 @@ class Scenario:
             assert self.collector_live(1) and self.collector_samples[1]['imu'][0]['seq'] > before, (
                 'cellular upload made no progress during the BLE credit hold')
         finally:
-            withheld = guest.controller.release_acl_credits()
+            withheld = guest.controller.release_acl_credits(individual)
         assert withheld > 0, 'the test did not withhold any controller credits'
-        print(f'Withheld {withheld} ACL credits for {source_time() - start} ms guest time', flush=True)
+        print(f'Withheld {withheld} ACL credits for {source_time() - start} ms guest time '
+              f'and returned them in {"individual events" if individual else "one event"}', flush=True)
 
     async def exercise(self, guest, panel, phone, args):
         stamp = self.stamp

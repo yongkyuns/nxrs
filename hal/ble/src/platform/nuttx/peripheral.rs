@@ -4,6 +4,7 @@ use std::collections::VecDeque;
 use std::io::{self, Read, Write};
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Mutex, MutexGuard};
+use std::thread::{self, Thread};
 use std::time::{Duration, Instant};
 
 #[path = "ffi/peripheral.rs"]
@@ -23,6 +24,8 @@ const RETIRED: u32 = 1 << 13;
 const GENERATION: u32 = 1 << 14;
 static NOTIFY: AtomicBool = AtomicBool::new(false);
 static OPEN: AtomicBool = AtomicBool::new(false);
+static READY: AtomicBool = AtomicBool::new(false);
+static OWNER: Mutex<Option<Thread>> = Mutex::new(None);
 static REGISTERED: Mutex<Option<(Service, Option<Service>)>> = Mutex::new(None);
 // One atomic tracks the HCI handle, its generation and the link state.
 static STAMP: AtomicU32 = AtomicU32::new(0);
@@ -35,6 +38,15 @@ static OUTPUT: Mutex<Output> = Mutex::new(Output {
     sent: 0,
     replay_at: None,
 });
+
+fn signal_ready() {
+    // GATT callbacks run on the NuttX HCI receive worker in task context.
+    if OPEN.load(Ordering::Acquire) && !READY.swap(true, Ordering::AcqRel) {
+        if let Some(owner) = OWNER.lock().unwrap().as_ref() {
+            owner.unpark();
+        }
+    }
+}
 
 struct Queue {
     stamp: u32,
@@ -143,6 +155,7 @@ extern "C" fn peripheral_connection_rust(connected: bool, handle: u16) {
     } else {
         STAMP.fetch_and(!(CONNECTED | RETIRED), Ordering::Release);
     }
+    signal_ready();
 }
 
 fn disconnect(stamp: u32) {
@@ -162,6 +175,7 @@ fn disconnect(stamp: u32) {
 #[no_mangle]
 extern "C" fn peripheral_notify_rust(enabled: bool) {
     NOTIFY.store(enabled, Ordering::Release);
+    signal_ready();
 }
 
 #[no_mangle]
@@ -203,7 +217,10 @@ unsafe extern "C" fn peripheral_write_rust(source: *const u8, count: u8, framed:
         match bytes {
             [0, rest @ ..] if !rest.is_empty() => bytes = rest,
             [1, a, b, c, d] => {
-                ACKNOWLEDGED.store(u32::from_le_bytes([*a, *b, *c, *d]), Ordering::Release);
+                let offset = u32::from_le_bytes([*a, *b, *c, *d]);
+                if ACKNOWLEDGED.swap(offset, Ordering::AcqRel) != offset {
+                    signal_ready();
+                }
                 return count as i32;
             }
             _ => return -1,
@@ -216,6 +233,8 @@ unsafe extern "C" fn peripheral_write_rust(source: *const u8, count: u8, framed:
         return -1;
     }
     data.bytes.extend(bytes);
+    drop(data);
+    signal_ready();
     count as i32
 }
 
@@ -279,9 +298,12 @@ pub(crate) fn open_peripheral(
             *registered = Some((legacy, notifications));
         }
     }
+    *OWNER.lock().unwrap() = Some(thread::current());
+    READY.store(false, Ordering::Relaxed);
     OPEN.store(true, Ordering::Release);
     if unsafe { ffi::peripheral_start() } != 0 {
         OPEN.store(false, Ordering::Release);
+        *OWNER.lock().unwrap() = None;
         return Err(Error::Io);
     }
     Ok(Peripheral {
@@ -296,6 +318,10 @@ impl Listener for Peripheral {
 
     fn notifying(&self) -> bool {
         peripheral_notifications_rust()
+    }
+
+    fn take_ready(&self) -> bool {
+        READY.swap(false, Ordering::AcqRel)
     }
 
     fn service(&mut self) -> io::Result<()> {
@@ -382,6 +408,7 @@ impl Listener for Peripheral {
 impl Drop for Peripheral {
     fn drop(&mut self) {
         OPEN.store(false, Ordering::Release);
+        *OWNER.lock().unwrap() = None;
         // Tables and callbacks have static lifetimes across controller reuse.
         unsafe { ffi::peripheral_stop() };
         disconnect(STAMP.load(Ordering::Acquire));

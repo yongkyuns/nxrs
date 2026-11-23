@@ -21,7 +21,7 @@ default = ["dashboard"]
 dashboard = [
     "nxrs-composition/gnss", "nxrs-composition/battery",
     "dep:nxrs-battery", "dep:nxrs-display", "dep:nxrs-touch", "dep:nxrs-gnss",
-    "dep:nxrs-cellular", "dep:nxrs-ble", "dep:nxrs-tls", "dep:qrcodegen",
+    "dep:nxrs-cellular", "dep:nxrs-ble", "dep:nxrs-execution", "dep:nxrs-tls", "dep:qrcodegen",
 ]
 
 [dependencies]
@@ -36,5 +36,6 @@ nxrs-navigation-services = { path = "../../service/navigation" }
 nxrs-settings = { path = "../../hal/settings" }
 nxrs-cellular = { path = "../../hal/cellular", optional = true }
 nxrs-ble = { path = "../../hal/ble", features = ["peripheral"], optional = true }
+nxrs-execution = { path = "../../hal/execution", optional = true }
 nxrs-tls = { path = "../../hal/tls", features = ["pairing"], optional = true }
 qrcodegen = { version = "1.8", optional = true }
