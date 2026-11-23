@@ -354,20 +354,18 @@ mod tests {
                 )?))
             }
         }
-        let worker = detection_service::Worker::spawn(
+        let detection = detection_service::Session::start(
             detection_service::WorkerOptions {
                 frame_capacity: 4,
                 sample_interval_ms: 1,
                 stack_bytes: 65536,
             },
+            detection_service::Policy::default(),
             || Ok(Detector),
         )
         .unwrap();
         let mut live = live(trace(""));
-        live.attach_detection(
-            crate::SecurityDetection::new(worker, detection_service::Policy::default()).unwrap(),
-        )
-        .unwrap();
+        live.attach_detection(detection).unwrap();
         live.start(96, 96).unwrap();
         live.poll(100, true).unwrap();
         assert!(!healthy(&live, 110, 5000));

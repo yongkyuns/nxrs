@@ -315,7 +315,7 @@ async fn negotiated_audio_and_annotated_video_survive_short_writes_and_reads() {
     let metadata = Some(Metadata {
         revision: 3,
         bytes: METADATA,
-        content_type: detection_wire::METADATA_TYPE,
+        content_type: detection_service::wire::METADATA_TYPE,
     });
 
     let progress = http.poll_media(100, Some(frame(8, 100)), metadata, Some(audio(0, 100)));

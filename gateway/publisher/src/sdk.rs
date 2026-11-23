@@ -2,7 +2,7 @@
 //! No C wrapper, raw POSIX layer, callbacks, worker or reconnect loop is added.
 use super::EncodedMedia;
 use super::{Failure, Result};
-use detection_wire::MAX_VIDEO_BYTES;
+use detection_service::wire::MAX_VIDEO_BYTES;
 use ffmpeg_sys_next as av;
 use std::{
     ffi::{CStr, CString},

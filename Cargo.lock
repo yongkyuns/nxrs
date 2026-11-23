@@ -883,15 +883,7 @@ dependencies = [
 name = "nxrs-detection-service"
 version = "0.1.0"
 dependencies = [
- "nxrs-camera",
- "nxrs-detection-wire",
  "nxrs-detector",
-]
-
-[[package]]
-name = "nxrs-detection-wire"
-version = "0.1.0"
-dependencies = [
  "serde",
  "serde_json",
 ]
@@ -1027,7 +1019,6 @@ dependencies = [
  "nxrs-connectivity-service",
  "nxrs-console",
  "nxrs-detection-service",
- "nxrs-detection-wire",
  "nxrs-detector",
  "nxrs-enrollment",
  "nxrs-execution",

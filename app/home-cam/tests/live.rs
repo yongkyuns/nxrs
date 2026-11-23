@@ -101,7 +101,7 @@ fn non_jpeg_negotiation_stops_before_streaming() {
 
 #[test]
 fn blocked_inference_never_holds_capture_and_stop_joins_before_restart() {
-    use detection_service::{Error, Policy, Score, Worker, WorkerOptions};
+    use detection_service::{Error, Policy, Score, Session, WorkerOptions};
     use std::sync::mpsc::{sync_channel, Receiver, SyncSender};
     use std::time::Duration;
     struct Detector {
@@ -125,12 +125,13 @@ fn blocked_inference_never_holds_capture_and_stop_joins_before_restart() {
     }
     let (entered, entered_rx) = sync_channel(1);
     let (resume, resume_rx) = sync_channel(1);
-    let worker = Worker::spawn(
+    let detection = Session::start(
         WorkerOptions {
             frame_capacity: 64,
             sample_interval_ms: 1,
             stack_bytes: 65536,
         },
+        Policy::default(),
         move || {
             Ok(Detector {
                 entered,
@@ -153,8 +154,7 @@ fn blocked_inference_never_holds_capture_and_stop_joins_before_restart() {
         Options::default(),
     )
     .unwrap();
-    app.attach_detection(home_cam::SecurityDetection::new(worker, Policy::default()).unwrap())
-        .unwrap();
+    app.attach_detection(detection).unwrap();
     app.start(320, 240).unwrap();
     app.poll(0, false).unwrap();
     entered_rx.recv_timeout(Duration::from_secs(2)).unwrap();
@@ -176,7 +176,7 @@ fn blocked_inference_never_holds_capture_and_stop_joins_before_restart() {
 
 #[test]
 fn camera_stop_failure_still_joins_and_releases_the_detector() {
-    use detection_service::{Policy, Score, Worker, WorkerOptions};
+    use detection_service::{Policy, Score, Session, WorkerOptions};
     use std::sync::{
         atomic::{AtomicBool, Ordering},
         Arc,
@@ -216,12 +216,13 @@ fn camera_stop_failure_still_joins_and_releases_the_detector() {
     }
     let released = Arc::new(AtomicBool::new(false));
     let witness = released.clone();
-    let worker = Worker::spawn(
+    let detection = Session::start(
         WorkerOptions {
             frame_capacity: 64,
             sample_interval_ms: 1,
             stack_bytes: 65536,
         },
+        Policy::default(),
         move || Ok(Detector(witness)),
     )
     .unwrap();
@@ -238,8 +239,7 @@ fn camera_stop_failure_still_joins_and_releases_the_detector() {
         Options::default(),
     )
     .unwrap();
-    app.attach_detection(home_cam::SecurityDetection::new(worker, Policy::default()).unwrap())
-        .unwrap();
+    app.attach_detection(detection).unwrap();
     app.start(320, 240).unwrap();
     app.poll(0, false).unwrap();
     assert!(matches!(app.stop(), Err(home_cam::Error::Camera(_))));

@@ -1,5 +1,6 @@
 //! Bounded JSON and frame identity shared by camera and gateway.
-use crate::{EventKind, Presence};
+use crate::EVENT_HISTORY;
+pub use crate::{Event, EventKind, Presence};
 use serde::{
     de::{self, SeqAccess, Visitor},
     ser::SerializeSeq,
@@ -13,7 +14,6 @@ pub const MAX_AGE_MS: u64 = 5000;
 pub const SOURCE_TIMEOUT_MS: u64 = 1500;
 pub const MAX_VIDEO_BYTES: usize = 4608;
 pub const VIDEO_SEI_UUID: [u8; 16] = *b"nxrs-video-v1\0\0\0";
-pub const EVENT_HISTORY: usize = 8;
 
 /// In-band metadata belongs to the encoded frame carrying it. It does not
 /// assume that SSE arrival time equals video playout time.
@@ -187,14 +187,6 @@ pub struct Observation {
     pub person_score_permille: u16,
     pub objects: Bounded<Object, 10>,
     pub truncated: bool,
-}
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct Event {
-    pub id: u64,
-    pub at_ms: u64,
-    #[serde(rename = "kind")]
-    pub event: EventKind,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

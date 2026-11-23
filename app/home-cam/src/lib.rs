@@ -3,19 +3,16 @@
 #![forbid(unsafe_code)]
 
 pub mod bootstrap;
-mod detection;
 mod microphone;
 pub mod network;
-mod publication;
 pub mod startup;
 mod tls;
 pub mod update;
-pub use detection::{DetectionSnapshot, SecurityDetection};
-pub use detection_wire::Event as SecurityEvent;
 pub use tls::{RefreshStep, TimeChannel, TlsIdentity, TlsOptions, TlsStats, Worker as TlsOutput};
 
 use camera::{Camera, Format, PixelFormat};
 use camera_service::{CameraService, CaptureProgress, Frames};
+use detection_service::{Input as DetectionInput, Session as DetectionSession};
 use std::io;
 use std::net::TcpListener;
 use stream_service::{Options, Progress, Server, ServerStats};
@@ -47,7 +44,7 @@ pub struct LiveCamera<D, const BYTES: usize, B, O = Server<B>> {
     server: O,
     capture: CameraService<D, BYTES, 1, B>,
     stats: Stats,
-    detection: Option<SecurityDetection>,
+    detection: Option<DetectionSession>,
 }
 
 /// The camera owns one output with explicit polling and retirement. Implementations
@@ -186,9 +183,9 @@ impl<D: Camera, const BYTES: usize, B: AsRef<[u8]> + AsMut<[u8]>, O: StreamOutpu
     LiveCamera<D, BYTES, B, O>
 {
     /// Attach opt-in inference before capture starts. The product supplies an
-    /// initialized worker; inference neither takes camera ownership nor
+    /// initialized session; inference neither takes camera ownership nor
     /// competes for the single video client. Results stay in typed Rust state.
-    pub fn attach_detection(&mut self, detection: SecurityDetection) -> Result<(), Error> {
+    pub fn attach_detection(&mut self, detection: DetectionSession) -> Result<(), Error> {
         if self.capture.state() != camera_service::CameraState::Stopped {
             return Err(Error::Camera(camera_service::Error::AlreadyRunning));
         }
@@ -196,7 +193,7 @@ impl<D: Camera, const BYTES: usize, B: AsRef<[u8]> + AsMut<[u8]>, O: StreamOutpu
         Ok(())
     }
 
-    pub fn detection(&self) -> Option<&SecurityDetection> {
+    pub fn detection(&self) -> Option<&DetectionSession> {
         self.detection.as_ref()
     }
 
@@ -207,7 +204,7 @@ impl<D: Camera, const BYTES: usize, B: AsRef<[u8]> + AsMut<[u8]>, O: StreamOutpu
         if self
             .detection
             .as_ref()
-            .is_some_and(SecurityDetection::stopped)
+            .is_some_and(DetectionSession::stopped)
         {
             return Err(Error::Detection(detection_service::Error::Stopped));
         }
@@ -240,12 +237,12 @@ impl<D: Camera, const BYTES: usize, B: AsRef<[u8]> + AsMut<[u8]>, O: StreamOutpu
                 return Err(Error::Camera(error));
             }
         };
+        let latest = self
+            .capture
+            .next_after(self.capture.latest_sequence().saturating_sub(1));
         if let CaptureProgress::Published(_) = captured {
             self.stats.captured = self.stats.captured.saturating_add(1);
-            if let Some(frame) = self
-                .capture
-                .next_after(self.capture.latest_sequence().saturating_sub(1))
-            {
+            if let Some(frame) = latest {
                 self.stats.captured_bytes = self
                     .stats
                     .captured_bytes
@@ -254,18 +251,26 @@ impl<D: Camera, const BYTES: usize, B: AsRef<[u8]> + AsMut<[u8]>, O: StreamOutpu
             }
         }
         if let Some(detection) = self.detection.as_mut() {
-            let latest = self
-                .capture
-                .next_after(self.capture.latest_sequence().saturating_sub(1));
-            detection.poll(now_ms, latest);
+            let input = latest.map(|frame| DetectionInput {
+                image: detector::Image::jpeg(
+                    frame.bytes,
+                    frame.capture.format.width,
+                    frame.capture.format.height,
+                ),
+                sequence: frame.sequence,
+                captured_ms: frame.capture.timestamp_ms,
+            });
+            detection.poll(now_ms, input);
         }
-        let latest = self
-            .capture
-            .next_after(self.capture.latest_sequence().saturating_sub(1));
         let metadata = self
             .detection
             .as_ref()
-            .and_then(SecurityDetection::metadata);
+            .and_then(DetectionSession::publication)
+            .map(|(revision, bytes)| stream_service::Metadata {
+                revision,
+                content_type: detection_service::wire::METADATA_TYPE,
+                bytes,
+            });
         self.server.poll(now_ms, online, latest, metadata)
     }
 
@@ -289,7 +294,7 @@ impl<D: Camera, const BYTES: usize, B: AsRef<[u8]> + AsMut<[u8]>, O: StreamOutpu
         let detection = self
             .detection
             .as_mut()
-            .map(SecurityDetection::stop)
+            .map(DetectionSession::stop)
             .unwrap_or(Ok(()))
             .map_err(Error::Detection);
         camera.and(detection).and(network)

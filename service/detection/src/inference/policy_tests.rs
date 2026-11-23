@@ -1,4 +1,5 @@
-use detection_service::{Error, Event, Monitor, Observation, Policy, Presence, Score};
+use super::{Error, Monitor, Observation, Policy, Score};
+use crate::{EventKind as Event, Presence};
 fn observation(sequence: u64, captured_ms: u64, score: u16) -> Observation {
     Observation {
         sequence,

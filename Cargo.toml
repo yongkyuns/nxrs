@@ -31,7 +31,6 @@ members = [
     "hal/cellular",
     "service/camera",
     "service/detection",
-    "service/detection-wire",
     "service/firmware-update",
     "service/enrollment",
     "service/capture-wire",

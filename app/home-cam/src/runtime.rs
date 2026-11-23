@@ -123,12 +123,13 @@ fn run_live<D: Camera, O: StreamOutput>(
     let mut restart = Outcome::Renew;
     let operation: Result<bool, String> = (|| {
         if let Some(budget) = budget {
-            let worker = detection_service::Worker::spawn(
+            let detection = detection_service::Session::start(
                 detection_service::WorkerOptions {
                     frame_capacity: BYTES,
                     sample_interval_ms: budget.sample_interval_ms,
                     stack_bytes: budget.stack_bytes,
                 },
+                detection_service::Policy::default(),
                 || {
                     // Keep synchronous inference below capture and video delivery.
                     execution::configure_current(execution::Priority::Background)
@@ -137,11 +138,8 @@ fn run_live<D: Camera, O: StreamOutput>(
                 },
             )
             .map_err(|e| format!("detector startup {e:?}"))?;
-            live.attach_detection(
-                home_cam::SecurityDetection::new(worker, detection_service::Policy::default())
-                    .map_err(|e| format!("detection policy {e:?}"))?,
-            )
-            .map_err(|e| format!("detection attachment {e:?}"))?;
+            live.attach_detection(detection)
+                .map_err(|e| format!("detection attachment {e:?}"))?;
         }
         match live.start(320, 240) {
             Ok(_) => {}

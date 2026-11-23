@@ -2,6 +2,7 @@
   "title": "Rust API reference",
   "features": [
     "nxrs-camera/replay",
+    "nxrs-detection-service/wire",
     "nxrs-storage/recording",
     "nxrs-transport/udp",
     "nxrs-composition/imu",
@@ -38,8 +39,7 @@
         {"package": "nxrs-camera-service", "crate": "camera_service", "path": "service/camera", "summary": "Capture ownership, frame history, and capture progress."},
         {"package": "nxrs-telemetry-service", "crate": "telemetry_service", "path": "service/telemetry", "summary": "Bounded latest-value telemetry publication over nonblocking streams."},
         {"package": "nxrs-stream-service", "crate": "stream_service", "path": "service/stream", "summary": "Bounded multipart MJPEG streaming and HTTP sessions."},
-        {"package": "nxrs-detection-service", "crate": "detection_service", "path": "service/detection", "summary": "Bounded inference work and presence/event policy."},
-        {"package": "nxrs-detection-wire", "crate": "detection_wire", "path": "service/detection-wire", "summary": "The versioned camera, gateway, and viewer detection protocol."},
+        {"package": "nxrs-detection-service", "crate": "detection_service", "path": "service/detection", "summary": "Bounded inference sessions, alert policy, and versioned detection metadata."},
         {"package": "nxrs-enrollment", "crate": "enrollment", "path": "service/enrollment", "summary": "Bounded commissioning records and gateway enrollment."},
         {"package": "nxrs-firmware-update", "crate": "firmware_update", "path": "service/firmware-update", "summary": "Bounded firmware upload over an authenticated byte stream."},
         {"package": "nxrs-navigation-services", "crate": "navigation", "path": "service/navigation", "summary": "Example-domain IMU, GNSS, fusion, and health services."}

@@ -20,7 +20,7 @@ on:
       - 'tools/hal_native.py'
       - 'Cargo.toml'
       - 'Cargo.lock'
-      - 'service/detection-wire/**'
+      - 'service/detection/**'
       - 'service/firmware-update/**'
       - 'service/enrollment/**'
       - 'docs/detection-protocol*'

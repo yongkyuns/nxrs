@@ -50,7 +50,7 @@ PORTABLE_EXTERNAL_BY_PACKAGE = {
     # Fixed-capacity camera/gateway wire protocol, with bounded JSON buffers.
     # serde is safe Rust; serde_json uses the already-required Rust std I/O.
     # The actual NuttX publisher is qualified with the camera product image.
-    'nxrs-detection-wire': {'serde', 'serde_json'},
+    'nxrs-detection-service': {'serde', 'serde_json'},
     # QR encoding is safe Rust with no native dependencies, exercised on CoreS3.
     'nxrs-motion-tracker': {'qrcodegen'},
     # Fixed-buffer PPP framing and negotiation with no host/native runtime.
@@ -117,6 +117,9 @@ def inspect(metadata: dict, root: Path) -> list[str]:
                 errors.append(f'{context}: shared radio types must remain dependency-free')
             if destination == ('hal', 'radio-types') and source not in {('hal', 'wifi'), ('hal', 'ble')}:
                 errors.append(f'{context}: only Wi-Fi and BLE may depend directly on radio types')
+            if source == ('service', 'detection') and target is not None and roles[target] == 'hal':
+                if destination != ('hal', 'detector') or not dep.get('optional') or dep.get('kind'):
+                    errors.append(f'{context}: detection may only use the optional detector HAL')
             # Cargo resolves aliases/workspace inheritance to the actual package.
             # Optional, target cfg and build edges are NOT exempted.
             if dep.get('kind') == 'dev':

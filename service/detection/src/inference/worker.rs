@@ -1,9 +1,16 @@
-use crate::{Error, Observation};
-use camera::{Frame, PixelFormat};
-use detector::Detector;
+use super::{Error, Observation};
+use detector::{Detector, Image};
 use std::sync::{Arc, Condvar, Mutex, TryLockError};
 use std::thread::{Builder, JoinHandle};
 use std::time::Instant;
+
+/// A borrowed JPEG and its source-frame identity.
+#[derive(Clone, Copy, Debug)]
+pub struct Input<'a> {
+    pub image: Image<'a>,
+    pub sequence: u64,
+    pub captured_ms: u64,
+}
 
 #[derive(Clone, Copy, Debug)]
 pub struct WorkerOptions {
@@ -198,7 +205,13 @@ impl Worker {
     pub fn capabilities(&self) -> detector::Capabilities {
         self.capabilities
     }
-    pub fn offer(&mut self, frame: Frame<'_>, now_ms: u64) -> Result<Offer, Error> {
+    pub(super) fn failed(&self) -> bool {
+        self.failed
+    }
+    pub(super) fn stopped(&self) -> bool {
+        self.stopped
+    }
+    pub fn offer(&mut self, input: Input<'_>, now_ms: u64) -> Result<Offer, Error> {
         if self.failed {
             return Err(Error::Worker);
         }
@@ -209,16 +222,15 @@ impl Worker {
             return Err(Error::Clock);
         }
         self.last_now_ms = now_ms;
-        if frame.sequence <= self.last_sequence || now_ms < self.next_ms {
+        if input.sequence <= self.last_sequence || now_ms < self.next_ms {
             return Ok(Offer::NotDue);
         }
-        if frame.capture.format.pixels != PixelFormat::Jpeg
-            || frame.capture.len != frame.bytes.len()
-            || frame.bytes.is_empty()
-            || frame.capture.format.width == 0
-            || frame.capture.format.height == 0
-            || frame.bytes.len() > self.options.frame_capacity
-            || frame.capture.timestamp_ms > now_ms
+        let image = input.image;
+        if image.bytes.is_empty()
+            || image.width == 0
+            || image.height == 0
+            || image.bytes.len() > self.options.frame_capacity
+            || input.captured_ms > now_ms
         {
             return Err(Error::Frame);
         }
@@ -227,7 +239,7 @@ impl Worker {
             return Ok(Offer::Busy);
         };
         bytes.clear();
-        bytes.extend_from_slice(frame.bytes);
+        bytes.extend_from_slice(image.bytes);
         let mut state = match self.shared.mailbox.try_lock() {
             Ok(state) => state,
             Err(TryLockError::WouldBlock) => {
@@ -248,15 +260,15 @@ impl Worker {
         }
         state.job = Some(Job {
             bytes,
-            sequence: frame.sequence,
-            captured_ms: frame.capture.timestamp_ms,
-            width: frame.capture.format.width,
-            height: frame.capture.format.height,
+            sequence: input.sequence,
+            captured_ms: input.captured_ms,
+            width: image.width,
+            height: image.height,
         });
         drop(state);
         self.shared.changed.notify_one();
         self.stats.submitted = self.stats.submitted.saturating_add(1);
-        self.last_sequence = frame.sequence;
+        self.last_sequence = input.sequence;
         self.next_ms = now_ms.saturating_add(self.options.sample_interval_ms);
         Ok(Offer::Accepted)
     }
@@ -358,18 +370,10 @@ mod tests {
         let shared = worker.shared.clone();
         let held = shared.mailbox.lock().unwrap();
         assert_eq!(worker.poll(), Ok(None));
-        let frame = Frame {
+        let frame = Input {
+            image: Image::jpeg(&[255, 216, 255, 217], 1, 1),
             sequence: 1,
-            capture: camera::Capture {
-                format: camera::Format {
-                    width: 1,
-                    height: 1,
-                    pixels: PixelFormat::Jpeg,
-                },
-                len: 4,
-                timestamp_ms: 1,
-            },
-            bytes: &[255, 216, 255, 217],
+            captured_ms: 1,
         };
         assert_eq!(worker.offer(frame, 1), Ok(Offer::Busy));
         assert_eq!(worker.stats().submitted, 0);

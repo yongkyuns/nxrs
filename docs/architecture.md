@@ -134,11 +134,10 @@ operation its callers share. Keep distinct ownership for different protocols
 or scheduling requirements. Apps compose policy and may use the HAL or Rust
 `std` directly when no separate service owns the operation.
 
-A versioned wire crate owns the protocol shared by its endpoints. Reuse domain
-types there when their meaning is identical in the service and on the wire.
-Detection policy shares presence and event kinds with its wire contract.
-Home-cam uses the contract's event records and history limit directly.
-Policy-only builds can compile the shared types with JSON support disabled.
+Keep a service's lifecycle, policy and versioned protocol together when they
+describe the same capability. Reuse domain types with identical semantics.
+Expose a protocol module independently when a peer only needs to encode or
+validate messages.
 
 Motion Tracker uses the navigation observation owner and the same bounded
 publisher for BLE and cellular. Navigation also has fusion workflows that
@@ -167,9 +166,11 @@ and the difference between linked and measured runtime memory.
 ### Camera inference
 
 `hal/detector` owns the portable detector API, models and platform-specific
-execution. `service/detection` owns bounded inference scheduling and typed alert
-policy. The detector is separate from the camera capability.
-`app/home-cam` can attach `SecurityDetection` before starting capture.
+execution. `service/detection` consumes that one HAL. Its `Session` owns bounded
+inference scheduling, alert policy, event history and metadata publication.
+Home-cam supplies captured JPEGs and forwards the metadata through the stream
+service. The gateway uses the detection service's optional `wire` module with
+inference disabled.
 
 <figure class="architecture-art">
   <picture>
@@ -193,12 +194,12 @@ sample interval, stack capacity and an initializer for execution constraints.
 The NuttX qualification fixture sets a lower worker priority through a scalar
 target-header scheduler call; shared algorithms have no platform branch.
 Shutdown closes admission, finishes the bounded current inference and joins;
-worker failure remains observable. Restart requires attaching a fresh worker.
+worker failure remains observable. Restart requires attaching a fresh detection session.
 
 The monitor requires repeated evidence and applies score hysteresis. Freshness
 uses the camera owner's monotonic clock; expired or failed results become
-unavailable. A clear scene requires valid model evidence. The application keeps
-eight local typed events with sequence IDs. No detection listener, notification,
+unavailable. A clear scene requires valid model evidence. The detection session
+keeps eight local typed events with sequence IDs. No detection listener, notification,
 footage retention or external disclosure is started implicitly.
 
 The optional VWW model uses Rust MicroFlow kernels; PICO reuses the same Rust

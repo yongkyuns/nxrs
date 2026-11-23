@@ -313,14 +313,15 @@ pub(crate) mod device {
         let (width, height, port) = (options.width, options.height, options.port);
         let result: Result<(), String> = (|| {
             if detection_enabled {
-                use detection_service::{Error, Policy, Worker, WorkerOptions};
+                use detection_service::{Error, Policy, Session, WorkerOptions};
                 stage("detection_spawn");
-                let worker = Worker::spawn(
+                let detection = Session::start(
                     WorkerOptions {
                         frame_capacity: BYTES,
                         sample_interval_ms,
                         stack_bytes: super::model::STACK_BYTES,
                     },
+                    Policy::default(),
                     || {
                         execution::configure_current(execution::Priority::Normal)
                             .map_err(|_| Error::Worker)?;
@@ -361,8 +362,6 @@ pub(crate) mod device {
                     },
                 )
                 .map_err(|error| format!("detection worker {error:?}"))?;
-                let detection = home_cam::SecurityDetection::new(worker, Policy::default())
-                    .map_err(|error| format!("detection composition {error:?}"))?;
                 live.attach_detection(detection)
                     .map_err(|error| format!("detection attach {error:?}"))?;
                 println!("NXRS_DETECTION_ENABLED sample_ms={sample_interval_ms}");

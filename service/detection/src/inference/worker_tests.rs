@@ -1,5 +1,5 @@
-use camera::{Capture, Format, Frame, PixelFormat};
-use detection_service::{Error, Offer, Score, Worker, WorkerOptions};
+use super::worker::{Offer, Worker};
+use super::{Error, Input, Score, WorkerOptions};
 use std::sync::mpsc::{sync_channel, Receiver, SyncSender};
 use std::time::{Duration, Instant};
 fn options() -> WorkerOptions {
@@ -9,19 +9,11 @@ fn options() -> WorkerOptions {
         stack_bytes: 65536,
     }
 }
-fn frame(sequence: u64, bytes: &[u8]) -> Frame<'_> {
-    Frame {
+fn frame(sequence: u64, bytes: &[u8]) -> Input<'_> {
+    Input {
         sequence,
-        capture: Capture {
-            format: Format {
-                width: 96,
-                height: 96,
-                pixels: PixelFormat::Jpeg,
-            },
-            len: bytes.len(),
-            timestamp_ms: sequence,
-        },
-        bytes,
+        captured_ms: sequence,
+        image: detector::Image::jpeg(bytes, 96, 96),
     }
 }
 struct Blocked {

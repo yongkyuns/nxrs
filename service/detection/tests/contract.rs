@@ -1,4 +1,4 @@
-use detection_wire::*;
+use detection_service::wire::*;
 fn golden() -> Snapshot {
     serde_json::from_slice(include_bytes!(
         "../../../clients/ios/Tests/NxrsMonitorCoreTests/Fixtures/detection.json"
@@ -71,7 +71,7 @@ fn worst_case_full_boxes_and_event_ring_fit_the_camera_buffer() {
             .push(Event {
                 id,
                 at_ms: 1000,
-                event: EventKind::PersonEntered,
+                kind: EventKind::PersonEntered,
             })
             .unwrap();
     }

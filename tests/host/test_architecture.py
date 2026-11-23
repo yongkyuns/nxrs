@@ -65,6 +65,19 @@ class ArchitectureTests(unittest.TestCase):
             self.assertTrue(any(f'forbidden {source} -> support edge' in error
                                 for error in self.violations()))
 
+    def test_detection_owns_only_the_optional_detector_hal(self):
+        for name, path in [('detection', 'service/detection'), ('detector', 'hal/detector')]:
+            self.metadata['packages'].append(self.package(name, path))
+            self.metadata['workspace_members'].append(name)
+        self.add('detection', 'detector', optional=True)
+        self.assertEqual(CHECK.inspect(self.metadata, self.root), [])
+        for target, optional in [('camera', True), ('detector', False)]:
+            with self.subTest(target=target, optional=optional):
+                self.add('detection', target, optional=optional, rename='inference_backend')
+                self.assertTrue(any('only use the optional detector HAL' in error
+                                    for error in CHECK.inspect(self.metadata, self.root)))
+                self.packages['detection']['dependencies'].pop()
+
     def test_catalogue_wires_drivers_but_only_apps_select_devices(self):
         for source, target in [('app', 'devices'), ('devices', 'imu'), ('devices', 'bmi270')]:
             self.add(source, target)

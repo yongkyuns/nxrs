@@ -10,7 +10,7 @@ use axum::{
     response::sse::{Event, Sse},
     Json,
 };
-use detection_wire::{self as wire, Presence, Snapshot, Update, Version};
+use detection_service::wire::{self as wire, Presence, Snapshot, Update, Version};
 use futures_util::stream;
 use serde_json::{json, Value};
 use std::{

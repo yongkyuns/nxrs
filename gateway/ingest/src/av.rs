@@ -8,7 +8,7 @@ use crate::{
     runner, Error, Result,
 };
 use capture_wire::{AudioStamp, MicrophoneState, BLOCK_BYTES, BLOCK_SAMPLES, SAMPLE_RATE_HZ};
-use detection_wire::{Version, VideoFrame};
+use detection_service::wire::{Version, VideoFrame};
 use serde::Deserialize;
 use std::time::Duration;
 use tokio::{
