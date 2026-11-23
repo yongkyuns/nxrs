@@ -6,7 +6,7 @@ publish = false
 
 [dependencies]
 log = "0.4"
-nxrs-log-adapters = { path = "../../../../platform/logging" }
+nxrs-navigation-services = { path = "../../../../service/navigation", features = ["probe"] }
 nxrs-composition = { path = "../../../../platform", features = ["imu"] }
 nxrs-log-router = { path = "../../../../service/logging" }
 nxrs-motion-tracker = { path = "../../../../app/motion-tracker", default-features = false }

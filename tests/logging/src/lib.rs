@@ -12,16 +12,4 @@ pub fn configure(with_gnss: bool) {
 }
 
 #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
-mod browser {
-    #![allow(unsafe_code)]
-
-    #[unsafe(no_mangle)]
-    pub extern "C" fn enable_diagnostics() -> u32 {
-        log_adapters::browser::install(log::LevelFilter::Info).is_ok() as u32
-    }
-
-    #[unsafe(no_mangle)]
-    pub extern "C" fn configure_observations(with_gnss: u32) {
-        super::configure(with_gnss != 0);
-    }
-}
+mod browser;

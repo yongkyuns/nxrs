@@ -824,9 +824,7 @@ version = "0.1.0"
 dependencies = [
  "nxrs-camera",
  "nxrs-camera-service",
- "nxrs-recording-service",
  "nxrs-storage",
- "nxrs-telemetry-service",
  "nxrs-transport",
 ]
 
@@ -1097,19 +1095,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "nxrs-log-adapters"
-version = "0.1.0"
-dependencies = [
- "log",
- "nxrs-log-router",
-]
-
-[[package]]
 name = "nxrs-log-qualification"
 version = "0.1.0"
 dependencies = [
  "log",
- "nxrs-log-adapters",
  "nxrs-log-router",
  "nxrs-navigation-services",
 ]
@@ -1167,7 +1156,6 @@ dependencies = [
  "nxrs-camera",
  "nxrs-camera-service",
  "nxrs-camera-test-support",
- "nxrs-recording-service",
  "nxrs-storage",
  "nxrs-transport",
 ]
@@ -1192,7 +1180,6 @@ dependencies = [
  "nxrs-camera-service",
  "nxrs-camera-test-support",
  "nxrs-nuttx-support",
- "nxrs-recording-service",
  "nxrs-storage",
  "nxrs-transport",
 ]
@@ -1244,13 +1231,6 @@ name = "nxrs-radio-types"
 version = "0.1.0"
 
 [[package]]
-name = "nxrs-recording-service"
-version = "0.1.0"
-dependencies = [
- "nxrs-storage",
-]
-
-[[package]]
 name = "nxrs-rt-bench"
 version = "0.1.0"
 dependencies = [
@@ -1288,9 +1268,7 @@ dependencies = [
  "nxrs-camera",
  "nxrs-camera-service",
  "nxrs-camera-test-support",
- "nxrs-recording-service",
  "nxrs-storage",
- "nxrs-telemetry-service",
  "nxrs-transport",
 ]
 
@@ -1439,10 +1417,6 @@ dependencies = [
 [[package]]
 name = "nxrs-telemetry-service"
 version = "0.1.0"
-dependencies = [
- "nxrs-camera",
- "nxrs-transport",
-]
 
 [[package]]
 name = "nxrs-tls"
@@ -1467,9 +1441,9 @@ version = "0.1.0"
 dependencies = [
  "log",
  "nxrs-composition",
- "nxrs-log-adapters",
  "nxrs-log-router",
  "nxrs-motion-tracker",
+ "nxrs-navigation-services",
 ]
 
 [[package]]

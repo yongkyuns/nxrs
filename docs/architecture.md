@@ -91,7 +91,7 @@ global resource registry or application-defined HAL instance IDs.
 `app/home-cam` is the home-monitoring product. It acquires camera and radio
 capabilities through their HAL APIs and composes streaming, detection,
 enrollment and update services. The retired replay demo is no longer an app;
-its camera/recording/telemetry composition exists only in `tests/camera-support`.
+its camera recording and packet summary fixtures live in `tests/camera-support`.
 App and service code has no OS or board knowledge. Apps select named IMUs
 through the portable device catalogue; services receive those references.
 HAL factories own admission and acquisition, including typed `Unsupported`
@@ -125,6 +125,38 @@ The navigation services are the first implementation of this rule:
 
 Their public constructors contain only service configuration and service
 connections.
+
+### Service boundaries and footprint
+
+Find the existing owner and production callers before introducing a service.
+One owner implements each lifecycle and policy. Extend it or extract the
+operation its callers share. Keep distinct ownership for different protocols
+or scheduling requirements. Apps compose policy and may use the HAL or Rust
+`std` directly when no separate service owns the operation.
+
+Motion Tracker uses the navigation observation owner and the same bounded
+publisher for BLE and cellular. Navigation also has fusion workflows that
+consume the same HAL sample types and inbox admission logic. The tracker
+owner dispatches observations in its existing inbox, so it does not need a
+second service task for each sensor. The camera qualification's recording
+and packet summary adapters live with its fixture. The production telemetry
+service owns bounded stream publication.
+
+Keep OS adapters in their owning capability HAL, and keep adapters used only
+for qualification under `tests/`. Reserve the root `platform/` tree for profiles,
+BSP inputs and device composition. The architecture audit rejects dependencies
+from platform packages to services, including optional and target-specific
+edges. Service diagnostics use the existing `probe` feature when the normal
+product path has no diagnostic consumer.
+
+New workers, queues, retained frames, stack reservations and allocations need
+a concrete execution or ownership reason and a bounded budget. Compare
+linked sections and the unpadded image on the same target, profile and
+toolchain. Account for runtime heap, task stacks, and queued payloads
+separately. The [ESP32-S3 QEMU workflow](../.github/workflows/nuttx-qemu.yml)
+checks linked flash, the unpadded image and static RAM on its existing tracker
+builds. See [memory and image size](rust-std-footprint.md) for the accounting
+and the difference between linked and measured runtime memory.
 
 ### Camera inference
 
@@ -440,7 +472,7 @@ so optional, target-conditional and build edges cannot evade layer rules.
 | service | services, capability facades/APIs and shared libraries |
 | HAL capability crate | its contract, private selected provider, required drivers/support and shared libraries |
 | driver | APIs, lower drivers and shared libraries |
-| platform composition crate | HALs, drivers and shared libraries, never apps |
+| platform composition crate | HALs, drivers and shared libraries |
 | host build tooling | shared build-support packages |
 | tests | production layers as required |
 

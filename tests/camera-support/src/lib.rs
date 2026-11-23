@@ -7,7 +7,9 @@ mod reader;
 mod error;
 pub mod recorder;
 pub mod monitor;
+pub mod packet_summary;
 pub mod product;
+pub mod recording;
 
 pub use recorder::Recorder;
 pub use monitor::Monitor;

@@ -8,7 +8,7 @@ use camera::{Camera, Capture, DeviceError, Format, PixelFormat, ReplayCamera};
 use storage::recording::{read_record, FileRecorder, StorageLimits};
 use transport::udp::UdpTransport;
 use camera_service::{CameraService, Error as CameraError, Frames};
-use recording_service::Error as RecordingError;
+use camera_test_support::recording::Error as RecordingError;
 
 fn frame_buffer(bytes: usize) -> std::io::Result<Box<[u8]>> {
     let mut buffer = Vec::new();

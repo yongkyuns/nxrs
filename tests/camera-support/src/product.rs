@@ -1,8 +1,8 @@
 use camera::Camera;
 use camera_service::{CameraService, CaptureProgress};
-use recording_service::RecordingService;
+use crate::recording::RecordingService;
 use storage::Storage;
-use telemetry_service::TelemetryService;
+use crate::packet_summary::TelemetryService;
 use transport::PacketSink;
 use crate::{Error, Monitor, Progress, Recorder};
 

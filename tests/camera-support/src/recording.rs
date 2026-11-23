@@ -1,6 +1,4 @@
-//! Frame recording service over a storage capability.
-#![no_std]
-#![forbid(unsafe_code)]
+//! Frame recording adapter for the camera qualification.
 
 use storage::{DeviceError, Frame, Storage};
 

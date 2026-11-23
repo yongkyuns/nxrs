@@ -38,7 +38,7 @@ try {
     await Promise.all([
         copyFile(wasm, join(root, 'qualification.wasm')),
         copyFile(new URL('./worker.mjs', import.meta.url), join(root, 'worker.mjs')),
-        copyFile(new URL('../../platform/logging/web/archive.mjs', import.meta.url),
+        copyFile(new URL('./archive.mjs', import.meta.url),
                  join(root, 'archive.mjs')),
         writeFile(join(root, 'index.html'), '<!doctype html><title>NXRS logging qualification</title>'),
     ]);

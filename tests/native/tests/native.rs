@@ -12,7 +12,7 @@ use storage::Storage;
 use transport::udp::UdpTransport;
 use transport::PacketSink;
 use camera_test_support::Error;
-use recording_service::Error as RecordingError;
+use camera_test_support::recording::Error as RecordingError;
 
 const FORMAT: Format = Format { width: 2, height: 2, pixels: PixelFormat::Gray8 };
 static NEXT: AtomicU64 = AtomicU64::new(0);

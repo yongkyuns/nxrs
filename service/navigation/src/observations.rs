@@ -1,8 +1,7 @@
 //! Own configured acquisition sessions and track normalized observations.
 //! HALs acquire and deliver samples. The caller dispatches events and deadlines.
 
-use messaging::{DeliveryError, DeliveryResult, Rejected, Sender};
-use std::sync::mpsc::TrySendError;
+use messaging::{DeliveryResult, Sender};
 use std::time::{Duration, Instant};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -148,15 +147,7 @@ pub struct ObservationService<const IMUS: usize> {
 
 impl<const IMUS: usize> ObservationService<IMUS> {
     pub fn new(imu_fresh_for: Duration, gnss_fresh_for: Option<Duration>) -> Self {
-        log::info!(
-            "configured {} IMU channels, GNSS {}",
-            IMUS,
-            if gnss_fresh_for.is_some() {
-                "enabled"
-            } else {
-                "disabled"
-            }
-        );
+        crate::diagnostics::configured(IMUS, gnss_fresh_for.is_some());
         Self {
             values: Observations::new(imu_fresh_for, gnss_fresh_for),
             imu: std::array::from_fn(|_| None),
@@ -327,26 +318,18 @@ fn sink<T: Copy, E>(
     input: impl Fn(T) -> Input,
     wrap: fn(Observation) -> E,
 ) -> impl FnMut(T) -> DeliveryResult<T> {
-    move |value| {
-        let observation = Observation {
+    crate::inbox_sink(sender, move |value| {
+        wrap(Observation {
             input: input(value),
             received: Instant::now(),
-        };
-        sender
-            .try_send(wrap(observation))
-            .map_err(|error| Rejected {
-                value,
-                error: match error {
-                    TrySendError::Full(_) => DeliveryError::Full,
-                    TrySendError::Disconnected(_) => DeliveryError::Closed,
-                },
-            })
-    }
+        })
+    })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use messaging::DeliveryError;
 
     struct FinishedImu;
 

@@ -1,7 +1,7 @@
 //! Packet-producing behavior needs no socket or mock HAL crate.
 use camera::{Capture, Format, Frame, PixelFormat};
-use telemetry_service::{Error, Telemetry, TelemetryService, TelemetryStats};
-use transport::{DeviceError, PacketSink};
+use camera_test_support::packet_summary::{Error, Telemetry, TelemetryService, TelemetryStats};
+use transport::DeviceError;
 
 fn frame() -> Frame<'static> {
     Frame {

@@ -3,8 +3,8 @@ use std::collections::VecDeque;
 use camera_test_support::{AppState, CameraProduct, Error, Monitor, Progress, Recorder};
 use camera_service::{CameraService, CameraState, CaptureProgress, Error as CameraError, Frames};
 use camera::{Capture, DeviceError, Format, PixelFormat};
-use recording_service::{Error as RecordingError, RecordingService};
-use telemetry_service::{payload_checksum, Error as TelemetryError, TelemetryService, SUMMARY_BYTES};
+use camera_test_support::recording::{Error as RecordingError, RecordingService};
+use camera_test_support::packet_summary::{payload_checksum, Error as TelemetryError, TelemetryService, SUMMARY_BYTES};
 use crate::mocks::{CameraAction, MockCamera, MockStorage, MockTransport, FORMAT};
 
 pub type Product = CameraProduct<MockCamera, MockStorage, MockTransport, 16, 2>;

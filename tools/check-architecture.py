@@ -29,7 +29,7 @@ ALLOWED = {
     'build-support': {'build-support'},
     'build': {'build-support'},
     'devices': {'hal', 'driver', 'shared', 'support'},
-    'platform': {'service', 'api', 'backend', 'mock', 'driver', 'support', 'platform', 'shared'},
+    'platform': {'api', 'backend', 'mock', 'driver', 'support', 'platform', 'shared'},
     'test': {'app', 'service', 'hal', 'api', 'backend', 'mock', 'driver', 'support', 'platform', 'devices', 'test', 'shared', 'build-support'},
 }
 PORTABLE = {'app', 'service', 'hal', 'api', 'shared', 'devices'}
@@ -55,8 +55,8 @@ PORTABLE_EXTERNAL_BY_PACKAGE = {
     'nxrs-motion-tracker': {'qrcodegen'},
     # Fixed-buffer PPP framing and negotiation with no host/native runtime.
     'nxrs-cellular': {'ppproto'},
-    # Diagnostics use the safe Rust facade. Host/OS delivery is installed
-    # at product startup and stays outside these portable services.
+    # Diagnostics use the safe Rust facade. Fixture-only native adapters stay
+    # in tests, and ordinary navigation builds don't enable the probe.
     'nxrs-navigation-services': {'log'},
     'nxrs-log-router': {'log'},
 }
@@ -121,7 +121,8 @@ def inspect(metadata: dict, root: Path) -> list[str]:
             # Optional, target cfg and build edges are NOT exempted.
             if dep.get('kind') == 'dev':
                 if target and ((role in {'app', 'service'} and roles[target] in {'platform', 'build', 'build-support'})
-                               or (role in {'platform', 'build'} and roles[target] == 'app')):
+                               or (role in {'platform', 'build'} and roles[target] == 'app')
+                               or (role in {'devices', 'platform'} and roles[target] == 'service')):
                     errors.append(f"{package['name']}: test dependencies cannot bypass the app/platform boundary")
                 if (target and role in {'hal', 'driver', 'build-support'}
                         and destination == ('tools', 'build')):

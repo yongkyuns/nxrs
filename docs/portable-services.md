@@ -2,7 +2,8 @@
 
 ## Scope and status
 
-This guide describes the camera/recording/telemetry service qualification.
+This guide describes the camera service and its recording and telemetry
+qualification.
 `tests/camera-support` supplies the small shared Recorder, Monitor and
 `CameraProduct` composition used by native, NuttX and WASM tests. It is test
 support, not a production application or runtime framework. The old `app/nxrs`
@@ -16,19 +17,20 @@ These do not establish physical capture, RTOS scheduling or radio behavior.
 
 ## Dependency direction
 
-The qualification composes the same capability-first service APIs:
+The qualification connects the camera service to two fixture adapters over
+the storage and transport HALs.
 
 <figure class="architecture-art">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="assets/nxrs-service-dependencies-dark.svg">
-    <img src="assets/nxrs-service-dependencies.svg" alt="The camera test composition connects camera, recording and telemetry services to their capability contracts. Navigation services independently use IMU and GNSS contracts with selected providers." loading="lazy">
+    <img src="assets/nxrs-service-dependencies.svg" alt="The camera test composition uses the camera service and fixture adapters for storage and packet delivery. Navigation services use IMU and GNSS capability contracts." loading="lazy">
   </picture>
   <figcaption>Arrows show dependencies. The camera composition is qualification support; production applications construct their own services. <a href="assets/nxrs-service-dependencies.svg">Open SVG</a>.</figcaption>
 </figure>
 
 Production apps and services depend on capability contracts, never on this test
 helper. Native qualification explicitly constructs replay, recording and UDP
-resources and transfers them into the generic services. Hardware acquisition
+resources and transfers them into the camera service and the fixture adapters. Hardware acquisition
 remains inside the owning capability HAL; test support does not select a
 platform or construct native devices.
 
@@ -50,11 +52,11 @@ through `Frames`.
 
 `CameraProduct` is one ordinary explicit constructor and tick function, not a
 registry or mandatory framework. One camera service is shared by both workflows,
-while the storage and transport services own their respective HAL adapters.
+while the recording and packet summary fixtures hold their respective HAL resources.
 Scenarios can omit Monitor or substitute a frame provider. Product apps
 compose their own services; this helper is not part of their dependency graph.
 
-The current service-level composition API looks like:
+The qualification setup uses these APIs.
 
 ```rust,ignore
 // A qualification fixture supplies resources through the capability contracts.

@@ -5,7 +5,7 @@ use storage::{Capture, DeviceError, Format, Frame, PixelFormat};
 use nuttx_support::FileStorage;
 use camera_test_support::Error as AppError;
 use camera_service::Frames;
-use recording_service::{Error, RecordingService, Recordings};
+use camera_test_support::recording::{Error, RecordingService, Recordings};
 
 extern "C" {
     fn rc_test_storage_begin(case: u32) -> i32;

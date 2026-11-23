@@ -1,7 +1,7 @@
 # Cross-platform service logging
 
-Services emit diagnostics with the Rust `log` macros. Host startup installs
-one logger before creating services. The observation service's configuration
+Navigation emits optional diagnostics through Rust `log` with its `probe` feature.
+Qualification startup installs one logger before creating services. The observation service's configuration
 record is the same in the desktop, browser and NuttX tests. Tracker
 measurements continue through the typed observation stream.
 
@@ -48,6 +48,6 @@ node tests/logging/verify-web.mjs \
 
 ## NuttX
 
-The headless QEMU profile starts a separate archive task at boot. Rust
+The headless QEMU qualification starts a separate archive task at boot. Rust
 records enter NuttX `syslog` and are saved alongside native OS and driver
 messages. The profile uses a volatile filesystem. [QEMU build and verifier](../nuttx-std/tracker-sim/README.md#route-system-logs-to-a-rotating-file)

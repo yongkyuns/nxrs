@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="800" height="744" viewBox="0 0 800 744" role="img" aria-labelledby="title description">
   <title id="title">Capability dependencies in portable service qualification</title>
-  <desc id="description">The camera-support test composition depends on camera, recording and telemetry services. Each service uses its corresponding camera, storage or transport capability contract. Separately, navigation services depend on IMU and GNSS capability contracts, each with a build-selected provider. Production applications do not depend on the camera-support fixture.</desc>
+  <desc id="description">The camera-support test composition uses the camera service and local adapters for recording and packet summaries. Each uses its camera, storage or transport capability contract. Navigation services use IMU and GNSS contracts with build-selected providers.</desc>
   <defs>
     <marker id="arrow" viewBox="0 0 8 8" refX="6" refY="4" markerWidth="8" markerHeight="8" markerUnits="userSpaceOnUse" orient="auto">
       <path d="M1 1 L6 4 L1 7" fill="none" stroke="#8A9CAF" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
@@ -39,14 +39,14 @@
   <g id="node-recording-service" data-panel="true">
     <rect x="290" y="204" width="218" height="88" rx="15" class="card" filter="url(#shadow)"/>
 
-    <text x="399" y="236" text-anchor="middle" class="label" font-size="22">Recording service</text>
-    <text x="399" y="263" text-anchor="middle" class="subtitle">nxrs-recording-service</text>
+    <text x="399" y="236" text-anchor="middle" class="label" font-size="22">Recording adapter</text>
+    <text x="399" y="263" text-anchor="middle" class="subtitle">Camera test support</text>
   </g>
   <g id="node-telemetry-service" data-panel="true">
     <rect x="536" y="204" width="218" height="88" rx="15" class="card" filter="url(#shadow)"/>
 
-    <text x="645" y="236" text-anchor="middle" class="label" font-size="22">Telemetry service</text>
-    <text x="645" y="263" text-anchor="middle" class="subtitle">nxrs-telemetry-service</text>
+    <text x="645" y="236" text-anchor="middle" class="label" font-size="22">Packet summary</text>
+    <text x="645" y="263" text-anchor="middle" class="subtitle">Camera test support</text>
   </g>
   <g id="node-camera" data-panel="true">
     <rect x="44" y="332" width="218" height="60" rx="15" class="card" filter="url(#shadow)"/>

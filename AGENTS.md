@@ -1,3 +1,14 @@
+# Service ownership and footprint
+
+For service changes, read [Service boundaries and footprint](docs/architecture.md#service-boundaries-and-footprint)
+and use the `nxrs-service-boundaries` skill in `.agents/skills/`.
+Identify the existing owner and production callers before adding a service.
+Keep fixture-only helpers under `tests/`, and keep service policy and runtime
+adapters out of the root `platform/` tree. Reuse the portable operation, inbox,
+and owner where their contracts match. Budget new workers, queues, retained
+buffers, allocations, dependencies, and linked bytes against the existing
+product path.
+
 # HAL architecture rules
 
 Read `docs/hal-platform-architecture.md` and `docs/nuttx-device-access.md` before

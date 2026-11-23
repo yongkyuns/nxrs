@@ -327,12 +327,12 @@ function navigationDataflow(p) {
 
 function serviceDependencies(p) {
   return guideFigure(p, 'Capability dependencies in portable service qualification',
-    'The camera-support test composition depends on camera, recording and telemetry services. Each service uses its corresponding camera, storage or transport capability contract. Separately, navigation services depend on IMU and GNSS capability contracts, each with a build-selected provider. Production applications do not depend on the camera-support fixture.', 744, `
+    'The camera-support test composition uses the camera service and local adapters for recording and packet summaries. Each uses its camera, storage or transport capability contract. Navigation services use IMU and GNSS contracts with build-selected providers.', 744, `
   ${group(p, 'test', 24, 24, 752, 392, 'Camera qualification fixture')}
   ${panel({ id: 'fixture', x: 188, y: 80, w: 424, h: 68, title: 'tests/camera-support' })}
   ${panel({ id: 'camera-service', x: 44, y: 204, w: 218, title: 'Camera service', lines: ['nxrs-camera-service'] })}
-  ${panel({ id: 'recording-service', x: 290, y: 204, w: 218, title: 'Recording service', lines: ['nxrs-recording-service'] })}
-  ${panel({ id: 'telemetry-service', x: 536, y: 204, w: 218, title: 'Telemetry service', lines: ['nxrs-telemetry-service'] })}
+  ${panel({ id: 'recording-service', x: 290, y: 204, w: 218, title: 'Recording adapter', lines: ['Camera test support'] })}
+  ${panel({ id: 'telemetry-service', x: 536, y: 204, w: 218, title: 'Packet summary', lines: ['Camera test support'] })}
   ${panel({ id: 'camera', x: 44, y: 332, w: 218, h: 60, title: 'nxrs-camera', accent: p.blue })}
   ${panel({ id: 'storage', x: 290, y: 332, w: 218, h: 60, title: 'nxrs-storage', accent: p.blue })}
   ${panel({ id: 'transport', x: 536, y: 332, w: 218, h: 60, title: 'nxrs-transport', accent: p.blue })}
