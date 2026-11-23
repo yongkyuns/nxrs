@@ -1,7 +1,7 @@
+pub(crate) use crate::communications::{reading_status, Snapshot};
 pub use navigation::observations::Reading;
 use navigation::observations::SensorFault;
 use std::time::Duration;
-pub use telemetry_service::motion::{reading_status, Snapshot};
 
 pub const IMU_FRESH: Duration = Duration::from_millis(500);
 pub const FIX_FRESH: Duration = Duration::from_secs(3);

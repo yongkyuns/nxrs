@@ -26,5 +26,8 @@ nxrs-imu = { path = "../../hal/imu" }
 nxrs-messaging = { path = "../../shared/messaging", features = ["channels"] }
 nxrs-navigation-services = { path = "../../service/navigation" }
 nxrs-settings = { path = "../../hal/settings" }
-nxrs-telemetry-service = { path = "../../service/telemetry", default-features = false, features = ["stream"] }
+nxrs-ble = { path = "../../hal/ble", features = ["peripheral"] }
+nxrs-cellular = { path = "../../hal/cellular" }
+nxrs-tls = { path = "../../hal/tls", features = ["pairing"] }
+nxrs-log-router = { path = "../../service/logging" }
 qrcodegen = "1.8"

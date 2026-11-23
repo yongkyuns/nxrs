@@ -4,7 +4,7 @@ on:
     paths:
       - '.github/scripts/install-ubuntu-packages.sh'
       - 'gateway/**'
-      - 'service/detection-wire/**'
+      - 'service/detection/**'
       - 'docs/detection-protocol*'
       - '.github/workflows/monitoring-vpn.yml'
   workflow_dispatch:

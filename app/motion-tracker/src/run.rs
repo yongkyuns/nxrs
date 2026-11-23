@@ -1,3 +1,4 @@
+use crate::communications::{Cellular, Collector, Outputs, Reports, View};
 use crate::{charts, screen, tracker, ReportOptions};
 use battery::Device as _;
 use charts::{History, SAMPLE_INTERVAL};
@@ -7,7 +8,6 @@ use screen::{Action, Dashboard, Screen};
 use std::io::{self, Write};
 use std::sync::mpsc::{RecvTimeoutError, TrySendError};
 use std::time::Instant;
-use telemetry_service::motion::{Cellular, Collector, Outputs, Reports, View};
 use touch::Session as _;
 use tracker::{report_fault, FIX_FRESH, IMU_FRESH};
 

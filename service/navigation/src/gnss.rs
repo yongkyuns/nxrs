@@ -1,6 +1,6 @@
 use std::f32::consts::PI;
 use std::io;
-use std::sync::mpsc::{sync_channel, SyncSender, TrySendError};
+use std::sync::mpsc::{sync_channel, SyncSender};
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,
@@ -8,7 +8,7 @@ use std::sync::{
 use std::thread::{self, JoinHandle};
 
 use crate::fusion::{GnssInput, Submit};
-use gnss::{DeliveryError, DeviceError, GnssFix, Rejected, Session};
+use gnss::{DeviceError, GnssFix, Session};
 use messaging::{bounded, Inbox, Sender};
 
 const INBOX_CAPACITY: usize = 32;
@@ -93,19 +93,8 @@ impl GnssService {
     }
     pub fn start_on(self, device: &'static impl gnss::Device) -> io::Result<GnssHandle> {
         let (control, inbox) = bounded(INBOX_CAPACITY);
-        let sender = control.clone();
         // This endpoint only admits messages; acquisition invokes it in task context.
-        let sink = move |value: gnss::Event| {
-            sender
-                .try_send(Event::Device(value))
-                .map_err(|error| Rejected {
-                    value,
-                    error: match error {
-                        TrySendError::Full(_) => DeliveryError::Full,
-                        TrySendError::Disconnected(_) => DeliveryError::Closed,
-                    },
-                })
-        };
+        let sink = crate::inbox_sink(control.clone(), Event::Device);
         let device = device.open(sink).map_err(hal_error)?;
         Self::start_device(self, device, control, inbox)
     }

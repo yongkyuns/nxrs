@@ -1,6 +1,6 @@
 //! Bounded camera multipart framing shared with the camera stream writer.
 use crate::{Error, Result};
-use capture_wire::{AudioBlock, AudioStamp, MicrophoneState, AUDIO_TYPE, AV_HEADER, AV_VERSION, BLOCK_BYTES, CONTROLLED_AV_VERSION, MICROPHONE_STATE_TYPE};
+use stream_service::wire::{AudioBlock, AudioStamp, MicrophoneState, AUDIO_TYPE, AV_HEADER, AV_VERSION, BLOCK_BYTES, CONTROLLED_AV_VERSION, MICROPHONE_STATE_TYPE};
 use std::collections::BTreeMap;
 use std::num::NonZeroU64;
 use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, BufReader};
@@ -75,7 +75,7 @@ pub struct Reader<R> {
     last_audio: Option<AudioStamp>,
     width: u16,
     height: u16,
-    pub metadata: Option<detection_wire::Source>,
+    pub metadata: Option<detection_service::wire::Source>,
 }
 impl<R: AsyncRead + Unpin> Reader<R> {
     pub async fn start(input: R, width: u16, height: u16) -> Result<Self> {
@@ -170,18 +170,18 @@ impl<R: AsyncRead + Unpin> Reader<R> {
             return self.microphone_acknowledgement(&header).await;
         }
         if header.get("content-type").map(String::as_str)
-            == Some(detection_wire::METADATA_TYPE)
+            == Some(detection_service::wire::METADATA_TYPE)
         {
             if header.contains_key("transfer-encoding") || header.contains_key("content-encoding") {
                 return Err(Error::Protocol);
             }
             let length = integer(&header, "content-length")?;
-            if length == 0 || length > detection_wire::MAX_SOURCE_BYTES as u64 {
+            if length == 0 || length > detection_service::wire::MAX_SOURCE_BYTES as u64 {
                 return Err(Error::Protocol);
             }
             let length = length as usize;
             self.read_payload(length).await?;
-            let metadata = detection_wire::Source::decode(&self.payload[..length])
+            let metadata = detection_service::wire::Source::decode(&self.payload[..length])
                 .map_err(|_| Error::Protocol)?;
             if self.metadata.as_ref().is_some_and(|old| {
                 metadata.publication_id <= old.publication_id
@@ -386,7 +386,7 @@ mod metadata_tests {
     use super::*;
     #[tokio::test]
     async fn reads_bounded_real_contract_metadata_before_unchanged_jpeg_bytes() {
-        let fixture: detection_wire::Snapshot = serde_json::from_slice(include_bytes!(
+        let fixture: detection_service::wire::Snapshot = serde_json::from_slice(include_bytes!(
             "../../../clients/ios/Tests/NxrsMonitorCoreTests/Fixtures/detection.json"
         ))
         .unwrap();
@@ -399,7 +399,7 @@ mod metadata_tests {
         wire.extend(
             format!(
                 "--nxrs-frame\r\nContent-Type: {}\r\nContent-Length: {}\r\n\r\n",
-                detection_wire::METADATA_TYPE,
+                detection_service::wire::METADATA_TYPE,
                 json.len()
             )
             .bytes(),
@@ -425,7 +425,7 @@ mod metadata_tests {
     }
     #[tokio::test]
     async fn rejects_metadata_oversize_before_reading_the_payload() {
-        let wire=format!("HTTP/1.1 200 OK\r\nContent-Type: multipart/x-mixed-replace; boundary=nxrs-frame\r\n\r\n--nxrs-frame\r\nContent-Type: {}\r\nContent-Length: 4097\r\n\r\n",detection_wire::METADATA_TYPE);
+        let wire=format!("HTTP/1.1 200 OK\r\nContent-Type: multipart/x-mixed-replace; boundary=nxrs-frame\r\n\r\n--nxrs-frame\r\nContent-Type: {}\r\nContent-Length: 4097\r\n\r\n",detection_service::wire::METADATA_TYPE);
         let mut reader = Reader::start(wire.as_bytes(), 320, 240).await.unwrap();
         assert_eq!(reader.next_frame().await.unwrap_err(), Error::Protocol);
     }

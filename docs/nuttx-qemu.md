@@ -16,7 +16,7 @@ The build passed:
 - the 42-observation IPv4 UDP/socket ABI gate for the exact Xtensa libc;
 - final 32-bit Xtensa/NuttX link inspection;
 - camera and storage NuttX providers;
-- the production `nxrs-transport-nuttx` `std::net::UdpSocket` provider;
+- `std::net::UdpSocket` ownership, datagrams and loopback routing;
 - target preemption, descriptor-lifetime and storage-fault controls.
 
 The QEMU execution reached `RC_RUST_STD_MAIN BEGIN`, completed the product

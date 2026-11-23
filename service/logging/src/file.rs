@@ -160,6 +160,9 @@ impl<Record: AsRef<[u8]> + Send + 'static> FileArchive<Record> {
 
     /// Reject the newest record if the inbox is full.
     pub fn offer(&mut self, record: Record) -> io::Result<()> {
+        if record.as_ref().is_empty() {
+            return Err(io::ErrorKind::InvalidInput.into());
+        }
         let sender = self.sender.as_ref().ok_or(io::ErrorKind::BrokenPipe)?;
         match sender.try_send(record) {
             Ok(()) => {}

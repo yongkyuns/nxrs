@@ -78,6 +78,17 @@ jobs:
             --target-c-source tests/nuttx-std/tracker-sim/devices.c \
             --target-c-source tests/nuttx-std/tracker-sim/dashboard_init.c \
             --out target/tracker-upload-sim 2>&1 | tee target/tracker-upload-build.log
+      - name: Guard tracker firmware footprint
+        shell: bash
+        run: |
+          set -o pipefail
+          source target/qemu-tools/environment.sh
+          export PYTHONPATH=tests
+          # The one-IMU fixture now includes the required GNSS receiver and telemetry archive.
+          python3 -m rtos_harness.footprint_budget target/nuttx-qemu/tracker \
+            --linked-flash 565248 --image 614400 --static-ram 61440 | tee -a "$GITHUB_STEP_SUMMARY"
+          python3 -m rtos_harness.footprint_budget target/tracker-upload-sim \
+            --linked-flash 786432 --image 835584 --static-ram 104448 | tee -a "$GITHUB_STEP_SUMMARY"
       - name: Verify live sensor reports and TLS recovery after PPP loss
         run: |
           python3 tests/nuttx-std/tracker-sim/upload.py \

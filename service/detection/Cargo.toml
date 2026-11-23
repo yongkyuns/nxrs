@@ -6,6 +6,20 @@ edition.workspace = true
 [lib]
 name = "detection_service"
 
+[features]
+default = ["inference"]
+inference = ["dep:nxrs-detector"]
+wire = ["dep:serde", "dep:serde_json"]
+
 [dependencies]
-nxrs-camera = { path = "../../hal/camera" }
-nxrs-detector = { path = "../../hal/detector" }
+nxrs-detector = { path = "../../hal/detector", optional = true }
+serde = { version = "=1.0.228", features = ["derive"], optional = true }
+serde_json = { version = "=1.0.145", optional = true }
+
+[[example]]
+name = "video_fixture"
+required-features = ["wire"]
+
+[[test]]
+name = "contract"
+required-features = ["wire"]

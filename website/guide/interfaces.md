@@ -47,20 +47,19 @@ The [hardware guide](hardware.md) explains providers and drivers. The [services 
 
 ## Read the public API, not the provider layout
 
-These are current entry points, not a universal HAL template. The [Rust API reference](../api.md) provides the generated library pages and symbol search. Its catalog distinguishes the Cargo package name used with `-p` from the Rust library name: for example, package `nxrs-transport` declares library `transport`.
+These are current entry points, not a universal HAL template. The [Rust API reference](../api.md) provides the generated library pages and symbol search. Its catalog distinguishes the Cargo package name used with `-p` from the Rust library name: for example, package `nxrs-camera` declares library `camera`.
 
 | Package / Rust library | Public contract or operation | Availability and meaning |
 | --- | --- | --- |
 | `nxrs-messaging` / `messaging` | `bounded`, `Sender`, `Inbox::wait` | Default `channels` feature supplies a task-context wrapper around standard bounded channels |
-| `nxrs-transport` / `transport` | `PacketSink::send` | Local whole-packet acceptance; a compatible closure can implement the contract |
-| `nxrs-transport` / `transport` | `udp::UdpTransport::connect` | Explicit `udp` feature; uses a numeric address and the standard socket path |
+| Rust `std::net` | `UdpSocket` and `TcpStream` | Ordinary socket I/O |
 | `nxrs-storage` / `storage` | `Storage` | Frame-record acceptance and flush contract; ordinary files can still use std directly |
 | `nxrs-storage` / `storage` | `recording::FileRecorder::create_new` | Explicit `recording` feature; queued directory recording with bounded buffers |
 | `nxrs-storage` / `storage` | `create_record_file` | Configured synchronous NuttX record-file acquisition; unbound acquisition reports `Unsupported` |
 | `nxrs-led` / `led` | `Led::supported`, `Led::set`, `open` | Synchronous typed controls; availability and indices depend on the selected provider |
 | `nxrs-console` / `console` | `open` returning a readable/writable resource | Configured commissioning console; native setup and ownership stay in its provider |
 
-Source and detailed contracts: [messaging](../../shared/messaging/src/lib.rs), [packet output](../../hal/transport/README.md), [record storage](../../hal/storage/README.md), [LED controls](../../hal/led/src/api.rs), and [console](../../hal/console/src/platform/mod.rs).
+Source and detailed contracts: [messaging](../../shared/messaging/src/lib.rs), [record storage](../../hal/storage/README.md), [LED controls](../../hal/led/src/api.rs), and [console](../../hal/console/src/platform/mod.rs).
 
 Generate local Rust documentation for a small component with:
 

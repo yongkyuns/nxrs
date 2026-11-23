@@ -213,7 +213,12 @@ class DeviceClosureFixture(unittest.TestCase):
             identity = sha((case + cap).encode())
             text = "// Generated canonical device instances.\n" + declarations[cap] + "\npub mod devices {\n"
             text += "".join(f"pub fn r#{name}() -> &'static impl super::Device {{ &super::{symbol} }}\n"
-                            for name, symbol in sorted(accessors[cap].items())) + "}\n"
+                            for name, symbol in sorted(accessors[cap].items()))
+            if cap == "imu":
+                body = "Some(super::secondary())" if matrix else "false.then(super::primary_imu)"
+                text += ("pub mod optional {\npub fn secondary() -> Option<&'static impl super::super::Device> "
+                         f"{{ {body} }}\n}}\n")
+            text += "}\n"
             self.put(case, f"configuration/{identity}/{cap}_config.rs", text)
             self.put(case, copied.relative_to(old) / f"{cap}_config.rs", text)
             prepared[cap] = {"identity": identity, "output": {"file": cap + "_config.rs", "sha256": sha(text.encode())}}

@@ -1,8 +1,8 @@
 //! Errors from composing the independent services into the example product.
 
-use camera_service::Error as CameraError;
-use recording_service::Error as RecordingError;
-use telemetry_service::Error as TelemetryError;
+use camera::capture::Error as CameraError;
+use crate::recording::Error as RecordingError;
+use crate::packet_summary::Error as TelemetryError;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Error {

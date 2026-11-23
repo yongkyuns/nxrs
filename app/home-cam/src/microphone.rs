@@ -1,5 +1,5 @@
 //! Bind one authorized HTTP stream to the board's microphone and camera clock.
-use capture_wire::{AudioBlock, AudioStamp, BLOCK_BYTES, BLOCK_SAMPLES, SAMPLE_RATE_HZ};
+use stream_service::wire::{AudioBlock, AudioStamp, BLOCK_BYTES, BLOCK_SAMPLES, SAMPLE_RATE_HZ};
 use std::time::{Duration, Instant};
 
 const _: () = assert!(

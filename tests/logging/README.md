@@ -1,10 +1,9 @@
 # Cross-platform service logging
 
-Services emit diagnostics with the Rust `log` macros. Host startup installs
-one logger before creating services. The observation service's configuration
-record is enabled by the navigation crate's `probe` feature in the desktop,
-browser and NuttX fixtures. Tracker measurements use the typed observation
-stream.
+Navigation emits optional diagnostics through Rust `log` with its `probe` feature.
+Qualification startup installs one logger before creating services. The observation service's configuration
+record is the same in the desktop, browser and NuttX tests. Tracker
+measurements continue through the typed observation stream.
 
 ## Desktop
 
@@ -19,9 +18,9 @@ checks that both files contain the expected records.
 cargo test --locked -p nxrs-log-qualification --test file
 ```
 
-Linux and macOS CI also run the production headless tracker with one mock IMU.
-The smoke test checks the same version 2 JSON telemetry as the headless NuttX
-profile, including fresh samples, a single IMU, and a clean exit.
+Linux and macOS CI also run the production tracker with two mock IMUs and GNSS
+without a display. The smoke test checks fresh version 1 telemetry and a clean
+exit.
 
 ```sh
 python tests/native/motion_tracker.py
@@ -49,6 +48,6 @@ node tests/logging/verify-web.mjs \
 
 ## NuttX
 
-The headless QEMU profile starts a separate archive task at boot. Rust
+The headless QEMU qualification starts a separate archive task at boot. Rust
 records enter NuttX `syslog` and are saved alongside native OS and driver
 messages. The profile uses a volatile filesystem. [QEMU build and verifier](../nuttx-std/tracker-sim/README.md#route-system-logs-to-a-rotating-file)

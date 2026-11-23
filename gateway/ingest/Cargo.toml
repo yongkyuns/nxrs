@@ -10,7 +10,7 @@ publish = false
 probe = []
 
 [dependencies]
-nxrs-capture-wire = { path = "../../service/capture-wire" }
+nxrs-stream-service = { path = "../../service/stream", default-features = false }
 nxrs-enrollment = { path = "../../service/enrollment" }
 rcgen = { version = "=0.14.10", default-features = false, features = ["ring", "pem", "x509-parser"] }
 time = "=0.3.55"
@@ -20,7 +20,7 @@ tokio = { version = "=1.51.6", features = ["macros", "rt", "net", "io-util", "pr
 serde = { version = "=1.0.228", features = ["derive"] }
 serde_json = "=1.0.145"
 libc = "=0.2.191"
-nxrs-detection-wire = { path = "../../service/detection-wire" }
+nxrs-detection-service = { path = "../../service/detection", default-features = false, features = ["wire"] }
 nxrs-firmware-update = { path = "../../service/firmware-update" }
 getrandom = "=0.3.4"
 
@@ -32,4 +32,4 @@ zeroize = "=1.9.1"
 
 [dev-dependencies]
 nxrs-camera = { path = "../../hal/camera" }
-nxrs-stream-service = { path = "../../service/stream" }
+nxrs-stream-service = { path = "../../service/stream", default-features = false, features = ["server"] }

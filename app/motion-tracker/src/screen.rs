@@ -4,6 +4,7 @@ mod gesture;
 
 use crate::{
     charts::{History, Metric, RoutePoint, ROUTE_POINTS},
+    communications::LinkStatus,
     text::Text,
     tracker::{Reading, Snapshot},
 };
@@ -12,7 +13,6 @@ use display::{Display, Error, Rect, Size};
 use gesture::{Contact, Gesture};
 use qrcodegen::{QrCode, QrCodeEcc};
 use std::{fmt::Write, time::Instant};
-use telemetry_service::motion::LinkStatus;
 
 const STRIP: u16 = 8;
 const GRIP_HEIGHT: i32 = 8;

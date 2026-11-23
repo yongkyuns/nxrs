@@ -15,17 +15,13 @@ nxrs-console = { path = "../../hal/console" }
 nxrs-execution = { path = "../../hal/execution" }
 nxrs-ssh = { path = "../../hal/ssh" }
 nxrs-detector = { path = "../../hal/detector" }
-nxrs-connectivity-service = { path = "../../service/connectivity" }
 nxrs-enrollment = { path = "../../service/enrollment" }
 nxrs-settings = { path = "../../hal/settings" }
 nxrs-camera = { path = "../../hal/camera" }
 nxrs-audio = { path = "../../hal/audio" }
-nxrs-capture-wire = { path = "../../service/capture-wire" }
-nxrs-camera-service = { path = "../../service/camera" }
 nxrs-stream-service = { path = "../../service/stream" }
 nxrs-firmware-update = { path = "../../service/firmware-update" }
-nxrs-detection-service = { path = "../../service/detection" }
-nxrs-detection-wire = { path = "../../service/detection-wire" }
+nxrs-detection-service = { path = "../../service/detection", features = ["wire"] }
 nxrs-tls = { path = "../../hal/tls" }
 nxrs-boot = { path = "../../hal/boot" }
 nxrs-watchdog = { path = "../../hal/watchdog" }

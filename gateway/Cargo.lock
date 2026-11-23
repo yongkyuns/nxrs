@@ -833,14 +833,10 @@ dependencies = [
 [[package]]
 name = "nxrs-camera-ingest"
 version = "0.1.0"
-dependencies = ["getrandom 0.3.4", "libc", "nxrs-camera", "nxrs-capture-wire", "nxrs-detection-wire", "nxrs-enrollment", "nxrs-firmware-update", "nxrs-stream-service", "rcgen", "rustls", "serde", "serde_json", "sha2", "subtle", "time", "tokio", "tokio-rustls", "x509-parser", "zeroize"]
+dependencies = ["getrandom 0.3.4", "libc", "nxrs-camera", "nxrs-detection-service", "nxrs-enrollment", "nxrs-firmware-update", "nxrs-stream-service", "rcgen", "rustls", "serde", "serde_json", "sha2", "subtle", "time", "tokio", "tokio-rustls", "x509-parser", "zeroize"]
 
 [[package]]
-name = "nxrs-capture-wire"
-version = "0.1.0"
-
-[[package]]
-name = "nxrs-detection-wire"
+name = "nxrs-detection-service"
 version = "0.1.0"
 dependencies = ["serde", "serde_json"]
 
@@ -855,12 +851,12 @@ version = "0.1.0"
 [[package]]
 name = "nxrs-gateway-control"
 version = "0.1.0"
-dependencies = ["axum", "bytes", "futures-util", "getrandom 0.3.4", "http-body-util", "hyper", "hyper-util", "libc", "nxrs-detection-wire", "serde", "serde_json", "sha2", "subtle", "tokio"]
+dependencies = ["axum", "bytes", "futures-util", "getrandom 0.3.4", "http-body-util", "hyper", "hyper-util", "libc", "nxrs-detection-service", "serde", "serde_json", "sha2", "subtle", "tokio"]
 
 [[package]]
 name = "nxrs-gateway-matter"
 version = "0.1.0"
-dependencies = ["base64 0.22.1", "bytes", "cfg-if", "domain", "futures-util", "http-body-util", "hyper", "hyper-util", "if-addrs", "libc", "nix", "nxrs-detection-wire", "rcgen", "retina", "ring", "rustls", "serde", "serde_json", "sha2", "socket2 0.6.5", "tokio", "url", "x509-parser", "zeroize"]
+dependencies = ["base64 0.22.1", "bytes", "cfg-if", "domain", "futures-util", "http-body-util", "hyper", "hyper-util", "if-addrs", "libc", "nix", "nxrs-detection-service", "rcgen", "retina", "ring", "rustls", "serde", "serde_json", "sha2", "socket2 0.6.5", "tokio", "url", "x509-parser", "zeroize"]
 
 [[package]]
 name = "nxrs-parser-fuzz"
@@ -877,7 +873,7 @@ name = "nxrs-rtsp-publisher"
 version = "0.1.0"
 dependencies = [
  "ffmpeg-sys-next",
- "nxrs-detection-wire",
+ "nxrs-detection-service",
  "zeroize",
 ]
 
@@ -886,7 +882,6 @@ name = "nxrs-stream-service"
 version = "0.1.0"
 dependencies = [
  "nxrs-camera",
- "nxrs-capture-wire",
 ]
 
 [[package]]

@@ -1,11 +1,10 @@
 //! Compose the production reconnect policy with the SSH qualification console.
-use connectivity_service::Reconnector;
 use std::{
     io,
     sync::mpsc::{sync_channel, TryRecvError, TrySendError},
     time::{Duration, Instant},
 };
-use wifi::{Command, Credentials, DeliveryError, LinkState, Passphrase, ProviderStatus, Rejected};
+use wifi::{Command, Credentials, DeliveryError, LinkState, Passphrase, ProviderStatus, Reconnector, Rejected};
 
 pub(super) struct State {
     pub addressed: bool,
