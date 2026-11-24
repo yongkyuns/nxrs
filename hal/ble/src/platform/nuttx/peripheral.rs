@@ -431,7 +431,7 @@ impl Read for Transport {
             return Ok(0);
         }
         // Keep the HCI callback's wait bounded even for large TLS reads.
-        let len = bytes.len().min(STREAM_CHUNK);
+        let len = bytes.len().min(4 * LEGACY_CHUNK);
         let count = pop(&mut input(self.stamp)?.bytes, &mut bytes[..len]);
         if count == 0 {
             Err(io::ErrorKind::WouldBlock.into())

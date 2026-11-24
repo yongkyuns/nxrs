@@ -57,10 +57,9 @@ pixel with the menu closed. The tracker keeps up to four complete tiles and
 one partial reply. It releases off-screen tiles before a new request and
 stores each row losslessly in small blocks to limit heap pressure during
 sensor export. The tracker downloads one tile at a time and can start
-the next visible tile as soon as the previous one succeeds. A new request
-can reuse the latest dashboard snapshot between scheduled reports.
-Replacing a request still observes the five-second interval. Tile arrival
-wakes the display for a redraw.
+the next visible tile as soon as the previous one succeeds. Replacing a
+request still observes the five-second interval. Tile arrival wakes the
+display for a redraw.
 Direct IP dialing uses a temporary 8 KiB stack and opens a
 separate TLS session for the reply. The phone or relay fetches the PNG
 over HTTPS and uses HTTP caching. It lightly sharpens the raster after
