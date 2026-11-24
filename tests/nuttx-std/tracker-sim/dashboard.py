@@ -770,6 +770,24 @@ async def scenario(guest, panel, phone, args):
     print('PASS: orderly release, restart and persisted report interval', flush=True)
 
 
+async def resume_guest(qmp):
+    async with asyncio.timeout(5):
+        reader, writer = await asyncio.open_unix_connection(qmp)
+        try:
+            assert 'QMP' in json.loads(await reader.readline()), 'missing QMP greeting'
+            for command in ('qmp_capabilities', 'cont'):
+                writer.write(json.dumps({'execute': command}).encode() + b'\n')
+                await writer.drain()
+                while True:
+                    reply = json.loads(await reader.readline())
+                    if 'event' not in reply:
+                        assert 'return' in reply, (command, reply)
+                        break
+        finally:
+            writer.close()
+            await writer.wait_closed()
+
+
 async def run(args, log, exercise=scenario, attach_controller=None):
     output = subprocess.check_output([args.nm, args.image.with_name('nuttx')], text=True)
     addresses = {}
@@ -784,7 +802,8 @@ async def run(args, log, exercise=scenario, attach_controller=None):
             command = [args.qemu, '-machine', 'esp32s3', '-smp', '2', '-display', 'none',
                        '-serial', 'stdio', '-serial', f'unix:{path / "gps"}',
                        '-serial', f'unix:{peer_path}', '-monitor', 'none', '-nic', 'none',
-                       '-no-reboot', '-snapshot', '-qtest-log', '/dev/null',
+                       '-no-reboot', '-snapshot', '-S', '-qmp', f'unix:{path / "qmp"},server=on,wait=off',
+                       '-qtest-log', '/dev/null',
                        '-qtest', f'unix:{path / "qtest"},server=on,wait=off',
                        '-drive', f'file={args.image},if=mtd,format=raw']
             if args.qemu_data:
@@ -819,6 +838,9 @@ async def run(args, log, exercise=scenario, attach_controller=None):
                 central = PhoneController('test phone', link=link, public_address='F0:F1:F2:F3:F4:02')
                 phone = Device.with_hci('test phone', Address('F0:F1:F2:F3:F4:A2'), central, central)
                 await phone.power_on()
+                # NuttX sends HCI commands during boot. Start its timeout only
+                # once the host has installed the controller and its pumps.
+                await resume_guest(path / 'qmp')
                 start = time.monotonic()
                 test = asyncio.create_task(exercise(guest, panel, phone, args))
                 tasks.append(test)
