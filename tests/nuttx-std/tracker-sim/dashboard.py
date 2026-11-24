@@ -100,6 +100,7 @@ class Stream:
 class BluetoothLink(LocalLink):
     notifications_to_drop = 0
     acknowledgements_to_drop = 0
+    drop_ingress_at = None
     notification_rate = 0
     paced_notifications = 0
     next_notification = 0.0
@@ -117,6 +118,10 @@ class BluetoothLink(LocalLink):
             return
         if self.acknowledgements_to_drop and data[2:8] == b'\x04\x00\x52\x08\x00\x01':
             self.acknowledgements_to_drop -= 1
+            return
+        if (self.drop_ingress_at is not None and data[2:8] == b'\x04\x00\x52\x08\x00\x03'
+                and int.from_bytes(data[8:12], 'little') == self.drop_ingress_at):
+            self.drop_ingress_at = None
             return
         peer = self.find_le_controller(destination)
         if peer is not None:
@@ -384,7 +389,10 @@ class SecureStream:
         self.acknowledgement_pending = False
         self.acknowledge_at = 0.0
         self.ingress_payload = 19
+        self.windowed_writes = False
+        self.ingress_offset = 0
         self.acknowledged_writes = 0
+        self.write_retries = 0
         self.scales = (None, None)
         self.sample_counts = [0] * 3
         self.sample_sequences = [None] * 3
@@ -426,16 +434,25 @@ class SecureStream:
     async def flush(self):
         framed = self.notifications is not None
         while self.outgoing.pending:
-            chunk = self.outgoing.read(self.ingress_payload if framed else 20)
-            packet = b'\0' + chunk if framed else chunk
+            limit = self.ingress_payload * (4 if self.windowed_writes else 1) if framed else 20
+            chunk = self.outgoing.read(limit)
+            packets = [b'\0' + chunk if framed else chunk]
+            if self.windowed_writes:
+                size = self.ingress_payload
+                packets = [b'\x03' + ((self.ingress_offset + offset) & 0xffffffff).to_bytes(4, 'little')
+                           + chunk[offset:offset + size] for offset in range(0, len(chunk), size)]
             for attempt in range(33):
                 try:
-                    await self.rx.write_value(packet, with_response=True)
+                    for packet in packets[:-1]:
+                        await self.rx.write_value(packet, with_response=False)
+                    await self.rx.write_value(packets[-1], with_response=True)
                     self.acknowledged_writes += 1
+                    self.ingress_offset = (self.ingress_offset + len(chunk)) & 0xffffffff
                     break
                 except ATT_Error as error:
                     if error.error_code != ErrorCode.UNLIKELY_ERROR or attempt == 32:
                         raise
+                    self.write_retries += 1
                     if framed:
                         await self.acknowledge()
                     else:
@@ -574,12 +591,15 @@ async def connect_map_export(phone, key):
     await stream.subscribe()
     limit = min(244, mtu - 3)
     if limit > 20:
-        try:
-            await rx.write_value(b'\x02' + bytes(limit - 1), with_response=True)
-        except ATT_Error as error:
-            assert error.error_code == ErrorCode.UNLIKELY_ERROR, error
-        else:
-            stream.ingress_payload = limit - 1
+        for probe, overhead in ((4, 5), (2, 1)):
+            try:
+                await rx.write_value(bytes([probe]) + bytes(limit - 1), with_response=True)
+            except ATT_Error as error:
+                assert error.error_code == ErrorCode.UNLIKELY_ERROR, error
+            else:
+                stream.windowed_writes = probe == 4
+                stream.ingress_payload = limit - overhead
+                break
     await stream.handshake()
     capabilities = await stream.sample()
     assert capabilities['export_version'] == 2 and all(stream.scales), capabilities

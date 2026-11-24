@@ -30,7 +30,10 @@ static REGISTERED: Mutex<Option<(Service, Option<Service>)>> = Mutex::new(None);
 // One atomic tracks the HCI handle, its generation and the link state.
 static STAMP: AtomicU32 = AtomicU32::new(0);
 static ACKNOWLEDGED: AtomicU32 = AtomicU32::new(0);
-static INPUT: Mutex<Queue> = Mutex::new(Queue::new());
+static INPUT: Mutex<Input> = Mutex::new(Input {
+    queue: Queue::new(),
+    next: 0,
+});
 static OUTPUT: Mutex<Output> = Mutex::new(Output {
     queue: Queue::new(),
     offset: 0,
@@ -70,6 +73,11 @@ impl Queue {
         self.bytes.clear();
         true
     }
+}
+
+struct Input {
+    queue: Queue,
+    next: u32,
 }
 
 struct Output {
@@ -138,12 +146,14 @@ fn validate(stamp: u32) -> io::Result<()> {
     Ok(())
 }
 
-fn input(stamp: u32) -> io::Result<MutexGuard<'static, Queue>> {
+fn input(stamp: u32) -> io::Result<MutexGuard<'static, Input>> {
     // ATT writes run on NuttX's HCI receive worker. This lock protects only
     // bounded byte copies and is never held across an SDK call or I/O.
     let mut queue = INPUT.lock().map_err(|_| io::ErrorKind::BrokenPipe)?;
     validate(stamp)?;
-    queue.select(stamp);
+    if queue.queue.select(stamp) {
+        queue.next = 0;
+    }
     Ok(queue)
 }
 
@@ -243,6 +253,7 @@ unsafe extern "C" fn peripheral_write_rust(source: *const u8, count: u8, framed:
     let stamp = STAMP.load(Ordering::Acquire);
     // SDK storage is valid for this synchronous callback only.
     let mut bytes = unsafe { std::slice::from_raw_parts(source, count) };
+    let mut position = None;
     if framed {
         if !NOTIFY.load(Ordering::Acquire) || validate(stamp).is_err() {
             return -1;
@@ -256,9 +267,14 @@ unsafe extern "C" fn peripheral_write_rust(source: *const u8, count: u8, framed:
                 }
                 return count as i32;
             }
-            // An acknowledged probe tests the peer's direct ATT write size
-            // without enqueuing bytes or depending on GATT discovery caching.
-            [2, padding @ ..] if count > LEGACY_CHUNK && padding.iter().all(|byte| *byte == 0) => {
+            [3, a, b, c, d, rest @ ..] if !rest.is_empty() => {
+                position = Some(u32::from_le_bytes([*a, *b, *c, *d]));
+                bytes = rest;
+            }
+            // The two probes test the direct ATT size without enqueuing bytes.
+            [2 | 4, padding @ ..]
+                if count > LEGACY_CHUNK && padding.iter().all(|byte| *byte == 0) =>
+            {
                 return count as i32;
             }
             _ => return -1,
@@ -267,10 +283,25 @@ unsafe extern "C" fn peripheral_write_rust(source: *const u8, count: u8, framed:
     let Ok(mut data) = input(stamp) else {
         return -1;
     };
-    if bytes.len() > CAPACITY - data.bytes.len() {
+    if let Some(position) = position {
+        let preceding = data.next.wrapping_sub(position);
+        if preceding != 0 {
+            // Reject gaps and partial overlaps. A replayed window always
+            // uses the original packet boundaries.
+            return if preceding <= i32::MAX as u32 && preceding >= bytes.len() as u32 {
+                count as i32
+            } else {
+                -1
+            };
+        }
+    }
+    if bytes.len() > CAPACITY - data.queue.bytes.len() {
         return -1;
     }
-    data.bytes.extend(bytes);
+    data.queue.bytes.extend(bytes);
+    if position.is_some() {
+        data.next = data.next.wrapping_add(bytes.len() as u32);
+    }
     drop(data);
     signal_ready();
     count as i32
@@ -315,6 +346,7 @@ pub(crate) fn open_peripheral(
             INPUT
                 .lock()
                 .map_err(|_| Error::Io)?
+                .queue
                 .bytes
                 .try_reserve_exact(CAPACITY)
                 .map_err(|_| Error::Io)?;
@@ -457,7 +489,7 @@ impl Read for Transport {
         }
         // Keep the HCI callback's wait bounded even for large TLS reads.
         let len = bytes.len().min(4 * LEGACY_CHUNK);
-        let count = pop(&mut input(self.stamp)?.bytes, &mut bytes[..len]);
+        let count = pop(&mut input(self.stamp)?.queue.bytes, &mut bytes[..len]);
         if count == 0 {
             Err(io::ErrorKind::WouldBlock.into())
         } else {

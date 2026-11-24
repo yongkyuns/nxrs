@@ -164,7 +164,8 @@ final class TrackerConnection: NSObject, @unchecked Sendable {
     private static let exportService = Service("2", notifications: true)
     private static let services = [exportService.uuid, dashboardService.uuid]
     private static let loopback = NWEndpoint.Host.ipv4(.loopback)
-    private enum Operation: Equatable { case read, write, probe(payload: Int) }
+    private static let windowPackets = 4
+    private enum Operation: Equatable { case read, write, probe(limit: Int, windowed: Bool) }
 
     private var manager: CBCentralManager?
     private var disconnectingPeer: CBPeripheral?
@@ -191,6 +192,9 @@ final class TrackerConnection: NSObject, @unchecked Sendable {
     private var pending: Data?
     private var operation: Operation?
     private var ingressPayload = 19
+    private var windowedWrites = false
+    private var ingressOffset: UInt32 = 0
+    private var windowSent = 0
     private var writesSinceRead = 0
     private var writeRetries = 0
     private var writeDeadline: ContinuousClock.Instant?
@@ -330,6 +334,9 @@ final class TrackerConnection: NSObject, @unchecked Sendable {
         wantedTile = nil
         offeredTile = nil
         ingressPayload = 19
+        windowedWrites = false
+        ingressOffset = 0
+        windowSent = 0
         writesSinceRead = 0
         writeRetries = 0
         writeDeadline = nil
@@ -576,7 +583,8 @@ final class TrackerConnection: NSObject, @unchecked Sendable {
     }
 
     private func receiveCiphertext(_ conn: NWConnection, token: UUID) {
-        conn.receive(minimumIncompleteLength: 1, maximumLength: notifying ? ingressPayload : 20) { [weak self] data, _, done, error in
+        let limit = notifying ? ingressPayload * (windowedWrites ? Self.windowPackets : 1) : 20
+        conn.receive(minimumIncompleteLength: 1, maximumLength: limit) { [weak self] data, _, done, error in
             guard let self, self.generation == token else { return }
             guard !done, error == nil, let data, !data.isEmpty else {
                 self.recover("Secure connection closed")
@@ -596,14 +604,40 @@ final class TrackerConnection: NSObject, @unchecked Sendable {
         guard operation == nil, !relaySending else { return }
         if let pending, notifying || writesSinceRead < 4 {
             if !notifying { writesSinceRead += 1 }
-            operation = .write
             if writeDeadline == nil { writeDeadline = .now + .seconds(2) }
-            peripheral.writeValue(notifying ? Data([0]) + pending : pending, for: ingress, type: .withResponse)
+            if windowedWrites {
+                pumpWindow(pending, to: peripheral, ingress: ingress)
+            } else {
+                operation = .write
+                peripheral.writeValue(notifying ? Data([0]) + pending : pending, for: ingress, type: .withResponse)
+            }
         } else if !notifying {
             writesSinceRead = 0
             operation = .read
             peripheral.readValue(for: egress)
         }
+    }
+
+    private func pumpWindow(_ bytes: Data, to peer: CBPeripheral, ingress: CBCharacteristic) {
+        // An acknowledged tail confirms every byte through the end of the window.
+        while windowSent < bytes.count, peer.canSendWriteWithoutResponse {
+            let end = min(windowSent + ingressPayload, bytes.count)
+            var offset = (ingressOffset &+ UInt32(windowSent)).littleEndian
+            var packet = Data([3])
+            withUnsafeBytes(of: &offset) { packet.append(contentsOf: $0) }
+            packet.append(bytes[(bytes.startIndex + windowSent)..<(bytes.startIndex + end)])
+            windowSent = end
+            let tail = end == bytes.count
+            if tail { operation = .write }
+            peer.writeValue(packet, for: ingress, type: tail ? .withResponse : .withoutResponse)
+        }
+    }
+
+    private func probeIngress(_ peer: CBPeripheral, ingress: CBCharacteristic, limit: Int, windowed: Bool) {
+        var probe = Data(repeating: 0, count: limit)
+        probe[0] = windowed ? 4 : 2
+        operation = .probe(limit: limit, windowed: windowed)
+        peer.writeValue(probe, for: ingress, type: .withResponse)
     }
 }
 
@@ -709,10 +743,7 @@ extension TrackerConnection: CBCentralManagerDelegate, CBPeripheralDelegate {
             let limit = min(244, peer.maximumWriteValueLength(for: .withoutResponse),
                             peer.maximumWriteValueLength(for: .withResponse))
             if let ingress, limit > 20 {
-                var probe = Data(repeating: 0, count: limit)
-                probe[0] = 2
-                operation = .probe(payload: limit - 1)
-                peer.writeValue(probe, for: ingress, type: .withResponse)
+                probeIngress(peer, ingress: ingress, limit: limit, windowed: true)
             } else {
                 establishRelay()
             }
@@ -723,24 +754,33 @@ extension TrackerConnection: CBCentralManagerDelegate, CBPeripheralDelegate {
 
     func peripheral(_ peer: CBPeripheral, didWriteValueFor characteristic: CBCharacteristic, error: Error?) {
         guard peer === peripheral, characteristic === ingress else { return }
-        if case .probe(let payload) = operation {
+        if case .probe(let limit, let windowed) = operation {
             operation = nil
-            if error == nil { ingressPayload = payload }
+            if error == nil {
+                windowedWrites = windowed
+                ingressPayload = limit - (windowed ? 5 : 1)
+            } else if windowed {
+                probeIngress(peer, ingress: characteristic, limit: limit, windowed: false)
+                return
+            }
             establishRelay()
             return
         }
         guard operation == .write else { return }
         operation = nil
-        // The tracker rejects a GATT write before enqueuing any bytes when
-        // its bounded ingress is busy. Retry the identical ciphertext.
+        // A full queue or missing earlier chunk rejects the tail. Resend the
+        // same bytes from the window start so the tracker can skip duplicates.
         if (error as? CBATTError)?.code == .unlikelyError, writeRetries < 32 {
             writeRetries += 1
+            windowSent = 0
             writesSinceRead = 4
             return
         }
         guard error == nil, let relay else { recover("Bluetooth write failed"); return }
         writeRetries = 0
         writeDeadline = nil
+        if windowedWrites { ingressOffset &+= UInt32(windowSent) }
+        windowSent = 0
         pending = nil
         receiveCiphertext(relay, token: generation)
         // The periodic read gives the tracker a chance to drain outgoing ciphertext.

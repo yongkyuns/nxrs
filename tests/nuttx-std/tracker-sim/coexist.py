@@ -365,7 +365,7 @@ class Scenario:
         key = await panel.pairing_key()
         await guest.wait_text(b"cellular Online", offset)
         connection, stream = await asyncio.wait_for(connect_map_export(phone, key), 8)
-        assert stream.ingress_payload == 243, stream.ingress_payload
+        assert stream.windowed_writes and stream.ingress_payload == 239, stream.ingress_payload
 
         async def consume_during(operation):
             async with asyncio.TaskGroup() as pending:
@@ -425,17 +425,27 @@ class Scenario:
             # encoder emits full-width rows so this exercises the largest tile.
             pixels = bytes.fromhex('f800f800') + bytes(28) + bytes([0x01]) * (170 * 85)
             start_writes = stream.acknowledged_writes
+            start_retries = stream.write_retries
+            if args.tile_write_loss:
+                # Deliver the first write but drop the next one. The tail
+                # must reject the gap, then the replay must skip the first.
+                guest.ble_link.drop_ingress_at = (stream.ingress_offset + stream.ingress_payload) & 0xffffffff
             start_tile = time.monotonic()
             transferred = await stream.send_tile(*ahead, pixels=pixels)
             writes = stream.acknowledged_writes - start_writes
             seconds = time.monotonic() - start_tile
             assert transferred == 14_666, transferred
-            # TLS adds 29 bytes per 512-byte record in this fixture. Each
-            # acknowledged write carries up to the advertised payload size.
+            # TLS adds 29 bytes per 512-byte record in this fixture.
+            # Each window has one acknowledged tail.
             record_sizes = [min(512, transferred - offset) + 29
                             for offset in range(0, transferred, 512)]
             payload = stream.ingress_payload
-            assert writes == sum((size + payload - 1) // payload for size in record_sizes), writes
+            window = payload * (4 if stream.windowed_writes else 1)
+            assert writes == sum((size + window - 1) // window for size in record_sizes), writes
+            if args.tile_write_loss:
+                assert guest.ble_link.drop_ingress_at is None, 'no ingress write was dropped'
+                assert stream.write_retries > start_retries, 'the missing bytes were not replayed'
+                print('PASS: dropped ingress write recovered without duplicating TLS bytes', flush=True)
             print(f'Tile transfer: {transferred} bytes in {writes} acknowledged writes '
                   f'with {payload}-byte payloads, {seconds:.3f} s wall time', flush=True)
             before_crossing = await consume_during(panel.wait_pixel(220, 50, 0xf800))
@@ -601,9 +611,12 @@ def main():
     scenario_kind.add_argument('--export', action='store_true', help='qualify authenticated full-rate BLE export')
     parser.add_argument('--export-seconds', type=int, default=60)
     scenario_kind.add_argument('--tiles', action='store_true', help='verify full-rate export during BLE and PPP tile delivery')
+    parser.add_argument('--tile-write-loss', action='store_true', help='drop one unacknowledged tile write in --tiles')
     parser.add_argument('--timeout', default=100, type=float)
     parser.add_argument('--log', type=Path, default=Path('target/tracker-coexist-sim/coexist.log'))
     args = parser.parse_args()
+    if args.tile_write_loss and not args.tiles:
+        parser.error('--tile-write-loss requires --tiles')
     if args.export and args.export_seconds < 60:
         parser.error('--export-seconds must be at least 60 for the three credit-stall controls')
     args.wall_clock = args.shift is None

@@ -241,12 +241,17 @@ Each notification starts with a little-endian 32-bit offset into the
 connection's ciphertext. The phone holds later bytes in a 2 KiB window when
 a notification goes missing. It delivers contiguous bytes to TLS and reports
 the next offset as an ingress write command prefixed with `01`.
-Phone-to-tracker ciphertext uses acknowledged ingress writes prefixed with
-`00`. Before starting TLS, the phone tests its direct ATT write size
-(up to 244 bytes) with an acknowledged `02` probe followed by zero padding.
-The probe adds no bytes to the stream. If the tracker rejects it, the phone
-uses the original 20-byte write size. The phone abandons the connection if a
-ciphertext write remains unconfirmed for two seconds.
+Before TLS, the phone tests its direct ATT write size (up to 244 bytes) with
+an acknowledged, zero-padded `04` probe. In this mode, each ciphertext
+write starts with `03` and a little-endian 32-bit stream offset. The phone
+keeps up to four writes in one window and asks for a response on the last
+write. The tracker rejects a gap and discards duplicate bytes. A rejected
+tail causes the phone to replay the same window. The connection ends if a
+write remains unconfirmed for two seconds.
+
+If the tracker rejects the window probe, the phone tries `02` for larger
+acknowledged writes. A tracker that rejects both probes uses the original
+20-byte write size. Both fallback modes prefix ciphertext with `00`.
 The tracker keeps up to 2 KiB of unacknowledged ciphertext. After
 180 ms without acknowledgment progress, it resends the oldest notification
 first. If the acknowledgment advances only through that notification, the
