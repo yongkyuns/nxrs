@@ -16,12 +16,12 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(3);
 const SESSION_LIFETIME: Duration = Duration::from_secs(3600);
 
 #[derive(Clone, Copy)]
-pub struct Collector {
-    address: SocketAddrV4,
+pub struct Endpoint {
+    pub address: SocketAddrV4,
     pub pin: [u8; 32],
 }
 
-impl Collector {
+impl Endpoint {
     pub fn parse(address: &str, pin: &str) -> io::Result<Self> {
         let address: SocketAddrV4 = address
             .parse()
@@ -31,14 +31,12 @@ impl Collector {
                     && !address.ip().is_unspecified()
                     && !address.ip().is_multicast()
             })
-            .ok_or_else(|| {
-                io::Error::new(io::ErrorKind::InvalidInput, "expected collector IPv4:port")
-            })?;
+            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "expected IPv4:port"))?;
         let mut digest = [0; 32];
         if pin.len() != 64 || !pin.bytes().all(|byte| byte.is_ascii_hexdigit()) {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
-                "expected 64 hex digits for collector pin",
+                "expected 64 hex digits for the TLS pin",
             ));
         }
         for (index, byte) in digest.iter_mut().enumerate() {
@@ -46,10 +44,7 @@ impl Collector {
                 .map_err(|_| io::ErrorKind::InvalidInput)?;
         }
         if digest == [0; 32] {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "empty collector pin",
-            ));
+            return Err(io::Error::new(io::ErrorKind::InvalidInput, "empty TLS pin"));
         }
         Ok(Self {
             address,
@@ -60,7 +55,7 @@ impl Collector {
 
 pub struct Config {
     pub apn: String,
-    pub collector: Option<Collector>,
+    pub collector: Option<Endpoint>,
 }
 
 struct Signals {
@@ -266,7 +261,7 @@ impl<'a> Upload<'a> {
     pub fn open(
         identity: &'a tls::Identity,
         socket: TcpStream,
-        collector: Collector,
+        collector: Endpoint,
     ) -> io::Result<Self> {
         let connection = identity
             .connect_pinned(socket, collector.pin, SESSION_LIFETIME)

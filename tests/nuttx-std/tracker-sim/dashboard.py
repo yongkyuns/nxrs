@@ -4,6 +4,7 @@ import asyncio
 import base64
 from dataclasses import replace
 import json
+import math
 from pathlib import Path
 import re
 import ssl
@@ -12,6 +13,7 @@ import subprocess
 import tempfile
 import time
 
+from bumble.att import ATT_Error, ErrorCode
 from bumble.controller import Controller
 from bumble.core import AdvertisingData, PhysicalTransport, UUID
 from bumble.device import Device, Peer
@@ -27,6 +29,7 @@ from PIL import Image
 import zxingcpp
 
 from run import listener
+import tile_fixture
 from sensors import NeoM9n, check_imus, check_live, check_stale
 
 WIDTH, HEIGHT = 320, 240
@@ -97,6 +100,7 @@ class Stream:
 class BluetoothLink(LocalLink):
     notifications_to_drop = 0
     acknowledgements_to_drop = 0
+    drop_ingress_at = None
     notification_rate = 0
     paced_notifications = 0
     next_notification = 0.0
@@ -114,6 +118,10 @@ class BluetoothLink(LocalLink):
             return
         if self.acknowledgements_to_drop and data[2:8] == b'\x04\x00\x52\x08\x00\x01':
             self.acknowledgements_to_drop -= 1
+            return
+        if (self.drop_ingress_at is not None and data[2:8] == b'\x04\x00\x52\x08\x00\x03'
+                and int.from_bytes(data[8:12], 'little') == self.drop_ingress_at):
+            self.drop_ingress_at = None
             return
         peer = self.find_le_controller(destination)
         if peer is not None:
@@ -202,6 +210,7 @@ class Guest:
         self.samples = []
         self.gnss = None
         self.publish_fix = True
+        self.moving_fix = {}
         self.tow_ms = 0
 
     async def read_console(self):
@@ -224,7 +233,7 @@ class Guest:
                 self.samples.append(json.loads(text[start:]))
                 if self.gnss and self.gnss.rate == 1 and self.publish_fix:
                     self.tow_ms += 500
-                    self.gnss.wire.sendall(self.gnss.fix_packet(self.tow_ms))
+                    self.gnss.wire.sendall(self.gnss.fix_packet(self.tow_ms, **self.moving_fix))
 
     def command(self, command):
         self.process.stdin.write(f'{command}\n'.encode())
@@ -301,8 +310,8 @@ class Panel:
         await self.touch(160, 65, 2)
         await self.touch(160, 65, 1)
 
-    async def wait_pixel(self, x, y, rgb):
-        deadline = time.monotonic() + 3
+    async def wait_pixel(self, x, y, rgb, timeout=3):
+        deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
             image = await self.capture()
             if image.getpixel((x, y)) == luminance(rgb):
@@ -379,7 +388,17 @@ class SecureStream:
         self.buffered = {}
         self.acknowledgement_pending = False
         self.acknowledge_at = 0.0
+        self.ingress_payload = 19
+        self.windowed_writes = False
+        self.ingress_offset = 0
+        self.acknowledged_writes = 0
+        self.write_retries = 0
         self.scales = (None, None)
+        self.sample_counts = [0] * 3
+        self.sample_sequences = [None] * 3
+        self.sample_ticks = [None] * 3
+        self.last_batch_received = None
+        self.max_batch_gap = 0
 
     async def subscribe(self):
         self.notifications = asyncio.Event()
@@ -415,8 +434,41 @@ class SecureStream:
     async def flush(self):
         framed = self.notifications is not None
         while self.outgoing.pending:
-            chunk = self.outgoing.read(19 if framed else 20)
-            await self.rx.write_value(b'\0' + chunk if framed else chunk, with_response=True)
+            limit = self.ingress_payload * (4 if self.windowed_writes else 1) if framed else 20
+            chunk = self.outgoing.read(limit)
+            packets = [b'\0' + chunk if framed else chunk]
+            if self.windowed_writes:
+                size = self.ingress_payload
+                packets = [b'\x03' + ((self.ingress_offset + offset) & 0xffffffff).to_bytes(4, 'little')
+                           + chunk[offset:offset + size] for offset in range(0, len(chunk), size)]
+            for attempt in range(33):
+                try:
+                    for packet in packets[:-1]:
+                        await self.rx.write_value(packet, with_response=False)
+                    await self.rx.write_value(packets[-1], with_response=True)
+                    self.acknowledged_writes += 1
+                    self.ingress_offset = (self.ingress_offset + len(chunk)) & 0xffffffff
+                    break
+                except ATT_Error as error:
+                    if error.error_code != ErrorCode.UNLIKELY_ERROR or attempt == 32:
+                        raise
+                    self.write_retries += 1
+                    if framed:
+                        await self.acknowledge()
+                    else:
+                        self.incoming.write(await self.tx.read_value(no_long_read=True))
+                    await asyncio.sleep(0.015)
+            if framed:
+                await self.acknowledge()
+
+    async def acknowledge(self):
+        now = asyncio.get_running_loop().time()
+        if self.acknowledgement_pending and now >= self.acknowledge_at:
+            self.acknowledgement_pending = False
+            self.acknowledge_at = now + 0.015
+            offset = self.offset
+            await self.rx.write_value(b'\x01' + offset.to_bytes(4, 'little'), with_response=False)
+            self.last_acknowledged = offset
 
     async def poll(self):
         await self.flush()
@@ -428,15 +480,9 @@ class SecureStream:
                 await asyncio.sleep(0.003)
             return
         # Use the same cumulative acknowledgment interval as the iPhone.
-        loop = asyncio.get_running_loop()
         while True:
             assert not self.notification_overflow, 'test peer notification storage overflowed or received an invalid frame'
-            if self.acknowledgement_pending and loop.time() >= self.acknowledge_at:
-                self.acknowledgement_pending = False
-                self.acknowledge_at = loop.time() + 0.015
-                offset = self.offset
-                await self.rx.write_value(b'\x01' + offset.to_bytes(4, 'little'), with_response=False)
-                self.last_acknowledged = offset
+            await self.acknowledge()
             if self.notifications.is_set():
                 self.notifications.clear()
                 return
@@ -459,7 +505,7 @@ class SecureStream:
             except ssl.SSLWantReadError:
                 await self.poll()
 
-    async def export_record(self):
+    def export_ready(self):
         while True:
             if self.buffer[:1] == b'\xa5' and len(self.buffer) >= 4:
                 size = 4 + int.from_bytes(self.buffer[2:4], 'little')
@@ -472,21 +518,62 @@ class SecureStream:
                     return decode_batch(batch, version, self.scales), len(batch)
             elif self.buffer[:1] == b'{' and b'\n' in self.buffer:
                 end = self.buffer.index(b'\n')
-                snapshot = json.loads(self.buffer[:end])
-                del self.buffer[:end + 1]
-                return snapshot
+                return self.take_snapshot(end)
             try:
                 self.buffer.extend(self.tls.read(768))
             except ssl.SSLWantReadError:
-                await self.poll()
+                return None
+
+    async def export_record(self):
+        while (record := self.export_ready()) is None:
+            await self.poll()
+        return record
+
+    def count_export(self, record):
+        now = time.monotonic()
+        if self.last_batch_received is not None:
+            self.max_batch_gap = max(self.max_batch_gap, now - self.last_batch_received)
+        self.last_batch_received = now
+        measurements, _ = record
+        for source, seq, tick, _, _ in measurements:
+            index = source - 1
+            previous = self.sample_sequences[index]
+            assert previous is None or seq == ((previous + 1) & 0xffffffff), (source, previous, seq)
+            self.sample_counts[index] += 1
+            self.sample_sequences[index] = seq
+            self.sample_ticks[index] = (tick if previous is None else self.sample_ticks[index][0], tick)
+
+    def export_rates(self):
+        return [(count - 1) * 1000 / ((end - start) & 0xffffffff)
+                for count, (start, end) in zip(self.sample_counts, self.sample_ticks)]
+
+    async def send_tile(self, zoom, x, y, color=0x001f, pixels=None):
+        pixels = tile_fixture.solid(color) if pixels is None else pixels
+        assert len(pixels) == tile_fixture.BODY_BYTES, 'unexpected tile size'
+        packet = tile_fixture.REQUEST.pack(tile_fixture.MAGIC, zoom, x, y) + bytes([0]) + tile_fixture.pack(pixels)
+        for offset in range(0, len(packet), 512):
+            self.tls.write(packet[offset:offset + 512])
+            await self.poll()
+            if self.notifications is not None:
+                while (record := self.export_ready()) is not None:
+                    if isinstance(record, tuple):
+                        self.count_export(record)
+        return len(packet)
 
     async def sample(self):
+        if self.notifications is not None:
+            while isinstance(record := await self.export_record(), tuple):
+                self.count_export(record)
+            return record
         while b'\n' not in self.buffer:
             try:
                 self.buffer.extend(self.tls.read(768))
             except ssl.SSLWantReadError:
                 await self.poll()
         end = self.buffer.index(b'\n')
+        return self.take_snapshot(end)
+
+    def take_snapshot(self, end):
         value = json.loads(self.buffer[:end])
         del self.buffer[:end + 1]
         if 'imu_scale_bits' in value:
@@ -495,6 +582,30 @@ class SecureStream:
                 for bits in value['imu_scale_bits']
             )
         return value
+
+
+async def connect_map_export(phone, key):
+    connection, rx, tx = await connect(phone, export=True)
+    mtu = await Peer(connection).request_mtu(247)
+    stream = SecureStream(rx, tx, key)
+    await stream.subscribe()
+    limit = min(244, mtu - 3)
+    if limit > 20:
+        for probe, overhead in ((4, 5), (2, 1)):
+            try:
+                await rx.write_value(bytes([probe]) + bytes(limit - 1), with_response=True)
+            except ATT_Error as error:
+                assert error.error_code == ErrorCode.UNLIKELY_ERROR, error
+            else:
+                stream.windowed_writes = probe == 4
+                stream.ingress_payload = limit - overhead
+                break
+    await stream.handshake()
+    capabilities = await stream.sample()
+    assert capabilities['export_version'] == 2 and all(stream.scales), capabilities
+    stream.tls.write(b'NXRS\x03')
+    await stream.flush()
+    return connection, stream
 
 
 async def scenario(guest, panel, phone, args):
@@ -550,18 +661,69 @@ async def scenario(guest, panel, phone, args):
         await asyncio.gather(handshake, return_exceptions=True)
     print('PASS: wrong pairing key rejected', flush=True)
 
+    map_fix = tile_fixture.tile_center(18, 48.1173, -11.5166667)
+    guest.moving_fix = map_fix
     last = None
     for attempt in range(2):
         conn, rx, tx = await connect(phone)
         secure = SecureStream(rx, tx, key)
         await asyncio.wait_for(secure.handshake(), 5)
         sample = await asyncio.wait_for(secure.sample(), 5)
-        check_live(sample)
+        if attempt == 0:
+            while abs(sample['gnss']['lon_deg'] - map_fix['longitude_deg']) >= 1e-6:
+                sample = await asyncio.wait_for(secure.sample(), 5)
+        check_live(sample, **(map_fix if attempt == 0 else {}))
         assert last is None or sample['imu'][0]['seq'] > last
         last = sample['imu'][0]['seq']
         linked = await panel.capture()
         assert zxingcpp.read_barcode(linked.crop((0, 72, WIDTH, HEIGHT))) is None, 'QR still visible'
         if attempt == 0:
+            async with asyncio.timeout(12):
+                while 'tile' not in sample:
+                    sample = await secure.sample()
+                # Independent projection for the fixed GNSS fixture.
+                lat = math.radians(map_fix['latitude_deg'])
+                zoom = 18
+                world = 1 << zoom
+                longitude = map_fix['longitude_deg']
+                expected = [zoom, int((180 + longitude) / 360 * world),
+                            int((1 - math.asinh(math.tan(lat)) / math.pi) / 2 * world)]
+                assert sample['tile'] == expected
+                await secure.send_tile(*expected)
+                await panel.wait_pixel(90, 50, 0x001f, timeout=5)  # blue test tile on the SPI panel
+                last = sample['imu'][0]['seq']
+                sample = await secure.sample()
+                check_live(sample, **map_fix)
+                assert sample['imu'][0]['seq'] > last
+                while "tile" in sample:
+                    sample = await secure.sample()
+                check_live(sample, **map_fix)
+            print('PASS: one location tile renders while authenticated BLE telemetry advances', flush=True)
+            async with asyncio.timeout(15):
+                boundary = (expected[1] + 1) * 360 / world - 180
+                distance = min(0.0003, (boundary - longitude) / 2)
+                guest.moving_fix = {**map_fix, 'longitude_deg': boundary - distance, 'speed_mps': 15}
+                ahead = [zoom, expected[1] + 1, expected[2]]
+                while sample.get('tile') != ahead:
+                    sample = await secure.sample()
+                assert guest.samples[-1]['gnss']['lon_deg'] < boundary
+                await secure.send_tile(*ahead, color=0xf800)
+                before = await panel.wait_pixel(220, 50, 0xf800)
+                assert before.getpixel((160, 50)) == luminance(0x001f)
+
+                guest.moving_fix = {**map_fix, 'longitude_deg': boundary + 0.00015, 'speed_mps': 15}
+                after = await panel.wait_pixel(160, 50, 0xf800)
+                assert after.getpixel((90, 50)) == luminance(0x001f)
+                for frame in (before, after):
+                    assert frame.getpixel((160, 123)) == luminance(0xfda6)
+                guest.moving_fix = {}
+                while True:
+                    sample = await secure.sample()
+                    fix = sample['gnss']
+                    assert fix['state'] == 'live'
+                    if abs(fix['lon_deg'] + 11.5166667) <= 1e-6:
+                        break
+            print('PASS: visible tile requested before crossing and both tiles rendered across the seam', flush=True)
             count = len(guest.samples)
             await wait_until(lambda: len(guest.samples) >= count + 3, 'paused reader must not stop the tracker')
             check_live(guest.samples[-1])
@@ -575,6 +737,7 @@ async def scenario(guest, panel, phone, args):
                     while (sample := await secure.sample())['gnss']['state'] != 'stale':
                         check_imus(sample)
                     check_stale(sample)
+                    await panel.wait_pixel(90, 50, 0x1126)  # fallback plot
             finally:
                 guest.publish_fix = True
             async with asyncio.timeout(5):

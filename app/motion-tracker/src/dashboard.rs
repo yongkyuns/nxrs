@@ -2,7 +2,7 @@ use crate::{charts, communications, screen, tracker, wire, ReportOptions};
 use battery::Device as _;
 use charts::{History, SAMPLE_INTERVAL};
 use communications::{
-    Capture, CellularConfig, Collector, Communications, LinkStatus, Pairing, View,
+    Capture, CellularConfig, Communications, Endpoint, LinkStatus, Pairing, View,
 };
 use messaging::bounded;
 use navigation::observations::{Measurement, Observation, ObservationService};
@@ -21,6 +21,8 @@ struct Options {
     ble: bool,
     battery: bool,
     cellular: Option<CellularConfig>,
+    tile_relay: Option<Endpoint>,
+    zoom: Option<crate::map::Zoom>,
 }
 
 impl Options {
@@ -30,10 +32,14 @@ impl Options {
             ble: false,
             battery: false,
             cellular: None,
+            tile_relay: None,
+            zoom: None,
         };
         let mut apn = None;
         let mut collector = None;
         let mut pin = None;
+        let mut tile_relay = None;
+        let mut tile_pin = None;
         while let Some(arg) = args.next() {
             if options.reports.parse(&arg, &mut args)? {
                 continue;
@@ -46,18 +52,44 @@ impl Options {
                 "--cellular-apn" => apn = Some(value(&mut args)?),
                 "--collector" => collector = Some(value(&mut args)?),
                 "--collector-pin" => pin = Some(value(&mut args)?),
+                "--map-relay" => tile_relay = Some(value(&mut args)?),
+                "--map-pin" => tile_pin = Some(value(&mut args)?),
+                "--map-zoom" => {
+                    options.zoom = Some(
+                        value(&mut args)?
+                            .parse()
+                            .ok()
+                            .and_then(crate::map::Zoom::new)
+                            .ok_or_else(|| {
+                                io::Error::new(
+                                    io::ErrorKind::InvalidInput,
+                                    "--map-zoom expects 15 through 18",
+                                )
+                            })?,
+                    );
+                }
                 "--battery" => options.battery = true,
                 _ => return Err(io::Error::new(io::ErrorKind::InvalidInput, arg)),
             }
         }
         let collector = match (collector, pin) {
             (None, None) => None,
-            (Some(address), Some(pin)) if apn.is_some() => Some(Collector::parse(&address, &pin)?),
+            (Some(address), Some(pin)) if apn.is_some() => Some(Endpoint::parse(&address, &pin)?),
             _ => {
                 return Err(io::Error::new(
                     io::ErrorKind::InvalidInput,
                     "--collector and --collector-pin require each other and --cellular-apn",
                 ));
+            }
+        };
+        options.tile_relay = match (tile_relay, tile_pin) {
+            (None, None) => None,
+            (Some(address), Some(pin)) => Some(Endpoint::parse(&address, &pin)?),
+            _ => {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "--map-relay and --map-pin require each other",
+                ))
             }
         };
         options.cellular = apn.map(|apn| CellularConfig { apn, collector });
@@ -66,7 +98,9 @@ impl Options {
                 || options.reports.frames.is_some()
                 || options.reports.usb_stream
                 || options.ble
-                || options.cellular.is_some())
+                || options.cellular.is_some()
+                || options.tile_relay.is_some()
+                || options.zoom.is_some())
         {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
@@ -79,11 +113,11 @@ impl Options {
 
 enum Event {
     Sensor(Observation),
-    LinkChanged,
+    LinksUpdated,
     Touch { event: touch::Event, missed: bool },
 }
 
-pub(super) const USAGE: &str = "motion_tracker [--interval-ms 100..2000] [--frames N] [--stream-usb] [--ble] [--cellular-apn APN [--collector IPv4:PORT --collector-pin SHA256]] or motion_tracker --battery";
+pub(super) const USAGE: &str = "motion_tracker [--interval-ms 100..2000] [--frames N] [--stream-usb] [--ble] [--cellular-apn APN [--collector IPv4:PORT --collector-pin SHA256]] [--map-relay IPv4:PORT --map-pin SHA256] [--map-zoom 15..18] or motion_tracker --battery";
 
 pub(super) fn run(args: impl Iterator<Item = String>) -> io::Result<()> {
     let options = Options::parse(args)?;
@@ -93,20 +127,26 @@ pub(super) fn run(args: impl Iterator<Item = String>) -> io::Result<()> {
     let interval = crate::preferences(options.reports.interval)?.duration();
     let mut screen = Screen::new(display::open().map_err(display_error)?).map_err(display_error)?;
     let mut dashboard = Dashboard::default();
-    let mut history = History::new();
+    let zoom = options.zoom.unwrap_or_default();
+    let mut history = History::new(zoom);
+    let mut map = crate::map::View::default();
     let (events, inbox) = bounded(32);
     let notify_links = {
         let events = events.clone();
         move || {
             // The current view remains available if the inbox is full.
-            let _ = events.try_send(Event::LinkChanged);
+            let _ = events.try_send(Event::LinksUpdated);
         }
     };
     use imu::Device as _;
     let primary = composition::imu::primary_imu();
     let secondary = composition::imu::secondary();
-    let primary_scale = primary.default_config().and_then(|config| primary.resolve(config));
-    let secondary_scale = secondary.default_config().and_then(|config| secondary.resolve(config));
+    let primary_scale = primary
+        .default_config()
+        .and_then(|config| primary.resolve(config));
+    let secondary_scale = secondary
+        .default_config()
+        .and_then(|config| secondary.resolve(config));
     let capture = Arc::new(Capture::new(
         [primary_scale, secondary_scale]
             .map(|applied| applied.ok().and_then(|config| config.counts_scale)),
@@ -128,31 +168,23 @@ pub(super) fn run(args: impl Iterator<Item = String>) -> io::Result<()> {
             None
         }
     };
-    let mut communications = (options.ble || options.cellular.is_some())
-        .then(|| {
-            Communications::start(
-                options.ble,
-                options.cellular,
-                capture.clone(),
-                notify_links.clone(),
-            )
-        })
-        .transpose()?;
+    let mut communications =
+        (options.ble || options.cellular.is_some() || options.tile_relay.is_some())
+            .then(|| {
+                Communications::start(
+                    options.ble,
+                    options.cellular,
+                    options.tile_relay,
+                    capture.clone(),
+                    notify_links.clone(),
+                )
+            })
+            .transpose()?;
     let mut view = View::default();
     let mut sensors = ObservationService::<2>::new(IMU_FRESH, Some(FIX_FRESH));
     for result in [
-        sensors.start_imu_with(
-            0,
-            primary,
-            events.clone(),
-            sensor_event.clone(),
-        ),
-        sensors.start_imu_with(
-            1,
-            secondary,
-            events.clone(),
-            sensor_event.clone(),
-        ),
+        sensors.start_imu_with(0, primary, events.clone(), sensor_event.clone()),
+        sensors.start_imu_with(1, secondary, events.clone(), sensor_event.clone()),
         sensors.start_gnss_with(
             composition::gnss::primary_gnss(),
             events.clone(),
@@ -283,8 +315,23 @@ pub(super) fn run(args: impl Iterator<Item = String>) -> io::Result<()> {
                 history.record(&snapshot, now);
                 next_plot = now + SAMPLE_INTERVAL;
             }
+            let viewport = map.select(dashboard.map_position(view.link, &snapshot, zoom));
+            if let Some(links) = &communications {
+                if let Some(tile) = links.map(viewport.and_then(|viewport| map.wanted(viewport))) {
+                    if let Some(viewport) = viewport {
+                        map.accept(viewport, tile);
+                    }
+                }
+            }
             if let Err(error) = render(view.link, || {
-                screen.render(&dashboard, view.link, &snapshot, &history, now)
+                screen.render(
+                    &dashboard,
+                    view.link,
+                    &snapshot,
+                    &history,
+                    now,
+                    viewport.map(|viewport| (viewport, &map)),
+                )
             }) {
                 break Err(error);
             }
@@ -297,7 +344,10 @@ pub(super) fn run(args: impl Iterator<Item = String>) -> io::Result<()> {
         }
         let wake = next.min(next_plot);
         match inbox.wait(Some(wake.saturating_duration_since(Instant::now()))) {
-            Ok(Event::LinkChanged) => links_changed = true,
+            Ok(Event::LinksUpdated) => {
+                links_changed = true;
+                redraw = true;
+            }
             Ok(Event::Sensor(event)) => {
                 if let Some(fault) = sensors.observe(event) {
                     report_fault(fault);
@@ -312,6 +362,7 @@ pub(super) fn run(args: impl Iterator<Item = String>) -> io::Result<()> {
                         Some(links) => links.pair(Pairing::Start),
                         None => match Communications::start(
                             true,
+                            None,
                             None,
                             capture.clone(),
                             notify_links.clone(),
@@ -424,6 +475,17 @@ fn report_battery() -> io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn map_relay_requires_an_address_and_pin_without_requiring_a_modem() {
+        let parse = |args: &[&str]| Options::parse(args.iter().map(ToString::to_string));
+        let pin = "ab".repeat(32);
+        assert!(parse(&["--map-relay", "192.0.2.3:8444"]).is_err());
+        assert!(parse(&["--map-pin", &pin]).is_err());
+        let options = parse(&["--map-relay", "192.0.2.3:8444", "--map-pin", &pin]).unwrap();
+        assert!(options.cellular.is_none());
+        assert_eq!(options.tile_relay.unwrap().pin, [0xab; 32]);
+    }
 
     #[test]
     fn cellular_collector_requires_an_address_pin_and_apn() {

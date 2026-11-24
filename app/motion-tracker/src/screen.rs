@@ -5,6 +5,7 @@ mod gesture;
 use crate::{
     charts::{History, Metric, RoutePoint, ROUTE_POINTS},
     communications::LinkStatus,
+    map::{Position, View as MapView, Viewport, Zoom},
     text::Text,
     tracker::{Reading, Snapshot},
 };
@@ -89,6 +90,22 @@ pub struct Dashboard {
 }
 
 impl Dashboard {
+    pub fn map_position(
+        &self,
+        link: LinkStatus,
+        snapshot: &Snapshot,
+        zoom: Zoom,
+    ) -> Option<(Position, f32)> {
+        if self.page != Page::Gnss || link == LinkStatus::Pairing {
+            return None;
+        }
+        match snapshot.gnss {
+            Reading::Live(fix) => Position::project(fix.latitude_deg, fix.longitude_deg, zoom)
+                .map(|point| (point, fix.speed_mps)),
+            _ => None,
+        }
+    }
+
     fn content_top(&self) -> i32 {
         if self.menu {
             MENU_HEIGHT
@@ -223,6 +240,7 @@ impl<D: Display> Screen<D> {
         snapshot: &Snapshot,
         history: &History,
         now: Instant,
+        map: Option<(Viewport, &MapView)>,
     ) -> Result<(), Error> {
         let key = (ui.page, ui.metric, link, ui.menu);
         let full = self.present != Some(key);
@@ -240,6 +258,7 @@ impl<D: Display> Screen<D> {
             history,
             now,
             layout.plot(content_top.into()),
+            map,
             &mut route,
         );
         for y in (top..size.height).step_by(usize::from(STRIP)) {
@@ -406,6 +425,11 @@ enum Body<'a> {
         index: usize,
         limit: f32,
     },
+    Map {
+        viewport: Viewport,
+        map: &'a MapView,
+        points: &'a [RoutePoint],
+    },
     Route {
         points: &'a [RoutePoint],
         east: f32,
@@ -421,9 +445,24 @@ impl<'a> Body<'a> {
         samples: &'a History,
         now: Instant,
         plot: Area,
+        map: Option<(Viewport, &'a MapView)>,
         route: &'a mut [RoutePoint; ROUTE_POINTS],
     ) -> Self {
         if ui.page == Page::Gnss {
+            if let Some((viewport, map)) = map.filter(|(viewport, map)| {
+                viewport
+                    .keys()
+                    .into_iter()
+                    .flatten()
+                    .any(|key| map.tile(key).is_some())
+            }) {
+                let len = samples.project_viewport(viewport, route);
+                return Self::Map {
+                    viewport,
+                    map,
+                    points: &route[..len],
+                };
+            }
             let mut low_e = f32::INFINITY;
             let mut high_e = f32::NEG_INFINITY;
             let mut low_n = f32::INFINITY;
@@ -483,6 +522,68 @@ impl<'a> Body<'a> {
         let footer = layout.height - 24;
         let center = plot.y + plot.h / 2;
         let right = plot.x + plot.w - 1;
+        if let Self::Map {
+            viewport,
+            map,
+            points,
+        } = self
+        {
+            canvas.text(12, top + 7, b"GNSS MAP", 2, TEXT);
+            let side = plot.w.min(plot.h);
+            let area = Area {
+                x: plot.x + (plot.w - side) / 2,
+                y: plot.y,
+                w: side,
+                h: side,
+            };
+            canvas.fill(area, PANEL);
+            for key in viewport.keys().into_iter().flatten() {
+                if let Some(tile) = map.tile(key) {
+                    let [x, y] = viewport.origin(key);
+                    let origin = (
+                        area.x + (x * side as f32).round() as i32,
+                        area.y + (y * side as f32).round() as i32,
+                    );
+                    canvas.map(area, origin, tile);
+                }
+            }
+            let locate = |east: f32, south: f32| {
+                (
+                    area.x + (east * side as f32) as i32,
+                    area.y + (south * side as f32) as i32,
+                )
+            };
+            let mut previous = None;
+            for point in *points {
+                let current = locate(point.east, point.north);
+                if let Some(from) = previous.filter(|_| point.joins_previous) {
+                    canvas.line(from, current, AXIS);
+                }
+                previous = Some(current);
+            }
+            let (x, y) = locate(0.5, 0.5);
+            canvas.fill(
+                Area {
+                    x: x - 3,
+                    y: y - 3,
+                    w: 7,
+                    h: 7,
+                },
+                BG,
+            );
+            canvas.fill(
+                Area {
+                    x: x - 2,
+                    y: y - 2,
+                    w: 5,
+                    h: 5,
+                },
+                GOLD,
+            );
+            gnss_footer(canvas, layout.width, footer, snapshot.gnss);
+            canvas.text(12, footer + 12, b"\xa9 OpenStreetMap contributors", 1, TEXT);
+            return;
+        }
         canvas.fill(plot, PANEL);
         for i in 1..4 {
             let x = plot.x + i * plot.w / 4;
@@ -491,6 +592,7 @@ impl<'a> Body<'a> {
             canvas.line((plot.x, y), (right, y), GRID);
         }
         match self {
+            Self::Map { .. } => unreachable!(),
             Self::Motion {
                 samples,
                 now,
@@ -625,31 +727,35 @@ impl<'a> Body<'a> {
                         canvas.text(scale_x, scale_y - 12, scale.bytes(), 1, MUTED);
                     }
                 }
-                match snapshot.gnss {
-                    Reading::Live(fix) if canvas.intersects_rows(footer, 7) => {
-                        let mut coordinates = Text::<40>::new();
-                        let _ = write!(
-                            coordinates,
-                            "{:+.5}  {:+.5}",
-                            fix.latitude_deg, fix.longitude_deg
-                        );
-                        canvas.text(12, footer, coordinates.bytes(), 1, TEXT);
-                        let mut speed = Text::<24>::new();
-                        let _ = write!(speed, "{:.1} KM/H", fix.speed_mps * 3.6);
-                        canvas.text(
-                            layout.width - 12 - speed.bytes().len() as i32 * 6,
-                            footer,
-                            speed.bytes(),
-                            1,
-                            MINT,
-                        );
-                    }
-                    Reading::Live(_) => {}
-                    reading => status(canvas, footer, reading, b"WAITING FOR SATELLITES"),
-                }
+                gnss_footer(canvas, layout.width, footer, snapshot.gnss);
                 canvas.text(12, footer + 12, b"RECENT FIXES", 1, MUTED);
             }
         }
+    }
+}
+
+fn gnss_footer(canvas: &mut Canvas<'_>, width: i32, y: i32, reading: Reading<gnss::GnssFix>) {
+    match reading {
+        Reading::Live(fix) if canvas.intersects_rows(y, 7) => {
+            let mut coordinates = Text::<40>::new();
+            let _ = write!(
+                coordinates,
+                "{:+.5}  {:+.5}",
+                fix.latitude_deg, fix.longitude_deg
+            );
+            canvas.text(12, y, coordinates.bytes(), 1, TEXT);
+            let mut speed = Text::<24>::new();
+            let _ = write!(speed, "{:.1} KM/H", fix.speed_mps * 3.6);
+            canvas.text(
+                width - 12 - speed.bytes().len() as i32 * 6,
+                y,
+                speed.bytes(),
+                1,
+                MINT,
+            );
+        }
+        Reading::Live(_) => {}
+        reading => status(canvas, y, reading, b"WAITING FOR SATELLITES"),
     }
 }
 
@@ -735,9 +841,9 @@ mod tests {
             imu: [Reading::Waiting; 2],
             gnss: Reading::Waiting,
         };
-        let history = History::new();
+        let history = History::new(Zoom::default());
         screen
-            .render(&ui, LinkStatus::Idle, &snapshot, &history, now)
+            .render(&ui, LinkStatus::Idle, &snapshot, &history, now, None)
             .unwrap();
         assert!(!screen.display.0.contains(&0xffff));
         assert_eq!(screen.display.0[320 * 45 + 12], PANEL);
@@ -747,7 +853,7 @@ mod tests {
         );
         assert!(ui.menu);
         screen
-            .render(&ui, LinkStatus::Idle, &snapshot, &history, now)
+            .render(&ui, LinkStatus::Idle, &snapshot, &history, now, None)
             .unwrap();
         assert_eq!(screen.display.0[320 * 39], PANEL);
         assert_eq!(screen.display.0[320 * 45 + 12], BG);
@@ -768,7 +874,7 @@ mod tests {
         ui.show_code(&[42; 32]).unwrap();
         assert!(!ui.menu);
         screen
-            .render(&ui, LinkStatus::Pairing, &snapshot, &history, now)
+            .render(&ui, LinkStatus::Pairing, &snapshot, &history, now, None)
             .unwrap();
         let code =
             QrCode::encode_text(&format!("NXRS1:{}", "2A".repeat(32)), QrCodeEcc::Low).unwrap();
@@ -810,7 +916,7 @@ mod tests {
         assert!(!ui.menu);
         assert_eq!(ui.page, Page::Gnss);
         screen
-            .render(&ui, LinkStatus::Connected, &snapshot, &history, now)
+            .render(&ui, LinkStatus::Connected, &snapshot, &history, now, None)
             .unwrap();
     }
 

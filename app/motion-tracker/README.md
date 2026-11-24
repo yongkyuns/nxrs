@@ -24,13 +24,114 @@ Each IMU tab plots the three axes of **Accel** or **Gyro** for the last
 own coordinate frame. **GNSS** plots up to 96 recent fixes on an offline,
 north-up grid with a distance scale, current coordinates and ground speed.
 Loss of fix breaks the trail. This view works without internet access.
-Street maps are a separate integration.
+The GNSS view overlays a street map when a tile is available.
 
 The dashboard samples the latest observation from each sensor when it redraws
 or publishes telemetry. Touch events and sensor faults have their own inbox.
 The BLE export receives the full stream before the dashboard downsamples it.
 The tracker expires IMU readings after 500 ms and GNSS fixes after three
 seconds.
+
+## GNSS street map
+
+Open **GNSS** with a live fix. When a source is available, the screen shows
+an OpenStreetMap view with the current position and recent trail. The
+offline route plot remains available during fix loss, tile loading, and
+network outages.
+
+The tracker starts at zoom 18. Use `--map-zoom 17`, `--map-zoom 16`, or
+`--map-zoom 15` for a wider view. Each step up halves the width and
+height of geographic coverage. Higher zooms use the same bytes per tile
+and can cross more tile boundaries while moving.
+The viewport centers on the current GNSS fix even when the tracker is
+stationary. A neighboring tile becomes eligible for download as soon as
+it enters the viewport, before the tracker crosses into it. When the
+tracker is moving, it gives the tile ahead priority after loading the tile
+under the marker. Loaded tiles stay visible while the others arrive. If no
+matching tile is available, the dashboard uses the route plot.
+
+A transfer carries a lossless row encoding of the 170 × 170 tile. A
+fully uncompressed reply, including the palette, row lengths and header,
+is 14,666 bytes. The tile matches the CoreS3 map area pixel for
+pixel with the menu closed. The tracker keeps up to four complete tiles and
+one partial reply. It releases off-screen tiles before a new request and
+stores each row losslessly in small blocks to limit heap pressure during
+sensor export. The tracker downloads one tile at a time and can start
+the next visible tile as soon as the previous one succeeds. Replacing a
+request still observes the five-second interval. Tile arrival wakes the
+display for a redraw.
+Direct IP dialing uses a temporary 8 KiB stack and opens a
+separate TLS session for the reply. The phone or relay fetches the PNG
+over HTTPS and uses HTTP caching. It lightly sharpens the raster after
+resizing to preserve thin labels in the 16-color palette. Tile coordinates
+reveal the approximate area of the fix to the tile source. Downloads are
+limited to the open GNSS viewport.
+
+[OpenStreetMap tile usage policy](https://operations.osmfoundation.org/policies/tiles/)
+
+### Bluetooth through the phone
+
+Pair in the updated Nxrs Home app and leave Motion Tracker open on the
+phone. It uses its internet connection to fetch the visible tile and
+returns it over the existing authenticated BLE/TLS connection. The iPhone
+can use Wi-Fi or mobile data. Older companion clients can continue to read
+telemetry from the tracker.
+
+### Direct Wi-Fi or cellular
+
+For operation without a phone, run the IPv4 relay inside your private
+network. The tracker uses normal IP routing, so the same endpoint works
+over an already connected Wi-Fi interface or Stamp PPP. The CoreS3
+dual-IMU profile currently leaves onboard Wi-Fi disabled. Its Stamp
+profile provides the direct bearer.
+
+```sh
+python3 -m pip install 'Pillow>=10,<14' 'requests-cache>=1.2,<2'
+python3 tools/tracker-map/relay.py --bind RELAY_IPV4 --cert cert.pem --key key.pem
+openssl x509 -in cert.pem -outform DER | openssl dgst -sha256
+```
+
+Use a named-curve P-256 certificate and provision the fingerprint
+independently. Limit access to trusted devices at the network boundary.
+Tile requests authenticate the relay by pin and carry no client credentials.
+On the Stamp profile, use the relay with or without a telemetry collector.
+
+```text
+motion_tracker --cellular-apn YOUR_APN --map-relay IPV4:8444 --map-pin SHA256
+```
+
+When the phone is paired and connected, the tracker tries it first. It
+uses the configured IP relay if the phone is absent, reports a fetch error,
+or runs past the 25-second tile deadline.
+
+### Tile protocol
+
+The tile ID is the OpenStreetMap zoom and XYZ coordinates. Zoom is 15
+through 18. Both coordinates are unsigned big-endian integers less than
+`2^zoom`.
+On BLE, the tracker includes an optional `"tile":[zoom,x,y]` field in its
+dashboard snapshot. On the notification service, it sends tile requests
+after the client's existing sensor export request. The companion returns
+each tile on the same TLS connection while the tracker sends sensor
+batches in the other direction. The legacy dashboard service also accepts
+tile replies. Over IP, the tracker opens one pinned TLS 1.3 connection per
+request, writes the 13 bytes `NXM5 | zoom:u8 | x:u32 | y:u32`, and reads one
+response. Both paths use the same response bytes.
+
+| Bytes | Meaning |
+| --- | --- |
+| 0–12 | Request header, including zoom and the requested X and Y |
+| 13 | Status byte. Zero is success, one is temporarily unavailable |
+| 14–45 | On success, 16 big-endian RGB565 palette entries |
+| 46–215 | 170 row lengths in bytes, north row first. Each length is 1–85 |
+| 216 onward | Rows in order, with no padding. An unavailable response has no body |
+
+A row of 85 bytes packs the left pixel in the high nibble and the right
+pixel in the low nibble. Shorter rows encode runs. Each byte stores the
+run length minus one in the high nibble and the color index in the low
+nibble. Expand each row to exactly 170 pixels. Split writes into TLS
+chunks of at most 1,024 bytes. The tracker renders complete responses
+matching its viewport. USB and cellular telemetry omit the map field.
 
 ## CoreS3 and M135 setup
 
@@ -139,8 +240,18 @@ Each notification starts with a little-endian 32-bit offset into the
 connection's ciphertext. The phone holds later bytes in a 2 KiB window when
 a notification goes missing. It delivers contiguous bytes to TLS and reports
 the next offset as an ingress write command prefixed with `01`.
-Phone-to-tracker ciphertext uses acknowledged ingress writes prefixed with
-`00`. The tracker keeps up to 2 KiB of unacknowledged ciphertext. After
+Before TLS, the phone tests its direct ATT write size (up to 244 bytes) with
+an acknowledged, zero-padded `04` probe. In this mode, each ciphertext
+write starts with `03` and a little-endian 32-bit stream offset. The phone
+keeps up to four writes in one window and asks for a response on the last
+write. The tracker rejects a gap and discards duplicate bytes. A rejected
+tail causes the phone to replay the same window. The connection ends if a
+write remains unconfirmed for two seconds.
+
+If the tracker rejects the window probe, the phone tries `02` for larger
+acknowledged writes. A tracker that rejects both probes uses the original
+20-byte write size. Both fallback modes prefix ciphertext with `00`.
+The tracker keeps up to 2 KiB of unacknowledged ciphertext. After
 180 ms without acknowledgment progress, it resends the oldest notification
 first. If the acknowledgment advances only through that notification, the
 tracker retries the remaining bytes for receivers that discard them after a

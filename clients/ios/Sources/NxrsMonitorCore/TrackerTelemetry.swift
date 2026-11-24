@@ -37,11 +37,12 @@ public struct TrackerTelemetry: Decodable, Sendable {
     public let v: Int
     public let imu: [IMU]
     public let gnss: GNSS
+    public let tile: TrackerTile?
     public let exportVersion: Int?
     public let imuScaleBits: [[UInt32]?]?
 
     enum CodingKeys: String, CodingKey {
-        case v, imu, gnss, exportVersion = "export_version", imuScaleBits = "imu_scale_bits"
+        case v, imu, gnss, tile, exportVersion = "export_version", imuScaleBits = "imu_scale_bits"
     }
 }
 

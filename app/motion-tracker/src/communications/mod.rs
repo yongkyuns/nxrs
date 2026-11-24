@@ -2,12 +2,16 @@
 mod export;
 mod publication;
 mod radio;
+mod tiles;
 mod uplink;
 
 pub(super) use export::Capture;
-pub(super) use uplink::{Collector, Config as CellularConfig};
+pub(super) use uplink::{Config as CellularConfig, Endpoint};
 
-use crate::tracker::Snapshot;
+use crate::{
+    map::{Key, Response, Tile},
+    tracker::Snapshot,
+};
 use publication::Publisher;
 use std::cell::OnceCell;
 use std::io;
@@ -52,6 +56,8 @@ struct Shared {
     pairing: Option<Pairing>,
     latest: Option<Snapshot>,
     view: View,
+    tile_request: Option<Key>,
+    tile: Option<Tile>,
 }
 
 pub struct Communications {
@@ -63,6 +69,7 @@ impl Communications {
     pub fn start(
         pair: bool,
         cellular: Option<CellularConfig>,
+        tile_relay: Option<Endpoint>,
         capture: Arc<Capture>,
         notify: impl FnMut() + Send + 'static,
     ) -> io::Result<Self> {
@@ -71,7 +78,7 @@ impl Communications {
         let task = thread::Builder::new()
             .name("tracker-links".into())
             .stack_size(24 * 1024)
-            .spawn(move || run(&incoming, pair, cellular, &capture, notify))?;
+            .spawn(move || run(&incoming, pair, cellular, tile_relay, &capture, notify))?;
         Ok(Self {
             shared,
             task: Some(task),
@@ -94,6 +101,19 @@ impl Communications {
         self.shared
             .try_lock()
             .map_or(previous, |shared| shared.view)
+    }
+
+    pub fn map(&self, wanted: Option<Key>) -> Option<Tile> {
+        let Ok(mut shared) = self.shared.try_lock() else {
+            return None;
+        };
+        let tile = shared.tile.take();
+        let wanted = wanted.filter(|key| tile.as_ref().is_none_or(|tile| tile.key != *key));
+        if shared.tile_request != wanted {
+            shared.tile_request = wanted;
+            self.task.as_ref().unwrap().thread().unpark();
+        }
+        tile
     }
 
     pub fn stop(&mut self) -> io::Result<()> {
@@ -126,13 +146,21 @@ fn run(
     shared: &Mutex<Shared>,
     pair: bool,
     cellular: Option<CellularConfig>,
+    tile_relay: Option<Endpoint>,
     capture: &Capture,
     mut notify: impl FnMut(),
 ) -> io::Result<()> {
     capture.register_owner();
     let collector = cellular.as_ref().and_then(|config| config.collector);
     let mut modem = cellular.map(uplink::Modem::start).transpose()?;
-    serve(shared, pair, collector.zip(modem.as_ref()), capture, &mut notify);
+    serve(
+        shared,
+        pair,
+        collector.zip(modem.as_ref()),
+        tile_relay,
+        capture,
+        &mut notify,
+    );
     // Both transports and their shared TLS identity have left scope.
     modem.as_mut().map_or(Ok(()), uplink::Modem::stop)
 }
@@ -140,12 +168,14 @@ fn run(
 fn serve(
     shared: &Mutex<Shared>,
     pair: bool,
-    cellular: Option<(Collector, &uplink::Modem)>,
+    cellular: Option<(Endpoint, &uplink::Modem)>,
+    tile_relay: Option<Endpoint>,
     capture: &Capture,
     notify: &mut impl FnMut(),
 ) {
     let identity = OnceCell::new();
     let mut radio: Option<radio::Output<'_, _>> = None;
+    let mut tiles = tiles::Tiles::new(tile_relay, Instant::now());
     let mut next_radio = Instant::now();
     let mut upload = None;
     let mut retry = uplink::Retry::new();
@@ -156,12 +186,19 @@ fn serve(
     let mut command = pair.then_some(Pairing::Start);
 
     loop {
-        let (sample, pair) = {
+        let (sample, pair, tile) = {
             let mut inbox = shared.lock().unwrap();
             if inbox.stopping {
                 break;
             }
-            (inbox.latest.take(), inbox.pairing.take().or(command.take()))
+            let tile = inbox
+                .tile_request
+                .filter(|key| inbox.tile.as_ref().is_none_or(|tile| tile.key != *key));
+            (
+                inbox.latest.take(),
+                inbox.pairing.take().or(command.take()),
+                tile,
+            )
         };
         let now = Instant::now();
         if radio.as_ref().is_some_and(|output| output.expired(now)) {
@@ -185,15 +222,17 @@ fn serve(
                 },
             }
         }
+        tiles.select(tile, now);
+        let mut phone_tile = None;
         let view = match radio.as_mut() {
             Some(output) => {
                 let samples_ready = capture.take_ready();
                 if output.take_ready() || samples_ready || now >= next_radio {
-                    output.service(now);
+                    phone_tile = output.service(now, tiles.phone_request());
                     next_radio = now + ACTIVE_POLL;
                 }
                 if let Some(snapshot) = &sample {
-                    output.offer(snapshot, now);
+                    output.offer(snapshot, now, tiles.phone_request());
                 }
                 if output.live() {
                     View {
@@ -263,7 +302,20 @@ fn serve(
                 retry_pending = false;
             }
         }
-        if radio.is_some() || upload.is_some() {
+        if let Some(Response::Tile(tile)) = tiles.service(
+            || tls_identity(&identity),
+            view.link == LinkStatus::Connected,
+            phone_tile,
+            now,
+        ) {
+            let mut inbox = shared.lock().unwrap();
+            if inbox.tile_request == Some(tile.key) {
+                inbox.tile = Some(tile);
+                drop(inbox);
+                notify();
+            }
+        }
+        if radio.is_some() || upload.is_some() || tiles.busy() {
             thread::park_timeout(ACTIVE_POLL);
         } else if retry_pending {
             thread::park_timeout(retry.next.saturating_duration_since(Instant::now()));

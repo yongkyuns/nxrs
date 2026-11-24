@@ -1,3 +1,4 @@
+use crate::map::{Position, Viewport, Zoom};
 use crate::tracker::{Reading, Snapshot};
 use std::{
     collections::VecDeque,
@@ -41,6 +42,7 @@ struct Motion {
 struct Fix {
     latitude: f64,
     longitude: f64,
+    map: Option<Position>,
     joins_previous: bool,
 }
 
@@ -56,15 +58,17 @@ pub struct History {
     fixes: VecDeque<Fix>,
     fix_sequence: Option<u64>,
     last_fix: Option<Instant>,
+    zoom: Zoom,
 }
 
 impl History {
-    pub fn new() -> Self {
+    pub fn new(zoom: Zoom) -> Self {
         Self {
             motion: VecDeque::with_capacity(MOTION_POINTS),
             fixes: VecDeque::with_capacity(ROUTE_POINTS),
             fix_sequence: None,
             last_fix: None,
+            zoom,
         }
     }
 
@@ -92,6 +96,7 @@ impl History {
         self.fixes.push_back(Fix {
             latitude: fix.latitude_deg,
             longitude: fix.longitude_deg,
+            map: Position::project(fix.latitude_deg, fix.longitude_deg, self.zoom),
             joins_previous: self
                 .last_fix
                 .is_some_and(|last| now.duration_since(last) < Duration::from_secs(4)),
@@ -115,6 +120,29 @@ impl History {
                 )
             })
         })
+    }
+
+    pub fn project_viewport(
+        &self,
+        viewport: Viewport,
+        points: &mut [RoutePoint; ROUTE_POINTS],
+    ) -> usize {
+        let mut count = 0;
+        let mut joined = false;
+        for fix in &self.fixes {
+            let Some([east, north]) = fix.map.and_then(|point| viewport.project(point)) else {
+                joined = false;
+                continue;
+            };
+            points[count] = RoutePoint {
+                east,
+                north,
+                joins_previous: joined && fix.joins_previous,
+            };
+            count += 1;
+            joined = true;
+        }
+        count
     }
 
     pub fn project_route(&self, points: &mut [RoutePoint; ROUTE_POINTS]) -> usize {
@@ -142,7 +170,7 @@ mod tests {
     #[test]
     fn route_ignores_duplicate_fixes_and_breaks_after_loss() {
         let now = Instant::now();
-        let mut history = History::new();
+        let mut history = History::new(Zoom::default());
         let fix = |sequence, longitude_deg| {
             Reading::Live(gnss::GnssFix {
                 sequence,

@@ -4,6 +4,7 @@
 import argparse
 import asyncio
 import base64
+from contextlib import ExitStack
 from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 import json
@@ -32,19 +33,22 @@ class GnssWire:
 def addresses(nm, elf):
     exports = {
         "tracker_pixels", "tracker_colors", "tracker_frame_sequence",
-        "tracker_touch_reads", "tracker_model_error",
+        "tracker_touch_reads", "tracker_touch_input", "tracker_model_error",
     }
     symbols = {}
     for line in subprocess.check_output([nm, str(elf)], text=True).splitlines():
         columns = line.split()
-        if len(columns) == 3 and columns[2] in exports:
+        if len(columns) == 3 and columns[2] in exports | {"tracker_panel_center", "tracker_center_colors"}:
             symbols[columns[2]] = int(columns[0], 16)
     if exports - symbols.keys():
         raise ValueError(f"missing dashboard fixture symbols: {exports - symbols.keys()}")
     return symbols
 
 
-async def run(args):
+async def run(args, osm=None):
+    symbols = addresses(args.nm, args.elf)
+    if osm and not {"tracker_panel_center", "tracker_center_colors"} <= symbols.keys():
+        raise ValueError("real tiles require the TRACKER_MAP_PANEL capture build")
     commands = args.command or [
         "motion_tracker --battery",
         "motion_tracker --interval-ms 250 --frames 8 --stream-usb",
@@ -53,8 +57,15 @@ async def run(args):
     if args.ble:
         from tracker_ble import BlePeer
 
-        peer = BlePeer()
-        commands = ["motion_tracker --ble --interval-ms 500 --frames 32 --stream-usb"]
+        peer = BlePeer(tiles=args.tiles, osm=osm, zoom=args.map_zoom or 18, move_mps=args.move_mps)
+        if args.tiles:
+            frames = 300 if args.move_mps is not None and abs(args.move_mps) < 5 else 240
+            command = f"motion_tracker --ble --frames {frames} --stream-usb"
+            if args.map_zoom is not None:
+                command += f" --map-zoom {args.map_zoom}"
+            commands = [command]
+        else:
+            commands = ["motion_tracker --ble --interval-ms 500 --frames 32 --stream-usb"]
     wire = GnssWire()
     receiver = NeoM9n(wire)
     fixes = 0
@@ -65,12 +76,12 @@ async def run(args):
         wire.pending.clear()
         return reply
 
-    def gnss_fix():
+    def gnss_fix(elapsed_ms):
         nonlocal fixes
         if receiver.rate != 1:
             return []
         fixes += 1
-        return list(receiver.fix_packet(fixes * 250))
+        return list(receiver.fix_packet(fixes * receiver.navigation[0], **(peer.position(elapsed_ms) if peer else {})))
 
     with TemporaryDirectory(prefix="esp-emu-tracker-") as directory:
         site = Path(directory)
@@ -85,7 +96,8 @@ async def run(args):
         copyfile(wasm, site / "emulator.wasm")
         copyfile(args.elf.with_name("nuttx.merged.bin"), site / "nuttx.bin")
         copyfile(HERE / "tracker.js", site / "tracker.js")
-        copyfile(HERE.parent / "tracker-demo" / "panel.mjs", site / "panel.mjs")
+        for module in ("panel.mjs", "touchscreen.mjs"):
+            copyfile(HERE.parent / "tracker-demo" / module, site / module)
         (site / "index.html").write_text("<!doctype html><title>Motion Tracker probe</title>\n")
         handler = partial(SimpleHTTPRequestHandler, directory=directory)
         with ThreadingHTTPServer(("127.0.0.1", 0), handler) as server:
@@ -108,13 +120,15 @@ async def run(args):
                     if peer:
                         await page.expose_function("h4Exchange", peer.exchange)
                         await page.expose_function("pairingPanel", peer.panel)
+                        if args.tiles:
+                            await page.expose_function("mapPanel", peer.map_panel)
                         ble_task = asyncio.create_task(peer.run(args.timeout))
                     try:
                         await page.goto(origin)
                         report = await page.evaluate(
                             "async config => (await import('./tracker.js')).probe(config)",
-                            {"commands": commands, "symbols": addresses(args.nm, args.elf),
-                             "timeoutMs": args.timeout * 1000, "ble": args.ble},
+                            {"commands": commands, "symbols": symbols,
+                             "timeoutMs": args.timeout * 1000, "ble": args.ble, "tiles": args.tiles},
                         )
                         if ble_task:
                             if not ble_task.done():
@@ -135,6 +149,14 @@ async def run(args):
                 thread.join()
 
     image = report.pop("panelPng")
+    if args.tiles:
+        for name, png in peer.map_frames.items():
+            args.report.with_name(f"{args.report.stem}-{name}.png").write_bytes(base64.b64decode(png))
+        if "bleError" in report and peer.last_panel and peer.want_paint:
+            name, samples = peer.want_paint
+            report["pendingPanelPixels"] = samples
+            args.report.with_name(f"{args.report.stem}-{name}-mismatch.png").write_bytes(
+                base64.b64decode(peer.last_panel))
     report["gnssRateWrites"] = receiver.writes
     report["gnssFixesSent"] = fixes
     if image:
@@ -168,6 +190,13 @@ async def run(args):
                 or report["gnssRateWrites"] != [1, 7]):
             raise RuntimeError(f"missing peripheral evidence. See {args.report}")
         print("PASS: UART2 H4, dashboard QR, TLS-PSK and three advancing BLE telemetry snapshots")
+        if args.tiles:
+            assert report["modelError"] == 0 and report["ble"]["tileCrossing"]
+            crossing = report["ble"]["tileCrossing"]
+            if args.move_mps is None:
+                print("PASS: requested the next tile before crossing and painted both sides of the seam")
+            else:
+                print(f"Timed crossing: next tile lead {crossing['leadMs']} ms at {args.move_mps:g} m/s eastward")
     elif not args.command:
         battery, tracker = report["commands"]
         snapshots = [json.loads(line[line.index('{"v":1,'):])
@@ -192,11 +221,36 @@ if __name__ == "__main__":
     parser.add_argument("--nm", default="xtensa-esp32s3-elf-nm")
     parser.add_argument("--command", action="append", help="override the default NuttShell commands")
     parser.add_argument("--ble", action="store_true", help="verify QR and authenticated BLE telemetry")
+    parser.add_argument("--tiles", action="store_true", help="verify motion-aware tile rendering over BLE")
+    parser.add_argument("--map-zoom", type=int, choices=range(15, 19))
+    parser.add_argument("--move-mps", type=float, help="eastward speed across a cold tile boundary, negative for west")
+    parser.add_argument("--osm-tiles", action="store_true", help="download two real OpenStreetMap tiles")
     parser.add_argument("--deny-entropy", action="store_true", help="run the TLS entropy denial control")
     parser.add_argument("--timeout", type=int, default=25, help="wall seconds per guest command")
     args = parser.parse_args()
     if args.ble and (not args.patched_package or args.command):
         parser.error("--ble requires --patched-package and selects its own guest command")
+    if args.tiles and (not args.ble or args.deny_entropy):
+        parser.error("--tiles requires --ble with entropy enabled")
+    if args.osm_tiles and not args.tiles:
+        parser.error("--osm-tiles requires --tiles")
+    if args.move_mps is not None and (not args.osm_tiles or args.map_zoom not in (None, 18)
+                                    or not 1.5 <= abs(args.move_mps) <= 20):
+        parser.error("--move-mps requires real tiles at zoom 18 and a speed magnitude of 1.5–20 m/s")
     if args.deny_entropy and not args.ble:
         parser.error("--deny-entropy requires --ble")
-    asyncio.run(run(args))
+    with ExitStack() as resources:
+        osm = None
+        if args.osm_tiles:
+            from requests_cache import CachedSession
+
+            sys.path.insert(0, str(HERE.parents[2] / "tools" / "tracker-map"))
+            from relay import USER_AGENT, fetcher
+
+            cache = args.report.with_name("osm-tiles-cache.sqlite")
+            session = resources.enter_context(CachedSession(cache, cache_control=True,
+                                                           expire_after=7 * 86400, serializer="json"))
+            session.headers["User-Agent"] = USER_AGENT
+            session.settings.only_if_cached = args.move_mps is not None
+            osm = fetcher(session)
+        asyncio.run(run(args, osm))

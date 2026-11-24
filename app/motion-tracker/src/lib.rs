@@ -8,6 +8,8 @@ mod clock;
 #[cfg(feature = "dashboard")]
 mod communications;
 #[cfg(feature = "dashboard")]
+mod map;
+#[cfg(feature = "dashboard")]
 #[path = "dashboard.rs"]
 mod mode;
 #[cfg(not(feature = "dashboard"))]

@@ -13,7 +13,11 @@ fn utc_json(out: &mut impl Write, utc_ms: Option<i64>) -> fmt::Result {
     }
 }
 
-fn imu_json(out: &mut impl Write, reading: Reading<imu::ImuSample>, utc_ms: Option<i64>) -> fmt::Result {
+fn imu_json(
+    out: &mut impl Write,
+    reading: Reading<imu::ImuSample>,
+    utc_ms: Option<i64>,
+) -> fmt::Result {
     write!(out, "{{\"state\":\"{}\"", reading_status(&reading))?;
     if let Reading::Live(sample) = reading {
         let [ax, ay, az] = sample.accel_mps2;
@@ -31,9 +35,13 @@ fn imu_json(out: &mut impl Write, reading: Reading<imu::ImuSample>, utc_ms: Opti
 #[cfg(feature = "dashboard")]
 mod version {
     use super::*;
-    use crate::tracker::Snapshot;
+    use crate::{map::Key, tracker::Snapshot};
 
-    fn gnss_json(out: &mut impl Write, reading: Reading<gnss::GnssFix>, utc_ms: Option<i64>) -> fmt::Result {
+    fn gnss_json(
+        out: &mut impl Write,
+        reading: Reading<gnss::GnssFix>,
+        utc_ms: Option<i64>,
+    ) -> fmt::Result {
         write!(out, "{{\"state\":\"{}\"", reading_status(&reading))?;
         if let Reading::Live(fix) = reading {
             write!(
@@ -50,6 +58,7 @@ mod version {
         out: &mut impl Write,
         snapshot: &Snapshot,
         scales: Option<[Option<[u32; 2]>; 2]>,
+        tile: Option<Key>,
     ) -> fmt::Result {
         out.write_str("{\"v\":1,")?;
         if let Some(scales) = scales {
@@ -85,21 +94,36 @@ mod version {
             _ => None,
         };
         gnss_json(out, snapshot.gnss, absolute)?;
+        if let Some(key) = tile {
+            write!(out, ",\"tile\":[{},{},{}]", key.zoom.level(), key.x, key.y)?;
+        }
         out.write_str("}\n")
     }
 
-    fn build(snapshot: &Snapshot, scales: Option<[Option<[u32; 2]>; 2]>) -> io::Result<Text<768>> {
+    fn build(
+        snapshot: &Snapshot,
+        scales: Option<[Option<[u32; 2]>; 2]>,
+        tile: Option<Key>,
+    ) -> io::Result<Text<768>> {
         let mut frame = Text::<768>::new();
-        encode(&mut frame, snapshot, scales).map_err(|_| io::ErrorKind::InvalidData)?;
+        encode(&mut frame, snapshot, scales, tile).map_err(|_| io::ErrorKind::InvalidData)?;
         Ok(frame)
     }
 
     pub fn frame(snapshot: &Snapshot) -> io::Result<Text<768>> {
-        build(snapshot, None)
+        ble_frame(snapshot, None)
     }
 
-    pub fn export_frame(snapshot: &Snapshot, scales: [Option<[u32; 2]>; 2]) -> io::Result<Text<768>> {
-        build(snapshot, Some(scales))
+    pub fn ble_frame(snapshot: &Snapshot, tile: Option<Key>) -> io::Result<Text<768>> {
+        build(snapshot, None, tile)
+    }
+
+    pub fn export_frame(
+        snapshot: &Snapshot,
+        scales: [Option<[u32; 2]>; 2],
+        tile: Option<Key>,
+    ) -> io::Result<Text<768>> {
+        build(snapshot, Some(scales), tile)
     }
 
     #[cfg(test)]
@@ -140,3 +164,6 @@ mod version {
 #[cfg(feature = "dashboard")]
 pub use version::export_frame;
 pub use version::frame;
+
+#[cfg(feature = "dashboard")]
+pub use version::ble_frame;
