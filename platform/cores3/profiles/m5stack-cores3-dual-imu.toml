@@ -1,6 +1,10 @@
 # CoreS3 with M135, built-in panel and a dedicated settings partition.
 extends = "m5stack-cores3-gnss"
-hal = { display = "nuttx", touch = "nuttx", settings = "nuttx", ble = "nuttx", tls = "nuttx", battery = "nuttx" }
+hal = { display = "nuttx", touch = "nuttx", settings = "nuttx", ble = "nuttx", tls = "nuttx", battery = "nuttx", execution = "nuttx" }
+
+[scheduling]
+background = 90
+normal = 100
 
 [devices.onboard]
 compatible = "bosch,bmi270"
@@ -79,3 +83,6 @@ require = [
   "CONFIG_ESP32S3_STORAGE_MTD_SIZE=0x4000",
 ]
 forbid-regex = "^CONFIG_(SMP|I2C_POLLED|SENSORS_BMI270|ESPRESSIF_WIFI|NIMBLE|PM|ESPRESSIF_AUTO_SLEEP|ESP32S3_AUTO_SLEEP|ESP32S3_SPI_DMA|MMCSD_SPI|ESP32S3_PARTITION_TABLE|ESP32S3_SPIFLASH_AUTO_BRINGUP)=y$"
+
+[devices.navigation]
+navigation-period-ms = 500

@@ -20,6 +20,18 @@ use std::{
     thread::{self, JoinHandle},
 };
 
+/// Elapsed time on one monotonic clock shared by physical acquisition workers.
+/// Independent device starts and reopens retain the same timebase.
+pub fn monotonic_ms() -> u64 {
+    static ORIGIN: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
+    ORIGIN
+        .get_or_init(std::time::Instant::now)
+        .elapsed()
+        .as_millis()
+        .try_into()
+        .unwrap_or(u64::MAX)
+}
+
 pub trait Wake: Send + Sync + 'static {
     fn wake(&self) -> io::Result<()>;
 }

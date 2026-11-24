@@ -20,3 +20,128 @@ final class TrackerTelemetryTests: XCTestCase {
         XCTAssertThrowsError(try reader.receive(Data(repeating: 0x31, count: 768)) { _ in })
     }
 }
+
+extension TrackerTelemetryTests {
+    func testTimedBatchDecodesCountsAndBothClocks() throws {
+        let scale = [Float(0.125).bitPattern, Float(0.25).bitPattern]
+        let advertisement = """
+        {"v":1,"imu_scale_bits":[[\(scale[0]),\(scale[1])],null],"imu":[{"state":"waiting"},{"state":"waiting"}],"gnss":{"state":"waiting"}}
+        """
+        let first = UInt64(UInt32.max)
+        let utc: Int64 = 1_767_225_600_000
+        var payload = Data()
+        func append<T: FixedWidthInteger>(_ value: T) {
+            var word = value.littleEndian
+            withUnsafeBytes(of: &word) { payload.append(contentsOf: $0) }
+        }
+        append(utc - Int64(first + 3))
+        payload.append(0x61)
+        append(UInt32(1))
+        append(first)
+        let counts: [Int16] = [.min, 0, .max, -1, 4, .max]
+        counts.forEach(append)
+        payload.append(3)
+        append(UInt32(4))
+        append(first + 3)
+        append(Double(45).bitPattern)
+        append(Double(-75).bitPattern)
+        append(Float(2).bitPattern)
+        payload.append(contentsOf: [0xc1, 9])
+        counts.forEach(append)
+        var parser = TrackerExportFrames()
+        try parser.receive(Data((advertisement + "\n").utf8), snapshot: { _ in }, measurement: { _ in XCTFail() })
+        let frame = Data([0xa5, 3, UInt8(payload.count), 0]) + payload
+        var actual: [TrackerMeasurement] = []
+        try parser.receive(frame.prefix(21), snapshot: { _ in XCTFail() }, measurement: { _ in XCTFail() })
+        try parser.receive(Data(frame.dropFirst(21)), snapshot: { _ in XCTFail() }, measurement: { actual.append($0) })
+        let accel: [Float] = [-4096, 0, 4095.875]
+        let gyro: [Float] = [-0.25, 1, 8191.75]
+        XCTAssertEqual(actual, [
+            .imu(index: 0, sequence: 1, receivedMS: first, accel: accel, gyro: gyro),
+            .fix(sequence: 4, receivedMS: first + 3, latitude: 45, longitude: -75, speed: 2, utcMS: utc),
+            .imu(index: 0, sequence: 2, receivedMS: first + 9, accel: accel, gyro: gyro, utcMS: utc + 6)
+        ])
+    }
+
+    func testCompactBatchRestoresSequencesAndTimestampsAcrossWrap() throws {
+        let payload = [UInt8](repeating: 0, count: 24)
+        let first: [UInt8] = [1, 255, 255, 255, 255, 250, 255, 255, 255]
+        var parser = TrackerExportFrames()
+        var samples: [TrackerMeasurement] = []
+        try parser.receive(Data([0xa5, 2, 59, 0] + first + payload),
+                           snapshot: { _ in XCTFail() }, measurement: { _ in XCTFail() })
+        try parser.receive(Data([0x81, 11] + payload),
+                           snapshot: { _ in XCTFail() }, measurement: { samples.append($0) })
+        XCTAssertEqual(samples, [
+            .imu(index: 0, sequence: .max, receivedMS: UInt64(UInt32.max) - 5, accel: [0, 0, 0], gyro: [0, 0, 0]),
+            .imu(index: 0, sequence: 0, receivedMS: 5, accel: [0, 0, 0], gyro: [0, 0, 0])
+        ])
+        let orphan = Data([0xa5, 2, 52, 0] + [0x81, 1] + payload + [0x81, 1] + payload)
+        XCTAssertThrowsError(try parser.receive(orphan, snapshot: { _ in XCTFail() },
+                                                measurement: { _ in XCTFail() }))
+    }
+
+    func testCompactOverflowReportsFirstMissingSourceAndSequence() throws {
+        var parser = TrackerExportFrames()
+        try parser.receive(Data([0xa5, 2, 5, 0, 2]), snapshot: { _ in XCTFail() },
+                           measurement: { _ in XCTFail() })
+        XCTAssertThrowsError(try parser.receive(Data([0x20, 0x03, 0, 0]),
+                                                snapshot: { _ in XCTFail() },
+                                                measurement: { _ in XCTFail() })) { error in
+            guard case TrackerFrames.FrameError.captureOverflowAt(source: 2, sequence: 800) = error else {
+                return XCTFail("Expected the first missing module IMU sample")
+            }
+        }
+    }
+
+    func testExportDecodesSplitBatchAndPreservesDashboardFraming() throws {
+        var binary = Data([0xa5, 1, 62, 0])
+        func append<T: FixedWidthInteger>(_ value: T) {
+            var word = value.littleEndian
+            withUnsafeBytes(of: &word) { binary.append(contentsOf: $0) }
+        }
+        binary.append(2)
+        append(UInt32(10))
+        append(UInt32(100))
+        for value: Float in [1, 2, 3, -1, -2, -3] { append(value.bitPattern) }
+        binary.append(3)
+        append(UInt32(7))
+        append(UInt32(500))
+        append(Double(45.25).bitPattern)
+        append(Double(-75.125).bitPattern)
+        append(Float(2.5).bitPattern)
+        let snapshot = Data("""
+        {"v":1,"imu":[{"state":"waiting"},{"state":"waiting"}],"gnss":{"state":"waiting"}}
+        """.utf8) + Data([10])
+
+        var parser = TrackerExportFrames()
+        var samples: [TrackerMeasurement] = []
+        var snapshots = 0
+        try parser.receive(binary.prefix(16), snapshot: { _ in XCTFail() }, measurement: { _ in XCTFail() })
+        try parser.receive(Data(binary.dropFirst(16)) + snapshot, snapshot: { _ in snapshots += 1 },
+                           measurement: { samples.append($0) })
+        XCTAssertEqual(snapshots, 1)
+        XCTAssertEqual(samples, [
+            .imu(index: 1, sequence: 10, receivedMS: 100, accel: [1, 2, 3], gyro: [-1, -2, -3]),
+            .fix(sequence: 7, receivedMS: 500, latitude: 45.25, longitude: -75.125, speed: 2.5)
+        ])
+    }
+
+    func testExportRejectsOversizedAndMalformedBatch() throws {
+        for bytes in [Data([0xa5, 1, 255, 255]), Data([0xa5, 1, 29, 0] + [UInt8](repeating: 0, count: 29))] {
+            var parser = TrackerExportFrames()
+            XCTAssertThrowsError(try parser.receive(bytes, snapshot: { _ in XCTFail() }, measurement: { _ in XCTFail() }))
+        }
+    }
+
+    func testExportDetectsTrackerBufferOverflow() throws {
+        var parser = TrackerExportFrames()
+        try parser.receive(Data([0xa5, 1, 0]), snapshot: { _ in XCTFail() }, measurement: { _ in XCTFail() })
+        XCTAssertThrowsError(try parser.receive(Data([0]), snapshot: { _ in XCTFail() },
+                                                measurement: { _ in XCTFail() })) { error in
+            guard case TrackerFrames.FrameError.captureOverflow = error else {
+                return XCTFail("Expected an explicit capture overflow")
+            }
+        }
+    }
+}

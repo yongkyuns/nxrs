@@ -4,6 +4,8 @@
 #[cfg(feature = "dashboard")]
 mod charts;
 #[cfg(feature = "dashboard")]
+mod clock;
+#[cfg(feature = "dashboard")]
 mod communications;
 #[cfg(feature = "dashboard")]
 #[path = "dashboard.rs"]

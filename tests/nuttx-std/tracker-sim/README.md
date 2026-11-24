@@ -213,6 +213,24 @@ collector receives fresh data again. Use `--shift 3` for a faster continuity
 check. Accelerated timings include the effect of QEMU's virtual clock on the
 host-driven BLE controller.
 
+The ESP32-S3 QEMU workflow runs `--export` against the notification service.
+It adds CPU work to display SPI transfers while both IMUs, GNSS and cellular
+TLS stay active. It paces the BLE ciphertext at 5.5 kB/s, with a 4.8 kB/s
+interval matching the slower physical link trace. It withholds three bursts of
+controller transmit credits and injects notification and acknowledgment loss.
+The test requires contiguous sequences, queue recovery, an advancing cellular
+stream, and one UTC mapping for sensor records on BLE, USB and cellular TLS.
+A legacy export reconnect uses the same pairing key.
+
+CoreS3 production qualification uses the physical display, both IMUs at
+100 Hz, GNSS at 2 Hz and a cellular TLS collector while a physical iPhone
+receives the stream. Compare source sequence ranges against the phone's
+decoded counts. The firmware reports queue high-water and maximum time
+between BLE service calls when the session ends. Check that the queue
+drains after a stall and that the worst supported load leaves sustained
+capacity for recovery. The 512-sample queue covers about 2.5 seconds
+of complete blockage at the nominal source rate.
+
 On the unbuffered TCP build, this control reproduced a 4.02-second BLE gap and
 zero records during the hold. With bounded TCP writes enabled, three
 wall-clock boots each delivered BLE records during the hold. The longest

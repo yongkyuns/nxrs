@@ -73,7 +73,7 @@ struct HomeSettingsView: View {
                 }.listRowBackground(HomeTheme.surface)
             }.scrollContentBackground(.hidden).background(HomeTheme.canvas)
                 .navigationTitle("Settings").foregroundStyle(HomeTheme.ink)
-                .sheet(isPresented: $showTracker) { TrackerView() }
+                .sheet(isPresented: $showTracker) { TrackerView(connectionChanged: model.setTrackerActive) }
                 .sheet(isPresented: $showSetup) { HomeSetupView(model: model, replacing: true) }
                 .sheet(isPresented: $showDetails) { ConnectionDetailsView(model: model) }
                 .confirmationDialog("Forget this home?", isPresented: $showForget, titleVisibility: .visible) {

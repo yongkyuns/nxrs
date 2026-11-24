@@ -26,10 +26,11 @@ north-up grid with a distance scale, current coordinates and ground speed.
 Loss of fix breaks the trail. This view works without internet access.
 Street maps are a separate integration.
 
-The dashboard uses a 32-slot event inbox. A slow display or console can cause
-sample drops without blocking the sensor workers. Sequence gaps are visible
-in telemetry. The tracker expires IMU readings after 500 ms and GNSS fixes
-after three seconds.
+The dashboard samples the latest observation from each sensor when it redraws
+or publishes telemetry. Touch events and sensor faults have their own inbox.
+The BLE export receives the full stream before the dashboard downsamples it.
+The tracker expires IMU readings after 500 ms and GNSS fixes after three
+seconds.
 
 ## CoreS3 and M135 setup
 
@@ -96,11 +97,25 @@ the live dashboard.
    fresh. It clears stale readings and reconnects to the paired tracker after a
    temporary drop or when you return to the screen. The pairing key stays in
    memory while the tracker screen is open. Tap Disconnect to clear it.
+   If the phone needs to scan again, tap **Pair** on the CoreS3 after it
+   disconnects. The board opens the menu automatically.
 
-The CoreS3 serves a BLE GATT byte stream. The phone relays TLS ciphertext over
-20-byte reads and acknowledged writes. The device publishes the latest snapshot
-at up to 1 Hz and waits for the output to drain between records. Use the USB
-stream for higher-cadence bench captures.
+The CoreS3 sends the latest dashboard snapshot at up to 1 Hz. Current iPhone
+builds use the notification service and request binary sensor data after
+TLS pairing. The authenticated notification stream carries both record types.
+With older firmware, the app shows **Dashboard only**. Earlier clients can
+still read the dashboard using the original service and 20-byte GATT reads.
+
+The export sends each received IMU sample at the configured 100 Hz and each
+valid GNSS fix at 2 Hz on the dual-IMU CoreS3 profiles. The GNSS driver verifies
+a 500 ms navigation period in receiver RAM and restores the previous
+configuration on shutdown. The phone shows acceleration and gyroscope for
+both IMUs, recent fixes on the map, observed rates, and sequence gaps. Export
+starts with each authenticated connection. A 512-sample buffer covers about
+2.5 seconds of acquisition at these rates while a connected receiver catches
+up. If the buffer fills, the tracker delivers queued samples and reports an
+incomplete export. Sensor acquisition and the display continue. The phone
+also marks an export incomplete if it detects a sequence gap.
 
 Pairing is opt-in for each run. The TLS 1.2 PSK cipher is
 `TLS_PSK_WITH_AES_128_GCM_SHA256` and the PSK identity is `nxrs-tracker-v1`.
@@ -114,12 +129,51 @@ the vendor mutex before sampling. Physical entropy and throughput qualification
 remain separate from the firmware build.
 [Espressif RNG requirements](https://docs.espressif.com/projects/esp-idf/en/stable/esp32s3/api-reference/system/random.html)
 
-The BLE UUIDs end in `3400` (service), `3401` (phone writes ciphertext), and
-`3402` (phone reads ciphertext). Their full prefix is
-`3CB1DE6E-A955-49B7-BE4F-C4572D3F`. Android can use the same GATT byte stream and
-TLS configuration. Each decrypted record is the same v1 NDJSON frame used by
-USB. Frame readers handle split or joined lines and reject records longer
-than 768 bytes including the newline. Cellular upload uses the same frames.
+The BLE UUID prefix is `3CB1DE6E-A955-49B7-BE4F-C4572D3F`. The notification
+service uses suffixes `3420` (service), `3421` (ingress) and `3422` (egress).
+Each notification starts with a little-endian 32-bit offset into the
+connection's ciphertext. The phone delivers only contiguous bytes to TLS and
+reports the next offset as an ingress write command prefixed with `01`.
+Phone-to-tracker ciphertext uses acknowledged ingress writes prefixed with
+`00`. The tracker retains up to 2 KiB of ciphertext and replays after 180 ms
+without acknowledgment progress. The original dashboard service uses
+the unchanged `3400`, `3401` and `3402` UUIDs and handles, and is advertised
+in the scan response. Dashboard snapshots retain the v1 NDJSON
+layout used by USB and cellular. Each live reading has a monotonic
+`received_ms` on the same clock as both IMUs and GNSS. Each has `utc_ms`
+in Unix milliseconds after the first valid GNSS UTC solution, or `null`
+before that. All three outputs share one UTC offset for the run. This pairs
+the receiver's solution time with host reception and includes UART latency.
+IMU samples drained in one FIFO read can share a reception timestamp. Use
+the source sequence and nominal sampling interval to order those samples.
+
+The notification dashboard advertises `imu_scale_bits`. It contains one
+pair of IEEE float32 scale bit patterns per IMU, or `null` for a float-only
+source. New clients request timed export with `4e 58 52 53 03`. The batch
+starts with `a5 03`, a little-endian 16-bit payload length and a signed
+64-bit UTC offset. An offset of `i64::MIN` means UTC is unavailable.
+The offset plus the sample's monotonic timestamp gives the absolute time
+unless the sample was received before the UTC anchor.
+
+A data batch carries up to 16 records. The low five bits of the tag
+identify IMU 1, IMU 2 or GNSS as 1, 2 or 3. The first record for a
+source, one after a sequence gap, or one with a time delta above 255 ms
+carries a 32-bit sequence and a
+64-bit monotonic reception timestamp in milliseconds. When bit 7 is
+set, the record instead carries an 8-bit time delta from that source's
+previous record in the batch and advances its sequence by one. Bit 5
+marks samples received before the UTC anchor. Bit 6 marks six signed
+16-bit IMU counts. Multiplying each group of three counts by its scale
+reconstructs the same float32 values used by the navigation filter.
+The alternate IMU payload is six float32s. Both use acceleration then
+gyroscope in X/Y/Z order. GNSS sends float64 latitude and longitude and
+float32 ground speed. A five-byte payload contains only the source and
+sequence of the first missing sample. Multibyte values are little-endian.
+
+The `NXRS 01` and `NXRS 02` requests still select the original 32-bit
+timestamp layouts. Version 1 uses full float records and an empty overflow
+payload. Version 2 also accepts delta headers and identifies the first
+missing source and sequence.
 
 BLE and cellular share the telemetry stream publisher. Each connection keeps
 one frame in progress and coalesces waiting snapshots to the latest value.

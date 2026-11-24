@@ -41,6 +41,7 @@ pub fn open<S: FnMut(Event) -> messaging::DeliveryResult<Event> + Send + 'static
             if !emit(Event::Fix(GnssFix {
                 sequence: event.key.sequence.saturating_add(1),
                 timestamp_ms: event.key.time_us / 1_000,
+                receiver_utc_ms: None,
                 latitude_deg: f64::from(fix.latitude_e7) / 10_000_000.0,
                 longitude_deg: f64::from(fix.longitude_e7) / 10_000_000.0,
                 speed_mps: fix.speed_mm_s as f32 / 1_000.0,

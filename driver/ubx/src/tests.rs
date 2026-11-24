@@ -122,6 +122,25 @@ fn deadline() -> Instant {
 }
 
 #[test]
+fn nav_pvt_only_exports_resolved_utc_and_preserves_negative_fraction() {
+    let mut payload = pvt(1000);
+    payload[4..6].copy_from_slice(&2026u16.to_le_bytes());
+    payload[6..11].copy_from_slice(&[1, 1, 0, 0, 0]);
+    payload[16..20].copy_from_slice(&(-100_000_000i32).to_le_bytes());
+    let mut decoder = ubx::Decoder::default();
+    for (flags, expected) in [(3, None), (6, None), (7, Some(1_767_225_599_900))] {
+        payload[11] = flags;
+        let mut report = None;
+        decoder.consume(&frame(1, 7, &payload), |event| {
+            if let ubx::Event::NavPvt(value) = event {
+                report = Some(value.unwrap().receiver_utc_ms);
+            }
+        });
+        assert_eq!(report, Some(expected));
+    }
+}
+
+#[test]
 fn fragmented_nav_pvt_reports_epoch_coordinates_speed_and_heading_quality() {
     assert!(core::mem::size_of::<ubx::Decoder>() <= 160);
     let wire = frame(1, 7, &pvt(1000));

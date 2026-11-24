@@ -80,7 +80,7 @@ impl ImuService {
     pub fn start_on(self, selected: &'static impl imu::Device) -> io::Result<ImuHandle> {
         let (control, inbox) = bounded(INBOX_CAPACITY);
         // This endpoint only admits messages; acquisition invokes it in task context.
-        let sink = crate::inbox_sink(control.clone(), Event::Device);
+        let sink = crate::inbox_sink(control.clone(), |event| Some(Event::Device(event)));
         let device = selected.open_default(sink).map_err(hal_error)?;
         Self::start_device(self, device, control, inbox)
     }

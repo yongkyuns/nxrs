@@ -1,8 +1,10 @@
 //! One task steps both TLS sessions under the SDK's single identity lease.
+mod export;
 mod publication;
 mod radio;
 mod uplink;
 
+pub(super) use export::Capture;
 pub(super) use uplink::{Collector, Config as CellularConfig};
 
 use crate::tracker::Snapshot;
@@ -61,6 +63,7 @@ impl Communications {
     pub fn start(
         pair: bool,
         cellular: Option<CellularConfig>,
+        capture: Arc<Capture>,
         notify: impl FnMut() + Send + 'static,
     ) -> io::Result<Self> {
         let shared = Arc::new(Mutex::new(Shared::default()));
@@ -68,7 +71,7 @@ impl Communications {
         let task = thread::Builder::new()
             .name("tracker-links".into())
             .stack_size(24 * 1024)
-            .spawn(move || run(&incoming, pair, cellular, notify))?;
+            .spawn(move || run(&incoming, pair, cellular, &capture, notify))?;
         Ok(Self {
             shared,
             task: Some(task),
@@ -123,12 +126,14 @@ fn run(
     shared: &Mutex<Shared>,
     pair: bool,
     cellular: Option<CellularConfig>,
+    capture: &Capture,
     mut notify: impl FnMut(),
 ) -> io::Result<()> {
+    capture.register_owner();
     let collector = cellular.as_ref().and_then(|config| config.collector);
     let mut modem = cellular.map(uplink::Modem::start).transpose()?;
     let identity = OnceCell::new();
-    let mut radio = None;
+    let mut radio: Option<radio::Output<'_, _>> = None;
     let mut next_radio = Instant::now();
     let mut upload = None;
     let mut retry = uplink::Retry::new();
@@ -147,25 +152,31 @@ fn run(
             (inbox.latest.take(), inbox.pairing.take().or(command.take()))
         };
         let now = Instant::now();
-        if let Some(pair) = pair {
-            radio = None;
-            pairing_failed = false;
-            if matches!(pair, Pairing::Start) {
-                match tls_identity(&identity).and_then(radio::pair) {
-                    Ok(output) => radio = Some(output),
-                    Err(error) => {
-                        eprintln!("motion-tracker pairing: {error}");
-                        pairing_failed = true;
-                    }
-                }
-            }
-        }
         if radio.as_ref().is_some_and(|output| output.expired(now)) {
             radio = None;
         }
+        if let Some(pair) = pair {
+            pairing_failed = false;
+            match pair {
+                Pairing::Cancel => radio = None,
+                Pairing::Start => match radio.as_mut() {
+                    Some(output) => output.show_pairing_code(),
+                    None => match tls_identity(&identity)
+                        .and_then(|identity| radio::pair(identity, capture))
+                    {
+                        Ok(output) => radio = Some(output),
+                        Err(error) => {
+                            eprintln!("motion-tracker pairing: {error}");
+                            pairing_failed = true;
+                        }
+                    },
+                },
+            }
+        }
         let view = match radio.as_mut() {
             Some(output) => {
-                if now >= next_radio {
+                let samples_ready = capture.take_ready();
+                if output.take_ready() || samples_ready || now >= next_radio {
                     output.service(now);
                     next_radio = now + ACTIVE_POLL;
                 }

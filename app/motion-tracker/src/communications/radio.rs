@@ -1,11 +1,14 @@
+use super::{
+    export::{Capture, Version, MAX_BYTES, REQUEST_LEN, REQUEST_PREFIX},
+    publication::Publisher,
+};
 use crate::{text::Text, tracker::Snapshot, wire};
 use ble::{
-    peripheral::{self, Link, Listener},
+    peripheral::{self, Link, Listener, Service},
     Uuid,
 };
 use std::io::{self, Read, Write};
 use std::time::{Duration, Instant};
-use super::publication::Publisher;
 
 fn uuid(last: u8) -> Uuid {
     Uuid([
@@ -14,10 +17,18 @@ fn uuid(last: u8) -> Uuid {
     ])
 }
 
-pub fn pair(identity: &tls::Identity) -> io::Result<Output<'_, impl Listener>> {
-    let listener = peripheral::open(uuid(0), uuid(1), uuid(2))
+pub fn pair<'a>(
+    identity: &'a tls::Identity,
+    capture: &'a Capture,
+) -> io::Result<Output<'a, impl Listener>> {
+    let service = |base| Service {
+        uuid: uuid(base),
+        ingress: uuid(base + 1),
+        egress: uuid(base + 2),
+    };
+    let listener = peripheral::open_with_notifications(service(0), service(0x20))
         .map_err(|error| io::Error::other(format!("BLE: {error:?}")))?;
-    Output::start(listener, identity)
+    Output::start(listener, identity, capture)
 }
 
 struct Bearer<T>(T);
@@ -47,6 +58,15 @@ pub struct Output<'a, L: Listener> {
     listener: L,
     identity: &'a tls::Identity,
     key: [u8; 32],
+    capture: &'a Capture,
+    request: [u8; REQUEST_LEN],
+    request_len: usize,
+    export: [u8; MAX_BYTES],
+    export_len: usize,
+    sent: usize,
+    next_export: Option<(Version, Instant)>,
+    last_export_service: Option<Instant>,
+    max_service_gap: Duration,
     connection: Option<tls::Connection<'a, Bearer<L::Transport>>>,
     publication: Publisher<Snapshot, Text<768>>,
     live: bool,
@@ -57,7 +77,11 @@ pub struct Output<'a, L: Listener> {
 }
 
 impl<'a, L: Listener> Output<'a, L> {
-    pub fn start(listener: L, identity: &'a tls::Identity) -> io::Result<Self> {
+    pub fn start(
+        listener: L,
+        identity: &'a tls::Identity,
+        capture: &'a Capture,
+    ) -> io::Result<Self> {
         let key = identity
             .pairing_key()
             .map_err(|error| io::Error::other(format!("Pairing key: {error:?}")))?;
@@ -66,6 +90,15 @@ impl<'a, L: Listener> Output<'a, L> {
             listener,
             identity,
             key,
+            capture,
+            request: [0; REQUEST_LEN],
+            request_len: 0,
+            export: [0; MAX_BYTES],
+            export_len: 0,
+            sent: 0,
+            next_export: None,
+            last_export_service: None,
+            max_service_gap: Duration::ZERO,
             connection: None,
             publication: Publisher::default(),
             live: false,
@@ -85,13 +118,41 @@ impl<'a, L: Listener> Output<'a, L> {
         self.paired
     }
 
+    pub fn show_pairing_code(&mut self) {
+        if !self.live {
+            self.paired = false;
+        }
+    }
+
     pub fn expired(&self, now: Instant) -> bool {
         now >= self.expires
     }
 
+    pub fn take_ready(&self) -> bool {
+        self.listener.take_ready()
+    }
+
     pub fn service(&mut self, now: Instant) {
-        if self.poll(now).is_err() {
+        if let Some(last) = self.last_export_service.as_mut() {
+            self.max_service_gap = self.max_service_gap.max(now.duration_since(*last));
+            *last = now;
+        }
+        if let Err(error) = self.poll(now) {
+            eprintln!("motion-tracker BLE session ended: {error}");
+            if self.last_export_service.take().is_some() {
+                self.capture.disable();
+                eprintln!(
+                    "motion-tracker BLE export: high_water={} samples max_service_gap={} us",
+                    self.capture.high_water(),
+                    self.max_service_gap.as_micros(),
+                );
+            }
             self.connection = None;
+            self.capture.disable();
+            self.request_len = 0;
+            self.export_len = 0;
+            self.next_export = None;
+            self.sent = 0;
             self.live = false;
             self.drained = false;
             self.publication = Publisher::default();
@@ -99,6 +160,7 @@ impl<'a, L: Listener> Output<'a, L> {
     }
 
     fn poll(&mut self, now: Instant) -> io::Result<()> {
+        self.listener.service()?;
         if self.connection.is_none() {
             if let Some(stream) = self
                 .listener
@@ -116,23 +178,93 @@ impl<'a, L: Listener> Output<'a, L> {
             self.live = conn.poll().map_err(|_| io::ErrorKind::PermissionDenied)?;
             if self.live {
                 self.paired = true;
-                self.drained = if self.publication.is_idle() {
-                    match conn.flush() {
+                let notifications = self.listener.notifying();
+                if notifications && self.request_len < REQUEST_LEN && self.publication.is_idle() {
+                    match conn.read(&mut self.request[self.request_len..]) {
+                        Ok(0) => return Err(io::ErrorKind::UnexpectedEof.into()),
+                        Ok(count) => {
+                            self.request_len += count;
+                            let prefix_len = self.request_len.min(REQUEST_PREFIX.len());
+                            if self.request[..prefix_len] != REQUEST_PREFIX[..prefix_len] {
+                                return Err(io::ErrorKind::InvalidData.into());
+                            }
+                            if self.request_len == REQUEST_LEN {
+                                let version = Version::from_request(self.request[REQUEST_LEN - 1])
+                                    .ok_or(io::ErrorKind::InvalidData)?;
+                                self.capture.enable()?;
+                                self.last_export_service = Some(now);
+                                self.max_service_gap = Duration::ZERO;
+                                self.next_export = Some((version, now + version.batch_interval()));
+                            }
+                        }
+                        Err(error) if error.kind() == io::ErrorKind::WouldBlock => {}
+                        Err(error) => return Err(error),
+                    }
+                }
+                if self.export_len != 0 {
+                    Self::write_export(conn, &self.export[..self.export_len], &mut self.sent)?;
+                    if self.sent == self.export_len {
+                        self.sent = 0;
+                        self.export_len = 0;
+                    }
+                    return Ok(());
+                }
+                if !self.publication.is_idle() {
+                    self.drained = if notifications {
+                        self.publication.enqueue(conn, now, self.expires, |snapshot| {
+                            wire::export_frame(snapshot, self.capture.scales())
+                        })?
+                    } else {
+                        self.publication
+                            .service(conn, now, self.expires, wire::frame)?
+                    };
+                    return Ok(());
+                }
+                if !notifications {
+                    self.drained = match conn.flush() {
                         Ok(()) => true,
                         Err(error) if error.kind() == io::ErrorKind::WouldBlock => false,
                         Err(error) => return Err(error),
+                    };
+                }
+                if let Some((version, deadline)) = self.next_export.filter(|_| notifications) {
+                    if let Some(batch) =
+                        self.capture
+                            .take(&mut self.export, now >= deadline, version)
+                    {
+                        self.export_len = batch.len;
+                        self.next_export =
+                            (!batch.terminal).then(|| (version, now + version.batch_interval()));
+                        Self::write_export(conn, &self.export[..self.export_len], &mut self.sent)?;
+                        if self.sent == self.export_len {
+                            self.sent = 0;
+                            self.export_len = 0;
+                        }
                     }
-                } else {
-                    self.publication
-                        .service(conn, now, self.expires, wire::frame)?
-                };
+                }
             }
         }
         Ok(())
     }
 
+    fn write_export(conn: &mut impl Write, bytes: &[u8], sent: &mut usize) -> io::Result<()> {
+        match conn.write(&bytes[*sent..]) {
+            Ok(0) => Err(io::ErrorKind::WriteZero.into()),
+            Ok(count) => {
+                *sent += count;
+                Ok(())
+            }
+            Err(error) if error.kind() == io::ErrorKind::WouldBlock => Ok(()),
+            Err(error) => Err(error),
+        }
+    }
+
     pub fn offer(&mut self, snapshot: &Snapshot, now: Instant) {
-        if self.live && self.drained && self.publication.is_idle() && now >= self.next_frame {
+        if self.live
+            && (self.drained || self.listener.notifying())
+            && self.publication.is_idle()
+            && now >= self.next_frame
+        {
             self.publication.offer(*snapshot);
             self.next_frame = now + Duration::from_secs(1);
         }
@@ -141,6 +273,7 @@ impl<'a, L: Listener> Output<'a, L> {
 impl<L: Listener> Drop for Output<'_, L> {
     fn drop(&mut self) {
         self.connection = None;
+        self.capture.disable();
         self.key.fill(0);
     }
 }

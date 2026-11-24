@@ -2,6 +2,7 @@
 import argparse
 import asyncio
 import base64
+from dataclasses import replace
 import json
 from pathlib import Path
 import re
@@ -14,6 +15,11 @@ import time
 from bumble.controller import Controller
 from bumble.core import AdvertisingData, PhysicalTransport, UUID
 from bumble.device import Device, Peer
+from bumble.gatt import Characteristic
+from bumble.hci import (
+    HCI_LE_Advertising_Report_Event, HCI_LE_Extended_Advertising_Report_Event,
+    HCI_Number_Of_Completed_Packets_Event,
+)
 from bumble.hci import Address
 from bumble.link import LocalLink
 from bumble.transport.common import ParserSource
@@ -27,7 +33,48 @@ WIDTH, HEIGHT = 320, 240
 SERVICE = UUID('3CB1DE6E-A955-49B7-BE4F-C4572D3F3400')
 RX = UUID('3CB1DE6E-A955-49B7-BE4F-C4572D3F3401')
 TX = UUID('3CB1DE6E-A955-49B7-BE4F-C4572D3F3402')
+EXPORT_SERVICE = UUID('3CB1DE6E-A955-49B7-BE4F-C4572D3F3420')
+EXPORT_RX = UUID('3CB1DE6E-A955-49B7-BE4F-C4572D3F3421')
+EXPORT_TX = UUID('3CB1DE6E-A955-49B7-BE4F-C4572D3F3422')
 TRACKER = Address('F0:F1:F2:F3:F4:01', Address.PUBLIC_DEVICE_ADDRESS)
+
+def decode_batch(payload, version, scales):
+    """Decode each batch into full timestamps, SI measurements, and optional UTC."""
+    timed = version == 3
+    utc_offset = struct.unpack_from('<q', payload)[0] if timed else None
+    previous = {}
+    records = []
+    pos = 8 if timed else 0
+    while pos < len(payload):
+        tag = payload[pos]
+        delta = version >= 2 and tag & 0x80
+        counts = timed and tag & 0x40
+        source = tag & (0x1f if timed else 0x7f)
+        assert source in (1, 2, 3) and (source != 3 or not counts)
+        header = 2 if delta else 13 if timed else 9
+        end = pos + header + (20 if source == 3 else 12 if counts else 24)
+        assert end <= len(payload), 'partial tracker record'
+        if delta:
+            seq, stamp = previous[source]
+            seq = (seq + 1) & 0xffffffff
+            stamp += payload[pos + 1]
+            if not timed:
+                stamp &= 0xffffffff
+        else:
+            seq, stamp = struct.unpack_from('<IQ' if timed else '<II', payload, pos + 1)
+        previous[source] = seq, stamp
+        utc = (stamp + utc_offset
+               if timed and utc_offset != -(1 << 63) and not tag & 0x20 else None)
+        offset = pos + header
+        if counts:
+            points = struct.unpack_from('<6h', payload, offset)
+            scale = scales[source - 1]
+            values = tuple(point * scale[axis // 3] for axis, point in enumerate(points))
+        else:
+            values = struct.unpack_from('<ddf' if source == 3 else '<6f', payload, offset)
+        records.append((source, seq, stamp, utc, values))
+        pos = end
+    return records
 
 
 def luminance(rgb):
@@ -48,21 +95,92 @@ class Stream:
 
 
 class BluetoothLink(LocalLink):
+    notifications_to_drop = 0
+    acknowledgements_to_drop = 0
+    notification_rate = 0
+    paced_notifications = 0
+    next_notification = 0.0
+
     def send_acl_data(self, sender, destination, transport, data):
         # Bumble 0.0.236 otherwise uses the sender's random address for all LE ACL.
         if transport != PhysicalTransport.LE:
             return super().send_acl_data(sender, destination, transport, data)
+        if self.notifications_to_drop and data[2:5] == b'\x04\x00\x1b':
+            self.notifications_to_drop -= 1
+            return
+        if self.acknowledgements_to_drop and data[2:8] == b'\x04\x00\x52\x08\x00\x01':
+            self.acknowledgements_to_drop -= 1
+            return
         peer = self.find_le_controller(destination)
         if peer is not None:
             source = sender.le_connections[destination].self_address
-            asyncio.get_running_loop().call_soon(peer.on_link_acl_data, source, transport, data)
+            loop = asyncio.get_running_loop()
+            if self.notification_rate and data[2:5] == b'\x04\x00\x1b':
+                # Pace the ciphertext payload, excluding the L2CAP, ATT and
+                # replay headers. Keep emitting link credits and ACKs normally.
+                self.next_notification = max(loop.time(), self.next_notification) + (
+                    (len(data) - 11) / self.notification_rate
+                )
+                self.paced_notifications += 1
+                loop.call_at(self.next_notification, peer.on_link_acl_data, source, transport, data)
+            else:
+                loop.call_soon(peer.on_link_acl_data, source, transport, data)
 
 
 class H4Controller(Controller):
+    withheld_completions = None
+
+    def send_hci_packet(self, packet):
+        if self.withheld_completions is not None and isinstance(packet, HCI_Number_Of_Completed_Packets_Event):
+            for handle, count in zip(packet.connection_handles, packet.num_completed_packets):
+                self.withheld_completions[handle] = self.withheld_completions.get(handle, 0) + count
+        else:
+            super().send_hci_packet(packet)
+
+    def hold_acl_credits(self):
+        assert self.withheld_completions is None
+        self.withheld_completions = {}
+
+    def release_acl_credits(self, individual=False):
+        counts = self.withheld_completions
+        self.withheld_completions = None
+        if counts:
+            if individual:
+                # A burst of independent events must fit the receiver's
+                # control path even when the host I/O pool is nearly full.
+                for handle, count in counts.items():
+                    for _ in range(count):
+                        self.send_hci_packet(HCI_Number_Of_Completed_Packets_Event(
+                            connection_handles=[handle], num_completed_packets=[1]))
+            else:
+                self.send_hci_packet(HCI_Number_Of_Completed_Packets_Event(
+                    connection_handles=list(counts), num_completed_packets=list(counts.values())))
+        return sum(counts.values())
+
     def on_hci_host_number_of_completed_packets_command(self, _command):
         # The virtual controller queues no host-bound ACL credits. The HCI
         # acknowledgement has no response event.
         return None
+
+
+class PhoneController(Controller):
+    def send_hci_packet(self, packet):
+        # Bumble 0.0.236 synthesizes a scan response from the advertising
+        # payload. Use the actual scan response configured by the NuttX host.
+        scan_types = {
+            HCI_LE_Advertising_Report_Event: HCI_LE_Advertising_Report_Event.EventType.SCAN_RSP,
+            HCI_LE_Extended_Advertising_Report_Event:
+                HCI_LE_Extended_Advertising_Report_Event.EventType.SCAN_RESPONSE,
+        }
+        if (kind := scan_types.get(type(packet))) is not None:
+            report, = packet.reports
+            if report.event_type == kind:
+                if not self.le_scan_type:
+                    return
+                advertiser = self.link.find_le_controller(report.address)
+                response = advertiser.le_legacy_advertiser.scan_response_data
+                packet = type(packet)([replace(report, data=response)])
+        super().send_hci_packet(packet)
 
 
 class Guest:
@@ -192,17 +310,19 @@ class Panel:
         raise TimeoutError('decodable dashboard QR')
 
 
-async def connect(device):
+async def connect(device, *, export=False):
     seen = asyncio.Event()
+    schema = EXPORT_SERVICE if export else SERVICE
 
     def advertisement(event):
-        services = event.data.get(AdvertisingData.COMPLETE_LIST_OF_128_BIT_SERVICE_CLASS_UUIDS)
-        if event.is_connectable and event.address == TRACKER and services and SERVICE in services:
+        lists = event.data.get_all(AdvertisingData.INCOMPLETE_LIST_OF_128_BIT_SERVICE_CLASS_UUIDS)
+        if (event.address == TRACKER and any(schema in services for services in lists)
+                and (event.is_connectable if export else event.is_scan_response)):
             seen.set()
 
     device.on('advertisement', advertisement)
     try:
-        await device.start_scanning(active=False, filter_duplicates=False)
+        await device.start_scanning(legacy=True, active=not export, filter_duplicates=False)
         try:
             await asyncio.wait_for(seen.wait(), 5)
         finally:
@@ -211,10 +331,18 @@ async def connect(device):
         device.remove_listener('advertisement', advertisement)
     async with asyncio.timeout(5):
         connection = await device.connect(TRACKER)
-        services = await Peer(connection).discover_service(SERVICE)
+        services = await Peer(connection).discover_service(schema)
         assert len(services) == 1, 'tracker service missing'
         characteristics = await services[0].discover_characteristics()
-        return connection, *(next(c for c in characteristics if c.uuid == uuid) for uuid in (RX, TX))
+        rx, tx = (next(c for c in characteristics if c.uuid == uuid)
+                  for uuid in ((EXPORT_RX, EXPORT_TX) if export else (RX, TX)))
+        assert (rx.handle, tx.handle) == ((8, 10) if export else (3, 5))
+        expected_rx = Characteristic.Properties.WRITE
+        if export:
+            expected_rx |= Characteristic.Properties.WRITE_WITHOUT_RESPONSE
+        assert rx.properties == expected_rx
+        assert tx.properties == (Characteristic.Properties.NOTIFY if export else Characteristic.Properties.READ)
+        return connection, rx, tx
 
 
 class SecureStream:
@@ -231,16 +359,68 @@ class SecureStream:
         self.rx = rx
         self.tx = tx
         self.buffer = bytearray()
+        self.notifications = None
+        self.notification_overflow = False
+        self.offset = 0
+        self.out_of_order = 0
+        self.acknowledgement_pending = False
+        self.acknowledge_at = 0.0
+        self.scales = (None, None)
+
+    async def subscribe(self):
+        self.notifications = asyncio.Event()
+
+        def receive(packet):
+            if not 4 < len(packet) <= 244 or self.incoming.pending + len(packet) - 4 > 8192:
+                self.notification_overflow = True
+                self.notifications.set()
+                return
+            offset = int.from_bytes(packet[:4], 'little')
+            skip = (self.offset - offset) & 0xffffffff
+            data = packet[4 + skip:]
+            self.out_of_order += skip > 0x7fffffff
+            if data:
+                self.incoming.write(data)
+                self.offset = (self.offset + len(data)) & 0xffffffff
+            self.acknowledgement_pending = True
+            self.notifications.set()
+
+        await self.tx.subscribe(receive)
+
+    async def flush(self):
+        framed = self.notifications is not None
+        while self.outgoing.pending:
+            chunk = self.outgoing.read(19 if framed else 20)
+            await self.rx.write_value(b'\0' + chunk if framed else chunk, with_response=True)
 
     async def poll(self):
-        while self.outgoing.pending:
-            chunk = self.outgoing.read(20)
-            await self.rx.write_value(chunk, with_response=True)
-        data = await self.tx.read_value(no_long_read=True)
-        if data:
-            self.incoming.write(data)
-        else:
-            await asyncio.sleep(0.003)
+        await self.flush()
+        if self.notifications is None:
+            data = await self.tx.read_value(no_long_read=True)
+            if data:
+                self.incoming.write(data)
+            else:
+                await asyncio.sleep(0.003)
+            return
+        # Use the same cumulative acknowledgment interval as the iPhone.
+        loop = asyncio.get_running_loop()
+        while True:
+            assert not self.notification_overflow, 'test peer notification storage overflowed or received an invalid frame'
+            if self.acknowledgement_pending and loop.time() >= self.acknowledge_at:
+                self.acknowledgement_pending = False
+                self.acknowledge_at = loop.time() + 0.015
+                await self.rx.write_value(b'\x01' + self.offset.to_bytes(4, 'little'), with_response=False)
+            if self.notifications.is_set():
+                self.notifications.clear()
+                return
+            if not self.acknowledgement_pending:
+                await self.notifications.wait()
+                continue
+            try:
+                async with asyncio.timeout_at(self.acknowledge_at):
+                    await self.notifications.wait()
+            except TimeoutError:
+                pass
 
     async def handshake(self):
         while True:
@@ -249,6 +429,27 @@ class SecureStream:
                 assert self.tls.version() == 'TLSv1.2'
                 assert self.tls.cipher()[0] == 'PSK-AES128-GCM-SHA256'
                 return
+            except ssl.SSLWantReadError:
+                await self.poll()
+
+    async def export_record(self):
+        while True:
+            if self.buffer[:1] == b'\xa5' and len(self.buffer) >= 4:
+                size = 4 + int.from_bytes(self.buffer[2:4], 'little')
+                version = self.buffer[1]
+                assert size not in (4, 9), 'tracker reported sensor export buffer overflow'
+                assert version in (1, 2, 3) and 33 <= size <= (604 if version == 3 else 532)
+                if len(self.buffer) >= size:
+                    batch = bytes(self.buffer[4:size])
+                    del self.buffer[:size]
+                    return decode_batch(batch, version, self.scales), len(batch)
+            elif self.buffer[:1] == b'{' and b'\n' in self.buffer:
+                end = self.buffer.index(b'\n')
+                snapshot = json.loads(self.buffer[:end])
+                del self.buffer[:end + 1]
+                return snapshot
+            try:
+                self.buffer.extend(self.tls.read(768))
             except ssl.SSLWantReadError:
                 await self.poll()
 
@@ -261,6 +462,11 @@ class SecureStream:
         end = self.buffer.index(b'\n')
         value = json.loads(self.buffer[:end])
         del self.buffer[:end + 1]
+        if 'imu_scale_bits' in value:
+            self.scales = tuple(
+                None if bits is None else struct.unpack('<ff', struct.pack('<II', *bits))
+                for bits in value['imu_scale_bits']
+            )
         return value
 
 
@@ -409,7 +615,7 @@ async def run(args, log, exercise=scenario, attach_controller=None):
                 panel = Panel(q_reader, q_writer, addresses)
                 guest.gnss = NeoM9n(Stream(gps_writer))
                 tasks.append(asyncio.create_task(pump(gps_reader, guest.gnss.receive)))
-                link = BluetoothLink()
+                link = guest.ble_link = BluetoothLink()
                 source = ParserSource()
                 if attach_controller is None:
                     controller_wire = Stream(peer_writer)
@@ -417,8 +623,8 @@ async def run(args, log, exercise=scenario, attach_controller=None):
                 else:
                     controller_wire = await attach_controller(
                         panel, peer_reader, peer_writer, source.parser.feed_data, tasks)
-                H4Controller('NuttX H4', source, controller_wire, link=link, public_address=TRACKER)
-                central = Controller('test phone', link=link, public_address='F0:F1:F2:F3:F4:02')
+                guest.controller = H4Controller('NuttX H4', source, controller_wire, link=link, public_address=TRACKER)
+                central = PhoneController('test phone', link=link, public_address='F0:F1:F2:F3:F4:02')
                 phone = Device.with_hci('test phone', Address('F0:F1:F2:F3:F4:A2'), central, central)
                 await phone.power_on()
                 start = time.monotonic()

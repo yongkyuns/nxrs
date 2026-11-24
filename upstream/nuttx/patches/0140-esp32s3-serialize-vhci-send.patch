@@ -1,0 +1,91 @@
+Subject: [PATCH] ESP32-S3: serialize VHCI readiness and packet submission
+
+HCI command, ACL transmit and receive-credit workers can all submit to VHCI.
+Another worker can consume controller readiness between the check and the
+void send call. Serialize the check and submission with a task mutex and
+release it before waiting for the next send-ready notification.
+
+--- a/arch/xtensa/src/esp32s3/esp32s3_ble.c
++++ b/arch/xtensa/src/esp32s3/esp32s3_ble.c
+@@ -35,6 +35,7 @@
+ 
+ #include <nuttx/nuttx.h>
+ #include <nuttx/kmalloc.h>
++#include <nuttx/mutex.h>
+ #include <nuttx/wqueue.h>
+ #include <nuttx/semaphore.h>
+ #include <nuttx/net/bluetooth.h>
+@@ -67,6 +68,7 @@
+ {
+   struct bt_driver_s drv;         /* NuttX BT/BLE driver data */
+   sem_t send_sem;                 /* Semaphore for send readiness */
++  mutex_t send_lock;              /* Serializes VHCI submission */
+ };
+ 
+ /****************************************************************************
+@@ -88,6 +90,7 @@
+ 
+ static struct esp32s3_ble_priv_s g_ble_priv =
+ {
++  .send_lock = NXMUTEX_INITIALIZER,
+   .drv =
+     {
+       .head_reserve = H4_HEADER_SIZE,
+@@ -216,6 +219,7 @@
+   struct esp32s3_ble_priv_s *priv = &g_ble_priv;
+   uint8_t *hdr = (uint8_t *)data - drv->head_reserve;
+   int retries = 0;
++  int ret;
+ 
+   wlinfo("esp32s3_ble_send: type=%d len=%zu\n", type, len);
+ 
+@@ -241,10 +245,28 @@
+       return -EINVAL;
+     }
+ 
+-  /* Wait until VHCI is ready to accept the packet */
+-
+-  while (!esp32s3_vhci_host_check_send_available())
+-    {
++  /* HCI commands and ACL data are sent by different workers. Keep the
++   * readiness check and the send together, but allow the controller task
++   * to run while a sender waits for readiness.
++   */
++
++  for (; ; )
++    {
++      ret = nxmutex_lock(&priv->send_lock);
++      if (ret < 0)
++        {
++          return ret;
++        }
++
++      if (esp32s3_vhci_host_check_send_available())
++        {
++          wlinfo("esp32s3_ble_send: sending packet\n");
++          esp32s3_vhci_host_send_packet(hdr, len + drv->head_reserve);
++          nxmutex_unlock(&priv->send_lock);
++          return len;
++        }
++
++      nxmutex_unlock(&priv->send_lock);
+       if (++retries > BLE_SEND_MAX_RETRIES)
+         {
+           wlerr("ERROR: VHCI send not available after %d retries\n", retries);
+@@ -252,16 +274,8 @@
+         }
+ 
+       wlinfo("esp32s3_ble_send: VHCI not ready, retry %d\n", retries);
+-
+-      /* Wait for the send_ready callback with timeout */
+-
+       nxsem_tickwait(&priv->send_sem, MSEC2TICK(BLE_SEND_TIMEOUT_MS));
+     }
+-
+-  wlinfo("esp32s3_ble_send: sending packet\n");
+-  esp32s3_vhci_host_send_packet(hdr, len + drv->head_reserve);
+-
+-  return len;
+ }
+ 
+ /****************************************************************************
