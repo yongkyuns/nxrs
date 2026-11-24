@@ -25,6 +25,8 @@ dashboard = [
 ]
 
 [dependencies]
+log = "0.4"
+nxrs-log-router = { path = "../../service/logging" }
 nxrs-composition = { path = "../../platform", features = ["imu"] }
 nxrs-battery = { path = "../../hal/battery", optional = true }
 nxrs-display = { path = "../../hal/display", optional = true }

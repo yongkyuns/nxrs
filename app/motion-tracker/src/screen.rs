@@ -3,8 +3,8 @@ mod font;
 mod gesture;
 
 use crate::{
-    communications::LinkStatus,
     charts::{History, Metric, RoutePoint, ROUTE_POINTS},
+    communications::LinkStatus,
     text::Text,
     tracker::{Reading, Snapshot},
 };
@@ -518,9 +518,11 @@ impl<'a> Body<'a> {
                     ui.metric == Metric::Rotation,
                 );
                 canvas.line((plot.x, center), (right, center), AXIS);
-                let mut bound = Text::<20>::new();
-                let _ = write!(bound, "+{limit:.0} {unit}");
-                canvas.text(plot.x + 5, plot.y + 5, bound.bytes(), 1, MUTED);
+                if canvas.intersects_rows(plot.y + 5, 7) {
+                    let mut bound = Text::<20>::new();
+                    let _ = write!(bound, "+{limit:.0} {unit}");
+                    canvas.text(plot.x + 5, plot.y + 5, bound.bytes(), 1, MUTED);
+                }
                 let mut previous: Option<(i32, [i32; 3])> = None;
                 for (fraction, signal) in samples.motion(*index, ui.metric, *now) {
                     let x = plot.x + (fraction * (plot.w - 1) as f32) as i32;
@@ -543,7 +545,7 @@ impl<'a> Body<'a> {
                     previous = Some((x, ys));
                 }
                 match snapshot.imu[*index] {
-                    Reading::Live(sample) => {
+                    Reading::Live(sample) if canvas.intersects_rows(footer, 7) => {
                         for (axis, value) in ui.metric.read(sample).into_iter().enumerate() {
                             let mut label = Text::<20>::new();
                             let _ = write!(label, "{} {value:+.2}", char::from(b'X' + axis as u8));
@@ -556,6 +558,7 @@ impl<'a> Body<'a> {
                             );
                         }
                     }
+                    Reading::Live(_) => {}
                     reading => status(canvas, footer, reading, b"WAITING FOR IMU"),
                 }
                 canvas.text(12, footer + 12, b"-12S", 1, MUTED);
@@ -598,30 +601,32 @@ impl<'a> Body<'a> {
                             GOLD
                         },
                     );
-                    let mut meters = 1.0;
-                    while meters * pixels_per_m < 18.0 {
-                        meters *= 2.0;
-                    }
-                    let scale_x = plot.x + 7;
                     let scale_y = plot.y + plot.h - 8;
-                    let span = (meters * pixels_per_m).round() as i32;
-                    canvas.line((scale_x, scale_y), (scale_x + span, scale_y), MUTED);
-                    canvas.line((scale_x, scale_y), (scale_x, scale_y - 3), MUTED);
-                    canvas.line(
-                        (scale_x + span, scale_y),
-                        (scale_x + span, scale_y - 3),
-                        MUTED,
-                    );
-                    let mut scale = Text::<16>::new();
-                    if meters >= 1000.0 {
-                        let _ = write!(scale, "{:.1} KM", meters / 1000.0);
-                    } else {
-                        let _ = write!(scale, "{meters:.0} M");
+                    if canvas.intersects_rows(scale_y - 12, 13) {
+                        let mut meters = 1.0;
+                        while meters * pixels_per_m < 18.0 {
+                            meters *= 2.0;
+                        }
+                        let scale_x = plot.x + 7;
+                        let span = (meters * pixels_per_m).round() as i32;
+                        canvas.line((scale_x, scale_y), (scale_x + span, scale_y), MUTED);
+                        canvas.line((scale_x, scale_y), (scale_x, scale_y - 3), MUTED);
+                        canvas.line(
+                            (scale_x + span, scale_y),
+                            (scale_x + span, scale_y - 3),
+                            MUTED,
+                        );
+                        let mut scale = Text::<16>::new();
+                        if meters >= 1000.0 {
+                            let _ = write!(scale, "{:.1} KM", meters / 1000.0);
+                        } else {
+                            let _ = write!(scale, "{meters:.0} M");
+                        }
+                        canvas.text(scale_x, scale_y - 12, scale.bytes(), 1, MUTED);
                     }
-                    canvas.text(scale_x, scale_y - 12, scale.bytes(), 1, MUTED);
                 }
                 match snapshot.gnss {
-                    Reading::Live(fix) => {
+                    Reading::Live(fix) if canvas.intersects_rows(footer, 7) => {
                         let mut coordinates = Text::<40>::new();
                         let _ = write!(
                             coordinates,
@@ -639,6 +644,7 @@ impl<'a> Body<'a> {
                             MINT,
                         );
                     }
+                    Reading::Live(_) => {}
                     reading => status(canvas, footer, reading, b"WAITING FOR SATELLITES"),
                 }
                 canvas.text(12, footer + 12, b"RECENT FIXES", 1, MUTED);

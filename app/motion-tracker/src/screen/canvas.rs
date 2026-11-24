@@ -21,6 +21,10 @@ pub(super) struct Canvas<'a> {
 }
 
 impl Canvas<'_> {
+    pub fn intersects_rows(&self, y: i32, height: i32) -> bool {
+        y + height > self.top && y < self.top + (self.pixels.len() / self.width) as i32
+    }
+
     pub fn fill(&mut self, area: Area, color: u16) {
         let left = area.x.max(0) as usize;
         let right = (area.x + area.w).clamp(0, self.width as i32) as usize;
@@ -70,6 +74,9 @@ impl Canvas<'_> {
     }
 
     pub fn text(&mut self, mut x: i32, y: i32, text: &[u8], scale: i32, color: u16) {
+        if !self.intersects_rows(y, 7 * scale) {
+            return;
+        }
         for &byte in text {
             for (row, bits) in glyph(byte.to_ascii_uppercase()).into_iter().enumerate() {
                 for col in 0..5 {

@@ -21,7 +21,7 @@ mod tracker;
 mod wire;
 
 use preferences::Interval;
-use std::io;
+use std::io::{self, Write};
 
 #[derive(Default)]
 struct ReportOptions {
@@ -71,7 +71,7 @@ fn preferences(requested: Option<Interval>) -> io::Result<Interval> {
         Ok(interval) => Ok(interval),
         Err(settings::Error::Unsupported) => Ok(requested.unwrap_or(Interval::DEFAULT)),
         Err(error) if requested.is_none() => {
-            eprintln!("motion-tracker settings: {error:?}, using defaults");
+            log::warn!("motion-tracker settings: {error:?}, using defaults");
             Ok(Interval::DEFAULT)
         }
         Err(error) => Err(io::Error::other(format!(
@@ -81,10 +81,14 @@ fn preferences(requested: Option<Interval>) -> io::Result<Interval> {
 }
 
 pub fn run(args: impl Iterator<Item = String>) -> std::process::ExitCode {
+    // A host may already have installed a logger. Standalone commands use stderr.
+    let _ = logging::install(log::LevelFilter::Info, |_, line| {
+        let _ = io::stderr().lock().write_all(line.as_bytes());
+    });
     match mode::run(args) {
         Ok(()) => std::process::ExitCode::SUCCESS,
         Err(error) => {
-            eprintln!("{}: {error}", mode::USAGE);
+            let _ = writeln!(io::stderr().lock(), "{}: {error}", mode::USAGE);
             std::process::ExitCode::FAILURE
         }
     }

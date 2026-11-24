@@ -43,7 +43,7 @@ pub fn reading_status<T>(reading: &Reading<T>) -> &'static str {
 
 pub fn report_fault(fault: SensorFault) {
     match fault {
-        SensorFault::Imu(index, error) => eprintln!("motion-tracker IMU {}: {error:?}", index + 1),
-        SensorFault::Gnss(error) => eprintln!("motion-tracker GNSS: {error:?}"),
+        SensorFault::Imu(index, error) => log::warn!("motion-tracker IMU {}: {error:?}", index + 1),
+        SensorFault::Gnss(error) => log::warn!("motion-tracker GNSS: {error:?}"),
     }
 }

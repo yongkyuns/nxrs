@@ -1,4 +1,5 @@
 //! Reconnect policy for live tracker telemetry. The modem task owns blocking I/O.
+use super::publication::Publisher;
 use crate::{text::Text, tracker::Snapshot, wire};
 use cellular::Session as _;
 use std::io::{self, Read};
@@ -9,7 +10,6 @@ use std::sync::{
 };
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
-use super::publication::Publisher;
 
 const LINK_POLL: Duration = Duration::from_millis(100);
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(3);
@@ -108,12 +108,14 @@ impl Modem {
     }
 
     pub fn request_socket(&self, generation: u32) {
-        let mut exchange = self.signals.exchange.lock().unwrap();
-        if exchange.generation == generation && exchange.socket.is_none() {
+        {
+            let mut exchange = self.signals.exchange.lock().unwrap();
+            if exchange.generation != generation || exchange.socket.is_some() {
+                return;
+            }
             exchange.requested = true;
-            drop(exchange);
-            self.task.as_ref().unwrap().thread().unpark();
         }
+        self.task.as_ref().unwrap().thread().unpark();
     }
 
     pub fn stop(&mut self) -> io::Result<()> {
@@ -171,7 +173,7 @@ fn supervise(config: Config, signals: &Signals) -> io::Result<()> {
                         if matches!(status, Status::Online { .. }) {
                             retry = Retry::new();
                         }
-                        eprintln!("motion-tracker cellular {status:?}");
+                        log::info!("motion-tracker cellular {status:?}");
                         reported = Some(status);
                     }
                     match status {
@@ -190,16 +192,17 @@ fn supervise(config: Config, signals: &Signals) -> io::Result<()> {
                                                 Status::Online { .. }
                                             ) =>
                                         {
-                                            let mut exchange = signals.exchange.lock().unwrap();
-                                            exchange.requested = false;
-                                            exchange.socket = Some(socket);
-                                            drop(exchange);
+                                            {
+                                                let mut exchange = signals.exchange.lock().unwrap();
+                                                exchange.requested = false;
+                                                exchange.socket = Some(socket);
+                                            }
                                             signals.link_worker.unpark();
                                             socket_retry = Retry::new();
                                         }
                                         Ok(_) => {}
                                         Err(error) => {
-                                            eprintln!(
+                                            log::warn!(
                                                 "motion-tracker collector TCP: {}",
                                                 error.kind()
                                             );
@@ -214,13 +217,15 @@ fn supervise(config: Config, signals: &Signals) -> io::Result<()> {
                     }
                     thread::park_timeout(LINK_POLL);
                 }
-                let socket = {
-                    let mut exchange = signals.exchange.lock().unwrap();
-                    exchange.generation = exchange.generation.wrapping_add(1);
-                    exchange.requested = config.collector.is_some();
-                    exchange.socket.take()
-                };
-                drop(socket);
+                {
+                    // Close a pending socket outside the lock before stopping PPP.
+                    let _retired_socket = {
+                        let mut exchange = signals.exchange.lock().unwrap();
+                        exchange.generation = exchange.generation.wrapping_add(1);
+                        exchange.requested = config.collector.is_some();
+                        exchange.socket.take()
+                    };
+                }
                 signals.link_worker.unpark();
                 let result = session.stop();
                 if signals.stopping.load(Ordering::Acquire) {
@@ -234,7 +239,7 @@ fn supervise(config: Config, signals: &Signals) -> io::Result<()> {
             }
             Err(error) => error,
         };
-        eprintln!("motion-tracker cellular retry: {failure}");
+        log::warn!("motion-tracker cellular retry: {failure}");
         if fatal(failure) {
             return Err(io::Error::other(failure));
         }
@@ -286,7 +291,7 @@ impl<'a> Upload<'a> {
                 return Ok(false);
             }
             self.ready = true;
-            eprintln!("motion-tracker collector TLS online");
+            log::info!("motion-tracker collector TLS online");
         }
         if !publication.in_flight() {
             // Detect a closed peer even with no sample waiting. Finish any

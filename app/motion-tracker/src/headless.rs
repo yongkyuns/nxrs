@@ -1,4 +1,4 @@
-use crate::{ReportOptions, tracker, wire};
+use crate::{tracker, wire, ReportOptions};
 use messaging::bounded;
 use navigation::observations::{ObservationService, Reading};
 use std::io::{self, Write};
@@ -46,7 +46,7 @@ pub(super) fn run(mut args: impl Iterator<Item = String>) -> io::Result<()> {
                 *count -= 1;
                 if *count == 0 {
                     let state = tracker::reading_status(&snapshot.imu[0]);
-                    eprintln!("motion-tracker: IMU 1 {state}");
+                    let _ = writeln!(io::stderr().lock(), "motion-tracker: IMU 1 {state}");
                     break if matches!(snapshot.imu[0], Reading::Live(_)) {
                         Ok(())
                     } else {
