@@ -153,7 +153,14 @@ fn run(
     capture.register_owner();
     let collector = cellular.as_ref().and_then(|config| config.collector);
     let mut modem = cellular.map(uplink::Modem::start).transpose()?;
-    serve(shared, pair, collector.zip(modem.as_ref()), capture, &mut notify);
+    serve(
+        shared,
+        pair,
+        collector.zip(modem.as_ref()),
+        tile_relay,
+        capture,
+        &mut notify,
+    );
     // Both transports and their shared TLS identity have left scope.
     modem.as_mut().map_or(Ok(()), uplink::Modem::stop)
 }
@@ -161,7 +168,8 @@ fn run(
 fn serve(
     shared: &Mutex<Shared>,
     pair: bool,
-    cellular: Option<(Collector, &uplink::Modem)>,
+    cellular: Option<(Endpoint, &uplink::Modem)>,
+    tile_relay: Option<Endpoint>,
     capture: &Capture,
     notify: &mut impl FnMut(),
 ) {
