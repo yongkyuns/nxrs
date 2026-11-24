@@ -114,8 +114,7 @@ dashboard snapshot. On the notification service, it sends tile requests
 after the client's existing sensor export request. The companion returns
 each tile on the same TLS connection while the tracker sends sensor
 batches in the other direction. The legacy dashboard service also accepts
-tile replies. The phone retries an acknowledged write the tracker rejects
-before enqueuing it. Over IP, the tracker opens one pinned TLS 1.3 connection per
+tile replies. Over IP, the tracker opens one pinned TLS 1.3 connection per
 request, writes the 13 bytes `NXM5 | zoom:u8 | x:u32 | y:u32`, and reads one
 response. Both paths use the same response bytes.
 
