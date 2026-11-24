@@ -3,9 +3,6 @@ extends = "esp32s3-qemu-tracker-upload"
 nuttx-config = "esp32s3-qemu-tracker-coexist.conf"
 hal = { ble = "nuttx", execution = "nuttx" }
 
-[build]
-trace-only-backtrace = true
-
 [scheduling]
 background = 90
 normal = 100
