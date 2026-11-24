@@ -33,12 +33,14 @@ impl<Sample, Frame: AsRef<[u8]>> Publisher<Sample, Frame> {
         self.pending.is_none() && self.latest.is_none()
     }
 
+    #[cfg(feature = "cellular-uplink")]
     pub fn in_flight(&self) -> bool {
         self.pending.is_some()
     }
 
     /// Drop the interrupted frame after retiring the stream. Keep any newer
     /// sample waiting for the replacement connection.
+    #[cfg(any(test, feature = "cellular-uplink"))]
     pub fn reset_stream(&mut self) {
         self.pending = None;
     }
@@ -57,6 +59,7 @@ impl<Sample, Frame: AsRef<[u8]>> Publisher<Sample, Frame> {
 
     /// Commit one frame to an ordered transport that owns its queued bytes.
     /// Later frames can use any remaining space while the peer acknowledges it.
+    #[cfg(any(test, feature = "ble-link"))]
     pub fn enqueue(
         &mut self,
         output: &mut impl Write,

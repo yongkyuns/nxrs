@@ -174,8 +174,8 @@ python3 tests/nuttx-std/tracker-sim/upload.py \
 The first dial is rejected. The runner then closes the collector socket and
 terminates PPP. It checks that both IMUs and GNSS keep producing fresh USB
 reports between the PPP termination acknowledgement and modem redial. The
-collector compares its decrypted records byte for byte with the app’s USB
-output and requires a newer snapshot after recovery in the same app run. A
+collector compares the capped reports’ GNSS fixes and IMU health with the USB
+snapshots. It verifies the configured cadence and fresh data after reconnect. A
 fresh boot with a wrong pin exercises repeated TLS attempts and requires zero
 uploaded records.
 
@@ -257,9 +257,10 @@ zero records during the hold. With bounded TCP writes enabled, three
 wall-clock boots each delivered BLE records during the hold. The longest
 receiver gap was 1.55 seconds and TLS telemetry resumed after release.
 
-Run the same combined fixture with `--tiles` to test map failover.
-The phone rejects the first tile request, then a local pinned TLS relay
-returns a synthetic tile over PPP. The phone supplies the neighboring
-tile over the same notification session while both IMUs and GNSS
-export samples. The test checks the panel on both sides of the boundary
-and requires consecutive sample sequences throughout the transfers.
+Run the same combined fixture with `--tiles` to check metered routing. The
+Stamp build rejects a direct map relay before dialing. Once PPP is online,
+a phone tile failure leaves only capped summaries on PPP. The phone supplies
+the next map tiles over the notification session. The test checks the display
+on both sides of a tile boundary and requires consecutive BLE sample sequences. The coexistence fixture uses two
+1 KiB erase blocks for its RAM-backed settings store. This exercises NVS
+without reserving the physical board’s flash partition in guest RAM.

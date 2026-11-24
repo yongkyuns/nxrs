@@ -6,6 +6,11 @@ edition.workspace = true
 [package.metadata.nxrs]
 required-capabilities = ["imu"]
 
+[package.metadata.nxrs.capability-features]
+ble-link = { when = "dashboard", requires = ["ble", "tls"] }
+cellular-uplink = { when = "dashboard", requires = ["cellular", "tls"] }
+wifi-map = { when = "dashboard", requires = ["wifi", "tls"] }
+
 [package.metadata.nxrs.firmware]
 bin = "motion-tracker"
 command = "motion_tracker"
@@ -21,8 +26,11 @@ default = ["dashboard"]
 dashboard = [
     "nxrs-composition/gnss", "nxrs-composition/battery",
     "dep:nxrs-battery", "dep:nxrs-display", "dep:nxrs-touch", "dep:nxrs-gnss",
-    "dep:nxrs-cellular", "dep:nxrs-ble", "dep:nxrs-execution", "dep:nxrs-tls", "dep:qrcodegen",
+    "dep:nxrs-execution",
 ]
+ble-link = ["dashboard", "dep:nxrs-ble", "dep:nxrs-tls", "nxrs-tls/pairing", "dep:qrcodegen"]
+cellular-uplink = ["dashboard", "dep:nxrs-cellular", "dep:nxrs-tls"]
+wifi-map = ["dashboard", "dep:nxrs-tls"]
 
 [dependencies]
 log = "0.4"
@@ -41,5 +49,5 @@ nxrs-settings = { path = "../../hal/settings" }
 nxrs-cellular = { path = "../../hal/cellular", optional = true }
 nxrs-ble = { path = "../../hal/ble", features = ["peripheral"], optional = true }
 nxrs-execution = { path = "../../hal/execution", optional = true }
-nxrs-tls = { path = "../../hal/tls", features = ["pairing"], optional = true }
+nxrs-tls = { path = "../../hal/tls", optional = true }
 qrcodegen = { version = "1.8", optional = true }

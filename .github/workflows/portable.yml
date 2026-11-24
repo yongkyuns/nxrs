@@ -133,7 +133,7 @@ jobs:
         run: |
           python tests/native/motion_tracker.py
           cargo test --locked -p nxrs-log-qualification --test file -- --nocapture
-          cargo test --locked -p nxrs-motion-tracker --lib communications::publication
+          cargo test --locked -p nxrs-motion-tracker --lib --features ble-link,cellular-uplink,wifi-map
       - name: Portable applications, mocks and actual native adapters
         run: |
           cargo test --locked

@@ -143,8 +143,12 @@ contract, so gateway ingest can read it with the camera-side server disabled.
 `camera::capture::Session` owns frame validation, fixed history and stop.
 `wifi::Reconnector` owns station retry and rejoin; its caller supplies credentials
 and drives polling. Home-cam composes those APIs with streaming and detection.
-Motion Tracker's `communications` module owns the BLE and cellular sessions and
-their common bounded publisher. Its dashboard consumes link status. Navigation
+Motion Tracker’s `communications` module owns link selection and upload budgets.
+Its profile selects which transport modules are built. BLE carries full-rate
+export and phone-relayed tiles. Builds with Wi-Fi and without cellular can use a
+direct tile relay.
+Cellular carries rate-limited status summaries through the common bounded
+publisher. The dashboard consumes link status. Navigation
 supplies reusable observation and fusion behavior. The camera qualification's
 recording and packet-summary adapters live with that fixture. Network data paths
 use `std::net`.

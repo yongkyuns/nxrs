@@ -3,8 +3,8 @@
 //! `cargo tree` uses the selected package, features, target, compiler, and Cargo
 //! configuration. Metadata is used only for the app's declared dependency aliases;
 //! this module does not traverse manifests or evaluate Cargo's cfg/feature language.
-use crate::{profile::Profile, Result};
-use serde_json::{json, Value};
+use crate::{Result, profile::Profile};
+use serde_json::{Value, json};
 use std::{
     collections::{BTreeMap, BTreeSet},
     ffi::{OsStr, OsString},
@@ -20,10 +20,11 @@ pub struct Selection {
     /// Profile features that were verified by Cargo and appended to the build.
     pub model_features: Vec<String>,
     pub driver_features: Vec<String>,
+    pub capability_features: Vec<String>,
 }
 impl Selection {
     pub fn json(&self) -> Value {
-        json!({"status":"resolved","packages":self.packages,"model_features":self.model_features,"driver_features":self.driver_features})
+        json!({"status":"resolved","packages":self.packages,"model_features":self.model_features,"driver_features":self.driver_features,"capability_features":self.capability_features})
     }
 
     pub fn path_packages(&self) -> impl Iterator<Item = (&str, &Path, &BTreeSet<String>)> {
@@ -55,8 +56,8 @@ impl Package {
 
 type Graph = BTreeMap<String, Package>;
 
-/// Resolve a fully configured production `cargo build` invocation, then append
-/// the additive driver and model features Cargo verified for that invocation.
+/// Resolve a fully configured production `cargo build` invocation and append
+/// its profile-selected capabilities, drivers, and model.
 ///
 /// Call this after setting the actual compiler, target (including custom JSON),
 /// configuration, user features, and default-feature selection. The build command
@@ -78,6 +79,7 @@ pub fn resolve(build: &mut Command, profile: &Profile) -> Result<Selection> {
     let composed = profile.composition()?.is_some();
     // A successful feature trial is the graph for the updated command.
     let mut graph = Query::from_build(&trial)?.graph(&trial, None)?;
+    let capability_features = resolve_capabilities(&mut trial, profile, &mut graph)?;
     let mut driver_features = Vec::new();
     if composed {
         for (capability, catalogue) in profile.catalogs().packages() {
@@ -156,7 +158,59 @@ pub fn resolve(build: &mut Command, profile: &Profile) -> Result<Selection> {
             .collect(),
         model_features,
         driver_features,
+        capability_features,
     })
+}
+
+fn resolve_capabilities(
+    build: &mut Command,
+    profile: &Profile,
+    graph: &mut Graph,
+) -> Result<Vec<String>> {
+    let query = Query::from_build(build)?;
+    let app = crate::profile::manifest(&query.manifest)?;
+    let rules = crate::deployment::capability_features(&app)?;
+    if rules.is_empty() {
+        return Ok(Vec::new());
+    }
+    let (root, package) = graph
+        .iter()
+        .find(|(_, package)| {
+            package.depth == 0 && app["package"]["name"].as_str() == Some(&package.name)
+        })
+        .ok_or("missing selected application in Cargo graph")?;
+    let root = root.clone();
+    let features = &package.features;
+    let mut added = Vec::new();
+    for rule in &rules {
+        if features.contains(rule.when)
+            && !features.contains(rule.feature)
+            && rule
+                .requires
+                .iter()
+                .all(|name| profile.binding(name) != "none")
+        {
+            added.push(rule.feature.to_owned());
+            build.args(["--features", rule.feature]);
+        }
+    }
+    if !added.is_empty() {
+        *graph = Query::from_build(build)?.graph(build, None)?;
+    }
+    for rule in rules {
+        if graph[&root].features.contains(rule.feature) {
+            for name in rule.requires {
+                if profile.binding(name) == "none" {
+                    return Err(format!(
+                        "{}: feature {} requires capability {name}",
+                        profile.name(),
+                        rule.feature
+                    ));
+                }
+            }
+        }
+    }
+    Ok(added)
 }
 
 fn resolve_model(build: &mut Command, profile: &Profile, graph: &mut Graph) -> Result<Vec<String>> {

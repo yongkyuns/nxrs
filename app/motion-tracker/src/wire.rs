@@ -1,7 +1,7 @@
 //! Transport-independent snapshots.
 use crate::{
     text::Text,
-    tracker::{reading_status, Reading},
+    tracker::{Reading, reading_status},
 };
 use std::fmt::{self, Write};
 use std::io;
@@ -118,12 +118,55 @@ mod version {
         build(snapshot, None, tile)
     }
 
+    #[cfg(feature = "ble-link")]
     pub fn export_frame(
         snapshot: &Snapshot,
         scales: [Option<[u32; 2]>; 2],
         tile: Option<Key>,
     ) -> io::Result<Text<768>> {
         build(snapshot, Some(scales), tile)
+    }
+
+    #[cfg(feature = "cellular-uplink")]
+    pub mod cellular {
+        use super::*;
+
+        pub const MAX_BYTES: usize = 256;
+
+        #[derive(Clone, Copy)]
+        pub struct Summary {
+            imu: [&'static str; 2],
+            gnss: Reading<gnss::GnssFix>,
+            utc_ms: Option<i64>,
+        }
+
+        impl From<Snapshot> for Summary {
+            fn from(snapshot: Snapshot) -> Self {
+                Self {
+                    imu: snapshot.imu.map(|reading| reading_status(&reading)),
+                    gnss: snapshot.gnss,
+                    utc_ms: match snapshot.gnss {
+                        Reading::Live(fix) => snapshot
+                            .clock
+                            .and_then(|anchor| anchor.utc_ms(fix.timestamp_ms)),
+                        _ => None,
+                    },
+                }
+            }
+        }
+
+        pub fn frame(summary: &Summary) -> io::Result<Text<MAX_BYTES>> {
+            let [first, second] = summary.imu;
+            let mut text = Text::new();
+            write!(
+                text,
+                "{{\"v\":1,\"kind\":\"summary\",\"imu\":[\"{first}\",\"{second}\"],\"gnss\":"
+            )
+            .and_then(|()| gnss_json(&mut text, summary.gnss, summary.utc_ms))
+            .and_then(|()| text.write_str("}\n"))
+            .map_err(|_| io::ErrorKind::InvalidData)?;
+            Ok(text)
+        }
     }
 
     #[cfg(test)]
@@ -161,9 +204,12 @@ mod version {
     }
 }
 
-#[cfg(feature = "dashboard")]
+#[cfg(feature = "ble-link")]
 pub use version::export_frame;
 pub use version::frame;
 
-#[cfg(feature = "dashboard")]
+#[cfg(feature = "ble-link")]
 pub use version::ble_frame;
+
+#[cfg(feature = "cellular-uplink")]
+pub use version::cellular;

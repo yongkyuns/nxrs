@@ -77,13 +77,13 @@ returns it over the existing authenticated BLE/TLS connection. The iPhone
 can use Wi-Fi or mobile data. Older companion clients can continue to read
 telemetry from the tracker.
 
-### Direct Wi-Fi or cellular
+### Wi-Fi relay
 
-For operation without a phone, run the IPv4 relay inside your private
-network. The tracker uses normal IP routing, so the same endpoint works
-over an already connected Wi-Fi interface or Stamp PPP. The CoreS3
-dual-IMU profile currently leaves onboard Wi-Fi disabled. Its Stamp
-profile provides the direct bearer.
+A Wi-Fi profile with TLS and without cellular can fetch tiles from a local
+IPv4 relay. The tracker tries the paired phone first, then the relay if the
+phone is absent, reports an error, or misses the 25-second tile deadline.
+Configure the relay on the tracker’s Wi-Fi network. The current CoreS3
+dual-IMU profile uses the phone and leaves onboard Wi-Fi disabled.
 
 ```sh
 python3 -m pip install 'Pillow>=10,<14' 'requests-cache>=1.2,<2'
@@ -92,17 +92,16 @@ openssl x509 -in cert.pem -outform DER | openssl dgst -sha256
 ```
 
 Use a named-curve P-256 certificate and provision the fingerprint
-independently. Limit access to trusted devices at the network boundary.
-Tile requests authenticate the relay by pin and carry no client credentials.
-On the Stamp profile, use the relay with or without a telemetry collector.
+independently. Tile requests authenticate the relay by pin. Limit relay
+access to trusted devices at the network boundary.
 
 ```text
-motion_tracker --cellular-apn YOUR_APN --map-relay IPV4:8444 --map-pin SHA256
+motion_tracker --map-relay IPV4:8444 --map-pin SHA256
 ```
 
-When the phone is paired and connected, the tracker tries it first. It
-uses the configured IP relay if the phone is absent, reports a fetch error,
-or runs past the 25-second tile deadline.
+Stamp-capable builds reject direct relay settings because a default-route
+connection can use PPP. They can show maps through the paired phone and use
+the offline route plot whenever the phone cannot deliver a tile.
 
 ### Tile protocol
 
@@ -294,8 +293,8 @@ timestamp layouts. Version 1 uses full float records and an empty overflow
 payload. Version 2 also accepts delta headers and identifies the first
 missing source and sequence.
 
-BLE and cellular share the telemetry stream publisher. Each connection keeps
-one frame in progress and coalesces waiting snapshots to the latest value.
+BLE and cellular share the bounded publisher. Each connection keeps one frame
+in progress and coalesces waiting data to the latest value.
 The communications worker posts link changes to the dashboard inbox. Pairing,
 wire encoding and transport-specific connection policy stay with the tracker.
 
@@ -320,17 +319,25 @@ SHA-256 fingerprint of its DER-encoded leaf certificate as 64 hex digits.
 motion_tracker --cellular-apn YOUR_APN --collector IPV4:PORT --collector-pin SHA256
 ```
 
-The tracker sends v1 NDJSON over a one-way TLS 1.3 stream after authenticating
-the pinned collector certificate. The collector reads newline-delimited records
-without sending application data back. Use a named-curve P-256 certificate
+The tracker sends one v1 NDJSON summary per minute by default over pinned TLS
+1.3. Each record carries `kind: "summary"`, the two IMU health states, and
+the latest GNSS state and live fix. Full-rate samples and map tiles stay off
+PPP. The collector reads summaries without sending application data back.
+
+Set `--cellular-report-secs` to change the minimum interval (1–86400 seconds).
+The app caps each report at 256 bytes and counts an attempted report against
+the interval even if the connection drops mid-write. The default permits at
+most 0.37 MB per 24 hours of continuous runtime before TCP, TLS and PPP
+overhead. The rate limit applies across reconnects within the same app run.
+ Use a named-curve P-256 certificate
 and provision its fingerprint through a trusted channel. The pin authenticates the collector.
 Device authentication at the collector would require a separate enrollment
 mechanism. Use `--cellular-apn YOUR_APN` on its own to bring up PPP for diagnostics.
 
 A lost PPP session is torn down before redial. A lost collector connection
 reconnects over the existing link when possible. Retry delays increase from one
-to at most 30 seconds. The tracker keeps the latest snapshot and one record
-in flight. Samples superseded during an outage are skipped. BLE and cellular
+to at most 30 seconds. The tracker keeps the latest summary and one record
+in flight, so an outage cannot accumulate a backlog. BLE and cellular
 share one TLS owner task while acquisition and the dashboard continue independently.
 The Stamp profile uses bounded NuttX TCP write buffering. The unbuffered sender
 waits for acknowledgments even on a nonblocking socket, which can delay BLE

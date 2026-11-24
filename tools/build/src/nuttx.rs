@@ -1001,6 +1001,7 @@ fn build_or_prepare(
         "features": options.features.iter()
             .chain(&selection.driver_features)
             .chain(&selection.model_features)
+            .chain(&selection.capability_features)
             .collect::<Vec<_>>(),
         "no_default_features": options.no_default_features,
         "sdk": editor_sdk,

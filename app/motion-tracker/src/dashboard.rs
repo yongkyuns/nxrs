@@ -1,4 +1,4 @@
-use crate::{charts, communications, screen, tracker, wire, ReportOptions};
+use crate::{ReportOptions, charts, communications, screen, tracker, wire};
 use battery::Device as _;
 use charts::{History, SAMPLE_INTERVAL};
 use communications::{
@@ -9,12 +9,12 @@ use navigation::observations::{Measurement, Observation, ObservationService};
 use screen::{Action, Dashboard, Screen};
 use std::io::{self, Write};
 use std::sync::{
-    mpsc::{RecvTimeoutError, TrySendError},
     Arc, Mutex,
+    mpsc::{RecvTimeoutError, TrySendError},
 };
-use std::time::Instant;
+use std::time::{Duration, Instant};
 use touch::Session as _;
-use tracker::{report_fault, Snapshot, FIX_FRESH, IMU_FRESH};
+use tracker::{FIX_FRESH, IMU_FRESH, Snapshot, report_fault};
 
 struct Options {
     reports: ReportOptions,
@@ -38,6 +38,7 @@ impl Options {
         let mut apn = None;
         let mut collector = None;
         let mut pin = None;
+        let mut upload_interval = None;
         let mut tile_relay = None;
         let mut tile_pin = None;
         while let Some(arg) = args.next() {
@@ -52,6 +53,20 @@ impl Options {
                 "--cellular-apn" => apn = Some(value(&mut args)?),
                 "--collector" => collector = Some(value(&mut args)?),
                 "--collector-pin" => pin = Some(value(&mut args)?),
+                "--cellular-report-secs" => {
+                    upload_interval = Some(
+                        value(&mut args)?
+                            .parse::<u64>()
+                            .ok()
+                            .filter(|secs| (1..=86_400).contains(secs))
+                            .ok_or_else(|| {
+                                io::Error::new(
+                                    io::ErrorKind::InvalidInput,
+                                    "--cellular-report-secs expects 1 through 86400",
+                                )
+                            })?,
+                    );
+                }
                 "--map-relay" => tile_relay = Some(value(&mut args)?),
                 "--map-pin" => tile_pin = Some(value(&mut args)?),
                 "--map-zoom" => {
@@ -89,10 +104,21 @@ impl Options {
                 return Err(io::Error::new(
                     io::ErrorKind::InvalidInput,
                     "--map-relay and --map-pin require each other",
-                ))
+                ));
             }
         };
-        options.cellular = apn.map(|apn| CellularConfig { apn, collector });
+        if upload_interval.is_some() && collector.is_none() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "--cellular-report-secs requires a collector",
+            ));
+        }
+        communications::validate(options.ble, apn.is_some(), options.tile_relay.is_some())?;
+        options.cellular = apn.map(|apn| CellularConfig {
+            apn,
+            collector,
+            interval: Duration::from_secs(upload_interval.unwrap_or(60)),
+        });
         if options.battery
             && (options.reports.interval.is_some()
                 || options.reports.frames.is_some()
@@ -117,7 +143,7 @@ enum Event {
     Touch { event: touch::Event, missed: bool },
 }
 
-pub(super) const USAGE: &str = "motion_tracker [--interval-ms 100..2000] [--frames N] [--stream-usb] [--ble] [--cellular-apn APN [--collector IPv4:PORT --collector-pin SHA256]] [--map-relay IPv4:PORT --map-pin SHA256] [--map-zoom 15..18] or motion_tracker --battery";
+pub(super) const USAGE: &str = "motion_tracker [--interval-ms 100..2000] [--frames N] [--stream-usb] [--ble] [--cellular-apn APN [--collector IPv4:PORT --collector-pin SHA256 [--cellular-report-secs SECS]]] [--map-relay IPv4:PORT --map-pin SHA256] [--map-zoom 15..18] or motion_tracker --battery";
 
 pub(super) fn run(args: impl Iterator<Item = String>) -> io::Result<()> {
     let options = Options::parse(args)?;
@@ -145,19 +171,23 @@ fn track(
             let _ = events.try_send(Event::LinksUpdated);
         }
     };
-    use imu::Device as _;
     let primary = composition::imu::primary_imu();
     let secondary = composition::imu::secondary();
-    let primary_scale = primary
-        .default_config()
-        .and_then(|config| primary.resolve(config));
-    let secondary_scale = secondary
-        .default_config()
-        .and_then(|config| secondary.resolve(config));
-    let capture = Arc::new(Capture::new(
-        [primary_scale, secondary_scale]
-            .map(|applied| applied.ok().and_then(|config| config.counts_scale)),
-    ));
+    #[cfg(feature = "ble-link")]
+    let capture = {
+        use imu::Device as _;
+        let primary_scale = primary
+            .default_config()
+            .and_then(|config| primary.resolve(config));
+        let secondary_scale = secondary
+            .default_config()
+            .and_then(|config| secondary.resolve(config));
+        Arc::new(Capture::new([primary_scale, secondary_scale].map(
+            |applied| applied.ok().and_then(|config| config.counts_scale),
+        )))
+    };
+    #[cfg(not(feature = "ble-link"))]
+    let capture = Arc::new(Capture::new());
     let latest = Arc::new(Mutex::new([None, None, None]));
     let sensor_event = {
         let capture = capture.clone();
@@ -231,6 +261,7 @@ fn track(
                 let update = links.view(view);
                 if update != view {
                     redraw = true;
+                    #[cfg(feature = "ble-link")]
                     if let Some(key) = update.key {
                         if let Err(error) = dashboard.show_code(&key) {
                             break Err(display_error(error));
@@ -448,7 +479,7 @@ fn render(link: LinkStatus, paint: impl FnOnce() -> Result<(), display::Error>) 
         Err(error) => {
             return Err(io::Error::other(format!(
                 "tracker display priority: {error:?}"
-            )))
+            )));
         }
     }
     let painted = paint().map_err(display_error);
@@ -494,7 +525,12 @@ mod tests {
         let pin = "ab".repeat(32);
         assert!(parse(&["--map-relay", "192.0.2.3:8444"]).is_err());
         assert!(parse(&["--map-pin", &pin]).is_err());
-        let options = parse(&["--map-relay", "192.0.2.3:8444", "--map-pin", &pin]).unwrap();
+        let options = parse(&["--map-relay", "192.0.2.3:8444", "--map-pin", &pin]);
+        if !communications::DIRECT_MAP_AVAILABLE {
+            assert_eq!(options.err().unwrap().kind(), io::ErrorKind::Unsupported);
+            return;
+        }
+        let options = options.unwrap();
         assert!(options.cellular.is_none());
         assert_eq!(options.tile_relay.unwrap().pin, [0xab; 32]);
     }
@@ -520,18 +556,38 @@ mod tests {
         assert!(launch("192.0.2.3:0", &pin).is_err());
         assert!(launch("192.0.2.3:1234", &"00".repeat(32)).is_err());
         assert!(launch("192.0.2.3:1234", &"é".repeat(32)).is_err());
-        let collector = launch("192.0.2.3:1234", &pin)
-            .unwrap()
-            .cellular
-            .unwrap()
-            .collector
-            .unwrap();
+        let options = launch("192.0.2.3:1234", &pin);
+        if !communications::CELLULAR_AVAILABLE {
+            assert_eq!(options.err().unwrap().kind(), io::ErrorKind::Unsupported);
+            return;
+        }
+        let collector = options.unwrap().cellular.unwrap().collector.unwrap();
         assert_eq!(collector.pin, [0xab; 32]);
-        assert!(parse(&["--cellular-apn", "example"])
-            .unwrap()
-            .cellular
-            .unwrap()
-            .collector
-            .is_none());
+        assert!(parse(&["--cellular-apn", "example", "--cellular-report-secs", "30"]).is_err());
+        let configured = |seconds| {
+            parse(&[
+                "--cellular-apn",
+                "example",
+                "--collector",
+                "192.0.2.3:1234",
+                "--collector-pin",
+                &pin,
+                "--cellular-report-secs",
+                seconds,
+            ])
+        };
+        assert!(configured("0").is_err());
+        assert_eq!(
+            configured("30").unwrap().cellular.unwrap().interval,
+            Duration::from_secs(30)
+        );
+        assert!(
+            parse(&["--cellular-apn", "example"])
+                .unwrap()
+                .cellular
+                .unwrap()
+                .collector
+                .is_none()
+        );
     }
 }

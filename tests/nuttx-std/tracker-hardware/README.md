@@ -82,14 +82,14 @@ On the CoreS3 USB console
 run this command with the carrier APN, reachable IPv4 endpoint, and pin.
 
 ```text
-motion_tracker --ble --interval-ms 500 --stream-usb --cellular-apn APN --collector IPV4:PORT --collector-pin SHA256
+motion_tracker --ble --interval-ms 500 --stream-usb --cellular-apn APN --collector IPV4:PORT --collector-pin SHA256 --cellular-report-secs 2
 ```
 
-Once the collector receives data and USB shows two live IMUs, open the Mac BLE
+Once the collector receives a live GNSS fix and USB shows two live IMUs, open the Mac BLE
 probe and use a local photo of the pairing QR code or omit `--qr-image` for a
 hidden prompt. Keep the QR photo and any raw console logs local. USB frames can
-contain location. The probe and collector logs retain only timing and IMU
-sequence metadata from telemetry.
+contain location. The BLE probe logs IMU timing and sequence numbers. The collector logs only
+status and the GNSS reception timestamp.
 
 ```bash
 python "$BENCH/bench.py" ble --seconds 300 --qr-image /path/to/local-qr.jpg | tee target/ble-1.jsonl

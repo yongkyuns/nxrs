@@ -3,8 +3,8 @@ mod font;
 mod gesture;
 
 use crate::{
-    charts::{History, Metric, RoutePoint, ROUTE_POINTS},
-    communications::LinkStatus,
+    charts::{History, Metric, ROUTE_POINTS, RoutePoint},
+    communications::{BLE_AVAILABLE, LinkStatus},
     map::{Position, View as MapView, Viewport, Zoom},
     text::Text,
     tracker::{Reading, Snapshot},
@@ -12,6 +12,7 @@ use crate::{
 use canvas::{Area, Canvas};
 use display::{Display, Error, Rect, Size};
 use gesture::{Contact, Gesture};
+#[cfg(feature = "ble-link")]
 use qrcodegen::{QrCode, QrCodeEcc};
 use std::{fmt::Write, time::Instant};
 
@@ -84,6 +85,7 @@ impl Layout {
 pub struct Dashboard {
     page: Page,
     metric: Metric,
+    #[cfg(feature = "ble-link")]
     code: Option<QrCode>,
     menu: bool,
     contact: Option<Contact>,
@@ -107,21 +109,19 @@ impl Dashboard {
     }
 
     fn content_top(&self) -> i32 {
-        if self.menu {
-            MENU_HEIGHT
-        } else {
-            GRIP_HEIGHT
-        }
+        if self.menu { MENU_HEIGHT } else { GRIP_HEIGHT }
     }
 
     pub fn cancel_touch(&mut self) {
         self.contact = None;
     }
 
+    #[cfg(feature = "ble-link")]
     pub fn open_menu(&mut self) {
         self.menu = true;
     }
 
+    #[cfg(feature = "ble-link")]
     pub fn show_code(&mut self, key: &[u8; 32]) -> Result<(), Error> {
         let mut code = String::with_capacity(70);
         code.push_str("NXRS1:");
@@ -134,6 +134,7 @@ impl Dashboard {
         Ok(())
     }
 
+    #[cfg(feature = "ble-link")]
     pub fn hide_code(&mut self) {
         self.code = None;
     }
@@ -192,7 +193,7 @@ impl<D: Display> Screen<D> {
                 .contains(x, y)
                 .then_some(Action::CancelPairing);
         }
-        if ui.menu && self.layout.tab(3).contains(x, y) {
+        if BLE_AVAILABLE && ui.menu && self.layout.tab(3).contains(x, y) {
             return match status {
                 LinkStatus::Idle | LinkStatus::Paired | LinkStatus::Unavailable => {
                     Some(Action::Pair)
@@ -271,6 +272,7 @@ impl<D: Display> Screen<D> {
                 width: size.width.into(),
             };
             if link == LinkStatus::Pairing {
+                #[cfg(feature = "ble-link")]
                 if let Some(code) = &ui.code {
                     pairing(&mut paint, layout, code);
                 }
@@ -327,7 +329,9 @@ fn header(canvas: &mut Canvas<'_>, layout: &Layout, ui: &Dashboard, link: LinkSt
         LinkStatus::Pairing => unreachable!(),
         LinkStatus::Connected => (b"LINKED", MINT, false),
     };
-    chip(canvas, layout.tab(3), label, color, clickable);
+    if BLE_AVAILABLE {
+        chip(canvas, layout.tab(3), label, color, clickable);
+    }
     for (index, (page, label)) in [
         (Page::Onboard, b"IMU 1".as_slice()),
         (Page::Module, b"IMU 2"),
@@ -374,6 +378,7 @@ fn chip(canvas: &mut Canvas<'_>, area: Area, text: &[u8], color: u16, highlighte
     );
 }
 
+#[cfg(feature = "ble-link")]
 fn pairing(canvas: &mut Canvas<'_>, layout: &Layout, code: &QrCode) {
     if canvas.top < MENU_HEIGHT {
         chip(canvas, layout.tab(3), b"CANCEL", TEXT, true);
@@ -769,7 +774,7 @@ fn status<T>(canvas: &mut Canvas<'_>, y: i32, reading: Reading<T>, waiting: &[u8
     canvas.text(12, y, text, 1, color);
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "ble-link"))]
 mod tests {
     use super::*;
     use touch::{Event, Point};

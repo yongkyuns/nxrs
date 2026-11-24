@@ -1,12 +1,16 @@
 //! Reconnect policy for live tracker telemetry. The modem task owns blocking I/O.
-use super::publication::Publisher;
-use crate::{text::Text, tracker::Snapshot, wire};
+use super::{CellularConfig, Endpoint, publication::Publisher};
+use crate::{
+    text::Text,
+    tracker::Snapshot,
+    wire::cellular::{self as wire, MAX_BYTES, Summary},
+};
 use cellular::Session as _;
 use std::io::{self, Read};
-use std::net::{SocketAddr, SocketAddrV4, TcpStream};
+use std::net::{SocketAddr, TcpStream};
 use std::sync::{
-    atomic::{AtomicBool, Ordering},
     Arc, Mutex,
+    atomic::{AtomicBool, Ordering},
 };
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
@@ -14,49 +18,6 @@ use std::time::{Duration, Instant};
 const LINK_POLL: Duration = Duration::from_millis(100);
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(3);
 const SESSION_LIFETIME: Duration = Duration::from_secs(3600);
-
-#[derive(Clone, Copy)]
-pub struct Endpoint {
-    pub address: SocketAddrV4,
-    pub pin: [u8; 32],
-}
-
-impl Endpoint {
-    pub fn parse(address: &str, pin: &str) -> io::Result<Self> {
-        let address: SocketAddrV4 = address
-            .parse()
-            .ok()
-            .filter(|address: &SocketAddrV4| {
-                address.port() != 0
-                    && !address.ip().is_unspecified()
-                    && !address.ip().is_multicast()
-            })
-            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "expected IPv4:port"))?;
-        let mut digest = [0; 32];
-        if pin.len() != 64 || !pin.bytes().all(|byte| byte.is_ascii_hexdigit()) {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "expected 64 hex digits for the TLS pin",
-            ));
-        }
-        for (index, byte) in digest.iter_mut().enumerate() {
-            *byte = u8::from_str_radix(&pin[2 * index..2 * index + 2], 16)
-                .map_err(|_| io::ErrorKind::InvalidInput)?;
-        }
-        if digest == [0; 32] {
-            return Err(io::Error::new(io::ErrorKind::InvalidInput, "empty TLS pin"));
-        }
-        Ok(Self {
-            address,
-            pin: digest,
-        })
-    }
-}
-
-pub struct Config {
-    pub apn: String,
-    pub collector: Option<Endpoint>,
-}
 
 struct Signals {
     link_worker: thread::Thread,
@@ -76,13 +37,13 @@ pub struct Modem {
 }
 
 impl Modem {
-    pub fn start(config: Config) -> io::Result<Self> {
+    pub fn start(config: CellularConfig) -> io::Result<Self> {
         let signals = Arc::new(Signals {
             link_worker: thread::current(),
             stopping: AtomicBool::new(false),
             exchange: Mutex::new(Exchange {
                 generation: 0,
-                requested: config.collector.is_some(),
+                requested: false,
                 socket: None,
             }),
         });
@@ -97,15 +58,16 @@ impl Modem {
         })
     }
 
-    pub fn receive(&self) -> (u32, Option<TcpStream>) {
+    fn receive(&self) -> (u32, Option<TcpStream>) {
         let mut exchange = self.signals.exchange.lock().unwrap();
         (exchange.generation, exchange.socket.take())
     }
 
-    pub fn request_socket(&self, generation: u32) {
+    fn request_socket(&self, generation: u32) {
         {
             let mut exchange = self.signals.exchange.lock().unwrap();
-            if exchange.generation != generation || exchange.socket.is_some() {
+            if exchange.generation != generation || exchange.requested || exchange.socket.is_some()
+            {
                 return;
             }
             exchange.requested = true;
@@ -130,8 +92,8 @@ impl Drop for Modem {
     }
 }
 
-pub struct Retry {
-    pub next: Instant,
+struct Retry {
+    next: Instant,
     delay: Duration,
 }
 
@@ -143,13 +105,13 @@ impl Retry {
         }
     }
 
-    pub fn later(&mut self) {
+    fn later(&mut self) {
         self.next = Instant::now() + self.delay;
         self.delay = (self.delay * 2).min(Duration::from_secs(30));
     }
 }
 
-fn supervise(config: Config, signals: &Signals) -> io::Result<()> {
+fn supervise(config: CellularConfig, signals: &Signals) -> io::Result<()> {
     use cellular::{Error, Status};
     let mut retry = Retry::new();
     while !signals.stopping.load(Ordering::Acquire) {
@@ -217,7 +179,7 @@ fn supervise(config: Config, signals: &Signals) -> io::Result<()> {
                     let _retired_socket = {
                         let mut exchange = signals.exchange.lock().unwrap();
                         exchange.generation = exchange.generation.wrapping_add(1);
-                        exchange.requested = config.collector.is_some();
+                        exchange.requested = false;
                         exchange.socket.take()
                     };
                 }
@@ -252,7 +214,7 @@ fn fatal(error: cellular::Error) -> bool {
     )
 }
 
-pub struct Upload<'a> {
+struct Upload<'a> {
     connection: tls::Connection<'a>,
     ready: bool,
 }
@@ -272,11 +234,7 @@ impl<'a> Upload<'a> {
         })
     }
 
-    pub fn service(
-        &mut self,
-        publication: &mut Publisher<Snapshot, Text<768>>,
-        now: Instant,
-    ) -> io::Result<bool> {
+    pub fn service(&mut self, publication: &mut Reports, now: Instant) -> io::Result<bool> {
         if !self.ready {
             if !self
                 .connection
@@ -298,11 +256,175 @@ impl<'a> Upload<'a> {
                 Err(error) => return Err(error),
             }
         }
-        publication.service(
-            &mut self.connection,
-            now,
-            now + CONNECT_TIMEOUT,
-            wire::frame,
-        )
+        publication.service(&mut self.connection, now)
+    }
+}
+
+struct Reports {
+    publisher: Publisher<Summary, Text<MAX_BYTES>>,
+    interval: Duration,
+    next: Instant,
+}
+
+impl Reports {
+    fn new(interval: Duration, now: Instant) -> Self {
+        Self {
+            publisher: Publisher::default(),
+            interval,
+            next: now,
+        }
+    }
+
+    fn eligible(&self, now: Instant) -> bool {
+        now >= self.next && !self.publisher.is_idle()
+    }
+
+    fn in_flight(&self) -> bool {
+        self.publisher.in_flight()
+    }
+
+    fn service(&mut self, output: &mut impl std::io::Write, now: Instant) -> io::Result<bool> {
+        if !self.in_flight() && !self.eligible(now) {
+            return Ok(false);
+        }
+        self.publisher
+            .service(output, now, now + CONNECT_TIMEOUT, |report| {
+                let frame = wire::frame(report)?;
+                // Charge each attempted frame before its first write. Stream
+                // replacement can discard partial bytes but never refunds them.
+                self.next = now + self.interval;
+                Ok(frame)
+            })
+    }
+}
+
+pub struct Collector<'a, 'm> {
+    endpoint: Endpoint,
+    modem: &'m Modem,
+    upload: Option<Upload<'a>>,
+    reports: Reports,
+    generation: u32,
+    retry: Retry,
+}
+
+impl<'a, 'm> Collector<'a, 'm> {
+    pub fn new(endpoint: Endpoint, interval: Duration, modem: &'m Modem) -> Self {
+        Self {
+            endpoint,
+            modem,
+            upload: None,
+            reports: Reports::new(interval, Instant::now()),
+            generation: 0,
+            retry: Retry::new(),
+        }
+    }
+
+    pub fn service(
+        &mut self,
+        sample: Option<Snapshot>,
+        now: Instant,
+        identity: impl FnOnce() -> io::Result<&'a tls::Identity>,
+    ) {
+        if let Some(sample) = sample {
+            self.reports.publisher.offer(sample.into());
+        }
+        let (generation, socket) = self.modem.receive();
+        if generation != self.generation {
+            self.generation = generation;
+            self.upload = None;
+            self.reports.publisher.reset_stream();
+            self.retry = Retry::new();
+        }
+        let result = if let Some(socket) = socket {
+            identity()
+                .and_then(|identity| Upload::open(identity, socket, self.endpoint))
+                .map(|upload| {
+                    self.upload = Some(upload);
+                    false
+                })
+        } else if let Some(upload) = self.upload.as_mut() {
+            upload.service(&mut self.reports, now)
+        } else {
+            Ok(false)
+        };
+        match result {
+            Ok(true) => self.retry = Retry::new(),
+            Ok(false) => {}
+            Err(error) => {
+                log::warn!("motion-tracker collector retry: {error}");
+                self.upload = None;
+                self.reports.publisher.reset_stream();
+                self.retry.later();
+            }
+        }
+        if self.upload.is_none() && self.reports.eligible(now) && now >= self.retry.next {
+            self.modem.request_socket(generation);
+        }
+    }
+
+    pub fn wake_in(&self, now: Instant) -> Option<Duration> {
+        if self.upload.is_some() {
+            return Some(super::ACTIVE_POLL);
+        }
+        let due = self.reports.next.max(self.retry.next);
+        (now < due && !self.reports.publisher.is_idle()).then(|| due.saturating_duration_since(now))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::tracker::Reading;
+
+    #[test]
+    fn failed_send_spends_the_slot_and_reconnect_sends_only_the_latest_summary() {
+        let now = Instant::now();
+        let interval = Duration::from_secs(60);
+        let mut reports = Reports::new(interval, now);
+        let summary = |sequence| {
+            Summary::from(Snapshot {
+                imu: [Reading::Stale, Reading::Fault],
+                gnss: Reading::Live(gnss::GnssFix {
+                    sequence,
+                    timestamp_ms: u64::MAX,
+                    receiver_utc_ms: None,
+                    latitude_deg: -90.0,
+                    longitude_deg: -180.0,
+                    speed_mps: f32::MAX,
+                    course_rad: None,
+                }),
+                clock: None,
+            })
+        };
+
+        struct Broken;
+        impl std::io::Write for Broken {
+            fn write(&mut self, _: &[u8]) -> io::Result<usize> {
+                Err(io::ErrorKind::BrokenPipe.into())
+            }
+            fn flush(&mut self) -> io::Result<()> {
+                Ok(())
+            }
+        }
+        reports.publisher.offer(summary(1));
+        assert!(reports.service(&mut Broken, now).is_err());
+        reports.publisher.reset_stream();
+        reports.publisher.offer(summary(2));
+        reports.publisher.offer(summary(u64::MAX));
+
+        let mut bytes = Vec::new();
+        assert!(
+            !reports
+                .service(&mut bytes, now + interval - Duration::from_millis(1))
+                .unwrap()
+        );
+        assert!(bytes.is_empty());
+        assert!(reports.service(&mut bytes, now + interval).unwrap());
+        assert!(!reports.service(&mut bytes, now + interval).unwrap());
+        assert!(bytes.len() <= MAX_BYTES);
+        let frame = std::str::from_utf8(&bytes).unwrap();
+        assert!(frame.starts_with("{\"v\":1,\"kind\":\"summary\",\"imu\":[\"stale\",\"fault\"],"));
+        assert!(frame.contains(&format!("\"seq\":{}", u64::MAX)));
+        assert_eq!(frame.lines().count(), 1);
     }
 }

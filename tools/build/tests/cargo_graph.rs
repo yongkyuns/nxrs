@@ -580,3 +580,59 @@ fn compile_selected_resource_archives(
     }
     assert_eq!(archives.len(), helpers.len());
 }
+
+#[test]
+fn optional_link_features_require_both_the_app_mode_and_profile_capabilities() {
+    let fixture = Fixture::new(
+        r#"[dependencies]
+vision = { package = "nxrs-detector", path = "../../sdk/hal/detector", optional = true }
+service = { package = "detection-service", path = "../../sdk/service", optional = true }
+"#,
+    );
+    let manifest = fixture.manifest();
+    let app = fs::read_to_string(&manifest).unwrap();
+    fs::write(
+        &manifest,
+        format!(
+            r#"{app}
+[features]
+default = ["dashboard"]
+dashboard = []
+ble-link = ["dep:vision"]
+cellular-uplink = ["dep:service"]
+
+[package.metadata.nxrs.capability-features]
+ble-link = {{ when = "dashboard", requires = ["ble", "tls"] }}
+cellular-uplink = {{ when = "dashboard", requires = ["cellular", "tls"] }}
+"#
+        ),
+    )
+    .unwrap();
+    fixture.lock();
+
+    let profile = Profile::from_data(
+        json!({"name":"fixture","hal":{"ble":"mock","tls":"mock"}}),
+        vec![],
+    );
+    let selection = cargo_graph::resolve(&mut fixture.build(), &profile).unwrap();
+    assert_eq!(selection.capability_features, ["ble-link"]);
+    assert!(contains(&selection, "nxrs-detector"));
+    assert!(!contains(&selection, "detection-service"));
+
+    let mut headless = fixture.build();
+    headless.arg("--no-default-features");
+    assert!(
+        cargo_graph::resolve(&mut headless, &profile)
+            .unwrap()
+            .capability_features
+            .is_empty()
+    );
+
+    let mut force_modem = fixture.build();
+    force_modem.args(["--features", "cellular-uplink"]);
+    assert!(
+        cargo_graph::resolve(&mut force_modem, &profile)
+            .unwrap_err()
+            .contains("feature cellular-uplink requires capability cellular")
+    );
+}

@@ -40,7 +40,9 @@ static bool g_touched;
 static bool g_lcd_cmd;
 static uint8_t g_lcd_register;
 static uint8_t g_pixel[2];
-static uint8_t g_flash[16384];
+/* Two erase blocks allow NVS rotation without reserving the product's flash
+ * partition in the simulator's application heap. */
+static uint8_t g_flash[2 * CONFIG_RAMMTD_ERASESIZE];
 #endif
 
 #ifdef CONFIG_ARCH_SIM

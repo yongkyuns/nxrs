@@ -42,6 +42,22 @@ def reading(raw):
     return imus
 
 
+def summary_reading(raw):
+    if not raw.endswith(b"\n") or len(raw) > 256:
+        raise ValueError("invalid cellular summary length")
+    frame = json.loads(raw)
+    if frame["v"] != 1 or frame["kind"] != "summary" or set(frame) != {"v", "kind", "imu", "gnss"}:
+        raise ValueError("expected Tracker v1 cellular summary")
+    imu = frame["imu"]
+    if len(imu) != 2 or any(state not in ("waiting", "stale", "live", "fault") for state in imu):
+        raise ValueError("invalid summary IMU states")
+    fix = frame["gnss"]
+    fix_ms = fix["received_ms"] if fix["state"] == "live" else None
+    if fix_ms is not None and (type(fix_ms) is not int or fix_ms < 0):
+        raise ValueError("invalid summary GNSS timestamp")
+    return imu == ["live", "live"], fix_ms
+
+
 async def collect(address, port):
     sessions = itertools.count(1)
 
@@ -50,7 +66,8 @@ async def collect(address, port):
         event("tls_connected", session=session)
         try:
             while raw := await asyncio.wait_for(reader.readline(), 180):
-                event("upload", session=session, imu=reading(raw))
+                sensors_live, fix_ms = summary_reading(raw)
+                event("upload", session=session, sensors_live=sensors_live, fix_ms=fix_ms)
         except (KeyError, OSError, TimeoutError, TypeError, ValueError) as err:
             event("tls_error", session=session, reason=type(err).__name__)
         finally:
@@ -200,17 +217,17 @@ def summarize(ble, uploads, loss_ms, restored_ms):
         raise ValueError(f"BLE readings by phase {count}, max host gap {max_gap:.3f}s")
     before = max((
         entry["session"] for entry in uploads
-        if all(entry["imu"]) and entry["imu"][0][1] <= loss_ms
+        if entry["sensors_live"] and entry["fix_ms"] is not None and entry["fix_ms"] <= loss_ms
     ), default=0)
     last_ble_ms = samples[-1]["imu"][0][1]
     resumed = next((
         entry for entry in uploads
-        if all(entry["imu"]) and restored_ms < entry["imu"][0][1] <= last_ble_ms
+        if entry["sensors_live"] and entry["fix_ms"] is not None and restored_ms < entry["fix_ms"] <= last_ble_ms
         and entry["session"] > before
     ), None)
     if not before or resumed is None:
         raise ValueError("expected a new TLS session with fresh telemetry while BLE is active")
-    delay = (resumed["imu"][0][1] - restored_ms) / 1000
+    delay = (resumed["fix_ms"] - restored_ms) / 1000
     return count, max_gap, resumed["session"], delay
 
 

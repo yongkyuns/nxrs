@@ -146,9 +146,9 @@ The application's firmware metadata table owns entry facts: binary, command,
 priority and stack size. Optional `required-capabilities` metadata supplies early
 admission checks; Cargo dependencies select components. App/service source and
 manifests stay platform-free. Application-entry metadata under
-`package.metadata.nxrs` accepts `firmware`, `required-capabilities`, and the boolean
-`qualification-only` fixture marker. Build planning and deployment preflight both
-validate this parent table and reject unknown fields, so misspelled metadata cannot
+`package.metadata.nxrs` accepts `firmware`, `required-capabilities`,
+`capability-features`, and the boolean `qualification-only` fixture marker. Build
+planning and deployment preflight reject unknown fields, so misspelled metadata cannot
 silently select firmware defaults or skip capability admission. Other tools' metadata stays
 independent. Declarative platform profiles select hardware
 resources, capabilities, execution/model budgets and OS build settings. HAL
@@ -279,6 +279,13 @@ detector model is added through the app's enabled direct detector dependency; th
 model is not forwarded through services or selected in an app manifest. An
 external transitive-only detector cannot be given a feature by Cargo and fails
 with a direct-dependency diagnostic.
+
+Apps can declare optional integrations in `package.metadata.nxrs.capability-features`.
+Each entry names a declared Cargo feature, its enabling app feature (`when`),
+and the required profile capabilities (`requires`). The builder checks the
+base Cargo graph and enables the integration when both conditions hold. It
+rejects integrations enabled explicitly without their required capabilities.
+The resolved receipt records the features selected by the profile.
 
 Dry runs reject backend-incompatible switches before any build starts. Their
 `dependency_resolution` is `pending`, with null `model_features` and `driver_features`.

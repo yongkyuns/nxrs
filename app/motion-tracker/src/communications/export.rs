@@ -125,14 +125,7 @@ impl Capture {
     }
 
     pub fn record(&self, sample: Measurement) {
-        if let Measurement::Gnss(fix) = sample {
-            if let Some(anchor) = fix
-                .receiver_utc_ms
-                .and_then(|utc| ClockAnchor::new(fix.timestamp_ms, utc))
-            {
-                let _ = self.clock.set(anchor);
-            }
-        }
+        crate::clock::observe(&self.clock, sample);
         let epoch = self.epoch.load(Ordering::Acquire);
         if epoch & 1 == 0 {
             return;
