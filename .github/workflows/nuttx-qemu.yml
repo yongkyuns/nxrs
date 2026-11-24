@@ -103,6 +103,9 @@ jobs:
             --target-c-source tests/nuttx-std/tracker-sim/devices.c \
             --target-c-source tests/nuttx-std/tracker-sim/dashboard_init.c \
             --out target/tracker-coexist-sim 2>&1 | tee target/tracker-coexist-build.log
+          source target/qemu-tools/environment.sh
+          PYTHONPATH=tests python3 -m rtos_harness.footprint_budget target/tracker-coexist-sim \
+            --linked-flash 720896 --image 786432 --static-ram 151552 | tee -a "$GITHUB_STEP_SUMMARY"
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         id: tracker-python
         with:

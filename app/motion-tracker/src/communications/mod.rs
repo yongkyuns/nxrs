@@ -132,6 +132,18 @@ fn run(
     capture.register_owner();
     let collector = cellular.as_ref().and_then(|config| config.collector);
     let mut modem = cellular.map(uplink::Modem::start).transpose()?;
+    serve(shared, pair, collector.zip(modem.as_ref()), capture, &mut notify);
+    // Both transports and their shared TLS identity have left scope.
+    modem.as_mut().map_or(Ok(()), uplink::Modem::stop)
+}
+
+fn serve(
+    shared: &Mutex<Shared>,
+    pair: bool,
+    cellular: Option<(Collector, &uplink::Modem)>,
+    capture: &Capture,
+    notify: &mut impl FnMut(),
+) {
     let identity = OnceCell::new();
     let mut radio: Option<radio::Output<'_, _>> = None;
     let mut next_radio = Instant::now();
@@ -166,7 +178,7 @@ fn run(
                     {
                         Ok(output) => radio = Some(output),
                         Err(error) => {
-                            eprintln!("motion-tracker pairing: {error}");
+                            log::warn!("motion-tracker pairing: {error}");
                             pairing_failed = true;
                         }
                     },
@@ -210,7 +222,7 @@ fn run(
         if view != previous {
             notify();
         }
-        if let (Some(collector), Some(modem)) = (collector, modem.as_ref()) {
+        if let Some((collector, modem)) = cellular {
             if let Some(sample) = sample {
                 publication.offer(sample);
             }
@@ -239,7 +251,7 @@ fn run(
                 Ok(true) => retry = uplink::Retry::new(),
                 Ok(false) => {}
                 Err(error) => {
-                    eprintln!("motion-tracker collector retry: {error}");
+                    log::warn!("motion-tracker collector retry: {error}");
                     upload = None;
                     publication.reset_stream();
                     retry.later();
@@ -259,7 +271,4 @@ fn run(
             thread::park();
         }
     }
-    let _ = upload.take();
-    drop(radio);
-    modem.as_mut().map_or(Ok(()), uplink::Modem::stop)
 }

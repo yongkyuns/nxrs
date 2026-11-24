@@ -55,6 +55,8 @@ impl<T: Link> tls::Stream for Bearer<T> {
 }
 
 pub struct Output<'a, L: Listener> {
+    // Fields leave scope in declaration order. Retire TLS before its listener.
+    connection: Option<tls::Connection<'a, Bearer<L::Transport>>>,
     listener: L,
     identity: &'a tls::Identity,
     key: [u8; 32],
@@ -67,7 +69,6 @@ pub struct Output<'a, L: Listener> {
     next_export: Option<(Version, Instant)>,
     last_export_service: Option<Instant>,
     max_service_gap: Duration,
-    connection: Option<tls::Connection<'a, Bearer<L::Transport>>>,
     publication: Publisher<Snapshot, Text<768>>,
     live: bool,
     paired: bool,
@@ -138,17 +139,15 @@ impl<'a, L: Listener> Output<'a, L> {
             *last = now;
         }
         if let Err(error) = self.poll(now) {
-            eprintln!("motion-tracker BLE session ended: {error}");
+            self.connection = None;
+            let high_water = self.capture.finish();
+            log::warn!("motion-tracker BLE session ended: {error}");
             if self.last_export_service.take().is_some() {
-                self.capture.disable();
-                eprintln!(
-                    "motion-tracker BLE export: high_water={} samples max_service_gap={} us",
-                    self.capture.high_water(),
+                log::info!(
+                    "motion-tracker BLE export: high_water={high_water} samples max_service_gap={} us",
                     self.max_service_gap.as_micros(),
                 );
             }
-            self.connection = None;
-            self.capture.disable();
             self.request_len = 0;
             self.export_len = 0;
             self.next_export = None;
@@ -235,6 +234,9 @@ impl<'a, L: Listener> Output<'a, L> {
                         self.export_len = batch.len;
                         self.next_export =
                             (!batch.terminal).then(|| (version, now + version.batch_interval()));
+                        if batch.terminal {
+                            self.capture.finish();
+                        }
                         Self::write_export(conn, &self.export[..self.export_len], &mut self.sent)?;
                         if self.sent == self.export_len {
                             self.sent = 0;
@@ -272,8 +274,7 @@ impl<'a, L: Listener> Output<'a, L> {
 }
 impl<L: Listener> Drop for Output<'_, L> {
     fn drop(&mut self) {
-        self.connection = None;
-        self.capture.disable();
+        self.capture.finish();
         self.key.fill(0);
     }
 }

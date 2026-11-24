@@ -172,7 +172,7 @@ pub(super) fn run(args: impl Iterator<Item = String>) -> io::Result<()> {
         }
         true
     })
-    .inspect_err(|error| eprintln!("motion-tracker touch: {error:?}"))
+    .inspect_err(|error| log::warn!("motion-tracker touch: {error:?}"))
     .ok();
 
     let mut serial = options.reports.usb_stream.then(io::stdout);
@@ -223,7 +223,7 @@ pub(super) fn run(args: impl Iterator<Item = String>) -> io::Result<()> {
                     .zip(&mut reported_drops)
                 {
                     if let Some(count) = count.filter(|count| *count > *reported) {
-                        eprintln!("motion-tracker {name} queue drops: {count}");
+                        log::warn!("motion-tracker {name} queue drops: {count}");
                         *reported = count;
                     }
                 }
@@ -231,7 +231,8 @@ pub(super) fn run(args: impl Iterator<Item = String>) -> io::Result<()> {
             sensors.reap_finished(report_fault);
             if touch.as_ref().is_some_and(touch::Session::is_finished) {
                 let mut finished = touch.take().unwrap();
-                eprintln!("motion-tracker touch stopped: {:?}", finished.join());
+                let result = finished.join();
+                log::warn!("motion-tracker touch stopped: {result:?}");
             }
         }
         if report_due {
@@ -252,7 +253,8 @@ pub(super) fn run(args: impl Iterator<Item = String>) -> io::Result<()> {
             if options.reports.frames.is_some() {
                 rendered += 1;
                 if options.reports.frames == Some(rendered) {
-                    eprintln!(
+                    let _ = writeln!(
+                        io::stderr().lock(),
                         "motion-tracker: {rendered} frames, interval={} ms, IMU 1 {}, IMU 2 {}, GNSS {}",
                         interval.as_millis(),
                         tracker::reading_status(&snapshot.imu[0]),
@@ -315,7 +317,7 @@ pub(super) fn run(args: impl Iterator<Item = String>) -> io::Result<()> {
                             notify_links.clone(),
                         ) {
                             Ok(links) => communications = Some(links),
-                            Err(error) => eprintln!("motion-tracker pairing: {error}"),
+                            Err(error) => log::warn!("motion-tracker pairing: {error}"),
                         },
                     },
                     Some(Action::CancelPairing) => {
@@ -351,7 +353,7 @@ pub(super) fn run(args: impl Iterator<Item = String>) -> io::Result<()> {
         ("stop communications", failed(stop_links)),
     ] {
         if failed {
-            eprintln!("motion-tracker: {operation} failed");
+            log::error!("motion-tracker: {operation} failed");
             if result.is_ok() {
                 return Err(io::Error::other(operation));
             }

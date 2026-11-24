@@ -4,7 +4,7 @@ use navigation::observations::Measurement;
 use std::collections::VecDeque;
 use std::io;
 use std::sync::{
-    atomic::{AtomicBool, Ordering},
+    atomic::{AtomicBool, AtomicUsize, Ordering},
     Mutex, OnceLock,
 };
 use std::thread::{self, Thread};
@@ -54,7 +54,9 @@ pub struct Batch {
 
 #[derive(Default)]
 pub struct Capture {
-    enabled: AtomicBool,
+    // Odd epochs admit records. A new export has a different epoch so an
+    // acquisition task paused during encoding cannot enqueue into it.
+    epoch: AtomicUsize,
     ready: AtomicBool,
     samples: Mutex<Samples>,
     scales: [Option<[u32; 2]>; 2],
@@ -99,20 +101,27 @@ impl Capture {
         samples
             .queue
             .try_reserve_exact(QUEUE)
-            .map_err(io::Error::other)?;
+            .map_err(|_| io::ErrorKind::OutOfMemory)?;
         samples.first_missing = None;
         samples.high_water = 0;
         self.ready.store(false, Ordering::Relaxed);
-        self.enabled.store(true, Ordering::Release);
+        let epoch = self.epoch.load(Ordering::Relaxed).wrapping_add(1) | 1;
+        self.epoch.store(epoch, Ordering::Release);
         Ok(())
     }
 
-    pub fn disable(&self) {
-        self.enabled.store(false, Ordering::Release);
-    }
-
-    pub fn high_water(&self) -> usize {
-        self.samples.lock().unwrap().high_water
+    pub fn finish(&self) -> usize {
+        // Move the queue out so its storage is freed after unlocking acquisition.
+        let (_retired_queue, high_water) = {
+            let mut samples = self.samples.lock().unwrap();
+            let epoch = self.epoch.load(Ordering::Relaxed);
+            self.epoch
+                .store(epoch.wrapping_add(epoch & 1), Ordering::Release);
+            self.ready.store(false, Ordering::Relaxed);
+            samples.first_missing = None;
+            (std::mem::take(&mut samples.queue), samples.high_water)
+        };
+        high_water
     }
 
     pub fn record(&self, sample: Measurement) {
@@ -124,33 +133,37 @@ impl Capture {
                 let _ = self.clock.set(anchor);
             }
         }
-        if !self.enabled.load(Ordering::Acquire) {
+        let epoch = self.epoch.load(Ordering::Acquire);
+        if epoch & 1 == 0 {
             return;
         }
-        let bytes = encode(sample);
+        self.enqueue(epoch, encode(sample));
+    }
+
+    fn enqueue(&self, epoch: usize, bytes: [u8; IMU_BYTES]) {
         // This runs in the acquisition task. The consumer holds the lock
         // only for a bounded copy, with no encoding or transport I/O.
-        let mut samples = self.samples.lock().unwrap();
-        if !self.enabled.load(Ordering::Relaxed) {
-            return;
-        }
-        let ready = if samples.queue.len() == QUEUE {
-            samples.first_missing = Some(bytes[..5].try_into().unwrap());
-            self.disable();
-            true
-        } else {
-            samples.queue.push_back(bytes);
-            let depth = samples.queue.len();
-            samples.high_water = samples.high_water.max(depth);
-            depth == BATCH
-        };
-        if ready {
-            self.ready.store(true, Ordering::Release);
-            let owner = samples.owner.clone();
-            drop(samples);
-            if let Some(owner) = owner {
-                owner.unpark();
+        let owner = {
+            let mut samples = self.samples.lock().unwrap();
+            if self.epoch.load(Ordering::Relaxed) != epoch {
+                return;
             }
+            if samples.queue.len() == QUEUE {
+                samples.first_missing = Some(bytes[..5].try_into().unwrap());
+                self.epoch.store(epoch.wrapping_add(1), Ordering::Release);
+            } else {
+                samples.queue.push_back(bytes);
+                let depth = samples.queue.len();
+                samples.high_water = samples.high_water.max(depth);
+                if depth != BATCH {
+                    return;
+                }
+            }
+            self.ready.store(true, Ordering::Release);
+            samples.owner.clone()
+        };
+        if let Some(owner) = owner {
+            owner.unpark();
         }
     }
 
@@ -318,18 +331,19 @@ mod tests {
         let capture = Capture::default();
         capture.enable().unwrap();
         thread::scope(|scope| {
-            let queue = capture.samples.lock().unwrap();
             let (started, ready) = mpsc::channel();
             let (finished, complete) = mpsc::channel();
             let capture = &capture;
-            scope.spawn(move || {
-                started.send(()).unwrap();
-                capture.record(fix(1));
-                finished.send(()).unwrap();
-            });
-            ready.recv().unwrap();
-            let early = complete.recv_timeout(Duration::from_millis(40));
-            drop(queue);
+            let early = {
+                let _queue = capture.samples.lock().unwrap();
+                scope.spawn(move || {
+                    started.send(()).unwrap();
+                    capture.record(fix(1));
+                    finished.send(()).unwrap();
+                });
+                ready.recv().unwrap();
+                complete.recv_timeout(Duration::from_millis(40))
+            };
             assert_eq!(early, Err(mpsc::RecvTimeoutError::Timeout));
             complete.recv().unwrap();
         });
@@ -370,6 +384,24 @@ mod tests {
             capture.take(&mut bytes, true, Version::Fixed).unwrap().len,
             33
         );
+    }
+
+    #[test]
+    fn disconnect_releases_queue_and_rejects_work_from_the_old_export() {
+        let capture = Capture::default();
+        capture.enable().unwrap();
+        let old_epoch = capture.epoch.load(Ordering::Relaxed);
+        capture.record(fix(1));
+        assert_eq!(capture.finish(), 1);
+        assert_eq!(capture.samples.lock().unwrap().queue.capacity(), 0);
+
+        capture.enable().unwrap();
+        capture.enqueue(old_epoch, encode(fix(2)));
+        capture.record(fix(3));
+        let mut bytes = [0; MAX_BYTES];
+        let batch = capture.take(&mut bytes, true, Version::Fixed).unwrap();
+        assert_eq!(batch.len, 33);
+        assert_eq!(&bytes[5..9], &3_u32.to_le_bytes());
     }
 
     #[test]

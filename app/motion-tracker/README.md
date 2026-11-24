@@ -60,6 +60,10 @@ python3 upstream/mbedtls/fetch.py
 cargo nxrs build --app motion-tracker --profile m5stack-cores3-dual-imu
 ```
 
+Use `set RUST_BACKTRACE full` in NSH to print raw Rust panic addresses on
+CoreS3. Keep the matching `nuttx/nuttx` ELF from each deployed build for
+offline symbolization with `xtensa-esp32s3-elf-addr2line -f -C -e nuttx/nuttx <address>`.
+
 After loading the firmware on the matching board, run at the NuttX console:
 
 ```text
