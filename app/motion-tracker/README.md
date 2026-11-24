@@ -162,6 +162,10 @@ python3 upstream/mbedtls/fetch.py
 cargo nxrs build --app motion-tracker --profile m5stack-cores3-dual-imu
 ```
 
+Use `set RUST_BACKTRACE full` in NSH to print raw Rust panic addresses on
+CoreS3. Keep the matching `nuttx/nuttx` ELF from each deployed build for
+offline symbolization with `xtensa-esp32s3-elf-addr2line -f -C -e nuttx/nuttx <address>`.
+
 After loading the firmware on the matching board, run at the NuttX console:
 
 ```text
@@ -234,16 +238,20 @@ remain separate from the firmware build.
 The BLE UUID prefix is `3CB1DE6E-A955-49B7-BE4F-C4572D3F`. The notification
 service uses suffixes `3420` (service), `3421` (ingress) and `3422` (egress).
 Each notification starts with a little-endian 32-bit offset into the
-connection's ciphertext. The phone delivers only contiguous bytes to TLS and
-reports the next offset as an ingress write command prefixed with `01`.
+connection's ciphertext. The phone holds later bytes in a 2 KiB window when
+a notification goes missing. It delivers contiguous bytes to TLS and reports
+the next offset as an ingress write command prefixed with `01`.
 Phone-to-tracker ciphertext uses acknowledged ingress writes prefixed with
 `00`. Before starting TLS, the phone tests its direct ATT write size
 (up to 244 bytes) with an acknowledged `02` probe followed by zero padding.
 The probe adds no bytes to the stream. If the tracker rejects it, the phone
 uses the original 20-byte write size. The phone abandons the connection if a
 ciphertext write remains unconfirmed for two seconds.
-The tracker retains up to 2 KiB of ciphertext and replays after 180 ms
-without acknowledgment progress. The original dashboard service uses
+The tracker keeps up to 2 KiB of unacknowledged ciphertext. After
+180 ms without acknowledgment progress, it resends the oldest notification
+first. If the acknowledgment advances only through that notification, the
+tracker retries the remaining bytes for receivers that discard them after a
+gap. The original dashboard service uses
 the unchanged `3400`, `3401` and `3402` UUIDs and handles, and is advertised
 in the scan response. Dashboard snapshots retain the v1 NDJSON
 layout used by USB and cellular. Each live reading has a monotonic

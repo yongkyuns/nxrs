@@ -103,6 +103,10 @@ class BluetoothLink(LocalLink):
     notification_rate = 0
     paced_notifications = 0
     next_notification = 0.0
+    notification_end = 0
+    replayed_bytes = 0
+    spaced_losses_remaining = 0
+    next_spaced_loss = 0
 
     def send_acl_data(self, sender, destination, transport, data):
         # Bumble 0.0.236 otherwise uses the sender's random address for all LE ACL.
@@ -121,10 +125,17 @@ class BluetoothLink(LocalLink):
             if self.notification_rate and data[2:5] == b'\x04\x00\x1b':
                 # Pace the ciphertext payload, excluding the L2CAP, ATT and
                 # replay headers. Keep emitting link credits and ACKs normally.
-                self.next_notification = max(loop.time(), self.next_notification) + (
-                    (len(data) - 11) / self.notification_rate
-                )
+                count = len(data) - 11
+                self.next_notification = max(loop.time(), self.next_notification) + count / self.notification_rate
                 self.paced_notifications += 1
+                start = int.from_bytes(data[7:11], 'little')
+                end = start + count
+                self.replayed_bytes += max(0, min(end, self.notification_end) - start)
+                self.notification_end = max(self.notification_end, end)
+                if self.spaced_losses_remaining and start >= self.next_spaced_loss:
+                    self.next_spaced_loss = end + 5_500
+                    self.spaced_losses_remaining -= 1
+                    return
                 loop.call_at(self.next_notification, peer.on_link_acl_data, source, transport, data)
             else:
                 loop.call_soon(peer.on_link_acl_data, source, transport, data)
@@ -350,7 +361,7 @@ async def connect(device, *, export=False):
 
 
 class SecureStream:
-    def __init__(self, rx, tx, key):
+    def __init__(self, rx, tx, key, *, retain_out_of_order=True):
         context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
         context.check_hostname = False
         context.verify_mode = ssl.CERT_NONE
@@ -366,7 +377,10 @@ class SecureStream:
         self.notifications = None
         self.notification_overflow = False
         self.offset = 0
+        self.last_acknowledged = 0
         self.out_of_order = 0
+        self.retain_out_of_order = retain_out_of_order
+        self.buffered = {}
         self.acknowledgement_pending = False
         self.acknowledge_at = 0.0
         self.ingress_payload = 19
@@ -382,17 +396,28 @@ class SecureStream:
         self.notifications = asyncio.Event()
 
         def receive(packet):
-            if not 4 < len(packet) <= 244 or self.incoming.pending + len(packet) - 4 > 8192:
+            if not 4 < len(packet) <= 244 or self.incoming.pending + len(self.buffered) + len(packet) - 4 > 8192:
                 self.notification_overflow = True
                 self.notifications.set()
                 return
             offset = int.from_bytes(packet[:4], 'little')
             skip = (self.offset - offset) & 0xffffffff
-            data = packet[4 + skip:]
-            self.out_of_order += skip > 0x7fffffff
-            if data:
-                self.incoming.write(data)
+            if skip < len(packet) - 4:
+                data = bytearray(packet[4 + skip:])
+                if self.buffered:
+                    for index in range(len(data)):
+                        self.buffered.pop((self.offset + index) & 0xffffffff, None)
                 self.offset = (self.offset + len(data)) & 0xffffffff
+                while self.offset in self.buffered:
+                    data.append(self.buffered.pop(self.offset))
+                    self.offset = (self.offset + 1) & 0xffffffff
+                self.incoming.write(data)
+            elif skip > 0x7fffffff:
+                self.out_of_order += 1
+                lead = (offset - self.offset) & 0xffffffff
+                if self.retain_out_of_order and lead + len(packet) - 4 <= 2048:
+                    for index, byte in enumerate(packet[4:]):
+                        self.buffered.setdefault((offset + index) & 0xffffffff, byte)
             self.acknowledgement_pending = True
             self.notifications.set()
 
@@ -424,7 +449,9 @@ class SecureStream:
         if self.acknowledgement_pending and now >= self.acknowledge_at:
             self.acknowledgement_pending = False
             self.acknowledge_at = now + 0.015
-            await self.rx.write_value(b'\x01' + self.offset.to_bytes(4, 'little'), with_response=False)
+            offset = self.offset
+            await self.rx.write_value(b'\x01' + offset.to_bytes(4, 'little'), with_response=False)
+            self.last_acknowledged = offset
 
     async def poll(self):
         await self.flush()

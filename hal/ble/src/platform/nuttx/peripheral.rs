@@ -37,6 +37,7 @@ static OUTPUT: Mutex<Output> = Mutex::new(Output {
     next: 0,
     sent: 0,
     replay_at: None,
+    repair: None,
 });
 
 fn signal_ready() {
@@ -77,6 +78,7 @@ struct Output {
     next: usize,
     sent: usize,
     replay_at: Option<Instant>,
+    repair: Option<usize>,
 }
 
 impl Output {
@@ -93,8 +95,36 @@ impl Output {
         self.offset = offset;
         self.sent -= count;
         self.next = self.next.saturating_sub(count);
+        if let Some(repair) = self.repair {
+            self.repair = repair
+                .checked_sub(count)
+                .filter(|&remaining| remaining != 0);
+            if count == repair {
+                // The ACK covered just the repair. Retry the tail for peers
+                // that discarded it or have another gap immediately after it.
+                self.next = 0;
+            }
+        }
         self.replay_at = (self.sent != 0).then_some(now + REPLAY_AFTER);
         Ok(())
+    }
+
+    fn notify(&self, peer: &ffi::Peer, start: usize, end: usize) -> io::Result<usize> {
+        let mut bytes = [0; STREAM_CHUNK];
+        let offset = self.offset.wrapping_add(start as u32);
+        bytes[..OFFSET_BYTES].copy_from_slice(&offset.to_le_bytes());
+        let len = (STREAM_CHUNK - OFFSET_BYTES).min(end - start);
+        for (out, value) in bytes[OFFSET_BYTES..OFFSET_BYTES + len]
+            .iter_mut()
+            .zip(self.queue.bytes.iter().skip(start))
+        {
+            *out = *value;
+        }
+        match peer.notify(&bytes[..OFFSET_BYTES + len])? {
+            0 => Ok(0),
+            sent if sent > OFFSET_BYTES => Ok(sent - OFFSET_BYTES),
+            _ => Err(io::ErrorKind::InvalidData.into()),
+        }
     }
 }
 
@@ -128,6 +158,7 @@ fn output(stamp: u32) -> io::Result<MutexGuard<'static, Output>> {
         output.next = 0;
         output.sent = 0;
         output.replay_at = None;
+        output.repair = None;
     }
     Ok(output)
 }
@@ -349,33 +380,27 @@ impl Listener for Peripheral {
         let now = Instant::now();
         output.acknowledge(ACKNOWLEDGED.load(Ordering::Acquire), now)?;
         if output.replay_at.is_some_and(|deadline| now >= deadline) {
-            // The oldest unacknowledged bytes may have been lost after HCI
-            // accepted them. Replay from the peer's last contiguous offset.
-            output.next = 0;
-            output.replay_at = Some(now + REPLAY_AFTER);
+            // Repair the oldest bytes first. A delayed ACK should cost one
+            // notification of airtime instead of another full send window.
+            let sent = output.notify(&peer, 0, output.sent)?;
+            if sent != 0 {
+                output.repair = Some(sent);
+                output.replay_at = Some(now + REPLAY_AFTER);
+            }
+            return Ok(());
         }
-        let mut bytes = [0; STREAM_CHUNK];
+        if output.repair.is_some() {
+            return Ok(());
+        }
         for _ in 0..NOTIFY_BURST {
             if !self.notifying() || output.next == output.queue.bytes.len() {
                 break;
             }
-            let offset = output.offset.wrapping_add(output.next as u32);
-            bytes[..OFFSET_BYTES].copy_from_slice(&offset.to_le_bytes());
-            let len = (STREAM_CHUNK - OFFSET_BYTES).min(output.queue.bytes.len() - output.next);
-            for (out, value) in bytes[OFFSET_BYTES..OFFSET_BYTES + len]
-                .iter_mut()
-                .zip(output.queue.bytes.iter().skip(output.next))
-            {
-                *out = *value;
-            }
-            let sent = peer.notify(&bytes[..OFFSET_BYTES + len])?;
+            let sent = output.notify(&peer, output.next, output.queue.bytes.len())?;
             if sent == 0 {
                 break;
             }
-            if sent <= OFFSET_BYTES {
-                return Err(io::ErrorKind::InvalidData.into());
-            }
-            output.next += sent - OFFSET_BYTES;
+            output.next += sent;
             output.sent = output.sent.max(output.next);
             output.replay_at.get_or_insert(now + REPLAY_AFTER);
         }

@@ -1102,6 +1102,7 @@ version = "0.1.0"
 name = "nxrs-motion-tracker"
 version = "0.1.0"
 dependencies = [
+ "log",
  "nxrs-battery",
  "nxrs-ble",
  "nxrs-cellular",
@@ -1110,6 +1111,7 @@ dependencies = [
  "nxrs-execution",
  "nxrs-gnss",
  "nxrs-imu",
+ "nxrs-log-router",
  "nxrs-messaging",
  "nxrs-navigation-services",
  "nxrs-settings",
