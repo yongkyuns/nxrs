@@ -53,6 +53,7 @@ PORTABLE_EXTERNAL_BY_PACKAGE = {
     'nxrs-detection-service': {'serde', 'serde_json'},
     # QR encoding and the log facade have no native dependencies.
     'nxrs-motion-tracker': {'log', 'qrcodegen'},
+    'nxrs-connectivity': {'log'},
     # Fixed-buffer PPP framing and negotiation with no host/native runtime.
     'nxrs-cellular': {'ppproto'},
     # Diagnostics use the safe Rust facade. Fixture-only native adapters stay

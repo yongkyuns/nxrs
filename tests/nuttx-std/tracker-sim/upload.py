@@ -304,7 +304,7 @@ def qualify(process, modem, gnss_wire, transcript, log, ethernet, server, pin, r
         # At 200 ms per console report, the one-second cellular cadence permits
         # at most one summary per five reports, with slack at the boundaries.
         assert 3 <= len(records) <= len(usb) // 5 + 1, len(records)
-        assert transcript.count(b'motion-tracker collector TLS online') == 3
+        assert transcript.count(b'collector TLS online') == 3
         print(f'PASS: {len(offline)} live USB reports while PPP was down, with advancing IMU and GNSS samples')
         print(f'PASS: bounded TLS 1.3 summaries matched console sensor states and fixes {positions} before and after collector/PPP loss '
               f'({time.monotonic() - started_at:.2f} s host time)')

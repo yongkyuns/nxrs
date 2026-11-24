@@ -3,16 +3,14 @@ use super::Endpoint;
 use crate::map::{Key, Response};
 #[cfg(feature = "wifi-map")]
 use crate::map::{REQUEST_BYTES, Receiver};
+#[cfg(feature = "wifi-map")]
+use connectivity::Dial;
 use std::{
     io,
     time::{Duration, Instant},
 };
 #[cfg(feature = "wifi-map")]
-use std::{
-    io::Write,
-    net::{SocketAddr, TcpStream},
-    thread::{self, JoinHandle},
-};
+use std::{io::Write, thread};
 
 const BLE_DEADLINE: Duration = Duration::from_secs(25);
 #[cfg(feature = "wifi-map")]
@@ -135,7 +133,10 @@ impl<'a> Tiles<'a> {
                 }
                 #[cfg(feature = "wifi-map")]
                 if let Some(endpoint) = self.relay.filter(|_| self.dial.is_none()) {
-                    if let Ok(dial) = Dial::start(endpoint) {
+                    let worker = thread::Builder::new()
+                        .name("tracker-tile-dial".into())
+                        .stack_size(8 * 1024);
+                    if let Ok(dial) = Dial::start(worker, endpoint, Duration::from_secs(3)) {
                         self.throttle = now + REQUEST_INTERVAL;
                         self.dial = Some(dial);
                         self.active = Some(Transfer::Relay(now + IP_DEADLINE, Relay::Dial));
@@ -174,50 +175,6 @@ impl<'a> Tiles<'a> {
     }
 }
 
-// A kernel TCP connect may wait for SYN retransmission. Keep it off the BLE,
-// collector and display loops. During normal operation joins occur after the
-// attempt finishes, including when the viewport has changed.
-#[cfg(feature = "wifi-map")]
-struct Dial(Option<JoinHandle<io::Result<TcpStream>>>);
-
-#[cfg(feature = "wifi-map")]
-impl Dial {
-    fn start(endpoint: Endpoint) -> io::Result<Self> {
-        thread::Builder::new()
-            .name("tracker-tile-dial".into())
-            .stack_size(8 * 1024)
-            .spawn(move || {
-                TcpStream::connect_timeout(
-                    &SocketAddr::V4(endpoint.address),
-                    Duration::from_secs(3),
-                )
-            })
-            .map(|thread| Self(Some(thread)))
-    }
-
-    fn poll(&mut self) -> io::Result<Option<TcpStream>> {
-        if self.0.as_ref().is_some_and(|task| task.is_finished()) {
-            self.0
-                .take()
-                .unwrap()
-                .join()
-                .map_err(|_| io::Error::other("tile dial panicked"))?
-                .map(Some)
-        } else {
-            Ok(None)
-        }
-    }
-}
-
-#[cfg(feature = "wifi-map")]
-impl Drop for Dial {
-    fn drop(&mut self) {
-        if let Some(task) = self.0.take() {
-            let _ = task.join();
-        }
-    }
-}
-
 #[cfg(feature = "wifi-map")]
 enum Relay<'a> {
     Dial,
@@ -243,8 +200,8 @@ impl<'a> Relay<'a> {
             Self::Dial => {
                 if let Some(socket) = dial.as_mut().unwrap().poll()? {
                     *dial = None;
-                    let connection = identity()?
-                        .connect_pinned(socket, endpoint.pin, IP_DEADLINE)
+                    let connection = endpoint
+                        .secure(identity()?, socket, IP_DEADLINE)
                         .map_err(|_| io::ErrorKind::PermissionDenied)?;
                     *self = Self::Request {
                         connection,

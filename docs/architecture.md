@@ -143,15 +143,20 @@ contract, so gateway ingest can read it with the camera-side server disabled.
 `camera::capture::Session` owns frame validation, fixed history and stop.
 `wifi::Reconnector` owns station retry and rejoin; its caller supplies credentials
 and drives polling. Home-cam composes those APIs with streaming and detection.
-Motion Tracker’s `communications` module owns link selection and upload budgets.
-Its profile selects which transport modules are built. BLE carries full-rate
-export and phone-relayed tiles. Builds with Wi-Fi and without cellular can use a
-direct tile relay.
-Cellular carries rate-limited status summaries through the common bounded
-publisher. The dashboard consumes link status. Navigation
-supplies reusable observation and fusion behavior. The camera qualification's
-recording and packet-summary adapters live with that fixture. Network data paths
-use `std::net`.
+
+The [connectivity service](../service/connectivity) owns the bounded publisher,
+BLE/TLS stream adaptation, pinned TCP/TLS connections, and cellular reconnect and
+upload budgets. The caller supplies the cellular HAL session factory, TLS
+identity, and payload encoding. The service uses the caller’s wait loop and
+isolates blocking dials from active data transfers.
+
+Motion Tracker composes these APIs with its pairing UI, map tile requests, and
+telemetry protocol. Its profile selects the transports. BLE carries full-rate
+export and phone-relayed tiles. Direct tile relays require Wi-Fi with cellular
+excluded, and the cellular collector receives rate-limited summaries. Navigation
+supplies observation and fusion behavior. Ordinary IP data paths use `std::net`.
+The camera qualification’s recording and packet-summary adapters live with
+that fixture.
 
 Keep OS adapters in their owning capability HAL, and keep adapters used only
 for qualification under `tests/`. Reserve the root `platform/` tree for profiles,

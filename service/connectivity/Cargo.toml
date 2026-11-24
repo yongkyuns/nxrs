@@ -1,0 +1,18 @@
+[package]
+name = "nxrs-connectivity"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+name = "connectivity"
+
+[features]
+ble = ["dep:nxrs-ble", "nxrs-tls/pairing"]
+pinned-tls = ["dep:nxrs-tls"]
+cellular = ["pinned-tls", "dep:nxrs-cellular", "dep:log"]
+
+[dependencies]
+log = { version = "0.4", optional = true }
+nxrs-ble = { path = "../../hal/ble", features = ["peripheral"], optional = true }
+nxrs-cellular = { path = "../../hal/cellular", optional = true }
+nxrs-tls = { path = "../../hal/tls", optional = true }

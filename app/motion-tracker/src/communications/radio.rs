@@ -1,7 +1,4 @@
-use super::{
-    export::{Capture, Version, MAX_BYTES, REQUEST_LEN, REQUEST_PREFIX},
-    publication::Publisher,
-};
+use super::export::{Capture, MAX_BYTES, REQUEST_LEN, REQUEST_PREFIX, Version};
 use crate::{
     map::{Key, Receiver, Response},
     text::Text,
@@ -9,9 +6,10 @@ use crate::{
     wire,
 };
 use ble::{
-    peripheral::{self, Link, Listener, Service},
     Uuid,
+    peripheral::{self, Listener, Service},
 };
+use connectivity::{Publisher, ble as secure_ble};
 use std::io::{self, Read, Write};
 use std::time::{Duration, Instant};
 
@@ -36,32 +34,9 @@ pub fn pair<'a>(
     Output::start(listener, identity, capture)
 }
 
-struct Bearer<T>(T);
-impl<T: Link> Read for Bearer<T> {
-    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        self.0.read(buf)
-    }
-}
-impl<T: Link> Write for Bearer<T> {
-    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        self.0.write(buf)
-    }
-    fn flush(&mut self) -> io::Result<()> {
-        self.0.flush()
-    }
-}
-impl<T: Link> tls::Stream for Bearer<T> {
-    fn prepare(&mut self) -> io::Result<()> {
-        Ok(())
-    }
-    fn abort(&mut self) {
-        self.0.abort();
-    }
-}
-
 pub struct Output<'a, L: Listener> {
     // Fields leave scope in declaration order. Retire TLS before its listener.
-    connection: Option<tls::Connection<'a, Bearer<L::Transport>>>,
+    connection: Option<tls::Connection<'a, secure_ble::Stream<L::Transport>>>,
     listener: L,
     identity: &'a tls::Identity,
     key: [u8; 32],
@@ -182,9 +157,7 @@ impl<'a, L: Listener> Output<'a, L> {
                 .accept()
                 .map_err(|_| io::ErrorKind::NotConnected)?
             {
-                let conn = self
-                    .identity
-                    .accept_pairing(Bearer(stream), &self.key)
+                let conn = secure_ble::accept(self.identity, stream, &self.key)
                     .map_err(|_| io::ErrorKind::PermissionDenied)?;
                 self.connection = Some(conn);
             }

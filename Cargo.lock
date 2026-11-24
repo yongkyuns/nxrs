@@ -852,6 +852,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "nxrs-connectivity"
+version = "0.1.0"
+dependencies = [
+ "log",
+ "nxrs-ble",
+ "nxrs-cellular",
+ "nxrs-tls",
+]
+
+[[package]]
 name = "nxrs-console"
 version = "0.1.0"
 dependencies = [
@@ -1108,6 +1118,7 @@ dependencies = [
  "nxrs-boot",
  "nxrs-cellular",
  "nxrs-composition",
+ "nxrs-connectivity",
  "nxrs-display",
  "nxrs-execution",
  "nxrs-gnss",

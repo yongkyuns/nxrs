@@ -2,18 +2,15 @@
 mod config;
 #[cfg(feature = "ble-link")]
 mod export;
-#[cfg(any(test, feature = "ble-link", feature = "cellular-uplink"))]
-mod publication;
 #[cfg(feature = "ble-link")]
 mod radio;
 #[cfg(any(feature = "ble-link", feature = "wifi-map"))]
 mod tiles;
-#[cfg(feature = "cellular-uplink")]
-mod uplink;
 
 #[cfg(not(feature = "ble-link"))]
 pub(super) use crate::clock::Capture;
-pub(super) use config::{CellularConfig, Endpoint};
+pub(super) use config::CellularConfig;
+pub(super) use connectivity::Endpoint;
 #[cfg(feature = "ble-link")]
 pub(super) use export::Capture;
 
@@ -31,17 +28,10 @@ use std::thread::{self, JoinHandle};
     feature = "cellular-uplink",
     feature = "wifi-map"
 ))]
-use std::{
-    cell::OnceCell,
-    time::{Duration, Instant},
-};
+use std::{cell::OnceCell, time::Instant};
 
-#[cfg(any(
-    feature = "ble-link",
-    feature = "cellular-uplink",
-    feature = "wifi-map"
-))]
-const ACTIVE_POLL: Duration = Duration::from_millis(15);
+#[cfg(any(feature = "ble-link", feature = "wifi-map"))]
+const ACTIVE_POLL: std::time::Duration = std::time::Duration::from_millis(15);
 pub const BLE_AVAILABLE: bool = cfg!(feature = "ble-link");
 pub const CELLULAR_AVAILABLE: bool = cfg!(feature = "cellular-uplink");
 pub const DIRECT_MAP_AVAILABLE: bool = cfg!(feature = "wifi-map") && !CELLULAR_AVAILABLE;
@@ -217,8 +207,10 @@ fn run(
     cellular: Option<CellularConfig>,
     tile_relay: Option<Endpoint>,
     capture: &Capture,
-    mut notify: impl FnMut(),
+    notify: impl FnMut(),
 ) -> io::Result<()> {
+    #[cfg(any(feature = "ble-link", feature = "wifi-map"))]
+    let mut notify = notify;
     #[cfg(feature = "ble-link")]
     capture.register_owner();
     #[cfg(not(feature = "ble-link"))]
@@ -227,55 +219,29 @@ fn run(
     let _ = cellular;
     #[cfg(not(any(feature = "ble-link", feature = "wifi-map")))]
     let _ = tile_relay;
-    #[cfg(feature = "cellular-uplink")]
-    let collector = cellular
-        .as_ref()
-        .and_then(|config| config.collector.map(|endpoint| (endpoint, config.interval)));
-    #[cfg(feature = "cellular-uplink")]
-    let mut modem = cellular.map(uplink::Modem::start).transpose()?;
-    serve(
-        shared,
-        #[cfg(feature = "ble-link")]
-        pair,
-        #[cfg(feature = "cellular-uplink")]
-        collector.zip(modem.as_ref()),
-        #[cfg(any(feature = "ble-link", feature = "wifi-map"))]
-        tile_relay,
-        #[cfg(feature = "ble-link")]
-        capture,
-        &mut notify,
-    );
-    // Both transports and their shared TLS identity have left scope.
-    #[cfg(feature = "cellular-uplink")]
-    if let Some(modem) = modem.as_mut() {
-        modem.stop()?;
-    }
-    Ok(())
-}
-
-#[cfg(any(
-    feature = "ble-link",
-    feature = "cellular-uplink",
-    feature = "wifi-map"
-))]
-fn serve(
-    shared: &Mutex<Shared>,
-    #[cfg(feature = "ble-link")] pair: bool,
-    #[cfg(feature = "cellular-uplink")] cellular: Option<((Endpoint, Duration), &uplink::Modem)>,
-    #[cfg(any(feature = "ble-link", feature = "wifi-map"))] tile_relay: Option<Endpoint>,
-    #[cfg(feature = "ble-link")] capture: &Capture,
-    notify: &mut impl FnMut(),
-) {
     let identity = OnceCell::new();
+    #[cfg(feature = "cellular-uplink")]
+    let mut uplink = {
+        use connectivity::cellular::{Budget, Destination, Uplink};
+        cellular
+            .map(|config| {
+                let budget = Budget::new(config.interval, crate::wire::cellular::MAX_BYTES)?;
+                let destination = config
+                    .collector
+                    .map(|endpoint| Destination { endpoint, budget });
+                let worker = thread::Builder::new()
+                    .name("tracker-modem".into())
+                    .stack_size(4 * 1024);
+                Uplink::start(worker, destination, move || cellular::connect(&config.apn))
+            })
+            .transpose()?
+    };
     #[cfg(feature = "ble-link")]
     let mut radio: Option<radio::Output<'_, _>> = None;
     #[cfg(any(feature = "ble-link", feature = "wifi-map"))]
     let mut tiles = tiles::Tiles::new(tile_relay, Instant::now());
     #[cfg(feature = "ble-link")]
     let mut next_radio = Instant::now();
-    #[cfg(feature = "cellular-uplink")]
-    let mut collector = cellular
-        .map(|((endpoint, interval), modem)| uplink::Collector::new(endpoint, interval, modem));
     #[cfg(feature = "ble-link")]
     let mut pairing_failed = false;
     #[cfg(feature = "ble-link")]
@@ -369,8 +335,13 @@ fn serve(
             (view, phone_tile)
         };
         #[cfg(feature = "cellular-uplink")]
-        if let Some(collector) = &mut collector {
-            collector.service(sample, now, || tls_identity(&identity));
+        if let Some(uplink) = &mut uplink {
+            uplink.service(
+                sample.map(Into::into),
+                now,
+                || tls_identity(&identity),
+                crate::wire::cellular::frame,
+            );
         }
         #[cfg(any(feature = "ble-link", feature = "wifi-map"))]
         if let Some(Response::Tile(tile)) = tiles.service(
@@ -398,13 +369,20 @@ fn serve(
             continue;
         }
         #[cfg(feature = "cellular-uplink")]
-        if let Some(wait) = collector
+        if let Some(wait) = uplink
             .as_ref()
-            .and_then(|collector| collector.wake_in(Instant::now()))
+            .and_then(|uplink| uplink.wake_in(Instant::now()))
         {
             thread::park_timeout(wait);
             continue;
         }
         thread::park();
     }
+    #[cfg(all(feature = "ble-link", feature = "cellular-uplink"))]
+    drop(radio);
+    #[cfg(feature = "cellular-uplink")]
+    if let Some(uplink) = uplink {
+        uplink.stop()?;
+    }
+    Ok(())
 }

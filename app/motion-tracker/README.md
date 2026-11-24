@@ -293,10 +293,11 @@ timestamp layouts. Version 1 uses full float records and an empty overflow
 payload. Version 2 also accepts delta headers and identifies the first
 missing source and sequence.
 
-BLE and cellular share the bounded publisher. Each connection keeps one frame
-in progress and coalesces waiting data to the latest value.
-The communications worker posts link changes to the dashboard inbox. Pairing,
-wire encoding and transport-specific connection policy stay with the tracker.
+BLE and cellular use the [connectivity service](../../service/connectivity) for
+secure transport and bounded publication. Each connection keeps one frame in
+progress and coalesces waiting data to the latest value. The tracker owns the
+pairing UI, map requests, and wire encoding. Its communications worker posts
+link changes to the dashboard inbox.
 
 ## Stamp CatM cellular
 
@@ -325,11 +326,12 @@ the latest GNSS state and live fix. Full-rate samples and map tiles stay off
 PPP. The collector reads summaries without sending application data back.
 
 Set `--cellular-report-secs` to change the minimum interval (1–86400 seconds).
-The app caps each report at 256 bytes and counts an attempted report against
-the interval even if the connection drops mid-write. The default permits at
+The connectivity service caps each report at 256 bytes. An attempted report
+uses one interval even if the connection drops mid-write. The default permits at
 most 0.37 MB per 24 hours of continuous runtime before TCP, TLS and PPP
 overhead. The rate limit applies across reconnects within the same app run.
- Use a named-curve P-256 certificate
+
+Use a named-curve P-256 certificate
 and provision its fingerprint through a trusted channel. The pin authenticates the collector.
 Device authentication at the collector would require a separate enrollment
 mechanism. Use `--cellular-apn YOUR_APN` on its own to bring up PPP for diagnostics.

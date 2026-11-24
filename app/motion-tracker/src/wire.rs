@@ -173,6 +173,32 @@ mod version {
     mod tests {
         use super::*;
 
+        #[cfg(feature = "cellular-uplink")]
+        #[test]
+        fn cellular_summary_fits_the_budget_with_large_sensor_values() {
+            let sample = Snapshot {
+                imu: [Reading::Stale, Reading::Fault],
+                gnss: Reading::Live(gnss::GnssFix {
+                    sequence: u64::MAX,
+                    timestamp_ms: u64::MAX,
+                    receiver_utc_ms: None,
+                    latitude_deg: -90.0,
+                    longitude_deg: -180.0,
+                    speed_mps: f32::MAX,
+                    course_rad: None,
+                }),
+                clock: None,
+            };
+            let frame = cellular::frame(&sample.into()).unwrap();
+            let frame = std::str::from_utf8(frame.bytes()).unwrap();
+            assert!(frame.len() <= cellular::MAX_BYTES);
+            assert!(
+                frame.starts_with("{\"v\":1,\"kind\":\"summary\",\"imu\":[\"stale\",\"fault\"],")
+            );
+            assert!(frame.contains(&format!("\"seq\":{}", u64::MAX)));
+            assert_eq!(frame.lines().count(), 1);
+        }
+
         #[test]
         fn wire_preserves_sensor_order_and_omits_unavailable_coordinates() {
             let snapshot = Snapshot {

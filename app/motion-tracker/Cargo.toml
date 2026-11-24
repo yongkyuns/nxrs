@@ -26,14 +26,15 @@ default = ["dashboard"]
 dashboard = [
     "nxrs-composition/gnss", "nxrs-composition/battery",
     "dep:nxrs-battery", "dep:nxrs-display", "dep:nxrs-touch", "dep:nxrs-gnss",
-    "dep:nxrs-execution",
+    "dep:nxrs-execution", "dep:nxrs-connectivity",
 ]
-ble-link = ["dashboard", "dep:nxrs-ble", "dep:nxrs-tls", "nxrs-tls/pairing", "dep:qrcodegen"]
-cellular-uplink = ["dashboard", "dep:nxrs-cellular", "dep:nxrs-tls"]
-wifi-map = ["dashboard", "dep:nxrs-tls"]
+ble-link = ["dashboard", "dep:nxrs-ble", "dep:nxrs-tls", "nxrs-connectivity/ble", "dep:qrcodegen"]
+cellular-uplink = ["dashboard", "dep:nxrs-cellular", "dep:nxrs-tls", "nxrs-connectivity/cellular"]
+wifi-map = ["dashboard", "dep:nxrs-tls", "nxrs-connectivity/pinned-tls"]
 
 [dependencies]
 log = "0.4"
+nxrs-connectivity = { path = "../../service/connectivity", optional = true }
 nxrs-log-router = { path = "../../service/logging" }
 nxrs-composition = { path = "../../platform", features = ["imu"] }
 nxrs-battery = { path = "../../hal/battery", optional = true }

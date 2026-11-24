@@ -33,14 +33,12 @@ impl<Sample, Frame: AsRef<[u8]>> Publisher<Sample, Frame> {
         self.pending.is_none() && self.latest.is_none()
     }
 
-    #[cfg(feature = "cellular-uplink")]
     pub fn in_flight(&self) -> bool {
         self.pending.is_some()
     }
 
     /// Drop the interrupted frame after retiring the stream. Keep any newer
     /// sample waiting for the replacement connection.
-    #[cfg(any(test, feature = "cellular-uplink"))]
     pub fn reset_stream(&mut self) {
         self.pending = None;
     }
@@ -59,7 +57,6 @@ impl<Sample, Frame: AsRef<[u8]>> Publisher<Sample, Frame> {
 
     /// Commit one frame to an ordered transport that owns its queued bytes.
     /// Later frames can use any remaining space while the peer acknowledges it.
-    #[cfg(any(test, feature = "ble-link"))]
     pub fn enqueue(
         &mut self,
         output: &mut impl Write,
@@ -210,9 +207,11 @@ mod tests {
         let encode = |sample: &&'static [u8]| Ok(*sample);
 
         publisher.offer(b"abc" as &[u8]);
-        assert!(!publisher
-            .service(&mut stalled, now, deadline, encode)
-            .unwrap());
+        assert!(
+            !publisher
+                .service(&mut stalled, now, deadline, encode)
+                .unwrap()
+        );
         publisher.offer(b"xy");
         let later = deadline + Duration::from_secs(1);
         assert_eq!(
@@ -224,9 +223,11 @@ mod tests {
         );
         publisher.reset_stream();
         let mut replacement = Peer::default();
-        assert!(publisher
-            .service(&mut replacement, deadline, later, encode)
-            .unwrap());
+        assert!(
+            publisher
+                .service(&mut replacement, deadline, later, encode)
+                .unwrap()
+        );
         assert_eq!(stalled.received, b"ab");
         assert_eq!(replacement.received, b"xy");
     }
