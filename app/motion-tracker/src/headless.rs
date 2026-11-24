@@ -15,6 +15,13 @@ pub(super) fn run(mut args: impl Iterator<Item = String>) -> io::Result<()> {
             return Err(io::Error::new(io::ErrorKind::InvalidInput, arg));
         }
     }
+    crate::health::run(|timer| track(options, timer))
+}
+
+fn track(
+    options: ReportOptions,
+    mut timer: Option<&mut dyn watchdog::RuntimeWatchdog>,
+) -> io::Result<()> {
     let interval = crate::preferences(options.interval)?.duration();
     let mut sensors = ObservationService::<1>::new(tracker::IMU_FRESH, None);
     let (sender, inbox) = bounded(32);
@@ -41,6 +48,9 @@ pub(super) fn run(mut args: impl Iterator<Item = String>) -> io::Result<()> {
             }
             if matches!(snapshot.imu[0], Reading::Fault) {
                 break Err(io::Error::other("sensor acquisition failed"));
+            }
+            if let Err(error) = crate::health::progress(&mut timer) {
+                break Err(error);
             }
             if let Some(count) = &mut remaining {
                 *count -= 1;

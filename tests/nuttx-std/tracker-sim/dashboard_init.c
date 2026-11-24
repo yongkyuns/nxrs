@@ -4,6 +4,18 @@
 #include <errno.h>
 #include <stdio.h>
 
+#if defined(CONFIG_STACKCHECK_MARGIN) && CONFIG_STACKCHECK_MARGIN == 256
+#  include <stdint.h>
+#  include <unistd.h>
+#  include <nuttx/sched.h>
+
+/* The QEMU guard control touches the last word inside this console task's
+ * reserved margin after the tracker has exited.
+ */
+
+volatile uintptr_t tracker_console_stack_base;
+#endif
+
 #ifdef TRACKER_DEMO_AUTOSTART
 #  include <builtin/builtin.h>
 #endif
@@ -61,5 +73,9 @@ int tracker_sim_init(int argc, char *argv[])
     }
 #endif
 
+#if defined(CONFIG_STACKCHECK_MARGIN) && CONFIG_STACKCHECK_MARGIN == 256
+  tracker_console_stack_base =
+    (uintptr_t)nxsched_get_tcb(getpid())->stack_base_ptr;
+#endif
   return nsh_main(argc, argv);
 }

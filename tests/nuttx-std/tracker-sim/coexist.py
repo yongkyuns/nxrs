@@ -2,9 +2,11 @@
 import argparse
 import asyncio
 import base64
+from collections import Counter
 from pathlib import Path
 import re
 import struct
+import sys
 import tempfile
 import time
 
@@ -16,6 +18,9 @@ import tile_fixture
 from sensors import check_live
 from upload import COLLECTOR, TcpStamp, collector, is_live, network
 
+sys.path.append(str(Path(__file__).resolve().parents[2] / 'host'))
+from test_nuttx_memory import parse_meminfo, validate_heap_cycles
+
 RAM_UART_SIZE = 2048
 FRAMES = 80
 INTERVAL_MS = 500
@@ -24,6 +29,15 @@ MAX_WALL_BLE_GAP = 2.5
 TCP_HOLD_MS = 3200
 SPACED_NOTIFICATION_LOSSES = 10
 EXPORT_SAMPLES_PER_MINUTE = 6_000
+STACK_TASKS = {
+    'motion_tracker': 1, 'tracker-links': 1, 'tracker-modem': 1,
+    'imu-acquire': 2, 'gnss-acquire': 1, 'cellular': 1, 'touch': 1,
+}
+STACK_WARNING_PERCENT = 20
+STACK_MINIMUM_PERCENT = 15
+STACK_GUARD_BYTES = 256
+EXPORT_HEAP_FLOOR = 20 * 1024
+STACK_ROW = re.compile(rb'(?m)^[ \t]*(\d+)[ \t]+(\d+)[ \t]+(\d+)[ \t]+([\w-]+)[ \t]*$')
 EXPORT_FAULTS = (
     (500, 'hold credits'),
     (1_400, 'slow link'),
@@ -33,6 +47,129 @@ EXPORT_FAULTS = (
     (4_500, 'hold credits'),
     (5_850, 'check recovery'),
 )
+
+
+def check_stack_headroom(console):
+    peaks = {}
+    complete = False
+    for snapshot in re.split(rb'(?m)^PID +SIZE +USED +THREAD NAME\n', console)[1:]:
+        tasks = Counter()
+        for pid, size, used, name in STACK_ROW.findall(snapshot):
+            name = name.decode()
+            if name not in STACK_TASKS:
+                continue
+            size, used = int(size), int(used)
+            assert 0 < used <= size, f'{name}: invalid stack sample {used}/{size} B'
+            key = (pid, name)
+            capacity, peak = peaks.get(key, (size, 0))
+            assert size == capacity, f'{name}: stack size changed for TID {int(pid)}'
+            peaks[key] = size, max(peak, used)
+            tasks[name] += 1
+        complete |= tasks == STACK_TASKS
+    assert complete, 'stack monitor never observed all tracker tasks in one sample'
+
+    for (pid, name), (size, used) in peaks.items():
+        free = size - used
+        result = f'{name} (TID {int(pid)}) has {free}/{size} B free ({free / size:.1%})'
+        assert 100 * free >= STACK_MINIMUM_PERCENT * size, (
+            f'{result}, below the {STACK_MINIMUM_PERCENT}% stack headroom floor')
+        if 100 * free < STACK_WARNING_PERCENT * size:
+            print(f'WARN: {result}, below the {STACK_WARNING_PERCENT}% stack headroom target', flush=True)
+        else:
+            print(f'PASS: {result}', flush=True)
+
+
+async def start_stack_monitor(guest):
+    offset = len(guest.buffer)
+    guest.command('stackmonitor_start')
+    await guest.wait_text(b'Stack Monitor: Started:', offset)
+    await guest.wait_text(b'\nnsh>', offset)
+
+
+async def check_stack_guard(guest, panel):
+    base = await panel.word('tracker_console_stack_base')
+    assert base and base % 16 == 0, 'missing or unaligned console stack base'
+    last_word = base + STACK_GUARD_BYTES - 4
+    assert int(await panel.query(f'readl {last_word:#x}'), 16) == 0xdeadbeef, (
+        'console stack margin was already touched before the control')
+    offset = len(guest.buffer)
+    await panel.query(f'writel {last_word:#x} 0')
+    guest.command('echo stack-guard-control')
+    await wait_until(
+        lambda: re.search(rb'Assertion failed stack margin overwritten'
+                          rb'[^\n]+task: tracker_sim_init\b', guest.buffer[offset:]),
+        'scheduler guard assertion in the console task')
+    print(f'PASS: scheduler asserted after a write inside the {STACK_GUARD_BYTES}-byte stack margin',
+          flush=True)
+
+
+async def authenticated_link(phone, key, *, retain_out_of_order=True):
+    connection, rx, tx = await connect(phone, export=True)
+    disconnected = asyncio.Event()
+    connection.once(connection.EVENT_DISCONNECTION, lambda _: disconnected.set())
+    assert await Peer(connection).request_mtu(247) >= 64
+    await tx.discover_descriptors()
+    ccc = tx.get_descriptor(GATT_CLIENT_CHARACTERISTIC_CONFIGURATION_DESCRIPTOR)
+    assert ccc is not None and await ccc.read_value(no_long_read=True) == b'\0\0'
+    stream = SecureStream(rx, tx, key, retain_out_of_order=retain_out_of_order)
+    await stream.subscribe()
+    await asyncio.wait_for(stream.handshake(), 8)
+    return connection, stream, disconnected
+
+
+async def tracker_exit(guest, offset, frames, timeout):
+    await guest.wait_text(
+        f'{frames} frames, interval={INTERVAL_MS} ms, IMU 1 live, IMU 2 live, GNSS live'.encode(),
+        offset, timeout)
+    await guest.wait_text(b'\nnsh>', offset)
+    exit_offset = len(guest.buffer)
+    guest.command('echo coexist-exit:$?')
+    await guest.wait_text(b'\ncoexist-exit:0\n', exit_offset)
+
+
+async def read_heap(guest):
+    offset = len(guest.buffer)
+    guest.command('cat /proc/meminfo')
+    await guest.wait_text(b'\nnsh>', offset)
+    return parse_meminfo(guest.buffer[offset:].decode(errors='replace'))
+
+
+async def check_heap_recovery(guest, panel, phone, previous_key):
+    offset = len(guest.buffer)
+    guest.command('stackmonitor_stop')
+    await wait_until(lambda: guest.buffer[offset:].count(b'Stack Monitor: Stopped:') >= 2,
+                     'stack monitor exited')
+
+    baseline = await read_heap(guest)
+    snapshots = []
+    for _ in range(4):
+        frames = 16
+        offset = len(guest.buffer)
+        received = len(guest.samples)
+        guest.command(f'motion_tracker --frames {frames} --interval-ms {INTERVAL_MS} --stream-usb --ble')
+        await wait_until(lambda: len(guest.samples) > received, 'restarted tracker sensor report')
+        key = await panel.pairing_key()
+        assert key != previous_key, 'the restarted tracker must advertise a freshly generated key'
+        previous_key = key
+        connection, stream, _ = await authenticated_link(phone, key)
+        await asyncio.wait_for(stream.sample(), 5)
+        stream.tls.write(b'NXRS\x01')
+        await stream.flush()
+        async with asyncio.timeout(6):
+            while isinstance(await stream.export_record(), dict):
+                pass
+        await connection.disconnect()
+        await guest.wait_text(b'motion-tracker BLE export: high_water=', offset)
+        await tracker_exit(guest, offset, frames, 15)
+        snapshots.append(await read_heap(guest))
+
+    warm, *checked = snapshots
+    validate_heap_cycles('motion-tracker', baseline, warm, checked)
+    assert all(snapshot['Umem'].maxfree >= EXPORT_HEAP_FLOOR for snapshot in snapshots), (
+        'largest free block cannot accommodate the next BLE export capture allocation')
+    heap = checked[-1]['Umem']
+    print(f'PASS: {len(checked)} tracker restart and BLE export cycles returned to '
+          f'{heap.free} B free, largest free block {heap.maxfree} B', flush=True)
 
 
 class RamUart:
@@ -172,29 +309,17 @@ class Scenario:
         await panel.query(f'writel {panel_work:#x} 0x7d0')
         busy_before = await panel.word('tracker_panel_busy_rows')
 
-        async def authenticated_link(*, retain_out_of_order=True):
-            connection, rx, tx = await connect(phone, export=True)
-            disconnected = asyncio.Event()
-            connection.once(connection.EVENT_DISCONNECTION, lambda _: disconnected.set())
-            assert await Peer(connection).request_mtu(247) >= 64
-            await tx.discover_descriptors()
-            ccc = tx.get_descriptor(GATT_CLIENT_CHARACTERISTIC_CONFIGURATION_DESCRIPTOR)
-            assert ccc is not None and await ccc.read_value(no_long_read=True) == b'\0\0'
-            stream = SecureStream(rx, tx, key, retain_out_of_order=retain_out_of_order)
-            await stream.subscribe()
-            await asyncio.wait_for(stream.handshake(), 8)
-            return connection, stream, disconnected
-
         before = self.collector_samples[1]['imu'][0]['seq']
         previous = None
         for minimum in (100 * seconds, 200):
             if previous is not None:
-                _, rejected, retired = await authenticated_link()
+                _, rejected, retired = await authenticated_link(phone, key)
                 rejected.tls.write(b'!')
                 await rejected.flush()
                 await asyncio.wait_for(retired.wait(), 5)
                 print('PASS: tracker retires the link after an invalid export request', flush=True)
-            connection, stream, disconnected = await authenticated_link(retain_out_of_order=previous is None)
+            connection, stream, disconnected = await authenticated_link(
+                phone, key, retain_out_of_order=previous is None)
             latest = await self.export_window(guest, stream, minimum, previous, disconnected)
             after = len(guest.buffer)
             await connection.disconnect()
@@ -358,6 +483,7 @@ class Scenario:
 
     async def exercise_tiles(self, guest, panel, phone, args):
         await guest.wait_text(b'nsh>')
+        await start_stack_monitor(guest)
         offset = len(guest.buffer)
         guest.command(
             f'motion_tracker --frames {FRAMES} --interval-ms {INTERVAL_MS} --stream-usb --ble '
@@ -465,19 +591,28 @@ class Scenario:
         exit_offset = len(guest.buffer)
         guest.command('echo tile-exit:$?')
         await guest.wait_text(b'tile-exit:0', exit_offset)
+        check_stack_headroom(bytes(guest.buffer[offset:]))
 
     async def exercise(self, guest, panel, phone, args):
         stamp = self.stamp
         await guest.wait_text(b'nsh>')
+        if args.export:
+            await start_stack_monitor(guest)
         offset = len(guest.buffer)
+        frames = 2 * (args.export_seconds + 30) if args.export else FRAMES
         guest.command(
-            f'motion_tracker --frames {2 * (args.export_seconds + 30) if args.export else FRAMES} '
+            f'motion_tracker --frames {frames} '
             f'--interval-ms {INTERVAL_MS} --stream-usb --ble '
             f'--cellular-apn nxrs.test --collector {COLLECTOR}:{stamp.port} --collector-pin {self.pin}')
         key = await panel.pairing_key()
         await wait_until(lambda: self.collector_live(1), 'initial cellular TLS telemetry', 12)
         if args.export:
             await self.sample_export(guest, panel, phone, key, args.export_seconds)
+            await tracker_exit(guest, offset, frames, args.timeout)
+            assert not re.search(rb'PANIC|panicked at|Assertion failed', guest.buffer)
+            check_stack_headroom(bytes(guest.buffer[offset:]))
+            await check_heap_recovery(guest, panel, phone, key)
+            await check_stack_guard(guest, panel)
             return
         stamp.begin_hold()
         await wait_until(lambda: stamp.held_tcp, 'cellular TLS data to stall before pairing')

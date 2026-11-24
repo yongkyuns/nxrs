@@ -337,6 +337,12 @@ waits for acknowledgments even on a nonblocking socket, which can delay BLE
 when TCP retransmits. The buffered sender queues writes in a fixed kernel pool.
 A modem that cannot recover command mode reports the fault and stops redialing.
 
+The CoreS3 tracker profiles enable an eight-second hardware watchdog. The tracker
+feeds it after completing a report iteration and disarms it after its workers
+stop. Missing GNSS fixes and cellular retries leave that health check active.
+The interactive image boots to NSH after a reset. The next tracker launch logs
+the hardware reset cause and can start a fresh BLE pairing session.
+
 The [simulator qualification](../../tests/nuttx-std/tracker-sim/README.md)
 exercises the full tracker and a local collector over PPP. The
 [CoreS3 and Stamp test](../../tests/nuttx-std/tracker-hardware/README.md)

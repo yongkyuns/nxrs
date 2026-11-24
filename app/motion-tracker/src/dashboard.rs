@@ -124,6 +124,13 @@ pub(super) fn run(args: impl Iterator<Item = String>) -> io::Result<()> {
     if options.battery {
         return report_battery();
     }
+    crate::health::run(|timer| track(options, timer))
+}
+
+fn track(
+    options: Options,
+    mut timer: Option<&mut dyn watchdog::RuntimeWatchdog>,
+) -> io::Result<()> {
     let interval = crate::preferences(options.reports.interval)?.duration();
     let mut screen = Screen::new(display::open().map_err(display_error)?).map_err(display_error)?;
     let mut dashboard = Dashboard::default();
@@ -340,6 +347,11 @@ pub(super) fn run(args: impl Iterator<Item = String>) -> io::Result<()> {
             if finished >= next_plot {
                 // Skip the missed paint and leave time to receive sensor and touch events.
                 next_plot = finished + SAMPLE_INTERVAL;
+            }
+        }
+        if report_due {
+            if let Err(error) = crate::health::progress(&mut timer) {
+                break Err(error);
             }
         }
         let wake = next.min(next_plot);

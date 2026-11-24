@@ -10,7 +10,7 @@ required-capabilities = ["imu"]
 bin = "motion-tracker"
 command = "motion_tracker"
 priority = 100
-stack-size = 32768
+stack-size = 14848
 
 [[bin]]
 name = "motion-tracker"
@@ -33,6 +33,8 @@ nxrs-display = { path = "../../hal/display", optional = true }
 nxrs-touch = { path = "../../hal/touch", optional = true }
 nxrs-gnss = { path = "../../hal/gnss", optional = true }
 nxrs-imu = { path = "../../hal/imu" }
+nxrs-boot = { path = "../../hal/boot" }
+nxrs-watchdog = { path = "../../hal/watchdog" }
 nxrs-messaging = { path = "../../shared/messaging", features = ["channels"] }
 nxrs-navigation-services = { path = "../../service/navigation" }
 nxrs-settings = { path = "../../hal/settings" }

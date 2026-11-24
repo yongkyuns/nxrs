@@ -48,7 +48,7 @@ pub fn open(mut sink: impl FnMut(Event) -> bool + Send + 'static) -> Result<impl
         .map_err(|_| Error::Io)?;
     let cancel = readiness::Cancel::new(nuttx::pipe).map_err(|_| Error::Io)?;
     let wake = cancel.reader.clone();
-    Worker::start("touch", 4096, cancel, (), move |stop, _| {
+    Worker::start("touch", 2560, cancel, (), move |stop, _| {
         let _lease = lease;
         let mut file = file;
         let mut bytes = [0; 64];
