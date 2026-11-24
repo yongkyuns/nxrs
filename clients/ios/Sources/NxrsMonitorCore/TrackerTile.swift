@@ -112,58 +112,70 @@ public struct TrackerTile: Decodable, Equatable, Sendable {
               let color = CGColorSpace(name: CGColorSpace.sRGB) else { return nil }
         let side = Self.side
         var rgba = [UInt8](repeating: 0, count: side * side * 4)
-        return rgba.withUnsafeMutableBytes { bytes in
+        let rendered = rgba.withUnsafeMutableBytes { (bytes: UnsafeMutableRawBufferPointer) -> Bool in
             let format = CGImageAlphaInfo.noneSkipLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue
             guard let context = CGContext(data: bytes.baseAddress, width: side, height: side,
                                           bitsPerComponent: 8, bytesPerRow: side * 4,
-                                          space: color, bitmapInfo: format) else { return nil }
+                                          space: color, bitmapInfo: format) else { return false }
             let area = CGRect(x: 0, y: 0, width: side, height: side)
             context.setFillColor(gray: 1, alpha: 1)
             context.fill(area)
             context.interpolationQuality = .high
             context.draw(image, in: area)
-            let palette = mapColors.map { color in
-                (Int(color >> 16), Int((color >> 8) & 255), Int(color & 255))
-            }
-            var raster = Data()
-            raster.reserveCapacity(32 + side * side / 2)
-            for color in mapColors {
-                let rgb565 = UInt16((color >> 8 & 0xf800) | (color >> 5 & 0x07e0) | (color >> 3 & 0x001f))
-                raster.append(UInt8(rgb565 >> 8))
-                raster.append(UInt8(truncatingIfNeeded: rgb565))
-            }
-            let rowBytes = side * 4
-            // Restore contrast to thin labels after resizing. Match the IP relay's kernel.
-            func channel(_ offset: Int, sharpen: Bool) -> Int {
-                let center = Int(bytes[offset])
-                guard sharpen else { return center }
-                let neighbors = Int(bytes[offset - 4]) + Int(bytes[offset + 4])
-                    + Int(bytes[offset - rowBytes]) + Int(bytes[offset + rowBytes])
-                return min(255, max(0, (12 * center - neighbors + 4) / 8))
-            }
-            func nearest(_ offset: Int) -> UInt8 {
-                let column = (offset % rowBytes) / 4
-                let sharpen = offset >= rowBytes && offset < bytes.count - rowBytes
-                    && column > 0 && column < side - 1
-                let (r, g, b) = (channel(offset, sharpen: sharpen),
-                                 channel(offset + 1, sharpen: sharpen),
-                                 channel(offset + 2, sharpen: sharpen))
-                var best = Int.max
-                var index: UInt8 = 0
-                for (candidate, (pr, pg, pb)) in palette.enumerated() {
-                    let (dr, dg, db) = (r - pr, g - pg, b - pb)
-                    let distance = dr * dr + dg * dg + db * db
-                    if distance < best {
-                        best = distance
-                        index = UInt8(candidate)
-                    }
-                }
-                return index
-            }
-            for offset in stride(from: 0, to: bytes.count, by: 8) {
-                raster.append((nearest(offset) << 4) | nearest(offset + 4))
-            }
-            return raster
+            return true
         }
+        guard rendered else { return nil }
+        return rgba.withUnsafeBytes { encodeRaster($0, side: side) }
+    }
+
+    private static func encodeRaster(_ bytes: UnsafeRawBufferPointer, side: Int) -> Data {
+        let palette: [(Int, Int, Int)] = mapColors.map { color in
+            let red = Int(color >> 16)
+            let green = Int((color >> 8) & 255)
+            let blue = Int(color & 255)
+            return (red, green, blue)
+        }
+        var raster = Data()
+        raster.reserveCapacity(32 + side * side / 2)
+        for color in mapColors {
+            let red = color >> 8 & 0xf800
+            let green = color >> 5 & 0x07e0
+            let blue = color >> 3 & 0x001f
+            let rgb565 = UInt16(red | green | blue)
+            raster.append(UInt8(rgb565 >> 8))
+            raster.append(UInt8(truncatingIfNeeded: rgb565))
+        }
+        let rowBytes = side * 4
+        // Restore contrast to thin labels after resizing. Match the IP relay's kernel.
+        func channel(_ offset: Int, sharpen: Bool) -> Int {
+            let center = Int(bytes[offset])
+            guard sharpen else { return center }
+            let horizontal = Int(bytes[offset - 4]) + Int(bytes[offset + 4])
+            let vertical = Int(bytes[offset - rowBytes]) + Int(bytes[offset + rowBytes])
+            return min(255, max(0, (12 * center - horizontal - vertical + 4) / 8))
+        }
+        func nearest(_ offset: Int) -> UInt8 {
+            let column = (offset % rowBytes) / 4
+            let sharpen = offset >= rowBytes && offset < bytes.count - rowBytes
+                && column > 0 && column < side - 1
+            let (r, g, b) = (channel(offset, sharpen: sharpen),
+                             channel(offset + 1, sharpen: sharpen),
+                             channel(offset + 2, sharpen: sharpen))
+            var best = Int.max
+            var index: UInt8 = 0
+            for (candidate, (pr, pg, pb)) in palette.enumerated() {
+                let (dr, dg, db) = (r - pr, g - pg, b - pb)
+                let distance = dr * dr + dg * dg + db * db
+                if distance < best {
+                    best = distance
+                    index = UInt8(candidate)
+                }
+            }
+            return index
+        }
+        for offset in stride(from: 0, to: bytes.count, by: 8) {
+            raster.append((nearest(offset) << 4) | nearest(offset + 4))
+        }
+        return raster
     }
 }
