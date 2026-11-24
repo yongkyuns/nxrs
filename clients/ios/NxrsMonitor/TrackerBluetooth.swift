@@ -5,7 +5,15 @@ import Network
 import NxrsMonitorCore
 
 struct TrackerNotificationStream {
-    private(set) var offset: UInt32 = 0
+    // The tracker holds at most 2 KiB of unacknowledged ciphertext.
+    private static let window = 2048
+    private var buffered: [UInt8?] = []
+    private(set) var offset: UInt32
+    private(set) var bufferedCount = 0
+
+    init(offset: UInt32 = 0) {
+        self.offset = offset
+    }
 
     var acknowledgement: Data {
         var littleEndian = offset.littleEndian
@@ -17,13 +25,43 @@ struct TrackerNotificationStream {
         let start = packet.prefix(4).enumerated().reduce(UInt32(0)) { result, byte in
             result | (UInt32(byte.element) << (8 * byte.offset))
         }
-        let size = UInt32(packet.count - 4)
+        let payload = packet.dropFirst(4)
+        let size = UInt32(payload.count)
         let skip = offset &- start
-        // Ignore future and duplicate bytes. The tracker replays from our
-        // last contiguous offset, which may arrive in a different chunk size.
-        guard skip < size else { return nil }
-        offset &+= size - skip
-        return Data(packet.dropFirst(4 + Int(skip)))
+        if skip >= size {
+            let lead = start &- offset
+            guard lead < UInt32(Self.window), Int(lead) + payload.count <= Self.window else { return nil }
+            if buffered.isEmpty { buffered = Array(repeating: nil, count: Self.window) }
+            for (index, byte) in payload.enumerated() {
+                let slot = Int(start &+ UInt32(index)) % Self.window
+                if buffered[slot] == nil {
+                    buffered[slot] = byte
+                    bufferedCount += 1
+                }
+            }
+            return nil
+        }
+
+        var contiguous = Data(payload.dropFirst(Int(skip)))
+        let startOffset = offset
+        offset &+= UInt32(contiguous.count)
+        if bufferedCount != 0 {
+            // Replays can change chunk boundaries and overlap retained bytes.
+            for index in contiguous.indices {
+                let slot = Int(startOffset &+ UInt32(index)) % Self.window
+                if buffered[slot] != nil {
+                    buffered[slot] = nil
+                    bufferedCount -= 1
+                }
+            }
+            while let byte = buffered[Int(offset) % Self.window] {
+                buffered[Int(offset) % Self.window] = nil
+                bufferedCount -= 1
+                contiguous.append(byte)
+                offset &+= 1
+            }
+        }
+        return contiguous
     }
 }
 
@@ -634,7 +672,7 @@ extension TrackerConnection: CBCentralManagerDelegate, CBPeripheralDelegate {
         if notifying {
             guard packet.count > 4 else { recover("Invalid Bluetooth notification"); return }
             // Keep this offset unacknowledged if local relay storage is full.
-            guard relayBytes + packet.count - 4 <= 8192 else { return }
+            guard relayBytes + notificationStream.bufferedCount + packet.count - 4 <= 8192 else { return }
             acknowledgementPending = true
             guard let accepted = notificationStream.accept(packet) else { return }
             data = accepted
