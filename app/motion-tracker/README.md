@@ -26,9 +26,8 @@ north-up grid with a distance scale, current coordinates and ground speed.
 Loss of fix breaks the trail. This view works without internet access.
 The GNSS view overlays a street map when a tile is available.
 
-The dashboard samples the latest observation from each sensor when it redraws
-or publishes telemetry. Touch events and sensor faults have their own inbox.
-The BLE export receives the full stream before the dashboard downsamples it.
+The tracker samples the latest observations on separate display and report
+deadlines. Full-rate BLE export receives each observation before coalescing.
 The tracker expires IMU readings after 500 ms and GNSS fixes after three
 seconds.
 
@@ -296,8 +295,12 @@ missing source and sequence.
 BLE and cellular use the [connectivity service](../../service/connectivity) for
 secure transport and bounded publication. Each connection keeps one frame in
 progress and coalesces waiting data to the latest value. The tracker owns the
-pairing UI, map requests, and wire encoding. Its communications worker posts
-link changes to the dashboard inbox.
+pairing UI, map requests, and wire encoding. When a link is configured, the
+communications worker owns the telemetry deadlines and dispatches reports
+directly. The dashboard handles touch, renders the latest view, and writes
+optional USB reports from one replaceable slot. Slow rendering or USB writes
+can skip intermediate local reports while network publication continues. With
+no link configured, the dashboard drives the same telemetry module locally.
 
 ## Stamp CatM cellular
 

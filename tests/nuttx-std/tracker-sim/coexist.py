@@ -306,7 +306,55 @@ class Scenario:
                 self.collector_samples[number] = value[1]
         return connection in self.tls_connections and connection in self.collector_samples
 
-    async def sample_export(self, guest, panel, phone, key, seconds):
+    async def verify_ui_stalls(self, guest, panel, stream):
+        hold = panel.addresses['tracker_ui_hold']
+
+        async def feed_gnss():
+            while True:
+                guest.tow_ms += 500
+                guest.gnss.wire.sendall(guest.gnss.fix_packet(guest.tow_ms))
+                await asyncio.sleep(0.5)
+
+        async def wait_blocked(expected):
+            async with asyncio.timeout(5):
+                while await panel.word('tracker_ui_blocked') != expected:
+                    await asyncio.sleep(0.01)
+
+        guest.publish_fix = False
+        navigation = asyncio.create_task(feed_gnss())
+        try:
+            for control, label in ((1, 'display draw'), (2, 'USB write')):
+                await panel.query(f'writel {hold:#x} {control}')
+                try:
+                    await wait_blocked(control)
+                    assert self.collector_live(1)
+                    prior_fix = self.collector_samples[1]['gnss']['seq']
+                    reading = await asyncio.wait_for(stream.sample(), MAX_WALL_BLE_GAP)
+                    check_live(reading)
+                    usb_count = len(guest.samples)
+                    first = reading['imu'][0]['received_ms']
+                    latest = first
+                    for _ in range(3):
+                        reading = await asyncio.wait_for(stream.sample(), MAX_WALL_BLE_GAP)
+                        check_live(reading)
+                        tick = reading['imu'][0]['received_ms']
+                        assert 0 < tick - latest <= 1_600, (label, latest, tick)
+                        latest = tick
+                    assert latest - first >= 2_000
+                    assert await panel.word('tracker_ui_blocked') == control
+                    assert len(guest.samples) == usb_count, f'console produced data during {label}'
+                    assert self.collector_live(1) and self.collector_samples[1]['gnss']['seq'] > prior_fix
+                    print(f'PASS: BLE snapshots and cellular summaries advanced through a blocked {label}',
+                          flush=True)
+                finally:
+                    await panel.query(f'writel {hold:#x} 0')
+                    await wait_blocked(0)
+        finally:
+            navigation.cancel()
+            await asyncio.gather(navigation, return_exceptions=True)
+            guest.publish_fix = True
+
+    async def sample_export(self, guest, panel, phone, key, seconds, check_stalls):
         panel_work = panel.addresses['tracker_panel_work_us']
         await panel.query(f'writel {panel_work:#x} 0x7d0')
         busy_before = await panel.word('tracker_panel_busy_rows')
@@ -322,6 +370,8 @@ class Scenario:
                 print('PASS: tracker retires the link after an invalid export request', flush=True)
             connection, stream, disconnected = await authenticated_link(
                 phone, key, retain_out_of_order=previous is None)
+            if previous is None and check_stalls:
+                await self.verify_ui_stalls(guest, panel, stream)
             latest = await self.export_window(guest, stream, minimum, previous, disconnected)
             after = len(guest.buffer)
             await connection.disconnect()
@@ -615,14 +665,17 @@ class Scenario:
             await start_stack_monitor(guest)
         offset = len(guest.buffer)
         frames = 2 * (args.export_seconds + 30) if args.export else FRAMES
+        check_stalls = args.export and args.wall_clock
+        redirect = ' > /dev/tracker-stdout' if check_stalls else ''
         guest.command(
             f'motion_tracker --frames {frames} '
             f'--interval-ms {INTERVAL_MS} --stream-usb --ble '
-            f'--cellular-apn nxrs.test --collector {COLLECTOR}:{stamp.port} --collector-pin {self.pin} --cellular-report-secs 1')
+            f'--cellular-apn nxrs.test --collector {COLLECTOR}:{stamp.port} --collector-pin {self.pin} '
+            f'--cellular-report-secs 1{redirect}')
         key = await panel.pairing_key()
         await wait_until(lambda: self.collector_live(1), 'initial cellular TLS telemetry', 12)
         if args.export:
-            await self.sample_export(guest, panel, phone, key, args.export_seconds)
+            await self.sample_export(guest, panel, phone, key, args.export_seconds, check_stalls)
             await tracker_exit(guest, offset, frames, args.timeout)
             assert not re.search(rb'PANIC|panicked at|Assertion failed', guest.buffer)
             check_stack_headroom(bytes(guest.buffer[offset:]))

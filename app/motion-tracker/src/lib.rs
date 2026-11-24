@@ -19,6 +19,8 @@ mod mode;
 mod preferences;
 #[cfg(feature = "dashboard")]
 mod screen;
+#[cfg(feature = "dashboard")]
+mod telemetry;
 mod text;
 mod tracker;
 mod wire;

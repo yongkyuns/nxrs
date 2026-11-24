@@ -154,9 +154,12 @@ Motion Tracker composes these APIs with its pairing UI, map tile requests, and
 telemetry protocol. Its profile selects the transports. BLE carries full-rate
 export and phone-relayed tiles. Direct tile relays require Wi-Fi with cellular
 excluded, and the cellular collector receives rate-limited summaries. Navigation
-supplies observation and fusion behavior. Ordinary IP data paths use `std::net`.
-The camera qualification’s recording and packet-summary adapters live with
-that fixture.
+supplies observation and fusion behavior. The tracker's communications worker
+drives its telemetry deadlines alongside the links. The dashboard reads bounded
+snapshots for rendering and optional USB output. A tracker with no configured
+links drives the same telemetry module from the dashboard loop. Ordinary IP
+data paths use `std::net`. The camera qualification’s recording and
+packet-summary adapters live with that fixture.
 
 Keep OS adapters in their owning capability HAL, and keep adapters used only
 for qualification under `tests/`. Reserve the root `platform/` tree for profiles,

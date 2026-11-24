@@ -14,6 +14,10 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#ifdef CONFIG_BLUETOOTH_UART_SHIM
+#  include <fcntl.h>
+#  include <nuttx/fs/fs.h>
+#endif
 #ifdef CONFIG_RAMLOG_SYSLOG
 #  include <syslog.h>
 #endif
@@ -78,6 +82,45 @@ volatile uint32_t tracker_touch_reads;
 volatile uint32_t tracker_model_error;
 volatile uint32_t tracker_panel_work_us;
 volatile uint32_t tracker_panel_busy_rows;
+
+#define HOLD_PANEL 1
+#define HOLD_STDOUT 2
+volatile uint32_t tracker_ui_hold;
+volatile uint32_t tracker_ui_blocked;
+
+static void hold_ui(unsigned int output)
+{
+  if (tracker_ui_hold == output)
+    {
+      tracker_ui_blocked = output;
+      while (tracker_ui_hold == output)
+        {
+          usleep(1000);
+        }
+      tracker_ui_blocked = 0;
+    }
+}
+
+static ssize_t tracker_stdout_write(struct file *filep, const char *buffer,
+                                    size_t size)
+{
+  struct file console;
+  hold_ui(HOLD_STDOUT);
+  int ret = file_open(&console, "/dev/console", O_WRONLY);
+  if (ret < 0)
+    {
+      return ret;
+    }
+  ssize_t written = file_write(&console, buffer, size);
+  file_close(&console);
+  return written;
+}
+
+static const struct file_operations g_tracker_stdout =
+{
+  .write = tracker_stdout_write,
+};
+
 static unsigned int g_color_count;
 static unsigned int g_column, g_last_column, g_page, g_last_page;
 static unsigned int g_x, g_y;
@@ -209,6 +252,7 @@ static void panel_exchange(const uint8_t *bytes, size_t size)
           up_udelay(tracker_panel_work_us);
         }
 
+      hold_ui(HOLD_PANEL);
       draw_pixels(bytes, size);
     }
 }
@@ -469,6 +513,13 @@ int tracker_sim_devices(void)
       memset(g_flash, 0xff, sizeof(g_flash));
       struct mtd_dev_s *memory = rammtd_initialize(g_flash, sizeof(g_flash));
       ret = memory ? mtdconfig_register(memory) : -ENOMEM;
+    }
+#endif
+#ifdef CONFIG_BLUETOOTH_UART_SHIM
+  if (ret >= 0)
+    {
+      ret = register_driver("/dev/tracker-stdout", &g_tracker_stdout, 0666,
+                            NULL);
     }
 #endif
   return ret;

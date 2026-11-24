@@ -1,7 +1,7 @@
 //! Own configured acquisition sessions and track normalized observations.
 //! HALs acquire and deliver samples. The caller dispatches events and deadlines.
 
-use messaging::{DeliveryResult, Sender};
+use messaging::{DeliveryError, DeliveryResult, Rejected, Sender};
 use std::time::{Duration, Instant};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -119,11 +119,13 @@ impl<const IMUS: usize> Observations<IMUS> {
     }
 }
 
+#[derive(Clone, Copy)]
 enum Input {
     Imu(usize, imu::Event),
     Gnss(gnss::Event),
 }
 
+#[derive(Clone, Copy)]
 pub struct Observation {
     input: Input,
     received: Instant,
@@ -180,17 +182,15 @@ impl<const IMUS: usize> ObservationService<IMUS> {
         sender: Sender<E>,
         wrap: impl Fn(Observation) -> E + Send + 'static,
     ) -> Result<(), SensorFault> {
-        self.start_imu_with(index, device, sender, move |event| Some(wrap(event)))
+        self.start_imu_with(index, device, delivery_to(sender, wrap))
     }
 
-    /// A caller can consume an observation in its own bounded storage and
-    /// return `None` to skip the inbox.
-    pub fn start_imu_with<E: Send + 'static>(
+    /// Deliver observations to a caller-owned bounded task-context sink.
+    pub fn start_imu_with(
         &mut self,
         index: usize,
         device: &'static impl imu::Device,
-        sender: Sender<E>,
-        wrap: impl Fn(Observation) -> Option<E> + Send + 'static,
+        deliver: impl FnMut(Observation) -> Result<(), DeliveryError> + Send + 'static,
     ) -> Result<(), SensorFault> {
         let Some(slot) = self.imu.get_mut(index) else {
             return Err(SensorFault::Imu(index, imu::DeviceError::InvalidData));
@@ -199,7 +199,7 @@ impl<const IMUS: usize> ObservationService<IMUS> {
         {
             return Err(SensorFault::Imu(index, imu::DeviceError::Busy));
         }
-        match device.open_default(sink(sender, move |event| Input::Imu(index, event), wrap)) {
+        match device.open_default(sink(move |event| Input::Imu(index, event), deliver)) {
             Ok(session) => {
                 *slot = Some(Box::new(session));
                 Ok(())
@@ -217,16 +217,14 @@ impl<const IMUS: usize> ObservationService<IMUS> {
         sender: Sender<E>,
         wrap: impl Fn(Observation) -> E + Send + 'static,
     ) -> Result<(), SensorFault> {
-        self.start_gnss_with(device, sender, move |event| Some(wrap(event)))
+        self.start_gnss_with(device, delivery_to(sender, wrap))
     }
 
-    /// A caller can consume an observation in its own bounded storage and
-    /// return `None` to skip the inbox.
-    pub fn start_gnss_with<E: Send + 'static>(
+    /// Deliver observations to a caller-owned bounded task-context sink.
+    pub fn start_gnss_with(
         &mut self,
         device: &'static impl gnss::Device,
-        sender: Sender<E>,
-        wrap: impl Fn(Observation) -> Option<E> + Send + 'static,
+        deliver: impl FnMut(Observation) -> Result<(), DeliveryError> + Send + 'static,
     ) -> Result<(), SensorFault> {
         let Some(source) = &self.values.gnss else {
             return Err(SensorFault::Gnss(gnss::DeviceError::Unsupported));
@@ -234,7 +232,7 @@ impl<const IMUS: usize> ObservationService<IMUS> {
         if self.stopping || self.gnss.is_some() || matches!(source.latest, Latest::Fault) {
             return Err(SensorFault::Gnss(gnss::DeviceError::Busy));
         }
-        match device.open(sink(sender, Input::Gnss, wrap)) {
+        match device.open(sink(Input::Gnss, deliver)) {
             Ok(session) => {
                 self.gnss = Some(Box::new(session));
                 Ok(())
@@ -353,23 +351,30 @@ impl<const IMUS: usize> ObservationService<IMUS> {
     }
 }
 
-fn sink<T: Copy, E>(
+fn delivery_to<E>(
     sender: Sender<E>,
+    wrap: impl Fn(Observation) -> E,
+) -> impl FnMut(Observation) -> Result<(), DeliveryError> {
+    let mut send = crate::inbox_sink(sender, move |event| Some(wrap(event)));
+    move |event| send(event).map_err(|rejected| rejected.error)
+}
+
+fn sink<T: Copy>(
     input: impl Fn(T) -> Input,
-    wrap: impl Fn(Observation) -> Option<E> + Send + 'static,
+    mut deliver: impl FnMut(Observation) -> Result<(), DeliveryError>,
 ) -> impl FnMut(T) -> DeliveryResult<T> {
-    crate::inbox_sink(sender, move |value| {
-        wrap(Observation {
+    move |value| {
+        deliver(Observation {
             input: input(value),
             received: Instant::now(),
         })
-    })
+        .map_err(|error| Rejected { value, error })
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use messaging::DeliveryError;
 
     struct FinishedImu;
 
@@ -396,7 +401,10 @@ mod tests {
         let mut service = ObservationService::<1>::new(Duration::from_millis(500), None);
         service.imu[0] = Some(Box::new(FinishedImu));
         let (sender, inbox) = messaging::bounded(1);
-        let mut deliver = sink(sender, |event| Input::Imu(0, event), Some);
+        let mut deliver = sink(
+            |event| Input::Imu(0, event),
+            delivery_to(sender, |event| event),
+        );
         let sample = imu::ImuSample {
             sequence: 1,
             timestamp_ms: 0,
@@ -419,10 +427,16 @@ mod tests {
     #[test]
     fn a_sample_consumed_by_the_caller_leaves_room_for_a_fault() {
         let (sender, inbox) = messaging::bounded(1);
+        let mut enqueue = delivery_to(sender, |event| event);
         let mut deliver = sink(
-            sender,
             |event| Input::Imu(0, event),
-            |event| event.measurement().is_none().then_some(event),
+            |event| {
+                if event.measurement().is_some() {
+                    Ok(())
+                } else {
+                    enqueue(event)
+                }
+            },
         );
         let sample = imu::ImuSample {
             sequence: 1,
