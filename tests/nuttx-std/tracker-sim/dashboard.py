@@ -471,9 +471,7 @@ class SecureStream:
                     return decode_batch(batch, version, self.scales), len(batch)
             elif self.buffer[:1] == b'{' and b'\n' in self.buffer:
                 end = self.buffer.index(b'\n')
-                snapshot = json.loads(self.buffer[:end])
-                del self.buffer[:end + 1]
-                return snapshot
+                return self.take_snapshot(end)
             try:
                 self.buffer.extend(self.tls.read(768))
             except ssl.SSLWantReadError:
@@ -526,6 +524,9 @@ class SecureStream:
             except ssl.SSLWantReadError:
                 await self.poll()
         end = self.buffer.index(b'\n')
+        return self.take_snapshot(end)
+
+    def take_snapshot(self, end):
         value = json.loads(self.buffer[:end])
         del self.buffer[:end + 1]
         if 'imu_scale_bits' in value:
@@ -542,7 +543,9 @@ async def connect_map_export(phone, key):
     stream = SecureStream(rx, tx, key)
     await stream.subscribe()
     await stream.handshake()
-    stream.tls.write(b'NXRS\x01')
+    capabilities = await stream.sample()
+    assert capabilities['export_version'] == 2 and all(stream.scales), capabilities
+    stream.tls.write(b'NXRS\x03')
     await stream.flush()
     return connection, stream
 
