@@ -93,8 +93,10 @@ class ReplayTests(unittest.TestCase):
             recovered = states.index("live", stale)
             self.assertTrue(all(imu["state"] == "live" for imu in samples[stale]["imu"]))
             self.assertGreater(samples[recovered]["gnss"]["lon_deg"], samples[first_live]["gnss"]["lon_deg"])
-            first_imu = next(imu for sample in samples for imu in sample["imu"] if imu["state"] == "live")
-            self.assertAlmostEqual(first_imu["accel_mps2"][0], 1, delta=0.003)
+            for index, expected in enumerate((1, -1)):
+                first_imu = next(sample["imu"][index] for sample in samples
+                                 if sample["imu"][index]["state"] == "live")
+                self.assertAlmostEqual(first_imu["accel_mps2"][0], expected, delta=0.003)
             self.assertAlmostEqual(samples[recovered]["imu"][1]["accel_mps2"][0], -3, delta=0.003)
 
 
