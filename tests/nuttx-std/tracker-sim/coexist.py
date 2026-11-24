@@ -96,7 +96,7 @@ async def check_stack_guard(guest, panel):
     await panel.query(f'writel {last_word:#x} 0')
     guest.command('echo stack-guard-control')
     await wait_until(
-        lambda: re.search(rb'Assertion failed[^\n]+nxsched_checkstackoverflow\.c:\d+'
+        lambda: re.search(rb'Assertion failed stack margin overwritten'
                           rb'[^\n]+task: tracker_sim_init\b', guest.buffer[offset:]),
         'scheduler guard assertion in the console task')
     print(f'PASS: scheduler asserted after a write inside the {STACK_GUARD_BYTES}-byte stack margin',

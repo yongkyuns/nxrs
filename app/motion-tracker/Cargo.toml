@@ -10,7 +10,7 @@ required-capabilities = ["imu"]
 bin = "motion-tracker"
 command = "motion_tracker"
 priority = 100
-stack-size = 12800
+stack-size = 14848
 
 [[bin]]
 name = "motion-tracker"

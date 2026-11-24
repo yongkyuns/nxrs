@@ -1,7 +1,7 @@
 diff --git a/sched/sched/nxsched_checkstackoverflow.c b/sched/sched/nxsched_checkstackoverflow.c
 --- a/sched/sched/nxsched_checkstackoverflow.c
 +++ b/sched/sched/nxsched_checkstackoverflow.c
-@@ -89,6 +89,19 @@
+@@ -89,6 +89,15 @@
     * Allow some reserved margin area before reporting overflow.
     */
  
@@ -12,13 +12,9 @@ diff --git a/sched/sched/nxsched_checkstackoverflow.c b/sched/sched/nxsched_chec
 +       * for the outgoing task instead of saving a new one in the ISR.
 +       */
 +
-+      if (up_interrupt_context() && tcb->xcp.regs != NULL)
-+        {
-+          _assert(__DEBUG_ASSERT_FILE__, __DEBUG_ASSERT_LINE__,
-+                  "stack margin overwritten", tcb->xcp.regs);
-+        }
-+
-+      DEBUGPANIC();
++      _assert(__DEBUG_ASSERT_FILE__, __DEBUG_ASSERT_LINE__,
++              "stack margin overwritten",
++              up_interrupt_context() ? tcb->xcp.regs : NULL);
 +    }
  #endif
  }
