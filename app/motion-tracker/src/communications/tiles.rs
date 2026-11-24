@@ -84,6 +84,7 @@ impl<'a> Tiles<'a> {
             Some(Transfer::Phone(deadline)) => match phone {
                 Some(Response::Tile(tile)) if tile.key == key => {
                     self.active = None;
+                    self.throttle = now;
                     return Some(Response::Tile(tile));
                 }
                 Some(Response::Unavailable(failed)) if failed == key => {
@@ -104,11 +105,12 @@ impl<'a> Tiles<'a> {
                 if now < self.next || now < self.throttle {
                     return None;
                 }
-                self.throttle = now + REQUEST_INTERVAL;
                 if phone_live && !self.try_ip {
+                    self.throttle = now + REQUEST_INTERVAL;
                     self.active = Some(Transfer::Phone(now + BLE_DEADLINE));
                 } else if let Some(endpoint) = self.relay.filter(|_| self.dial.is_none()) {
                     if let Ok(dial) = Dial::start(endpoint) {
+                        self.throttle = now + REQUEST_INTERVAL;
                         self.dial = Some(dial);
                         self.active = Some(Transfer::Relay(now + IP_DEADLINE, Relay::Dial));
                     } else {
@@ -127,6 +129,7 @@ impl<'a> Tiles<'a> {
             Ok(None) => None,
             Ok(Some(response @ Response::Tile(_))) => {
                 self.active = None;
+                self.throttle = now;
                 Some(response)
             }
             Ok(Some(Response::Unavailable(_))) | Err(_) => {

@@ -11,8 +11,9 @@ use std::time::{Duration, Instant};
 mod ffi;
 
 const CAPACITY: usize = 2048;
-const ATT_CHUNK: usize = 20;
-const NOTIFY_CHUNK: usize = 244;
+const LEGACY_CHUNK: usize = 20;
+const STREAM_CHUNK: usize = 244;
+const ATT_WRITE_HEADER: u16 = 3;
 const OFFSET_BYTES: usize = 4;
 const REPLAY_AFTER: Duration = Duration::from_millis(180);
 // Keep the per-poll ceiling high enough to drain a replay backlog even on a
@@ -196,15 +197,23 @@ unsafe extern "C" fn peripheral_read_rust(destination: *mut u8, count: u8) -> i3
         Err(_) => return -1,
     };
     // The GATT SDK owns count writable bytes until this callback returns.
-    let bytes =
-        unsafe { std::slice::from_raw_parts_mut(destination, usize::from(count).min(ATT_CHUNK)) };
+    let bytes = unsafe {
+        std::slice::from_raw_parts_mut(destination, usize::from(count).min(LEGACY_CHUNK))
+    };
     pop(&mut data.queue.bytes, bytes) as i32
+}
+
+#[no_mangle]
+extern "C" fn peripheral_ingress_limit_rust(mtu: u16) -> u8 {
+    mtu.saturating_sub(ATT_WRITE_HEADER)
+        .clamp(LEGACY_CHUNK as u16, STREAM_CHUNK as u16) as u8
 }
 
 #[no_mangle]
 unsafe extern "C" fn peripheral_write_rust(source: *const u8, count: u8, framed: bool) -> i32 {
     let count = usize::from(count);
-    if count == 0 || count > ATT_CHUNK {
+    let limit = if framed { STREAM_CHUNK } else { LEGACY_CHUNK };
+    if count == 0 || count > limit {
         return -1;
     }
     let stamp = STAMP.load(Ordering::Acquire);
@@ -347,14 +356,14 @@ impl Listener for Peripheral {
             output.next = 0;
             output.replay_at = Some(now + REPLAY_AFTER);
         }
-        let mut bytes = [0; NOTIFY_CHUNK];
+        let mut bytes = [0; STREAM_CHUNK];
         for _ in 0..NOTIFY_BURST {
             if !self.notifying() || output.next == output.queue.bytes.len() {
                 break;
             }
             let offset = output.offset.wrapping_add(output.next as u32);
             bytes[..OFFSET_BYTES].copy_from_slice(&offset.to_le_bytes());
-            let len = (NOTIFY_CHUNK - OFFSET_BYTES).min(output.queue.bytes.len() - output.next);
+            let len = (STREAM_CHUNK - OFFSET_BYTES).min(output.queue.bytes.len() - output.next);
             for (out, value) in bytes[OFFSET_BYTES..OFFSET_BYTES + len]
                 .iter_mut()
                 .zip(output.queue.bytes.iter().skip(output.next))
@@ -424,7 +433,7 @@ impl Read for Transport {
             return Ok(0);
         }
         // Keep the HCI callback's wait bounded even for large TLS reads.
-        let len = bytes.len().min(4 * ATT_CHUNK);
+        let len = bytes.len().min(STREAM_CHUNK);
         let count = pop(&mut input(self.stamp)?.bytes, &mut bytes[..len]);
         if count == 0 {
             Err(io::ErrorKind::WouldBlock.into())

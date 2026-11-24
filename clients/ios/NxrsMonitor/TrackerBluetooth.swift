@@ -152,8 +152,10 @@ final class TrackerConnection: NSObject, @unchecked Sendable {
     private var relayBytes = 0
     private var pending: Data?
     private var operation: Operation?
+    private var ingressPayload = 19
     private var writesSinceRead = 0
     private var writeRetries = 0
+    private var writeDeadline: ContinuousClock.Instant?
     private var wantedTile: TrackerTile?
     private var offeredTile: TrackerTile?
     private var tileTask: Task<Void, Never>?
@@ -289,8 +291,10 @@ final class TrackerConnection: NSObject, @unchecked Sendable {
         tileTask = nil
         wantedTile = nil
         offeredTile = nil
+        ingressPayload = 19
         writesSinceRead = 0
         writeRetries = 0
+        writeDeadline = nil
         pending = nil
         operation = nil
         relaySending = false
@@ -364,7 +368,14 @@ final class TrackerConnection: NSObject, @unchecked Sendable {
         timer.schedule(deadline: .now(), repeating: .milliseconds(15), leeway: .milliseconds(2))
         timer.setEventHandler { [weak self] in
             guard let self, self.generation == token else { return }
-            if !self.refreshTelemetry(at: .now) {
+            let now = ContinuousClock.now
+            if let deadline = self.writeDeadline, now >= deadline {
+                // The write may have reached the tracker. Reconnect instead
+                // of replaying ciphertext whose delivery is unknown.
+                self.recover("Bluetooth write timed out")
+                return
+            }
+            if !self.refreshTelemetry(at: now) {
                 if self.requestedExport {
                     self.stop("Sensor export incomplete. Sensor samples stopped.", keepExport: true)
                 } else {
@@ -527,7 +538,7 @@ final class TrackerConnection: NSObject, @unchecked Sendable {
     }
 
     private func receiveCiphertext(_ conn: NWConnection, token: UUID) {
-        conn.receive(minimumIncompleteLength: 1, maximumLength: notifying ? 19 : 20) { [weak self] data, _, done, error in
+        conn.receive(minimumIncompleteLength: 1, maximumLength: notifying ? ingressPayload : 20) { [weak self] data, _, done, error in
             guard let self, self.generation == token else { return }
             guard !done, error == nil, let data, !data.isEmpty else {
                 self.recover("Secure connection closed")
@@ -548,6 +559,7 @@ final class TrackerConnection: NSObject, @unchecked Sendable {
         if let pending, notifying || writesSinceRead < 4 {
             if !notifying { writesSinceRead += 1 }
             operation = .write
+            if writeDeadline == nil { writeDeadline = .now + .seconds(2) }
             peripheral.writeValue(notifying ? Data([0]) + pending : pending, for: ingress, type: .withResponse)
         } else if !notifying {
             writesSinceRead = 0
@@ -652,8 +664,13 @@ extension TrackerConnection: CBCentralManagerDelegate, CBPeripheralDelegate {
                 recover("Could not subscribe to sensor export")
                 return
             }
+            guard !notifying else { return }
             notifying = true
-            establishRelay()
+            if let ingress, ingress.properties.contains(.read) {
+                peer.readValue(for: ingress)
+            } else {
+                establishRelay()
+            }
         } else if notifying && (error != nil || !characteristic.isNotifying) {
             recover("Tracker notifications stopped")
         }
@@ -671,6 +688,7 @@ extension TrackerConnection: CBCentralManagerDelegate, CBPeripheralDelegate {
         }
         guard error == nil, let relay else { recover("Bluetooth write failed"); return }
         writeRetries = 0
+        writeDeadline = nil
         pending = nil
         receiveCiphertext(relay, token: generation)
         // The periodic read gives the tracker a chance to drain outgoing ciphertext.
@@ -682,7 +700,20 @@ extension TrackerConnection: CBCentralManagerDelegate, CBPeripheralDelegate {
     }
 
     func peripheral(_ peer: CBPeripheral, didUpdateValueFor characteristic: CBCharacteristic, error: Error?) {
-        guard peer === peripheral, characteristic === egress, notifying || operation == .read else { return }
+        guard peer === peripheral else { return }
+        if notifying, listener == nil, characteristic === ingress {
+            // A direct write must fit one ATT PDU. The with-response API can
+            // also report space for long writes, which this stream cannot use.
+            if error == nil, let value = characteristic.value, value.count == 1,
+               let advertised = value.first, (20...244).contains(advertised) {
+                let limit = min(Int(advertised), peer.maximumWriteValueLength(for: .withoutResponse),
+                                peer.maximumWriteValueLength(for: .withResponse))
+                ingressPayload = max(19, limit - 1)
+            }
+            establishRelay()
+            return
+        }
+        guard characteristic === egress, notifying || operation == .read else { return }
         guard error == nil, let packet = characteristic.value,
               packet.count <= (notifying ? 244 : 20), let relay else {
             recover("Bluetooth data failed")

@@ -56,9 +56,10 @@ is 14,666 bytes. The tile matches the CoreS3 map area pixel for
 pixel with the menu closed. The tracker keeps up to four complete tiles and
 one partial reply. It releases off-screen tiles before a new request and
 stores each row losslessly in small blocks to limit heap pressure during
-sensor export. The tracker waits at least five seconds between requests.
-Once eligible, a new tile request can go out with the next available
-snapshot. Tile arrival wakes the display for a redraw.
+sensor export. The tracker downloads one tile at a time and can start
+the next visible tile as soon as the previous one succeeds. Replacing a
+request still observes the five-second interval. Tile arrival wakes the
+display for a redraw.
 Direct IP dialing uses a temporary 8 KiB stack and opens a
 separate TLS session for the reply. The phone or relay fetches the PNG
 over HTTPS and uses HTTP caching. It lightly sharpens the raster after
@@ -236,7 +237,12 @@ Each notification starts with a little-endian 32-bit offset into the
 connection's ciphertext. The phone delivers only contiguous bytes to TLS and
 reports the next offset as an ingress write command prefixed with `01`.
 Phone-to-tracker ciphertext uses acknowledged ingress writes prefixed with
-`00`. The tracker retains up to 2 KiB of ciphertext and replays after 180 ms
+`00`. Reading the notification ingress returns a one-byte maximum write size
+for the current connection, including the prefix, up to 244 bytes. The
+phone also caps each write at its direct ATT payload limit. Older firmware
+without readable ingress uses the original 20-byte write size. The phone
+reconnects if a write remains unconfirmed for two seconds.
+The tracker retains up to 2 KiB of ciphertext and replays after 180 ms
 without acknowledgment progress. The original dashboard service uses
 the unchanged `3400`, `3401` and `3402` UUIDs and handles, and is advertised
 in the scan response. Dashboard snapshots retain the v1 NDJSON

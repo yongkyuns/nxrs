@@ -15,6 +15,7 @@ extern void peripheral_connection_rust(bool connected, uint16_t handle);
 extern int peripheral_read_rust(void *data, uint8_t count);
 extern bool peripheral_notifications_rust(void);
 extern void peripheral_notify_rust(bool enabled);
+extern uint8_t peripheral_ingress_limit_rust(uint16_t mtu);
 extern int peripheral_write_rust(const void *data, uint8_t count, bool framed);
 
 const unsigned int peripheral_max_connections = CONFIG_BLUETOOTH_MAX_CONN;
@@ -32,6 +33,15 @@ static int receive(struct bt_conn_s *connection, const struct bt_gatt_attr_s *at
 {
   (void)connection;
   return offset == 0 ? peripheral_write_rust(data, count, attr->handle == 8) : -1;
+}
+
+static int ingress_limit(struct bt_conn_s *connection,
+                         const struct bt_gatt_attr_s *attr, void *data,
+                         uint8_t count, uint16_t offset)
+{
+  uint8_t limit = peripheral_ingress_limit_rust(bt_gatt_get_mtu(connection));
+  return bt_gatt_attr_read(connection, attr, data, count, offset,
+                           &limit, sizeof(limit));
 }
 
 static int transmit(struct bt_conn_s *connection, const struct bt_gatt_attr_s *attr,
@@ -66,7 +76,8 @@ static struct bt_gatt_chrc_s outgoing = {
 };
 static struct bt_gatt_chrc_s notify_incoming = {
   .uuid = &notify_input, .value_handle = 8,
-  .properties = BT_GATT_CHRC_WRITE | BT_GATT_CHRC_WRITE_WITHOUT_RESP,
+  .properties = BT_GATT_CHRC_READ | BT_GATT_CHRC_WRITE |
+                BT_GATT_CHRC_WRITE_WITHOUT_RESP,
 };
 static struct bt_gatt_chrc_s notify_outgoing = {
   .uuid = &notify_output, .value_handle = 10, .properties = BT_GATT_CHRC_NOTIFY,
@@ -117,7 +128,8 @@ static const struct bt_gatt_attr_s database[] = {
   BT_GATT_DESCRIPTOR(5, &output, BT_GATT_PERM_READ, transmit, NULL, NULL),
   BT_GATT_PRIMARY_SERVICE(6, &notify_service),
   BT_GATT_CHARACTERISTIC(7, &notify_incoming),
-  BT_GATT_DESCRIPTOR(8, &notify_input, BT_GATT_PERM_WRITE, NULL, receive, NULL),
+  BT_GATT_DESCRIPTOR(8, &notify_input, BT_GATT_PERM_READ | BT_GATT_PERM_WRITE,
+                     ingress_limit, receive, NULL),
   BT_GATT_CHARACTERISTIC(9, &notify_outgoing),
   BT_GATT_DESCRIPTOR(10, &notify_output, 0, NULL, NULL, NULL),
   BT_GATT_DESCRIPTOR(11, &notify_ccc, BT_GATT_PERM_READ | BT_GATT_PERM_WRITE,

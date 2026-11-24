@@ -326,6 +326,7 @@ class Scenario:
         key = await panel.pairing_key()
         await guest.wait_text(b"cellular Online", offset)
         connection, stream = await asyncio.wait_for(connect_map_export(phone, key), 8)
+        assert stream.ingress_payload == 243, stream.ingress_payload
 
         async def consume_during(operation):
             async with asyncio.TaskGroup() as pending:
@@ -381,7 +382,23 @@ class Scenario:
             ahead = [zoom, x + 1, y]
             while (await sample()).get('tile') != ahead:
                 pass
-            await stream.send_tile(*ahead, color=0xf800)
+            # Alternate two palette indexes with the same color. The wire
+            # encoder emits full-width rows so this exercises the largest tile.
+            pixels = bytes.fromhex('f800f800') + bytes(28) + bytes([0x01]) * (170 * 85)
+            start_writes = stream.acknowledged_writes
+            start_tile = time.monotonic()
+            transferred = await stream.send_tile(*ahead, pixels=pixels)
+            writes = stream.acknowledged_writes - start_writes
+            seconds = time.monotonic() - start_tile
+            assert transferred == 14_666, transferred
+            # TLS adds 29 bytes per 512-byte record in this fixture. Each
+            # acknowledged write carries up to the advertised payload size.
+            record_sizes = [min(512, transferred - offset) + 29
+                            for offset in range(0, transferred, 512)]
+            payload = stream.ingress_payload
+            assert writes == sum((size + payload - 1) // payload for size in record_sizes), writes
+            print(f'Tile transfer: {transferred} bytes in {writes} acknowledged writes '
+                  f'with {payload}-byte payloads, {seconds:.3f} s wall time', flush=True)
             before_crossing = await consume_during(panel.wait_pixel(220, 50, 0xf800))
             guest.moving_fix = {**map_fix, 'longitude_deg': boundary + 0.00015, 'speed_mps': 15}
             after_crossing = await consume_during(panel.wait_pixel(160, 50, 0xf800))

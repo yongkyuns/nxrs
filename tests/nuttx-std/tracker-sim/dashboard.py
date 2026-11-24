@@ -344,7 +344,8 @@ async def connect(device, *, export=False):
         expected_rx = Characteristic.Properties.WRITE
         if export:
             expected_rx |= Characteristic.Properties.WRITE_WITHOUT_RESPONSE
-        assert rx.properties == expected_rx
+        allowed_rx = (expected_rx, expected_rx | Characteristic.Properties.READ) if export else (expected_rx,)
+        assert rx.properties in allowed_rx
         assert tx.properties == (Characteristic.Properties.NOTIFY if export else Characteristic.Properties.READ)
         return connection, rx, tx
 
@@ -369,6 +370,8 @@ class SecureStream:
         self.out_of_order = 0
         self.acknowledgement_pending = False
         self.acknowledge_at = 0.0
+        self.ingress_payload = 19
+        self.acknowledged_writes = 0
         self.scales = (None, None)
         self.sample_counts = [0] * 3
         self.sample_sequences = [None] * 3
@@ -399,11 +402,12 @@ class SecureStream:
     async def flush(self):
         framed = self.notifications is not None
         while self.outgoing.pending:
-            chunk = self.outgoing.read(19 if framed else 20)
+            chunk = self.outgoing.read(self.ingress_payload if framed else 20)
             packet = b'\0' + chunk if framed else chunk
             for attempt in range(33):
                 try:
                     await self.rx.write_value(packet, with_response=True)
+                    self.acknowledged_writes += 1
                     break
                 except ATT_Error as error:
                     if error.error_code != ErrorCode.UNLIKELY_ERROR or attempt == 32:
@@ -539,9 +543,16 @@ class SecureStream:
 
 async def connect_map_export(phone, key):
     connection, rx, tx = await connect(phone, export=True)
-    await Peer(connection).request_mtu(247)
+    readable = rx.properties & Characteristic.Properties.READ
+    if readable:
+        assert await rx.read_value(no_long_read=True) == bytes([20])
+    mtu = await Peer(connection).request_mtu(247)
     stream = SecureStream(rx, tx, key)
     await stream.subscribe()
+    if readable:
+        expected = min(244, mtu - 3)
+        assert await rx.read_value(no_long_read=True) == bytes([expected])
+        stream.ingress_payload = expected - 1
     await stream.handshake()
     capabilities = await stream.sample()
     assert capabilities['export_version'] == 2 and all(stream.scales), capabilities
