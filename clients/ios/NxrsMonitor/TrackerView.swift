@@ -2,7 +2,7 @@ import AVFoundation
 import MapKit
 import SwiftUI
 import VisionKit
-import NxrsMonitorCore
+import NxrsTrackerCore
 
 struct TrackerView: View {
     let connectionChanged: (Bool) -> Void
@@ -14,6 +14,8 @@ struct TrackerView: View {
     @State private var showScanner = false
     @State private var scannerUnavailable = false
     @State private var mode = MotionGraph.Quantity.acceleration
+    @State private var showRecordings = false
+    @State private var recordings: [URL] = []
 
     var body: some View {
         NavigationStack {
@@ -66,6 +68,32 @@ struct TrackerView: View {
                         } else {
                             Text("Waiting for full-rate sensor data").foregroundStyle(.secondary)
                         }
+                    }
+                }
+                Section("Recordings") {
+                    switch tracker.recording {
+                    case .recording:
+                        Button("Stop Recording") { tracker.stopRecording() }
+                    case .saving:
+                        ProgressView("Saving recording")
+                    case .saved(let recording):
+                        if !recording.complete {
+                            Text("Incomplete recording saved").foregroundStyle(.secondary)
+                        }
+                        ShareLink(item: recording.url) { Label("Share Last Recording", systemImage: "square.and.arrow.up") }
+                    case .empty:
+                        Text("No sensor samples recorded").foregroundStyle(.secondary)
+                    case .failed:
+                        Text("Could not save the recording").foregroundStyle(.secondary)
+                    case .idle:
+                        EmptyView()
+                    }
+                    if tracker.exporting && canStartRecording {
+                        Button("Record Sensor Data") { tracker.startRecording() }
+                    }
+                    Button("Browse Recordings") {
+                        recordings = (try? TrackerRecording.files(in: TrackerRecording.directory())) ?? []
+                        showRecordings = true
                     }
                 }
                 if let reading = tracker.reading {
@@ -134,10 +162,34 @@ struct TrackerView: View {
                 }
             }
         }
+        .sheet(isPresented: $showRecordings) {
+            NavigationStack {
+                List {
+                    if recordings.isEmpty {
+                        Text("No saved recordings").foregroundStyle(.secondary)
+                    }
+                    ForEach(recordings, id: \.self) { file in
+                        ShareLink(item: file) { Label(file.deletingPathExtension().lastPathComponent,
+                                                      systemImage: "square.and.arrow.up") }
+                    }
+                }
+                .navigationTitle("Motion Tracker Recordings")
+                .toolbar { ToolbarItem(placement: .cancellationAction) {
+                    Button("Done") { showRecordings = false }
+                } }
+            }
+        }
         .alert("Camera unavailable", isPresented: $scannerUnavailable) {
             Button("OK", role: .cancel) {}
         } message: {
             Text("Allow camera access in iPhone Settings to scan the pairing code.")
+        }
+    }
+
+    private var canStartRecording: Bool {
+        switch tracker.recording {
+        case .idle, .saved, .empty, .failed: true
+        case .recording, .saving: false
         }
     }
 

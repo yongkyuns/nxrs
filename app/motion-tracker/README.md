@@ -348,3 +348,18 @@ exercises the full tracker and a local collector over PPP. The
 [CoreS3 and Stamp test](../../tests/nuttx-std/tracker-hardware/README.md)
 checks BLE delivery and TLS recovery on a real carrier. That test has not yet
 been run on hardware.
+
+## Record sensor data on iPhone
+
+Connect from Motion Tracker and wait for **Sensor export**. Tap **Record Sensor
+Data**, then **Stop Recording** and **Share Last Recording**. Use **Browse
+Recordings** to share previous files. Recordings can contain precise location
+and stay in the tracker’s local app storage until shared.
+
+The tracker Swift module writes decoded full-rate measurements as versioned
+NDJSON. Each sample carries its stream identity, tracker reception time,
+sequence and sensor values. UTC is included when available. Sequence gaps and
+connection interruptions are recorded explicitly. An interrupted recording can
+resume on the same tracker clock and is marked incomplete when saved.
+
+[Replay the file through the NuttX IMU and GNSS device models](../../tests/nuttx-std/tracker-sim/README.md#replay-an-iphone-recording).
