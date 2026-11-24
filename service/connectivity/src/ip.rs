@@ -76,8 +76,10 @@ impl Dial {
             .map(|task| Self(Some(task)))
     }
 
+    /// Return `Ok(None)` while dialing. A completed result can be read once.
     pub fn poll(&mut self) -> io::Result<Option<TcpStream>> {
-        if self.0.as_ref().is_some_and(|task| task.is_finished()) {
+        let task = self.0.as_ref().ok_or(io::ErrorKind::NotConnected)?;
+        if task.is_finished() {
             self.0
                 .take()
                 .unwrap()
@@ -96,5 +98,25 @@ impl Drop for Dial {
         if let Some(task) = self.0.take() {
             let _ = task.join();
         }
+    }
+}
+
+#[cfg(all(test, feature = "pinned-tls"))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_consumed_dial_error_cannot_look_pending() {
+        let task = thread::spawn(|| Err(io::ErrorKind::ConnectionRefused.into()));
+        while !task.is_finished() {
+            thread::yield_now();
+        }
+        let mut dial = Dial(Some(task));
+
+        assert_eq!(
+            dial.poll().unwrap_err().kind(),
+            io::ErrorKind::ConnectionRefused
+        );
+        assert_eq!(dial.poll().unwrap_err().kind(), io::ErrorKind::NotConnected);
     }
 }
