@@ -344,8 +344,7 @@ async def connect(device, *, export=False):
         expected_rx = Characteristic.Properties.WRITE
         if export:
             expected_rx |= Characteristic.Properties.WRITE_WITHOUT_RESPONSE
-        allowed_rx = (expected_rx, expected_rx | Characteristic.Properties.READ) if export else (expected_rx,)
-        assert rx.properties in allowed_rx
+        assert rx.properties == expected_rx
         assert tx.properties == (Characteristic.Properties.NOTIFY if export else Characteristic.Properties.READ)
         return connection, rx, tx
 
@@ -543,16 +542,17 @@ class SecureStream:
 
 async def connect_map_export(phone, key):
     connection, rx, tx = await connect(phone, export=True)
-    readable = rx.properties & Characteristic.Properties.READ
-    if readable:
-        assert await rx.read_value(no_long_read=True) == bytes([20])
     mtu = await Peer(connection).request_mtu(247)
     stream = SecureStream(rx, tx, key)
     await stream.subscribe()
-    if readable:
-        expected = min(244, mtu - 3)
-        assert await rx.read_value(no_long_read=True) == bytes([expected])
-        stream.ingress_payload = expected - 1
+    limit = min(244, mtu - 3)
+    if limit > 20:
+        try:
+            await rx.write_value(b'\x02' + bytes(limit - 1), with_response=True)
+        except ATT_Error as error:
+            assert error.error_code == ErrorCode.UNLIKELY_ERROR, error
+        else:
+            stream.ingress_payload = limit - 1
     await stream.handshake()
     capabilities = await stream.sample()
     assert capabilities['export_version'] == 2 and all(stream.scales), capabilities

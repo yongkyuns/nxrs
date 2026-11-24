@@ -13,7 +13,6 @@ mod ffi;
 const CAPACITY: usize = 2048;
 const LEGACY_CHUNK: usize = 20;
 const STREAM_CHUNK: usize = 244;
-const ATT_WRITE_HEADER: u16 = 3;
 const OFFSET_BYTES: usize = 4;
 const REPLAY_AFTER: Duration = Duration::from_millis(180);
 // Keep the per-poll ceiling high enough to drain a replay backlog even on a
@@ -204,12 +203,6 @@ unsafe extern "C" fn peripheral_read_rust(destination: *mut u8, count: u8) -> i3
 }
 
 #[no_mangle]
-extern "C" fn peripheral_ingress_limit_rust(mtu: u16) -> u8 {
-    mtu.saturating_sub(ATT_WRITE_HEADER)
-        .clamp(LEGACY_CHUNK as u16, STREAM_CHUNK as u16) as u8
-}
-
-#[no_mangle]
 unsafe extern "C" fn peripheral_write_rust(source: *const u8, count: u8, framed: bool) -> i32 {
     let count = usize::from(count);
     let limit = if framed { STREAM_CHUNK } else { LEGACY_CHUNK };
@@ -230,6 +223,11 @@ unsafe extern "C" fn peripheral_write_rust(source: *const u8, count: u8, framed:
                 if ACKNOWLEDGED.swap(offset, Ordering::AcqRel) != offset {
                     signal_ready();
                 }
+                return count as i32;
+            }
+            // An acknowledged probe tests the peer's direct ATT write size
+            // without enqueuing bytes or depending on GATT discovery caching.
+            [2, padding @ ..] if count > LEGACY_CHUNK && padding.iter().all(|byte| *byte == 0) => {
                 return count as i32;
             }
             _ => return -1,

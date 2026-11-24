@@ -55,6 +55,7 @@ struct Shared {
     stopping: bool,
     pairing: Option<Pairing>,
     latest: Option<Snapshot>,
+    new_sample: bool,
     view: View,
     tile_request: Option<Key>,
     tile: Option<Tile>,
@@ -93,6 +94,7 @@ impl Communications {
     pub fn offer(&self, sample: Snapshot) {
         if let Ok(mut shared) = self.shared.try_lock() {
             shared.latest = Some(sample);
+            shared.new_sample = true;
             self.task.as_ref().unwrap().thread().unpark();
         }
     }
@@ -166,7 +168,7 @@ fn run(
     let mut command = pair.then_some(Pairing::Start);
 
     loop {
-        let (sample, pair, tile) = {
+        let (sample, new_sample, pair, tile) = {
             let mut inbox = shared.lock().unwrap();
             if inbox.stopping {
                 break;
@@ -175,7 +177,8 @@ fn run(
                 .tile_request
                 .filter(|key| inbox.tile.as_ref().is_none_or(|tile| tile.key != *key));
             (
-                inbox.latest.take(),
+                inbox.latest,
+                std::mem::take(&mut inbox.new_sample),
                 inbox.pairing.take().or(command.take()),
                 tile,
             )
@@ -212,7 +215,7 @@ fn run(
                     next_radio = now + ACTIVE_POLL;
                 }
                 if let Some(snapshot) = &sample {
-                    output.offer(snapshot, now, tiles.phone_request());
+                    output.offer(snapshot, new_sample, now, tiles.phone_request());
                 }
                 if output.live() {
                     View {
@@ -242,7 +245,7 @@ fn run(
             notify();
         }
         if let (Some(collector), Some(modem)) = (collector, modem.as_ref()) {
-            if let Some(sample) = sample {
+            if let Some(sample) = sample.filter(|_| new_sample) {
                 publication.offer(sample);
             }
             let (generation, socket) = modem.receive();

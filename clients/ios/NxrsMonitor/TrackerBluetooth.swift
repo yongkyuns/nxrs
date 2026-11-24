@@ -126,7 +126,7 @@ final class TrackerConnection: NSObject, @unchecked Sendable {
     private static let exportService = Service("2", notifications: true)
     private static let services = [exportService.uuid, dashboardService.uuid]
     private static let loopback = NWEndpoint.Host.ipv4(.loopback)
-    private enum Operation { case read, write }
+    private enum Operation: Equatable { case read, write, probe(payload: Int) }
 
     private var manager: CBCentralManager?
     private var disconnectingPeer: CBPeripheral?
@@ -666,8 +666,15 @@ extension TrackerConnection: CBCentralManagerDelegate, CBPeripheralDelegate {
             }
             guard !notifying else { return }
             notifying = true
-            if let ingress, ingress.properties.contains(.read) {
-                peer.readValue(for: ingress)
+            // CoreBluetooth may cache the service layout across firmware updates.
+            // Test the direct ATT size using the existing write characteristic.
+            let limit = min(244, peer.maximumWriteValueLength(for: .withoutResponse),
+                            peer.maximumWriteValueLength(for: .withResponse))
+            if let ingress, limit > 20 {
+                var probe = Data(repeating: 0, count: limit)
+                probe[0] = 2
+                operation = .probe(payload: limit - 1)
+                peer.writeValue(probe, for: ingress, type: .withResponse)
             } else {
                 establishRelay()
             }
@@ -677,7 +684,14 @@ extension TrackerConnection: CBCentralManagerDelegate, CBPeripheralDelegate {
     }
 
     func peripheral(_ peer: CBPeripheral, didWriteValueFor characteristic: CBCharacteristic, error: Error?) {
-        guard peer === peripheral, characteristic === ingress, operation == .write else { return }
+        guard peer === peripheral, characteristic === ingress else { return }
+        if case .probe(let payload) = operation {
+            operation = nil
+            if error == nil { ingressPayload = payload }
+            establishRelay()
+            return
+        }
+        guard operation == .write else { return }
         operation = nil
         // The tracker rejects a GATT write before enqueuing any bytes when
         // its bounded ingress is busy. Retry the identical ciphertext.
@@ -700,20 +714,7 @@ extension TrackerConnection: CBCentralManagerDelegate, CBPeripheralDelegate {
     }
 
     func peripheral(_ peer: CBPeripheral, didUpdateValueFor characteristic: CBCharacteristic, error: Error?) {
-        guard peer === peripheral else { return }
-        if notifying, listener == nil, characteristic === ingress {
-            // A direct write must fit one ATT PDU. The with-response API can
-            // also report space for long writes, which this stream cannot use.
-            if error == nil, let value = characteristic.value, value.count == 1,
-               let advertised = value.first, (20...244).contains(advertised) {
-                let limit = min(Int(advertised), peer.maximumWriteValueLength(for: .withoutResponse),
-                                peer.maximumWriteValueLength(for: .withResponse))
-                ingressPayload = max(19, limit - 1)
-            }
-            establishRelay()
-            return
-        }
-        guard characteristic === egress, notifying || operation == .read else { return }
+        guard peer === peripheral, characteristic === egress, notifying || operation == .read else { return }
         guard error == nil, let packet = characteristic.value,
               packet.count <= (notifying ? 244 : 20), let relay else {
             recover("Bluetooth data failed")

@@ -292,14 +292,20 @@ impl<'a, L: Listener> Output<'a, L> {
         }
     }
 
-    pub fn offer(&mut self, snapshot: &Snapshot, now: Instant, wanted: Option<Key>) {
+    pub fn offer(
+        &mut self,
+        snapshot: &Snapshot,
+        new_sample: bool,
+        now: Instant,
+        wanted: Option<Key>,
+    ) {
         let new_tile = wanted.is_some()
             && wanted != self.advertised_tile
             && (!self.listener.notifying() || self.request_len == REQUEST_LEN);
         if self.live
             && (self.drained || self.listener.notifying())
             && self.publication.is_idle()
-            && (now >= self.next_frame || new_tile)
+            && (new_tile || (new_sample && now >= self.next_frame))
         {
             self.publication.offer(*snapshot);
             self.next_frame = now + Duration::from_secs(1);
