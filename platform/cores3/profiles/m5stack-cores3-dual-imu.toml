@@ -1,6 +1,6 @@
 # CoreS3 with M135, built-in panel and a dedicated settings partition.
 extends = "m5stack-cores3-gnss"
-hal = { display = "nuttx", touch = "nuttx", settings = "nuttx", ble = "nuttx", tls = "nuttx", battery = "nuttx", execution = "nuttx" }
+hal = { display = "nuttx", touch = "nuttx", settings = "nuttx", ble = "nuttx", tls = "nuttx", battery = "nuttx", execution = "nuttx", boot = "nuttx", watchdog = "nuttx" }
 
 [build]
 size-optimized = true
@@ -30,8 +30,18 @@ battery = "fuel_gauge"
 [display]
 device = "/dev/spi2"
 
+[imu]
+stack-bytes = 3584
+
+[gnss]
+stack-bytes = 4608
+
 [touch]
 device = "/dev/input0"
+
+[watchdog]
+device = "/dev/watchdog0"
+mode = "runtime"
 
 [kconfig]
 enable = [
@@ -46,6 +56,7 @@ enable = [
   "DRIVERS_BLUETOOTH", "WIRELESS", "WIRELESS_BLUETOOTH", "WIRELESS_BLUETOOTH_HOST",
   "ALLOW_BSD_COMPONENTS", "ESPRESSIF_BLE", "TIMER", "SCHED_LPWORK",
   "ESP32S3_RNG", "DEV_RANDOM",
+  "WATCHDOG", "ESP32S3_MWDT0", "BOARDCTL", "BOARDCTL_RESET_CAUSE",
   "DEBUG_SYMBOLS", "DEBUG_LINK_MAP", "STACK_COLORATION", "SYSLOG_CONSOLE",
 ]
 disable = [
@@ -54,6 +65,7 @@ disable = [
   "ESP32S3_SPIRAM", "ESP32S3_SPI_DMA", "ESP32S3_SPI_UDCS",
   "ESP32S3_SPI3", "SPI_HWFEATURES", "MMCSD_SPI", "I2C_POLLED",
   "ESP32S3_PARTITION_TABLE", "ESP32S3_SPIFLASH_AUTO_BRINGUP", "MTD_CONFIG_NONE",
+  "WATCHDOG_AUTOMONITOR", "WATCHDOG_PANIC_NOTIFIER",
   "SYSLOG_DEFAULT",
 ]
 set = [
@@ -83,6 +95,8 @@ require = [
   "CONFIG_ESP32S3_MTD=y", "CONFIG_MTD_CONFIG_NVS=y", "CONFIG_MTD_CONFIG_NAMED=y",
   "CONFIG_ESPRESSIF_BLE=y", "CONFIG_NET_BLUETOOTH=y", "CONFIG_WIRELESS_BLUETOOTH_HOST=y",
   "CONFIG_BLUETOOTH_MAX_CONN=1", "CONFIG_PREALLOC_MQ_MSGS=32", "CONFIG_ESP32S3_RNG=y", "CONFIG_DEV_RANDOM=y",
+  "CONFIG_WATCHDOG=y", "CONFIG_ESP32S3_MWDT0=y", "CONFIG_BOARDCTL_RESET_CAUSE=y",
+  "# CONFIG_WATCHDOG_AUTOMONITOR is not set", "# CONFIG_WATCHDOG_PANIC_NOTIFIER is not set",
   "CONFIG_MTD_CONFIG_NAME_LEN=32", "CONFIG_ESP32S3_STORAGE_MTD_OFFSET=0xf00000",
   "CONFIG_ESP32S3_STORAGE_MTD_SIZE=0x4000",
 ]

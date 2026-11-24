@@ -77,7 +77,7 @@ impl Communications {
         let incoming = shared.clone();
         let task = thread::Builder::new()
             .name("tracker-links".into())
-            .stack_size(24 * 1024)
+            .stack_size(23 * 1024)
             .spawn(move || run(&incoming, pair, cellular, tile_relay, &capture, notify))?;
         Ok(Self {
             shared,

@@ -227,7 +227,19 @@ The test requires contiguous sequences, queue recovery, an advancing cellular
 stream, and one UTC mapping for sensor records on BLE, USB and cellular TLS.
 A legacy export reconnect uses the same pairing key.
 
-For a five-minute soak, pass `--export --export-seconds 300 --timeout 400`.
+The coexistence image also enables NuttX stack coloration, the stack monitor,
+and a 256-byte scheduler guard. During `--export` and `--tiles`, the harness checks the
+peak touched stack against the usable capacity for the tracker and all its
+workers, including both IMU tasks. It warns below 20% free and fails below
+15% free. The same workload runs with the hardware watchdog armed.
+After warm-up, three restart, pairing, export and shutdown cycles must recover
+the same free heap. The largest free block must stay at least 20 KiB and at
+least as large as it was after warm-up. QEMU then touches the last word of the
+console task's guard and requires the scheduler to assert.
+On an interrupt-driven switch the assertion reuses the outgoing task's saved
+registers to report the fault.
+
+For a five-minute soak, pass `--export --export-seconds 300 --timeout 440`.
 The runner repeats the fault sequence and checks that the export catches up
 after each minute. CI runs one sequence.
 

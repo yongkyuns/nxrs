@@ -1105,6 +1105,7 @@ dependencies = [
  "log",
  "nxrs-battery",
  "nxrs-ble",
+ "nxrs-boot",
  "nxrs-cellular",
  "nxrs-composition",
  "nxrs-display",
@@ -1117,6 +1118,7 @@ dependencies = [
  "nxrs-settings",
  "nxrs-tls",
  "nxrs-touch",
+ "nxrs-watchdog",
  "qrcodegen",
 ]
 

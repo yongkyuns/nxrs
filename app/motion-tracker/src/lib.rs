@@ -7,6 +7,7 @@ mod charts;
 mod clock;
 #[cfg(feature = "dashboard")]
 mod communications;
+mod health;
 #[cfg(feature = "dashboard")]
 mod map;
 #[cfg(feature = "dashboard")]

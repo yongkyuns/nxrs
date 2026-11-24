@@ -45,7 +45,7 @@ pub fn connect(apn: &str) -> Result<impl Session, Error> {
     });
     let worker = thread::Builder::new()
         .name("cellular".into())
-        .stack_size(24 * 1024)
+        .stack_size(15 * 1024)
         .spawn({
             let shared = shared.clone();
             move || {

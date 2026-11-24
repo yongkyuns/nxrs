@@ -111,19 +111,20 @@ jobs:
         id: tracker-python
         with:
           python-version: '3.13'
-      - name: Verify BLE export and map write recovery under display and cellular load
+      - name: Verify BLE export, map write recovery, and memory safeguards
         shell: bash
         env:
           TRACKER_PYTHON: ${{ steps.tracker-python.outputs.python-path }}
         run: |
           "$TRACKER_PYTHON" -m venv target/tracker-peer
           target/tracker-peer/bin/pip install bumble==0.0.236 pillow==13.0.0 zxing-cpp==3.0.0
+          target/tracker-peer/bin/python -m unittest discover -s tests/nuttx-std/tracker-sim -p test_coexist.py
           source target/qemu-tools/environment.sh
           target/tracker-peer/bin/python tests/nuttx-std/tracker-sim/coexist.py \
             target/tracker-coexist-sim/nuttx/nuttx.merged.bin \
             --qemu target/tracker-qemu/qemu-system-xtensa --qemu-data target/tracker-qemu \
             --network-qemu target/tracker-qemu/qemu-system-xtensa \
-            --wall-clock --export --timeout 140 --log target/tracker-coexist-sim/coexist.log
+            --wall-clock --export --timeout 190 --log target/tracker-coexist-sim/coexist.log
           target/tracker-peer/bin/python tests/nuttx-std/tracker-sim/coexist.py \
             target/tracker-coexist-sim/nuttx/nuttx.merged.bin \
             --qemu target/tracker-qemu/qemu-system-xtensa --qemu-data target/tracker-qemu \

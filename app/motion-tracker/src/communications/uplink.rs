@@ -89,7 +89,7 @@ impl Modem {
         let control = signals.clone();
         let task = thread::Builder::new()
             .name("tracker-modem".into())
-            .stack_size(16 * 1024)
+            .stack_size(4 * 1024)
             .spawn(move || supervise(config, &control))?;
         Ok(Self {
             signals,
