@@ -37,6 +37,10 @@ class BlePeer:
         self.zoom = zoom
         self.move_mps = move_mps
         self.latitude, self.longitude = (51.5074, -0.12145) if osm else (48.1173, -11.5166667)
+        if tiles:
+            center = tile_fixture.tile_center(zoom, self.latitude, self.longitude)
+            self.latitude = center["latitude_deg"]
+            self.longitude = center["longitude_deg"]
         if move_mps is not None and move_mps < 0:
             scale = (1 << zoom) / 360
             boundary = (int((180 + self.longitude) * scale) + 1) / scale - 180
@@ -127,7 +131,9 @@ class BlePeer:
             return round(red * 255 / 31), round(green * 255 / 63), round(blue * 255 / 31)
 
         async def paint(name, view_east, points, tile=None):
-            self.want_paint = (name, [(point, color_at(view_east, *point)) for point in points])
+            pixels = [(point, color_at(view_east, *point)) for point in points]
+            pixels.append(((160, 123), (255, 182, 49)))  # RGB565 position marker (0xfda6)
+            self.want_paint = (name, pixels)
             if tile:
                 await session.send_tile(*tile, pixels=tiles[tile[1]])
             while self.want_paint is not None:
@@ -214,12 +220,7 @@ class BlePeer:
                 sample = await session.sample()
                 if any(source["state"] != "live" for source in [*sample["imu"], sample["gnss"]]):
                     continue
-                if self.osm:
-                    check_imus(sample)
-                    assert abs(sample["gnss"]["lat_deg"] - self.latitude) < 1e-6
-                    assert abs(sample["gnss"]["lon_deg"] - self.longitude) < 1e-6
-                else:
-                    check_live(sample)
+                check_live(sample, latitude_deg=self.latitude, longitude_deg=self.longitude)
                 if samples:
                     previous = samples[-1]
                     assert all(current["seq"] > prior["seq"]

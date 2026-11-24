@@ -43,18 +43,17 @@ The tracker starts at zoom 18. Use `--map-zoom 17`, `--map-zoom 16`, or
 `--map-zoom 15` for a wider view. Each step up halves the width and
 height of geographic coverage. Higher zooms use the same bytes per tile
 and can cross more tile boundaries while moving.
-When successive fixes show movement of at least 0.8 m/s,
-the viewport follows the dominant direction of travel and can show one
-neighboring tile ahead.
-That tile becomes eligible for download when it enters the viewport,
-before the tracker crosses into it. The part already loaded stays
-visible while the next tile arrives. If no matching tile is available,
-the dashboard uses the route plot.
+The viewport centers on the current GNSS fix even when the tracker is
+stationary. A neighboring tile becomes eligible for download as soon as
+it enters the viewport, before the tracker crosses into it. When the
+tracker is moving, it gives the tile ahead priority after loading the tile
+under the marker. Loaded tiles stay visible while the others arrive. If no
+matching tile is available, the dashboard uses the route plot.
 
 A transfer carries a lossless row encoding of the 170 × 170 tile. A
 fully uncompressed reply, including the palette, row lengths and header,
 is 14,666 bytes. The tile matches the CoreS3 map area pixel for
-pixel with the menu closed. The tracker keeps up to two complete tiles and
+pixel with the menu closed. The tracker keeps up to four complete tiles and
 one partial reply. It releases off-screen tiles before a new request and
 stores each row losslessly in small blocks to limit heap pressure during
 sensor export. The tracker waits at least five seconds between requests.

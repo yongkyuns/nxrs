@@ -84,15 +84,15 @@ def check_imus(sample):
     assert imu[0]['accel_mps2'][0] < 0 < imu[1]['accel_mps2'][0], sample
 
 
-def check_live(sample):
+def check_live(sample, **location):
     check_imus(sample)
-    check_fix(sample)
+    check_fix(sample, **location)
 
 
-def check_fix(sample):
+def check_fix(sample, *, latitude_deg=48.1173, longitude_deg=-11.5166667):
     gnss = sample['gnss']
     assert gnss['state'] == 'live', sample
-    assert abs(gnss['lat_deg'] - 48.1173) < 1e-6 and abs(gnss['lon_deg'] + 11.5166667) < 1e-6, sample
+    assert abs(gnss['lat_deg'] - latitude_deg) < 1e-6 and abs(gnss['lon_deg'] - longitude_deg) < 1e-6, sample
 
 
 def check_stale(sample):

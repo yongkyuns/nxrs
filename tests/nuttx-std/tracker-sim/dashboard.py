@@ -603,13 +603,18 @@ async def scenario(guest, panel, phone, args):
         await asyncio.gather(handshake, return_exceptions=True)
     print('PASS: wrong pairing key rejected', flush=True)
 
+    map_fix = tile_fixture.tile_center(18, 48.1173, -11.5166667)
+    guest.moving_fix = map_fix
     last = None
     for attempt in range(2):
         conn, rx, tx = await connect(phone)
         secure = SecureStream(rx, tx, key)
         await asyncio.wait_for(secure.handshake(), 5)
         sample = await asyncio.wait_for(secure.sample(), 5)
-        check_live(sample)
+        if attempt == 0:
+            while abs(sample['gnss']['lon_deg'] - map_fix['longitude_deg']) >= 1e-6:
+                sample = await asyncio.wait_for(secure.sample(), 5)
+        check_live(sample, **(map_fix if attempt == 0 else {}))
         assert last is None or sample['imu'][0]['seq'] > last
         last = sample['imu'][0]['seq']
         linked = await panel.capture()
@@ -619,10 +624,10 @@ async def scenario(guest, panel, phone, args):
                 while 'tile' not in sample:
                     sample = await secure.sample()
                 # Independent projection for the fixed GNSS fixture.
-                lat = math.radians(48.1173)
+                lat = math.radians(map_fix['latitude_deg'])
                 zoom = 18
                 world = 1 << zoom
-                longitude = -11.5166667
+                longitude = map_fix['longitude_deg']
                 expected = [zoom, int((180 + longitude) / 360 * world),
                             int((1 - math.asinh(math.tan(lat)) / math.pi) / 2 * world)]
                 assert sample['tile'] == expected
@@ -630,16 +635,16 @@ async def scenario(guest, panel, phone, args):
                 await panel.wait_pixel(90, 50, 0x001f, timeout=5)  # blue test tile on the SPI panel
                 last = sample['imu'][0]['seq']
                 sample = await secure.sample()
-                check_live(sample)
+                check_live(sample, **map_fix)
                 assert sample['imu'][0]['seq'] > last
                 while "tile" in sample:
                     sample = await secure.sample()
-                check_live(sample)
+                check_live(sample, **map_fix)
             print('PASS: one location tile renders while authenticated BLE telemetry advances', flush=True)
             async with asyncio.timeout(15):
                 boundary = (expected[1] + 1) * 360 / world - 180
                 distance = min(0.0003, (boundary - longitude) / 2)
-                guest.moving_fix = {'longitude_deg': boundary - distance, 'speed_mps': 15}
+                guest.moving_fix = {**map_fix, 'longitude_deg': boundary - distance, 'speed_mps': 15}
                 ahead = [zoom, expected[1] + 1, expected[2]]
                 while sample.get('tile') != ahead:
                     sample = await secure.sample()
@@ -648,9 +653,11 @@ async def scenario(guest, panel, phone, args):
                 before = await panel.wait_pixel(220, 50, 0xf800)
                 assert before.getpixel((160, 50)) == luminance(0x001f)
 
-                guest.moving_fix = {'longitude_deg': boundary + 0.00015, 'speed_mps': 15}
+                guest.moving_fix = {**map_fix, 'longitude_deg': boundary + 0.00015, 'speed_mps': 15}
                 after = await panel.wait_pixel(160, 50, 0xf800)
                 assert after.getpixel((90, 50)) == luminance(0x001f)
+                for frame in (before, after):
+                    assert frame.getpixel((160, 123)) == luminance(0xfda6)
                 guest.moving_fix = {}
                 while True:
                     sample = await secure.sample()

@@ -2,6 +2,7 @@
 use std::io::{self, Read};
 
 pub const SIDE: usize = 170;
+const VIEWPORT_TILES: usize = 4;
 const PALETTE_BYTES: usize = 32;
 const ROW_BYTES: usize = SIDE / 2;
 const PIXEL_BYTES: usize = ROW_BYTES * SIDE;
@@ -84,18 +85,18 @@ impl Position {
     }
 }
 
-/// Follow along the dominant direction so at most one neighboring tile
-/// intersects the viewport. Tile-relative coordinates keep the seam continuous.
+/// A one-tile-wide square centered on the fix. The tile keys are ordered
+/// for downloading, with the current tile first.
 #[derive(Clone, Copy)]
 pub struct Viewport {
     position: Position,
     offset: [f32; 2],
-    neighbor: Option<Key>,
+    keys: [Option<Key>; VIEWPORT_TILES],
 }
 
 impl Viewport {
-    pub fn keys(self) -> [Option<Key>; 2] {
-        [Some(self.position.key), self.neighbor]
+    pub fn keys(self) -> [Option<Key>; VIEWPORT_TILES] {
+        self.keys
     }
 
     pub fn origin(self, key: Key) -> [f32; 2] {
@@ -103,13 +104,8 @@ impl Viewport {
         [x as f32 - self.offset[0], y as f32 - self.offset[1]]
     }
 
-    pub fn marker(self) -> [f32; 2] {
-        self.coordinates(self.position)
-            .map(|value| value.clamp(0.0, 1.0 - f32::EPSILON))
-    }
-
     pub fn project(self, point: Position) -> Option<[f32; 2]> {
-        if !self.keys().contains(&Some(point.key)) {
+        if point.key.zoom != self.position.key.zoom {
             return None;
         }
         let within = self.coordinates(point);
@@ -153,13 +149,14 @@ impl Key {
     }
 }
 
-/// The display owns two complete tiles. Communications owns only the tile
-/// being assembled or waiting to be handed over.
+/// The display owns up to four complete tiles at a tile corner. Communications
+/// owns the current reply until it is ready to hand over.
 #[derive(Default)]
 pub struct View {
-    tiles: [Option<Tile>; 2],
+    tiles: [Option<Tile>; VIEWPORT_TILES],
     last: Option<Position>,
     heading: Option<(usize, i32)>,
+    pending: Option<Key>,
 }
 
 impl View {
@@ -167,6 +164,7 @@ impl View {
         let Some((position, speed)) = fix else {
             self.last = None;
             self.heading = None;
+            self.pending = None;
             return None;
         };
         if let Some(last) = self.last.replace(position) {
@@ -177,38 +175,47 @@ impl View {
             ];
             let axis = usize::from(delta[1].abs() > delta[0].abs());
             let travel = delta[axis];
-            if travel.abs() >= 1.0 {
+            if speed < 0.8 || travel.abs() >= 1.0 {
                 self.heading = None;
-            } else if speed >= 0.8 && travel.abs() >= 0.0005 {
+            } else if travel.abs() >= 0.0005 {
                 self.heading = Some((axis, if travel > 0.0 { 1 } else { -1 }));
             }
         }
-        let mut viewport = Viewport {
-            position,
-            offset: [0.0; 2],
-            neighbor: None,
+        let offset = [position.east as f32 - 0.5, position.south as f32 - 0.5];
+        let step = offset.map(|value| if value > 0.0 { 1 } else { -1 });
+        let neighbor = |axis: usize| {
+            // A sliver that rounds to zero display pixels needs no download.
+            (offset[axis].abs() >= 0.5 / SIDE as f32)
+                .then(|| position.key.adjacent(axis, step[axis]))
+                .flatten()
         };
-        if let Some((axis, heading)) = self.heading {
-            let offset = ([position.east, position.south][axis] - 0.5) as f32;
-            let step = if offset > 0.0 { 1 } else { -1 };
-            if let Some(neighbor) = position.key.adjacent(axis, step) {
-                // Only ask for the area ahead. Keep the previous tile visible
-                // behind us after a crossing if it is already available.
-                if offset != 0.0 && (step == heading || self.tile(neighbor).is_some()) {
-                    viewport.offset[axis] = offset;
-                    viewport.neighbor = Some(neighbor);
-                }
-            }
+        let horizontal = neighbor(0);
+        let vertical = neighbor(1);
+        let diagonal = horizontal.zip(vertical).map(|(x, y)| Key { y: y.y, ..x });
+        let mut keys = [Some(position.key), horizontal, vertical, diagonal];
+        if horizontal.is_none() || self.heading == Some((1, step[1])) {
+            keys.swap(1, 2);
         }
-        Some(viewport)
+        Some(Viewport {
+            position,
+            offset,
+            keys,
+        })
     }
 
     pub fn wanted(&mut self, viewport: Viewport) -> Option<Key> {
         let visible = viewport.keys();
-        let missing = visible
-            .into_iter()
-            .flatten()
-            .find(|key| self.tile(*key).is_none());
+        let missing = |key: &Key| self.tile(*key).is_none();
+        // Finish a still-visible reply even if the motion estimate changes.
+        // The tile under the marker goes first if it has not arrived yet.
+        let missing = visible[0]
+            .filter(missing)
+            .or_else(|| {
+                self.pending
+                    .filter(|key| visible.contains(&Some(*key)) && missing(key))
+            })
+            .or_else(|| visible[1..].iter().flatten().copied().find(missing));
+        self.pending = missing;
         if missing.is_some() {
             for slot in &mut self.tiles {
                 if slot
@@ -531,12 +538,12 @@ mod tests {
         let point = |key, x| Position {
             key,
             east: x,
-            south: 0.75,
+            south: 0.5,
         };
         let mut map = View::default();
 
-        let first = map.select(Some((point(west, 0.70), 0.0))).unwrap();
-        assert_eq!(first.keys(), [Some(west), None]);
+        let first = map.select(Some((point(west, 0.5), 0.0))).unwrap();
+        assert_eq!(first.keys(), [Some(west), None, None, None]);
         assert_eq!(map.wanted(first), Some(west));
         map.accept(
             first,
@@ -547,7 +554,7 @@ mod tests {
             },
         );
 
-        let parked = map.select(Some((point(west, 0.71), 0.1))).unwrap();
+        let parked = map.select(Some((point(west, 0.5), 0.1))).unwrap();
         assert_eq!(map.wanted(parked), None);
         let closing = map.select(Some((point(west, 0.90), 5.0))).unwrap();
         assert_eq!(map.wanted(closing), Some(east));
@@ -562,11 +569,41 @@ mod tests {
         );
 
         let crossed = map.select(Some((point(east, 0.1), 5.0))).unwrap();
-        assert_eq!(crossed.keys(), [Some(east), Some(west)]);
+        assert_eq!(crossed.keys(), [Some(east), Some(west), None, None]);
         assert_eq!(map.wanted(crossed), None);
         assert!((crossed.origin(east)[0] - 0.4).abs() < 0.0001);
-        assert_eq!(crossed.marker(), [0.5, 0.75]);
+        assert_eq!(crossed.project(point(east, 0.1)), Some([0.5, 0.5]));
         assert!(map.select(None).is_none());
+    }
+
+    #[test]
+    fn centers_a_stationary_fix_and_loads_all_four_visible_tiles() {
+        let key = tile_key(20, 30);
+        let point = Position {
+            key,
+            east: 0.75,
+            south: 0.25,
+        };
+        let mut map = View::default();
+        let viewport = map.select(Some((point, 0.0))).unwrap();
+        assert_eq!(viewport.project(point), Some([0.5, 0.5]));
+        let expected = [key, tile_key(21, 30), tile_key(20, 29), tile_key(21, 29)];
+        assert_eq!(viewport.keys(), expected.map(Some));
+        assert_eq!(viewport.origin(expected[0]), [-0.25, 0.25]);
+        assert_eq!(viewport.origin(expected[3]), [0.75, -0.75]);
+        for key in expected {
+            assert_eq!(map.wanted(viewport), Some(key));
+            map.accept(
+                viewport,
+                Tile {
+                    key,
+                    palette: [0; 16],
+                    pixels: Pixels::allocate().unwrap(),
+                },
+            );
+        }
+        assert_eq!(map.wanted(viewport), None);
+        assert!(expected.into_iter().all(|key| map.tile(key).is_some()));
     }
 
     #[test]
@@ -592,7 +629,7 @@ mod tests {
         assert_eq!(map.wanted(closing), Some(new));
         let crossed = map.select(Some((point(new, 0.05), 3.0))).unwrap();
         assert_eq!(map.wanted(crossed), Some(new));
-        assert_eq!(crossed.keys(), [Some(new), Some(old)]);
+        assert_eq!(crossed.keys(), [Some(new), Some(old), None, None]);
         assert!(map.tile(old).is_some());
     }
 

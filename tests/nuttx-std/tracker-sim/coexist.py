@@ -11,7 +11,7 @@ import time
 from bumble.device import Peer
 from bumble.gatt import GATT_CLIENT_CHARACTERISTIC_CONFIGURATION_DESCRIPTOR
 
-from dashboard import SecureStream, Stream, connect, pump, run, wait_until, connect_map_export
+from dashboard import SecureStream, Stream, connect, pump, run, wait_until, connect_map_export, luminance
 import tile_fixture
 from sensors import check_live
 from upload import COLLECTOR, TcpStamp, collector, is_live, network
@@ -332,6 +332,7 @@ class Scenario:
                 operation = pending.create_task(operation)
                 while not operation.done():
                     await sample()
+            return operation.result()
 
         async def sample():
             try:
@@ -344,7 +345,10 @@ class Scenario:
             await panel.reveal_menu()
             await panel.tap(195, 20)
 
-        await sample()
+        map_fix = tile_fixture.tile_center(18, 48.1173, -11.5166667)
+        guest.moving_fix = map_fix
+        while abs((await sample())['gnss']['lon_deg'] - map_fix['longitude_deg']) >= 1e-6:
+            pass
         await consume_during(select_gnss())
         async with asyncio.timeout(30):
             while 'tile' not in (snapshot := await sample()):
@@ -357,7 +361,7 @@ class Scenario:
             requests = []
             while not requests:
                 followup = await sample()
-                check_live(followup)
+                check_live(followup, **map_fix)
                 assert followup['imu'][0]['seq'] > snapshot['imu'][0]['seq']
                 while not self.server.events.empty():
                     _, event, value = self.server.events.get_nowait()
@@ -373,14 +377,16 @@ class Scenario:
             before = stream.sample_counts.copy()
             boundary = (x + 1) * 360 / (1 << zoom) - 180
             distance = min(0.0003, (boundary - snapshot['gnss']['lon_deg']) / 2)
-            guest.moving_fix = {'longitude_deg': boundary - distance, 'speed_mps': 15}
+            guest.moving_fix = {**map_fix, 'longitude_deg': boundary - distance, 'speed_mps': 15}
             ahead = [zoom, x + 1, y]
             while (await sample()).get('tile') != ahead:
                 pass
             await stream.send_tile(*ahead, color=0xf800)
-            await consume_during(panel.wait_pixel(220, 50, 0xf800))
-            guest.moving_fix = {'longitude_deg': boundary + 0.00015, 'speed_mps': 15}
-            await consume_during(panel.wait_pixel(160, 50, 0xf800))
+            before_crossing = await consume_during(panel.wait_pixel(220, 50, 0xf800))
+            guest.moving_fix = {**map_fix, 'longitude_deg': boundary + 0.00015, 'speed_mps': 15}
+            after_crossing = await consume_during(panel.wait_pixel(160, 50, 0xf800))
+            for frame in (before_crossing, after_crossing):
+                assert frame.getpixel((160, 123)) == luminance(0xfda6), 'GNSS marker moved off center'
             while min(current - previous for current, previous in zip(stream.sample_counts, before)) < 2:
                 await sample()
             assert min(stream.sample_counts[:2]) >= 200 and stream.sample_counts[2] >= 4

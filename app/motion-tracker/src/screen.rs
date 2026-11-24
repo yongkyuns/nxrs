@@ -561,8 +561,7 @@ impl<'a> Body<'a> {
                 }
                 previous = Some(current);
             }
-            let [east, south] = viewport.marker();
-            let (x, y) = locate(east, south);
+            let (x, y) = locate(0.5, 0.5);
             canvas.fill(
                 Area {
                     x: x - 3,
