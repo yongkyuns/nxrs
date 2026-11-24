@@ -44,8 +44,127 @@ static uint8_t g_flash[16384];
 #endif
 
 #ifdef CONFIG_ARCH_SIM
+#  include <time.h>
+
 static bool g_inject_imu_failure;
 static bool g_stall_panel;
+
+/* Host replay preconverts samples to little-endian time and FIFO bytes. */
+struct replay_imu
+{
+  FILE *file;
+  uint64_t origin;
+  uint8_t next[20];
+  uint8_t fifo[2040]; /* Largest whole-frame BMI270 FIFO payload. */
+  size_t length;
+  size_t consumed;
+  size_t samples;
+  bool eof;
+  bool reported;
+};
+
+static struct replay_imu g_replay[2];
+static bool g_replay_mode;
+static bool g_replay_started;
+static uint64_t g_replay_start_ms;
+
+static uint64_t read_le64(const uint8_t *bytes)
+{
+  uint64_t result = 0;
+  for (unsigned int i = 0; i < 8; i++)
+    {
+      result |= (uint64_t)bytes[i] << (i * 8);
+    }
+  return result;
+}
+
+static uint64_t replay_ms(void)
+{
+  struct timespec now;
+  clock_gettime(CLOCK_MONOTONIC, &now);
+  return (uint64_t)now.tv_sec * 1000 + now.tv_nsec / 1000000;
+}
+
+static int replay_next(struct replay_imu *imu)
+{
+  size_t size = fread(imu->next, 1, sizeof(imu->next), imu->file);
+  if (size == sizeof(imu->next))
+    {
+      return 0;
+    }
+  imu->eof = true;
+  bool end = size == 0 && feof(imu->file);
+  fclose(imu->file);
+  imu->file = NULL;
+  return end ? 0 : -EIO;
+}
+
+static void replay_report(unsigned int index)
+{
+  struct replay_imu *imu = &g_replay[index];
+  if (g_replay_started && imu->eof && !imu->reported && imu->consumed == imu->length)
+    {
+      imu->reported = true;
+      printf("TRACKER_REPLAY_IMU_DONE %u %zu\n", index, imu->samples);
+      fflush(stdout);
+    }
+}
+
+static int replay_length(unsigned int index, uint8_t *data)
+{
+  struct replay_imu *imu = &g_replay[index];
+  if (!imu->file && !imu->eof)
+    {
+      const char *path = index == 0 ? "/tracker-fixture/imu-secondary.bin" :
+                                     "/tracker-fixture/imu-primary.bin";
+      imu->file = fopen(path, "rb");
+      uint8_t origin[8];
+      if (!imu->file || fread(origin, 1, sizeof(origin), imu->file) != sizeof(origin))
+        {
+          if (imu->file)
+            {
+              fclose(imu->file);
+              imu->file = NULL;
+            }
+          return -EIO;
+        }
+      imu->origin = read_le64(origin);
+      if (replay_next(imu) < 0)
+        {
+          return -EIO;
+        }
+    }
+  if (!g_replay_started && (g_replay[0].file || g_replay[0].eof) &&
+      (g_replay[1].file || g_replay[1].eof) &&
+      access("/tracker-fixture/replay-ready", F_OK) == 0)
+    {
+      g_replay_start_ms = replay_ms();
+      g_replay_started = true;
+      puts("TRACKER_REPLAY_START");
+      fflush(stdout);
+    }
+  if (g_replay_started && imu->consumed == imu->length)
+    {
+      uint64_t elapsed = replay_ms() - g_replay_start_ms;
+      imu->length = 0;
+      imu->consumed = 0;
+      while (!imu->eof && imu->length < sizeof(imu->fifo) &&
+             read_le64(imu->next) - imu->origin <= elapsed)
+        {
+          memcpy(imu->fifo + imu->length, imu->next + 8, 12);
+          imu->length += 12;
+          if (replay_next(imu) < 0)
+            {
+              return -EIO;
+            }
+        }
+    }
+  size_t remaining = imu->length - imu->consumed;
+  data[0] = remaining & 0xff;
+  data[1] = remaining >> 8;
+  replay_report(index);
+  return 0;
+}
 #endif
 
 #ifdef CONFIG_BLUETOOTH_UART_SHIM
@@ -217,6 +336,10 @@ static int bmi_write(struct bmi270 *chip, uint8_t reg,
 {
   if (reg == 0x7e && size == 1 && data[0] == 0xb6)
     {
+#ifdef CONFIG_ARCH_SIM
+      const char *scenario = getenv("TRACKER_SIM_CASE");
+      g_replay_mode = IMU_COUNT == 2 && scenario && strcmp(scenario, "replay") == 0;
+#endif
       memset(chip, 0, sizeof(*chip));
       chip->registers[0] = 0x24; /* CHIP_ID */
       chip->registers[3] = 0xc0; /* STATUS: accel and gyro ready */
@@ -259,6 +382,15 @@ static int model_read(int address, uint8_t reg, uint8_t *data, size_t size)
       if (reg == 0x24 && size == 2)
         {
 #ifdef CONFIG_ARCH_SIM
+          if (g_replay_mode && chip->registers[0x49] == 0xc0)
+            {
+              /* The replay files encode the normal 4 g / 2000 dps profile. */
+              if ((chip->registers[0x41] & 3) != 1 || (chip->registers[0x43] & 7) != 0)
+                {
+                  return -EINVAL;
+                }
+              return replay_length(address - FIRST_IMU, data);
+            }
           /* The host signals only after seeing a healthy tracker report. */
           if (address == 0x69 && g_inject_imu_failure &&
               access("/tracker-fixture/fail-imu", F_OK) == 0)
@@ -268,6 +400,20 @@ static int model_read(int address, uint8_t reg, uint8_t *data, size_t size)
 #endif
           data[0] = chip->registers[0x49] == 0xc0 ? 12 : 0;
         }
+#ifdef CONFIG_ARCH_SIM
+      else if (reg == 0x26 && g_replay_mode)
+        {
+          struct replay_imu *imu = &g_replay[address - FIRST_IMU];
+          if (size > imu->length - imu->consumed)
+            {
+              return -EIO;
+            }
+          memcpy(data, imu->fifo + imu->consumed, size);
+          imu->consumed += size;
+          imu->samples += size / 12;
+          replay_report(address - FIRST_IMU);
+        }
+#endif
       else if (reg == 0x26 && size == 12)
         {
           data[7] = address == 0x68 ? 0x20 : 0xe0; /* opposite accel X */

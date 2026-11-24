@@ -263,3 +263,36 @@ returns a synthetic tile over PPP. The phone supplies the neighboring
 tile over the same notification session while both IMUs and GNSS
 export samples. The test checks the panel on both sides of the boundary
 and requires consecutive sample sequences throughout the transfers.
+
+## Replay an iPhone recording
+
+Share an NDJSON file from **Motion Tracker → Recordings**, then build the
+native simulator and pass the file to its runner.
+
+```sh
+cargo nxrs build --app motion-tracker --profile nuttx-sim-tracker \
+  --target-c-source tests/nuttx-std/tracker-sim/devices.c \
+  --target-c-source tests/nuttx-std/tracker-sim/native_init.c \
+  --out target/nuttx-sim-tracker
+python3 tests/nuttx-std/tracker-sim/native.py target/nuttx-sim-tracker/nuttx/nuttx \
+  --replay /path/to/recording.ndjson --log target/nuttx-sim-tracker/replay.log
+```
+
+The runner validates the archive and stages it in a temporary fixture mount.
+It starts playback when both BMI270 models are configured and the UART peer
+has acknowledged GNSS configuration. IMU FIFO frames and GNSS fixes follow
+the shared tracker reception timeline at 1× speed, including FIFO batches and
+gaps. The console log contains the tracker’s normal USB reports. The runner
+checks that both modeled FIFOs drained their recorded counts and that the UART
+peer sent all fixes.
+
+The archive begins with a version-1 `nxrs-motion-tracker` header and ends with
+an explicit completion record. Sample rows preserve original sequences and
+optional UTC. The native drivers assign new sequences and reception timestamps
+during playback. IMU values are quantized to the profile’s BMI270 range.
+The GNSS peer reconstructs position, speed and available UTC through UBX.
+Samples with repeated timestamps retain their source order and share a due time.
+
+The fixture accepts finalized recordings marked incomplete and preserves their
+missing intervals. It rejects empty archives and requires a valid footer.
+NuttX scheduling and device-read timing still affect when tasks observe samples.

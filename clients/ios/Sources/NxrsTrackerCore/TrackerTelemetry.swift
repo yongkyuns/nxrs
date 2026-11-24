@@ -92,7 +92,7 @@ public struct TrackerFrames {
     }
 }
 
-public enum TrackerMeasurement: Equatable {
+public enum TrackerMeasurement: Equatable, Sendable {
     case imu(index: Int, sequence: UInt32, receivedMS: UInt64, accel: [Float], gyro: [Float], utcMS: Int64? = nil)
     case fix(sequence: UInt32, receivedMS: UInt64, latitude: Double, longitude: Double, speed: Float, utcMS: Int64? = nil)
 }

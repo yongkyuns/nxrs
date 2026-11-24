@@ -63,17 +63,22 @@ class NeoM9n:
         self.fix_sent = True
 
     @staticmethod
-    def fix_packet(tow_ms, longitude_deg=-11.5166667, speed_mps=0, latitude_deg=48.1173):
+    def fix_packet(tow_ms, longitude_deg=-11.5166667, speed_mps=0, latitude_deg=48.1173,
+                   *, utc=None, replay=False):
         position = bytearray(92)
         struct.pack_into('<I', position, 0, tow_ms)
-        utc = datetime(2026, 1, 1) + timedelta(milliseconds=tow_ms)
-        struct.pack_into('<H6B', position, 4,
-                         utc.year, utc.month, utc.day, utc.hour, utc.minute, utc.second, 7)
-        struct.pack_into('<i', position, 16, utc.microsecond * 1000)
+        if not replay:
+            utc = datetime(2026, 1, 1) + timedelta(milliseconds=tow_ms)
+        if utc is not None:
+            struct.pack_into('<H6B', position, 4,
+                             utc.year, utc.month, utc.day, utc.hour, utc.minute, utc.second, 7)
+            struct.pack_into('<i', position, 16, utc.microsecond * 1000)
         position[20:22] = b'\3\1'
         struct.pack_into('<ii', position, 24, round(longitude_deg * 10_000_000),
                          round(latitude_deg * 10_000_000))
         struct.pack_into('<i', position, 60, round(speed_mps * 1000))
+        if replay:
+            struct.pack_into('<I', position, 72, 18_000_000)  # Heading unspecified.
         return ubx(1, 7, position)
 
 
