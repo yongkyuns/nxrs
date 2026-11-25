@@ -6,7 +6,7 @@ on:
       - 'gateway/**'
       - 'upstream/mediamtx/**'
       - 'tools/build-recording-media.py'
-      - 'service/detection-wire/**'
+      - 'service/detection/**'
       - 'docs/detection-protocol*'
       - '.github/workflows/monitoring-systemd.yml'
   workflow_dispatch:

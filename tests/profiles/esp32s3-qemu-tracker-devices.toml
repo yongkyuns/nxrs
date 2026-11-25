@@ -53,10 +53,10 @@ imu_secondary = "module"
 battery = "fuel_gauge"
 
 [gnss]
-stack-bytes = 16384
+stack-bytes = 4608
 
 [imu]
-stack-bytes = 16384
+stack-bytes = 3584
 
 [kconfig]
 enable = ["ESP32S3_QEMU_IMAGE", "PIPES", "SCHED_LPWORK", "SPI", "SPI_DRIVER",

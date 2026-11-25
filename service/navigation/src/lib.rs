@@ -12,6 +12,44 @@ mod fusion;
 mod gnss;
 mod health;
 mod imu;
+pub mod observations;
+
+#[cfg(feature = "probe")]
+mod diagnostics {
+    pub(super) fn configured(imus: usize, gnss: bool) {
+        log::info!(
+            target: "navigation::observations",
+            "configured {imus} IMU channels, GNSS {}",
+            if gnss { "enabled" } else { "disabled" }
+        );
+    }
+}
+
+#[cfg(not(feature = "probe"))]
+mod diagnostics {
+    pub(super) fn configured(_: usize, _: bool) {}
+}
+
+fn inbox_sink<T: Copy, E>(
+    sender: messaging::Sender<E>,
+    wrap: impl Fn(T) -> Option<E>,
+) -> impl FnMut(T) -> messaging::DeliveryResult<T> {
+    use messaging::{DeliveryError, Rejected};
+    use std::sync::mpsc::TrySendError;
+
+    move |value| {
+        let Some(event) = wrap(value) else {
+            return Ok(());
+        };
+        sender.try_send(event).map_err(|error| Rejected {
+            value,
+            error: match error {
+                TrySendError::Full(_) => DeliveryError::Full,
+                TrySendError::Disconnected(_) => DeliveryError::Closed,
+            },
+        })
+    }
+}
 
 #[cfg(test)]
 mod transcript_tests;

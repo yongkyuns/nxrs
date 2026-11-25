@@ -4,7 +4,7 @@
 use std::{fmt, net::Ipv4Addr};
 
 mod platform;
-pub use platform::connect;
+pub use platform::{connect, connect_managed};
 
 #[cfg(test)]
 mod test_support;
@@ -41,12 +41,19 @@ impl std::error::Error for Error {}
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Status {
     Connecting,
-    Online { address: Ipv4Addr },
+    Online {
+        address: Ipv4Addr,
+    },
+    /// The managed link is down and the provider will attempt recovery.
+    Retrying(Error),
     Stopped,
+    /// The session has reached a terminal failure.
     Failed(Error),
 }
 
 /// One exclusive link. Dropping or stopping it joins its worker and removes the IP interface.
+/// `connect_managed` retries recoverable failures and notifies its caller from
+/// the worker when the retained status changes.
 pub trait Session {
     fn status(&self) -> Status;
 

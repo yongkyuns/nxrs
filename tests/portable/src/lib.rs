@@ -1,10 +1,12 @@
 //! Mock devices and a cross-platform executable qualification suite.
 #![deny(unsafe_op_in_unsafe_fn)]
 
+mod mock_transport;
+
 pub mod mocks {
     pub use camera::{CameraAction, MockCamera, FORMAT};
     pub use storage::{MockStorage, StoredFrame};
-    pub use transport::MockTransport;
+    pub use crate::mock_transport::MockTransport;
 }
 pub mod scenarios;
 

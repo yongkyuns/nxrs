@@ -53,9 +53,9 @@ class CameraOrganizationTests(unittest.TestCase):
 
     def test_shared_qualification_composition_does_not_enable_software_io(self):
         manifest = tomllib.loads((ROOT / 'tests/camera-support/Cargo.toml').read_text())
-        for name in ('nxrs-camera', 'nxrs-storage', 'nxrs-transport'):
+        for name in ('nxrs-camera', 'nxrs-storage'):
             self.assertFalse(manifest['dependencies'][name].get('features'))
-        self.assertFalse(manifest.get('features'))
+        self.assertEqual(manifest.get('features'), {'udp': []})
 
 
 if __name__ == '__main__':

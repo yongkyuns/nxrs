@@ -147,7 +147,10 @@ class FirmwareFrontendTests(unittest.TestCase):
                 # Hardware qualification does not implicitly select sensor mocks.
                 expected = {"m5stack-cores3-gnss": {"gnss": "nuttx", "imu": "nuttx"},
                             "m5stack-cores3-display": {"display": "nuttx"},
-                            "m5stack-cores3-dual-imu": {"imu": "nuttx", "gnss": "nuttx", "display": "nuttx", "touch": "nuttx", "settings": "nuttx", "ble": "nuttx", "tls": "nuttx", "battery": "nuttx"},
+                            "m5stack-cores3-dual-imu": dict.fromkeys(
+                                ("imu", "gnss", "display", "touch", "settings",
+                                 "ble", "tls", "battery", "execution", "boot", "watchdog"), "nuttx",
+                            ),
                             "cores3-imu-qualification": {"gnss": "nuttx", "imu": "nuttx"},
                             "cores3-protected-qualification": {"gnss": "nuttx", "imu": "nuttx"},
                             "esp32s3-devkit-imu-qualification": {"imu": "nuttx"},
@@ -198,12 +201,15 @@ class FirmwareFrontendTests(unittest.TestCase):
                     **expected["esp32s3-qemu-tracker"], "tls": "nuttx",
                 }
                 expected["esp32s3-qemu-tracker-coexist"] = {
-                    **expected["esp32s3-qemu-tracker-upload"], "ble": "nuttx",
+                    **expected["esp32s3-qemu-tracker-upload"], "ble": "nuttx", "execution": "nuttx",
+                    "boot": "nuttx", "watchdog": "nuttx",
                 }
                 tracker = dict.fromkeys(("battery", "display", "gnss", "imu", "settings", "touch"), "nuttx")
                 expected["esp32s3-qemu-tracker-devices"] = tracker
                 expected["esp32s3-qemu-tracker-dashboard"] = {**tracker, "ble": "nuttx", "tls": "nuttx"}
                 expected["esp32s3-esp-emu-tracker"] = expected["esp32s3-qemu-tracker-dashboard"]
+                expected["esp32s3-qemu-tracker-headless"] = {"imu": "nuttx"}
+                expected["esp32s3-qemu-tracker-logging"] = expected["esp32s3-qemu-tracker-headless"]
                 expected["nuttx-sim-tracker"] = expected["esp32s3-qemu-tracker-dashboard"]
                 self.assertEqual(features, expected.get(profile_name,
                                  {"imu": "mock", "gnss": "mock"}))

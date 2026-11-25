@@ -1,53 +1,176 @@
-use crate::peripheral::{Link, Listener};
+use crate::peripheral::{Link, Listener, Service};
 use crate::{Error, Uuid};
 use std::collections::VecDeque;
 use std::io::{self, Read, Write};
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Mutex, MutexGuard};
+use std::thread::{self, Thread};
 use std::time::{Duration, Instant};
 
 #[path = "ffi/peripheral.rs"]
 mod ffi;
 
 const CAPACITY: usize = 2048;
-const ATT_CHUNK: usize = 20;
+const LEGACY_CHUNK: usize = 20;
+const STREAM_CHUNK: usize = 244;
+const OFFSET_BYTES: usize = 4;
+const REPLAY_AFTER: Duration = Duration::from_millis(180);
+// Keep the per-poll ceiling high enough to drain a replay backlog even on a
+// controller that can carry only 16 ciphertext bytes per ACL packet.
+const NOTIFY_BURST: usize = 16;
 const HANDLE_MASK: u32 = 0x0fff;
 const CONNECTED: u32 = 1 << 12;
 const RETIRED: u32 = 1 << 13;
 const GENERATION: u32 = 1 << 14;
+static NOTIFY: AtomicBool = AtomicBool::new(false);
 static OPEN: AtomicBool = AtomicBool::new(false);
-static REGISTERED: Mutex<Option<[Uuid; 3]>> = Mutex::new(None);
+static READY: AtomicBool = AtomicBool::new(false);
+static OWNER: Mutex<Option<Thread>> = Mutex::new(None);
+static REGISTERED: Mutex<Option<(Service, Option<Service>)>> = Mutex::new(None);
 // One atomic tracks the HCI handle, its generation and the link state.
 static STAMP: AtomicU32 = AtomicU32::new(0);
-static DATA: Mutex<Buffers> = Mutex::new(Buffers {
-    stamp: 0,
-    input: VecDeque::new(),
-    output: VecDeque::new(),
+static ACKNOWLEDGED: AtomicU32 = AtomicU32::new(0);
+static INPUT: Mutex<Input> = Mutex::new(Input {
+    queue: Queue::new(),
+    next: 0,
+});
+static OUTPUT: Mutex<Output> = Mutex::new(Output {
+    queue: Queue::new(),
+    offset: 0,
+    next: 0,
+    sent: 0,
+    replay_at: None,
+    repair: None,
 });
 
-struct Buffers {
-    stamp: u32,
-    input: VecDeque<u8>,
-    output: VecDeque<u8>,
+fn signal_ready() {
+    // GATT callbacks run on the NuttX HCI receive worker in task context.
+    if OPEN.load(Ordering::Acquire) && !READY.swap(true, Ordering::AcqRel) {
+        if let Some(owner) = OWNER.lock().unwrap().as_ref() {
+            owner.unpark();
+        }
+    }
 }
 
-fn current(stamp: u32) -> io::Result<MutexGuard<'static, Buffers>> {
-    let mut data = DATA.try_lock().map_err(|error| match error {
-        std::sync::TryLockError::WouldBlock => io::ErrorKind::WouldBlock,
-        std::sync::TryLockError::Poisoned(_) => io::ErrorKind::BrokenPipe,
-    })?;
+struct Queue {
+    stamp: u32,
+    bytes: VecDeque<u8>,
+}
+
+impl Queue {
+    const fn new() -> Self {
+        Self {
+            stamp: 0,
+            bytes: VecDeque::new(),
+        }
+    }
+
+    fn select(&mut self, stamp: u32) -> bool {
+        if self.stamp == stamp {
+            return false;
+        }
+        self.stamp = stamp;
+        self.bytes.clear();
+        true
+    }
+}
+
+struct Input {
+    queue: Queue,
+    next: u32,
+}
+
+struct Output {
+    queue: Queue,
+    offset: u32,
+    next: usize,
+    sent: usize,
+    replay_at: Option<Instant>,
+    repair: Option<usize>,
+}
+
+impl Output {
+    fn acknowledge(&mut self, offset: u32, now: Instant) -> io::Result<()> {
+        let count = offset.wrapping_sub(self.offset);
+        if count == 0 || count > i32::MAX as u32 {
+            return Ok(());
+        }
+        let count = count as usize;
+        if count > self.sent {
+            return Err(io::ErrorKind::InvalidData.into());
+        }
+        self.queue.bytes.drain(..count);
+        self.offset = offset;
+        self.sent -= count;
+        self.next = self.next.saturating_sub(count);
+        if let Some(repair) = self.repair {
+            self.repair = repair
+                .checked_sub(count)
+                .filter(|&remaining| remaining != 0);
+            if count == repair {
+                // The ACK covered just the repair. Retry the tail for peers
+                // that discarded it or have another gap immediately after it.
+                self.next = 0;
+            }
+        }
+        self.replay_at = (self.sent != 0).then_some(now + REPLAY_AFTER);
+        Ok(())
+    }
+
+    fn notify(&self, peer: &ffi::Peer, start: usize, end: usize) -> io::Result<usize> {
+        let mut bytes = [0; STREAM_CHUNK];
+        let offset = self.offset.wrapping_add(start as u32);
+        bytes[..OFFSET_BYTES].copy_from_slice(&offset.to_le_bytes());
+        let len = (STREAM_CHUNK - OFFSET_BYTES).min(end - start);
+        for (out, value) in bytes[OFFSET_BYTES..OFFSET_BYTES + len]
+            .iter_mut()
+            .zip(self.queue.bytes.iter().skip(start))
+        {
+            *out = *value;
+        }
+        match peer.notify(&bytes[..OFFSET_BYTES + len])? {
+            0 => Ok(0),
+            sent if sent > OFFSET_BYTES => Ok(sent - OFFSET_BYTES),
+            _ => Err(io::ErrorKind::InvalidData.into()),
+        }
+    }
+}
+
+fn validate(stamp: u32) -> io::Result<()> {
     if !OPEN.load(Ordering::Acquire)
         || stamp & (CONNECTED | RETIRED) != CONNECTED
         || stamp != STAMP.load(Ordering::Acquire)
     {
         return Err(io::ErrorKind::NotConnected.into());
     }
-    if data.stamp != stamp {
-        data.stamp = stamp;
-        data.input.clear();
-        data.output.clear();
+    Ok(())
+}
+
+fn input(stamp: u32) -> io::Result<MutexGuard<'static, Input>> {
+    // ATT writes run on NuttX's HCI receive worker. This lock protects only
+    // bounded byte copies and is never held across an SDK call or I/O.
+    let mut queue = INPUT.lock().map_err(|_| io::ErrorKind::BrokenPipe)?;
+    validate(stamp)?;
+    if queue.queue.select(stamp) {
+        queue.next = 0;
     }
-    Ok(data)
+    Ok(queue)
+}
+
+fn output(stamp: u32) -> io::Result<MutexGuard<'static, Output>> {
+    let mut output = OUTPUT.try_lock().map_err(|error| match error {
+        std::sync::TryLockError::WouldBlock => io::ErrorKind::WouldBlock,
+        std::sync::TryLockError::Poisoned(_) => io::ErrorKind::BrokenPipe,
+    })?;
+    validate(stamp)?;
+    if output.queue.select(stamp) {
+        output.offset = 0;
+        output.next = 0;
+        output.sent = 0;
+        output.replay_at = None;
+        output.repair = None;
+    }
+    Ok(output)
 }
 
 fn pop(queue: &mut VecDeque<u8>, bytes: &mut [u8]) -> usize {
@@ -61,8 +184,10 @@ fn pop(queue: &mut VecDeque<u8>, bytes: &mut [u8]) -> usize {
 #[no_mangle]
 extern "C" fn peripheral_connection_rust(connected: bool, handle: u16) {
     // The host delivers connection callbacks in order on its HCI worker.
+    NOTIFY.store(false, Ordering::Release);
     let stamp = STAMP.load(Ordering::Relaxed);
     if connected {
+        ACKNOWLEDGED.store(0, Ordering::Relaxed);
         let generation = (stamp & !(GENERATION - 1)).wrapping_add(GENERATION);
         STAMP.store(
             generation | CONNECTED | (u32::from(handle) & HANDLE_MASK),
@@ -71,6 +196,7 @@ extern "C" fn peripheral_connection_rust(connected: bool, handle: u16) {
     } else {
         STAMP.fetch_and(!(CONNECTED | RETIRED), Ordering::Release);
     }
+    signal_ready();
 }
 
 fn disconnect(stamp: u32) {
@@ -88,11 +214,22 @@ fn disconnect(stamp: u32) {
 }
 
 #[no_mangle]
-unsafe extern "C" fn peripheral_read_rust(output: *mut u8, count: u8) -> i32 {
-    if count == 0 {
+extern "C" fn peripheral_notify_rust(enabled: bool) {
+    NOTIFY.store(enabled, Ordering::Release);
+    signal_ready();
+}
+
+#[no_mangle]
+extern "C" fn peripheral_notifications_rust() -> bool {
+    NOTIFY.load(Ordering::Acquire)
+}
+
+#[no_mangle]
+unsafe extern "C" fn peripheral_read_rust(destination: *mut u8, count: u8) -> i32 {
+    if count == 0 || NOTIFY.load(Ordering::Acquire) {
         return 0;
     }
-    let mut data = match current(STAMP.load(Ordering::Acquire)) {
+    let mut data = match output(STAMP.load(Ordering::Acquire)) {
         Ok(data) => data,
         // An empty reply lets the central poll again without consuming bytes
         // or treating a preempted publisher as a broken connection.
@@ -100,26 +237,73 @@ unsafe extern "C" fn peripheral_read_rust(output: *mut u8, count: u8) -> i32 {
         Err(_) => return -1,
     };
     // The GATT SDK owns count writable bytes until this callback returns.
-    let bytes =
-        unsafe { std::slice::from_raw_parts_mut(output, usize::from(count).min(ATT_CHUNK)) };
-    pop(&mut data.output, bytes) as i32
+    let bytes = unsafe {
+        std::slice::from_raw_parts_mut(destination, usize::from(count).min(LEGACY_CHUNK))
+    };
+    pop(&mut data.queue.bytes, bytes) as i32
 }
 
 #[no_mangle]
-unsafe extern "C" fn peripheral_write_rust(input: *const u8, count: u8) -> i32 {
+unsafe extern "C" fn peripheral_write_rust(source: *const u8, count: u8, framed: bool) -> i32 {
     let count = usize::from(count);
-    if count == 0 || count > ATT_CHUNK {
+    let limit = if framed { STREAM_CHUNK } else { LEGACY_CHUNK };
+    if count == 0 || count > limit {
         return -1;
     }
-    let Ok(mut data) = current(STAMP.load(Ordering::Acquire)) else {
+    let stamp = STAMP.load(Ordering::Acquire);
+    // SDK storage is valid for this synchronous callback only.
+    let mut bytes = unsafe { std::slice::from_raw_parts(source, count) };
+    let mut position = None;
+    if framed {
+        if !NOTIFY.load(Ordering::Acquire) || validate(stamp).is_err() {
+            return -1;
+        }
+        match bytes {
+            [0, rest @ ..] if !rest.is_empty() => bytes = rest,
+            [1, a, b, c, d] => {
+                let offset = u32::from_le_bytes([*a, *b, *c, *d]);
+                if ACKNOWLEDGED.swap(offset, Ordering::AcqRel) != offset {
+                    signal_ready();
+                }
+                return count as i32;
+            }
+            [3, a, b, c, d, rest @ ..] if !rest.is_empty() => {
+                position = Some(u32::from_le_bytes([*a, *b, *c, *d]));
+                bytes = rest;
+            }
+            // The two probes test the direct ATT size without enqueuing bytes.
+            [2 | 4, padding @ ..]
+                if count > LEGACY_CHUNK && padding.iter().all(|byte| *byte == 0) =>
+            {
+                return count as i32;
+            }
+            _ => return -1,
+        }
+    }
+    let Ok(mut data) = input(stamp) else {
         return -1;
     };
-    if count > CAPACITY - data.input.len() {
+    if let Some(position) = position {
+        let preceding = data.next.wrapping_sub(position);
+        if preceding != 0 {
+            // Reject gaps and partial overlaps. A replayed window always
+            // uses the original packet boundaries.
+            return if preceding <= i32::MAX as u32 && preceding >= bytes.len() as u32 {
+                count as i32
+            } else {
+                -1
+            };
+        }
+    }
+    if bytes.len() > CAPACITY - data.queue.bytes.len() {
         return -1;
     }
-    // SDK storage is valid for this synchronous callback only.
-    data.input
-        .extend(unsafe { std::slice::from_raw_parts(input, count) });
+    data.queue.bytes.extend(bytes);
+    if position.is_some() {
+        data.next = data.next.wrapping_add(bytes.len() as u32);
+    }
+    drop(data);
+    signal_ready();
     count as i32
 }
 
@@ -130,16 +314,25 @@ struct Peripheral {
 }
 
 pub(crate) fn open_peripheral(
-    service: Uuid,
-    ingress: Uuid,
-    egress: Uuid,
+    legacy: Service,
+    notifications: Option<Service>,
 ) -> Result<impl Listener, Error> {
     if unsafe { ffi::peripheral_max_connections } != 1 {
         return Err(Error::Unsupported);
     }
-    let ids = [service, ingress, egress];
-    if service == ingress || service == egress || ingress == egress {
-        return Err(Error::InvalidValue);
+    let uuids = |service: Service| [service.uuid, service.ingress, service.egress];
+    let mut ids = [Uuid([0; 16]); 6];
+    ids[..3].copy_from_slice(&uuids(legacy));
+    let count = if let Some(service) = notifications {
+        ids[3..].copy_from_slice(&uuids(service));
+        6
+    } else {
+        3
+    };
+    for (index, uuid) in ids[..count].iter().enumerate() {
+        if ids[..index].contains(uuid) {
+            return Err(Error::InvalidValue);
+        }
     }
     let mut registered = REGISTERED.try_lock().map_err(|_| Error::Busy)?;
     let stamp = STAMP.load(Ordering::Acquire);
@@ -147,30 +340,40 @@ pub(crate) fn open_peripheral(
         return Err(Error::Busy);
     }
     match *registered {
-        Some(prior) if prior != ids => return Err(Error::Unsupported),
+        Some(prior) if prior != (legacy, notifications) => return Err(Error::Unsupported),
         Some(_) => {}
         None => {
-            {
-                let mut data = DATA.lock().map_err(|_| Error::Io)?;
-                data.input
-                    .try_reserve_exact(CAPACITY)
-                    .map_err(|_| Error::Io)?;
-                data.output
-                    .try_reserve_exact(CAPACITY)
-                    .map_err(|_| Error::Io)?;
-            }
+            INPUT
+                .lock()
+                .map_err(|_| Error::Io)?
+                .queue
+                .bytes
+                .try_reserve_exact(CAPACITY)
+                .map_err(|_| Error::Io)?;
+            OUTPUT
+                .lock()
+                .map_err(|_| Error::Io)?
+                .queue
+                .bytes
+                .try_reserve_exact(CAPACITY)
+                .map_err(|_| Error::Io)?;
             let little_endian = ids.map(|Uuid(mut bytes)| {
                 bytes.reverse();
                 bytes
             });
             // The registration copies UUIDs into the SDK's static GATT table.
-            unsafe { ffi::peripheral_register(little_endian.as_ptr().cast()) };
-            *registered = Some(ids);
+            unsafe {
+                ffi::peripheral_register(little_endian.as_ptr().cast(), notifications.is_some())
+            };
+            *registered = Some((legacy, notifications));
         }
     }
+    *OWNER.lock().unwrap() = Some(thread::current());
+    READY.store(false, Ordering::Relaxed);
     OPEN.store(true, Ordering::Release);
     if unsafe { ffi::peripheral_start() } != 0 {
         OPEN.store(false, Ordering::Release);
+        *OWNER.lock().unwrap() = None;
         return Err(Error::Io);
     }
     Ok(Peripheral {
@@ -182,6 +385,66 @@ pub(crate) fn open_peripheral(
 
 impl Listener for Peripheral {
     type Transport = Transport;
+
+    fn notifying(&self) -> bool {
+        peripheral_notifications_rust()
+    }
+
+    fn take_ready(&self) -> bool {
+        READY.swap(false, Ordering::AcqRel)
+    }
+
+    fn idle_retry_at(&self) -> Option<Instant> {
+        let stamp = STAMP.load(Ordering::Acquire);
+        let restarting = stamp & CONNECTED == 0 && stamp != self.advertised;
+        (restarting || stamp & (CONNECTED | RETIRED) == (CONNECTED | RETIRED))
+            .then_some(self.retry_advertise)
+    }
+
+    fn service(&mut self) -> io::Result<()> {
+        let stamp = STAMP.load(Ordering::Acquire);
+        // Let accept() retire a failed link even if its notification
+        // subscription is still enabled.
+        if stamp & (CONNECTED | RETIRED) != CONNECTED || !self.notifying() {
+            return Ok(());
+        }
+        let Some(peer) = ffi::Peer::lookup((stamp & HANDLE_MASK) as u16) else {
+            return Ok(());
+        };
+        let mut output = match output(stamp) {
+            Ok(output) => output,
+            Err(error) if error.kind() == io::ErrorKind::WouldBlock => return Ok(()),
+            Err(error) => return Err(error),
+        };
+        let now = Instant::now();
+        output.acknowledge(ACKNOWLEDGED.load(Ordering::Acquire), now)?;
+        if output.replay_at.is_some_and(|deadline| now >= deadline) {
+            // Repair the oldest bytes first. A delayed ACK should cost one
+            // notification of airtime instead of another full send window.
+            let sent = output.notify(&peer, 0, output.sent)?;
+            if sent != 0 {
+                output.repair = Some(sent);
+                output.replay_at = Some(now + REPLAY_AFTER);
+            }
+            return Ok(());
+        }
+        if output.repair.is_some() {
+            return Ok(());
+        }
+        for _ in 0..NOTIFY_BURST {
+            if !self.notifying() || output.next == output.queue.bytes.len() {
+                break;
+            }
+            let sent = output.notify(&peer, output.next, output.queue.bytes.len())?;
+            if sent == 0 {
+                break;
+            }
+            output.next += sent;
+            output.sent = output.sent.max(output.next);
+            output.replay_at.get_or_insert(now + REPLAY_AFTER);
+        }
+        Ok(())
+    }
 
     fn accept(&mut self) -> Result<Option<Self::Transport>, Error> {
         let stamp = STAMP.load(Ordering::Acquire);
@@ -216,6 +479,7 @@ impl Listener for Peripheral {
 impl Drop for Peripheral {
     fn drop(&mut self) {
         OPEN.store(false, Ordering::Release);
+        *OWNER.lock().unwrap() = None;
         // Tables and callbacks have static lifetimes across controller reuse.
         unsafe { ffi::peripheral_stop() };
         disconnect(STAMP.load(Ordering::Acquire));
@@ -230,7 +494,9 @@ impl Read for Transport {
         if bytes.is_empty() {
             return Ok(0);
         }
-        let count = pop(&mut current(self.stamp)?.input, bytes);
+        // Keep the HCI callback's wait bounded even for large TLS reads.
+        let len = bytes.len().min(4 * LEGACY_CHUNK);
+        let count = pop(&mut input(self.stamp)?.queue.bytes, &mut bytes[..len]);
         if count == 0 {
             Err(io::ErrorKind::WouldBlock.into())
         } else {
@@ -243,16 +509,16 @@ impl Write for Transport {
         if bytes.is_empty() {
             return Ok(0);
         }
-        let mut data = current(self.stamp)?;
-        let count = bytes.len().min(CAPACITY - data.output.len());
+        let mut data = output(self.stamp)?;
+        let count = bytes.len().min(CAPACITY - data.queue.bytes.len());
         if count == 0 {
             return Err(io::ErrorKind::WouldBlock.into());
         }
-        data.output.extend(&bytes[..count]);
+        data.queue.bytes.extend(&bytes[..count]);
         Ok(count)
     }
     fn flush(&mut self) -> io::Result<()> {
-        if current(self.stamp)?.output.is_empty() {
+        if output(self.stamp)?.queue.bytes.is_empty() {
             Ok(())
         } else {
             Err(io::ErrorKind::WouldBlock.into())

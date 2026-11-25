@@ -1,0 +1,34 @@
+# Qualify the headless tracker with one modeled BMI270 on the NuttX I2C bus.
+board = "esp32s3-devkit:nsh"
+target = "xtensa-esp32s3-nuttx"
+crossdev = "xtensa-esp32s3-elf-"
+machine = "Tensilica Xtensa Processor"
+image = "nuttx.merged.bin"
+hal = { imu = "nuttx" }
+
+[composition]
+version = 1
+mode = "hardware"
+
+[resources.sensor_bus]
+binding = "qemu_tracker_i2c"
+frequency = 400000
+
+[devices.motion]
+compatible = "bosch,bmi270"
+bus = "sensor_bus"
+address = 0x69
+wake = { kind = "periodic" }
+
+[imu]
+stack-bytes = 16384
+
+[kconfig]
+enable = ["PIPES"]
+disable = ["SMP", "ESP32S3_SPIRAM", "ESPRESSIF_WIFI", "ESPRESSIF_BLE",
+  "ESP32S3_UART1", "ESP32S3_UART2", "SPI", "INPUT", "MTD", "NSH_PIPELINE"]
+set = ['INIT_ENTRYPOINT="tracker_sim_init"', 'INIT_ENTRYNAME="tracker_sim_init"',
+  "USEC_PER_TICK=1000", "PTHREAD_STACK_DEFAULT=16384"]
+require = ["CONFIG_ESP32S3_QEMU_IMAGE=y", "CONFIG_I2C_DRIVER=y", "CONFIG_PIPES=y",
+  'CONFIG_INIT_ENTRYPOINT="tracker_sim_init"']
+forbid-regex = "^CONFIG_(SMP|ESP32S3_UART[12]|SPI|INPUT|MTD|NET_BLUETOOTH|SCHED_TICKLESS)=y$"

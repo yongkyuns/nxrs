@@ -13,14 +13,21 @@ import subprocess
 
 def build(source_root, output):
     source_root, output = Path(source_root).resolve(), Path(output).resolve()
-    sources = [source_root/'hal/camera/src/api.rs', source_root/'service/stream/src/lib.rs',
-               source_root/'service/stream/src/server.rs']
+    camera = source_root/'hal/camera/src/api.rs'
+    stream = source_root/'service/stream/src'
+    stream_lib = stream/'lib.rs'
+    wire = stream/'wire.rs'
+    sources = [camera, stream_lib]
+    if wire.is_file():
+        sources.extend((wire, stream/'runtime/mod.rs', stream/'runtime/server.rs'))
+    else:
+        sources.append(stream/'server.rs')
     if not all(path.is_file() for path in sources):
         raise ValueError('camera sources required; use a PR merge or current-main worktree')
     output.mkdir(parents=True, exist_ok=True)
     compiler = ['rustup', 'run', '1.90.0', 'rustc', '--edition=2021', '-Dwarnings']
-    def compile_file(source, name, dependencies=(), library=False):
-        args = compiler + ['--crate-name', name, str(source), '-L', 'dependency='+str(output)]
+    def compile_file(source, name, dependencies=(), library=False, flags=()):
+        args = compiler + list(flags) + ['--crate-name', name, str(source), '-L', 'dependency='+str(output)]
         for dependency in dependencies:
             args += ['--extern', f'{dependency}={output}/lib{dependency}.rlib']
         destination = output/('lib'+name+'.rlib' if library else name)
@@ -28,14 +35,15 @@ def build(source_root, output):
             args += ['--crate-type', 'rlib']
         subprocess.run(args+['-o', str(destination)], check=True, timeout=60)
         return destination
-    compile_file(sources[0], 'camera', library=True)
+    compile_file(camera, 'camera', library=True)
     dependencies = ['camera']
-    capture_wire = source_root/'service/capture-wire/src/lib.rs'
-    if capture_wire.is_file():
-        compile_file(capture_wire, 'capture_wire', library=True)
+    legacy_wire = source_root/'service/capture-wire/src/lib.rs'
+    if not wire.is_file() and legacy_wire.is_file():
+        compile_file(legacy_wire, 'capture_wire', library=True)
         dependencies.append('capture_wire')
-        sources.append(capture_wire)
-    compile_file(sources[1], 'stream_service', dependencies, library=True)
+        sources.append(legacy_wire)
+    flags = ('--cfg', 'feature="server"') if wire.is_file() else ()
+    compile_file(stream_lib, 'stream_service', dependencies, library=True, flags=flags)
     result = compile_file(Path(__file__).with_name('camera_source.rs'), 'nxrs_camera_source',
                           ['camera', 'stream_service'])
     for source in sources:

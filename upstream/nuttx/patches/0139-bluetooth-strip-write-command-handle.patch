@@ -1,0 +1,15 @@
+Subject: [PATCH] Bluetooth: pass only the value to GATT write commands
+
+Write Commands carry a two-byte attribute handle before the value.
+Consume it before delivering the value, as in the Write Request path.
+
+--- a/wireless/bluetooth/bt_att.c
++++ b/wireless/bluetooth/bt_att.c
+@@ -1659,6 +1659,7 @@
+   req = (FAR void *)data->data;
+ 
+   handle = BT_LE162HOST(req->handle);
++  bt_buf_consume(data, sizeof(*req));
+ 
+   wlinfo("handle 0x%04x\n", handle);
+ 

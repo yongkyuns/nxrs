@@ -128,6 +128,12 @@ jobs:
         run: |
           git rev-parse HEAD
           rustc --version --verbose
+      - name: Headless Motion Tracker and observation log rotation
+        if: runner.os != 'Windows'
+        run: |
+          python tests/native/motion_tracker.py
+          cargo test --locked -p nxrs-log-qualification --test file -- --nocapture
+          cargo test --locked -p nxrs-motion-tracker --lib communications::publication
       - name: Portable applications, mocks and actual native adapters
         run: |
           cargo test --locked
@@ -137,7 +143,7 @@ jobs:
       - name: Real shared file and UDP APIs without hardware admission
         run: |
           cargo test --locked -p nxrs-storage --features recording --test std_recording
-          cargo test --locked -p nxrs-transport --features udp --test std_udp --test typed_udp
+          cargo run --locked -p nxrs-std-udp -- pass
       - name: Native HAL integration under unset, mock and host profiles
         run: python tests/native/qualify.py
       - name: Scan fixture single-wait owner tests
@@ -195,7 +201,7 @@ jobs:
       - name: Lint capability APIs, services and test composition
         env:
           NXRS_PLATFORM: ${{ matrix.platform }}
-        run: cargo clippy --locked -p nxrs-camera -p nxrs-storage -p nxrs-transport -p nxrs-camera-service -p nxrs-recording-service -p nxrs-telemetry-service -p nxrs-camera-test-support -p nxrs-native-integration --lib -- -D warnings
+        run: cargo clippy --locked -p nxrs-camera -p nxrs-storage -p nxrs-camera-test-support -p nxrs-native-integration --lib -- -D warnings
 
   no-std:
     name: No-std Cortex-M0 compile

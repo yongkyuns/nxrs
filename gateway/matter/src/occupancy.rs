@@ -1,7 +1,7 @@
 //! Confirmed occupancy from the gateway's authenticated detection subscription.
 use bytes::Bytes;
-pub use detection_wire::Presence;
-use detection_wire::{Snapshot, MAX_AGE_MS, SOURCE_TIMEOUT_MS};
+pub use detection_service::wire::Presence;
+use detection_service::wire::{Snapshot, MAX_AGE_MS, SOURCE_TIMEOUT_MS};
 use http_body_util::{BodyExt, Empty};
 use hyper::{client::conn::http1, header, Request, StatusCode};
 use hyper_util::rt::TokioIo;

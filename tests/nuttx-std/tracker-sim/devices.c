@@ -1,5 +1,6 @@
 /* Tracker device models below the real NuttX I2C, SPI, touch and MTD drivers. */
 #include <nuttx/config.h>
+#include <nuttx/arch.h>
 #include <nuttx/i2c/i2c_master.h>
 #include <nuttx/input/ft5x06.h>
 #include <nuttx/mtd/configdata.h>
@@ -13,6 +14,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#ifdef CONFIG_RAMLOG_SYSLOG
+#  include <syslog.h>
+#endif
 
 struct bmi270
 {
@@ -20,18 +24,147 @@ struct bmi270
   size_t image_bytes;
 };
 
-static struct bmi270 g_imus[2];
+#ifdef CONFIG_INPUT_FT5X06
+#  define FIRST_IMU 0x68
+#  define IMU_COUNT 2
+#else
+#  define FIRST_IMU 0x69
+#  define IMU_COUNT 1
+#endif
+
+static struct bmi270 g_imus[IMU_COUNT];
 static mutex_t g_i2c_lock = NXMUTEX_INITIALIZER;
+#ifdef CONFIG_INPUT_FT5X06
 static mutex_t g_spi_lock = NXMUTEX_INITIALIZER;
 static bool g_touched;
 static bool g_lcd_cmd;
 static uint8_t g_lcd_register;
 static uint8_t g_pixel[2];
 static uint8_t g_flash[16384];
+#endif
 
 #ifdef CONFIG_ARCH_SIM
+#  include <time.h>
+
 static bool g_inject_imu_failure;
 static bool g_stall_panel;
+
+/* Host replay preconverts samples to little-endian time and FIFO bytes. */
+struct replay_imu
+{
+  FILE *file;
+  uint64_t origin;
+  uint8_t next[20];
+  uint8_t fifo[2040]; /* Largest whole-frame BMI270 FIFO payload. */
+  size_t length;
+  size_t consumed;
+  size_t samples;
+  bool eof;
+  bool reported;
+};
+
+static struct replay_imu g_replay[2];
+static bool g_replay_mode;
+static bool g_replay_started;
+static uint64_t g_replay_start_ms;
+
+static uint64_t read_le64(const uint8_t *bytes)
+{
+  uint64_t result = 0;
+  for (unsigned int i = 0; i < 8; i++)
+    {
+      result |= (uint64_t)bytes[i] << (i * 8);
+    }
+  return result;
+}
+
+static uint64_t replay_ms(void)
+{
+  struct timespec now;
+  clock_gettime(CLOCK_MONOTONIC, &now);
+  return (uint64_t)now.tv_sec * 1000 + now.tv_nsec / 1000000;
+}
+
+static int replay_next(struct replay_imu *imu)
+{
+  size_t size = fread(imu->next, 1, sizeof(imu->next), imu->file);
+  if (size == sizeof(imu->next))
+    {
+      return 0;
+    }
+  imu->eof = true;
+  bool end = size == 0 && feof(imu->file);
+  fclose(imu->file);
+  imu->file = NULL;
+  return end ? 0 : -EIO;
+}
+
+static void replay_report(unsigned int index)
+{
+  struct replay_imu *imu = &g_replay[index];
+  if (g_replay_started && imu->eof && !imu->reported && imu->consumed == imu->length)
+    {
+      imu->reported = true;
+      printf("TRACKER_REPLAY_IMU_DONE %u %zu\n", index, imu->samples);
+      fflush(stdout);
+    }
+}
+
+static int replay_length(unsigned int index, uint8_t *data)
+{
+  struct replay_imu *imu = &g_replay[index];
+  if (!imu->file && !imu->eof)
+    {
+      const char *path = index == 0 ? "/tracker-fixture/imu-secondary.bin" :
+                                     "/tracker-fixture/imu-primary.bin";
+      imu->file = fopen(path, "rb");
+      uint8_t origin[8];
+      if (!imu->file || fread(origin, 1, sizeof(origin), imu->file) != sizeof(origin))
+        {
+          if (imu->file)
+            {
+              fclose(imu->file);
+              imu->file = NULL;
+            }
+          return -EIO;
+        }
+      imu->origin = read_le64(origin);
+      if (replay_next(imu) < 0)
+        {
+          return -EIO;
+        }
+    }
+  if (!g_replay_started && (g_replay[0].file || g_replay[0].eof) &&
+      (g_replay[1].file || g_replay[1].eof) &&
+      access("/tracker-fixture/replay-ready", F_OK) == 0)
+    {
+      g_replay_start_ms = replay_ms();
+      g_replay_started = true;
+      puts("TRACKER_REPLAY_START");
+      fflush(stdout);
+    }
+  if (g_replay_started && imu->consumed == imu->length)
+    {
+      uint64_t elapsed = replay_ms() - g_replay_start_ms;
+      imu->length = 0;
+      imu->consumed = 0;
+      while (!imu->eof && imu->length < sizeof(imu->fifo) &&
+             read_le64(imu->next) - imu->origin <= elapsed)
+        {
+          memcpy(imu->fifo + imu->length, imu->next + 8, 12);
+          imu->length += 12;
+          if (replay_next(imu) < 0)
+            {
+              return -EIO;
+            }
+        }
+    }
+  size_t remaining = imu->length - imu->consumed;
+  data[0] = remaining & 0xff;
+  data[1] = remaining >> 8;
+  replay_report(index);
+  return 0;
+}
 #endif
 
 #ifdef CONFIG_BLUETOOTH_UART_SHIM
@@ -41,12 +174,27 @@ static bool g_stall_panel;
 /* QTest reads an RGB565 palette and four-bit indices from guest memory.
  * An odd sequence means that a full-panel redraw is in progress.
  */
+#ifdef TRACKER_MAP_PANEL
+/* The CoreS3 map square fits inside this region with the menu open or closed.
+ * Retain the map and UI colors in separate RGB565 palettes.
+ */
+#define MAP_X 75
+#define MAP_Y 38
+#define MAP_SIDE 170
+uint8_t tracker_panel_center[MAP_SIDE * MAP_SIDE];
+uint16_t tracker_center_colors[64];
+static unsigned int g_center_count;
+uint8_t tracker_pixels[(WIDTH * HEIGHT - sizeof(tracker_panel_center)) / 2];
+#else
 uint8_t tracker_pixels[WIDTH * HEIGHT / 2];
+#endif
 uint16_t tracker_colors[16];
 volatile uint32_t tracker_frame_sequence;
 volatile uint32_t tracker_touch_input = 1u << 30;
 volatile uint32_t tracker_touch_reads;
 volatile uint32_t tracker_model_error;
+volatile uint32_t tracker_panel_work_us;
+volatile uint32_t tracker_panel_busy_rows;
 static unsigned int g_color_count;
 static unsigned int g_column, g_last_column, g_page, g_last_page;
 static unsigned int g_x, g_y;
@@ -56,9 +204,73 @@ static unsigned int read_be16(const uint8_t *bytes)
   return ((unsigned int)bytes[0] << 8) | bytes[1];
 }
 
+static unsigned int make_index(uint16_t rgb, uint16_t *palette,
+                               unsigned int *count, unsigned int capacity,
+                               unsigned int *last_color)
+{
+  unsigned int color = *last_color;
+  if (color >= *count || palette[color] != rgb)
+    {
+      for (color = 0; color < *count; color++)
+        {
+          if (palette[color] == rgb)
+            {
+              break;
+            }
+        }
+    }
+  if (color == *count && color < capacity)
+    {
+      palette[(*count)++] = rgb;
+    }
+  *last_color = color;
+  return color;
+}
+
+static bool store_pixel(uint16_t rgb, unsigned int index,
+                        unsigned int *last_colors)
+{
+#ifdef TRACKER_MAP_PANEL
+  if (g_y >= MAP_Y && g_y < MAP_Y + MAP_SIDE)
+    {
+      if (g_x >= MAP_X && g_x < MAP_X + MAP_SIDE)
+        {
+          unsigned int color = make_index(rgb, tracker_center_colors,
+                                          &g_center_count, 64, &last_colors[1]);
+          if (color >= 64)
+            {
+              return false;
+            }
+          tracker_panel_center[(g_y - MAP_Y) * MAP_SIDE + g_x - MAP_X] = color;
+          return true;
+        }
+      index -= (g_y - MAP_Y) * MAP_SIDE;
+      if (g_x >= MAP_X + MAP_SIDE)
+        {
+          index -= MAP_SIDE;
+        }
+    }
+  else if (g_y >= MAP_Y + MAP_SIDE)
+    {
+      index -= sizeof(tracker_panel_center);
+    }
+#endif
+
+  unsigned int color = make_index(rgb, tracker_colors, &g_color_count, 16,
+                                  &last_colors[0]);
+  if (color >= 16)
+    {
+      return false;
+    }
+  unsigned int shift = (index & 1) * 4;
+  tracker_pixels[index / 2] =
+    (tracker_pixels[index / 2] & ~(15 << shift)) | (color << shift);
+  return true;
+}
+
 static void draw_pixels(const uint8_t *bytes, size_t size)
 {
-  unsigned int color = 0;
+  unsigned int colors[2] = {0};
   for (size_t i = 0; i + 1 < size; i += 2)
     {
       uint16_t rgb = read_be16(bytes + i);
@@ -68,33 +280,15 @@ static void draw_pixels(const uint8_t *bytes, size_t size)
           tracker_model_error = 1;
           return;
         }
-      if (color >= g_color_count || tracker_colors[color] != rgb)
-        {
-          for (color = 0; color < g_color_count; color++)
-            {
-              if (tracker_colors[color] == rgb)
-                {
-                  break;
-                }
-            }
-        }
-      if (color == g_color_count)
-        {
-          if (color >= 16)
-            {
-              tracker_model_error = 2;
-              return;
-            }
-          tracker_colors[g_color_count++] = rgb;
-        }
       if (g_x == 0 && (tracker_frame_sequence & 1) == 0)
         {
           tracker_frame_sequence++;
         }
-      unsigned int index = g_y * WIDTH + g_x;
-      unsigned int shift = (index & 1) * 4;
-      tracker_pixels[index / 2] =
-        (tracker_pixels[index / 2] & ~(15 << shift)) | (color << shift);
+      if (!store_pixel(rgb, g_y * WIDTH + g_x, colors))
+        {
+          tracker_model_error = 2;
+          return;
+        }
       if (g_x == WIDTH - 1 && g_y == HEIGHT - 1)
         {
           tracker_frame_sequence++;
@@ -126,6 +320,12 @@ static void panel_exchange(const uint8_t *bytes, size_t size)
     }
   else if (!g_lcd_cmd && g_lcd_register == 0x2c)
     {
+      if (tracker_panel_work_us != 0 && g_y % 8 == 0)
+        {
+          tracker_panel_busy_rows++;
+          up_udelay(tracker_panel_work_us);
+        }
+
       draw_pixels(bytes, size);
     }
 }
@@ -136,6 +336,10 @@ static int bmi_write(struct bmi270 *chip, uint8_t reg,
 {
   if (reg == 0x7e && size == 1 && data[0] == 0xb6)
     {
+#ifdef CONFIG_ARCH_SIM
+      const char *scenario = getenv("TRACKER_SIM_CASE");
+      g_replay_mode = IMU_COUNT == 2 && scenario && strcmp(scenario, "replay") == 0;
+#endif
       memset(chip, 0, sizeof(*chip));
       chip->registers[0] = 0x24; /* CHIP_ID */
       chip->registers[3] = 0xc0; /* STATUS: accel and gyro ready */
@@ -157,6 +361,9 @@ static int bmi_write(struct bmi270 *chip, uint8_t reg,
       if (reg == 0x59 && data[0] == 1 && chip->image_bytes == 8192)
         {
           chip->registers[0x21] = 1;
+#ifdef CONFIG_RAMLOG_SYSLOG
+          syslog(LOG_NOTICE, "log witness: BMI270 configured\n");
+#endif
         }
     }
   else
@@ -169,12 +376,21 @@ static int bmi_write(struct bmi270 *chip, uint8_t reg,
 static int model_read(int address, uint8_t reg, uint8_t *data, size_t size)
 {
   memset(data, 0, size);
-  if (address == 0x68 || address == 0x69)
+  if (address >= FIRST_IMU && address < FIRST_IMU + IMU_COUNT)
     {
-      const struct bmi270 *chip = &g_imus[address - 0x68];
+      const struct bmi270 *chip = &g_imus[address - FIRST_IMU];
       if (reg == 0x24 && size == 2)
         {
 #ifdef CONFIG_ARCH_SIM
+          if (g_replay_mode && chip->registers[0x49] == 0xc0)
+            {
+              /* The replay files encode the normal 4 g / 2000 dps profile. */
+              if ((chip->registers[0x41] & 3) != 1 || (chip->registers[0x43] & 7) != 0)
+                {
+                  return -EINVAL;
+                }
+              return replay_length(address - FIRST_IMU, data);
+            }
           /* The host signals only after seeing a healthy tracker report. */
           if (address == 0x69 && g_inject_imu_failure &&
               access("/tracker-fixture/fail-imu", F_OK) == 0)
@@ -184,6 +400,20 @@ static int model_read(int address, uint8_t reg, uint8_t *data, size_t size)
 #endif
           data[0] = chip->registers[0x49] == 0xc0 ? 12 : 0;
         }
+#ifdef CONFIG_ARCH_SIM
+      else if (reg == 0x26 && g_replay_mode)
+        {
+          struct replay_imu *imu = &g_replay[address - FIRST_IMU];
+          if (size > imu->length - imu->consumed)
+            {
+              return -EIO;
+            }
+          memcpy(data, imu->fifo + imu->consumed, size);
+          imu->consumed += size;
+          imu->samples += size / 12;
+          replay_report(address - FIRST_IMU);
+        }
+#endif
       else if (reg == 0x26 && size == 12)
         {
           data[7] = address == 0x68 ? 0x20 : 0xe0; /* opposite accel X */
@@ -199,6 +429,7 @@ static int model_read(int address, uint8_t reg, uint8_t *data, size_t size)
         }
       return 0;
     }
+#ifdef CONFIG_INPUT_FT5X06
   if (address == 0x34)
     {
       if (reg == 0 && size == 2)
@@ -239,6 +470,7 @@ static int model_read(int address, uint8_t reg, uint8_t *data, size_t size)
 #endif
       return 0;
     }
+#endif
   return -ENXIO;
 }
 
@@ -260,15 +492,17 @@ static int i2c_transfer(struct i2c_master_s *dev, struct i2c_msg_s *msgs,
     }
   else if (count == 1 && msgs[0].length > 1)
     {
-      if (address == 0x68 || address == 0x69)
+      if (address >= FIRST_IMU && address < FIRST_IMU + IMU_COUNT)
         {
-          ret = bmi_write(&g_imus[address - 0x68], reg, msgs[0].buffer + 1,
+          ret = bmi_write(&g_imus[address - FIRST_IMU], reg, msgs[0].buffer + 1,
                           msgs[0].length - 1);
         }
+#ifdef CONFIG_INPUT_FT5X06
       else if (address == 0x38 && reg == 0)
         {
           ret = 0;
         }
+#endif
       else
         {
           ret = -ENXIO;
@@ -281,6 +515,7 @@ static int i2c_transfer(struct i2c_master_s *dev, struct i2c_msg_s *msgs,
 static const struct i2c_ops_s g_i2c_ops = { .transfer = i2c_transfer };
 static struct i2c_master_s g_i2c = { .ops = &g_i2c_ops };
 
+#ifdef CONFIG_INPUT_FT5X06
 static int spi_lock(struct spi_dev_s *dev, bool lock)
 {
   return lock ? nxmutex_lock(&g_spi_lock) : nxmutex_unlock(&g_spi_lock);
@@ -322,11 +557,12 @@ static void spi_exchange(struct spi_dev_s *dev, const void *tx, void *rx,
           nxmutex_lock(&g_i2c_lock);
           g_inject_imu_failure = scenario && strcmp(scenario, "imu") == 0;
           nxmutex_unlock(&g_i2c_lock);
-          g_stall_panel = scenario && strcmp(scenario, "queue") == 0;
+          g_stall_panel = scenario && strcmp(scenario, "paint") == 0;
         }
-      else if (g_stall_panel && g_lcd_register == 0x2c)
+      else if (g_stall_panel && g_lcd_register == 0x2c &&
+               access("/tracker-fixture/stall-panel", F_OK) == 0)
         {
-          /* Delay the app's first paint while acquisition threads keep running. */
+          /* Delay one paint after the host sees live telemetry. */
           g_stall_panel = false;
           puts("TRACKER_PANEL_STALL");
           usleep(1000000);
@@ -348,17 +584,22 @@ static const struct spi_ops_s g_spi_ops =
   .exchange = spi_exchange,
 };
 static struct spi_dev_s g_spi = { .ops = &g_spi_ops };
+#endif
 
 int tracker_sim_devices(void)
 {
+  for (unsigned int i = 0; i < IMU_COUNT; i++)
+    {
+      g_imus[i].registers[0] = 0x24;
+    }
+  int ret = i2c_register(&g_i2c, 0);
+#ifdef CONFIG_INPUT_FT5X06
   static const struct ft5x06_config_s touch =
   {
     .lower = { .xres = 320, .yres = 240, .maxpoint = 1 },
     .address = 0x38,
     .frequency = I2C_SPEED_FAST,
   };
-  g_imus[0].registers[0] = g_imus[1].registers[0] = 0x24;
-  int ret = i2c_register(&g_i2c, 0);
   if (ret >= 0)
     {
       ret = ft5x06_register(&g_i2c, &touch, 0);
@@ -373,9 +614,11 @@ int tracker_sim_devices(void)
       struct mtd_dev_s *memory = rammtd_initialize(g_flash, sizeof(g_flash));
       ret = memory ? mtdconfig_register(memory) : -ENOMEM;
     }
+#endif
   return ret;
 }
 
+#ifdef CONFIG_INPUT_FT5X06
 uint16_t tracker_sim_pixel(void)
 {
   return ((uint16_t)g_pixel[0] << 8) | g_pixel[1];
@@ -387,3 +630,4 @@ void tracker_sim_touch(void)
   g_touched = true;
   nxmutex_unlock(&g_i2c_lock);
 }
+#endif

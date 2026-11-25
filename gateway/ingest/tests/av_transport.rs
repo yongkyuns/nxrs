@@ -1,6 +1,6 @@
 //! Exercise the actual camera multipart writer and gateway reader together.
 use camera::{Capture, Format, Frame, PixelFormat};
-use capture_wire::{
+use stream_service::wire::{
     AudioBlock, AudioStamp, MicrophoneState, AUDIO_TYPE, AV_PATH, BLOCK_BYTES, CONTROLLED_AV_PATH,
 };
 use nxrs_camera_ingest::{
@@ -294,7 +294,7 @@ async fn controlled_reader_refuses_audio_before_an_exact_acknowledgement() {
             write!(
                 reply,
                 "--nxrs-frame\r\nContent-Type: {}\r\nContent-Length: {}\r\n\r\n",
-                capture_wire::MICROPHONE_STATE_TYPE,
+                stream_service::wire::MICROPHONE_STATE_TYPE,
                 wrong.len()
             )
             .unwrap();
@@ -315,7 +315,7 @@ async fn negotiated_audio_and_annotated_video_survive_short_writes_and_reads() {
     let metadata = Some(Metadata {
         revision: 3,
         bytes: METADATA,
-        content_type: detection_wire::METADATA_TYPE,
+        content_type: detection_service::wire::METADATA_TYPE,
     });
 
     let progress = http.poll_media(100, Some(frame(8, 100)), metadata, Some(audio(0, 100)));
@@ -464,7 +464,7 @@ fn write_microphone_ack(output: &mut Vec<u8>, state: MicrophoneState) {
     write!(
         output,
         "--nxrs-frame\r\nContent-Type: {}\r\nContent-Length: {}\r\n\r\n",
-        capture_wire::MICROPHONE_STATE_TYPE,
+        stream_service::wire::MICROPHONE_STATE_TYPE,
         MicrophoneState::BYTES
     )
     .unwrap();

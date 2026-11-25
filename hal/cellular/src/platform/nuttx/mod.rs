@@ -33,6 +33,21 @@ enum Lease {
 }
 
 pub fn connect(apn: &str) -> Result<impl Session, Error> {
+    start(apn, None)
+}
+
+/// Maintain PPP across recoverable link failures. The callback receives each
+/// status transition in task context and must complete without waiting.
+pub fn connect_managed(
+    apn: &str,
+    notify: impl Fn(Status) + Send + Sync + 'static,
+) -> Result<impl Session, Error> {
+    start(apn, Some(Box::new(notify)))
+}
+
+type Notify = Box<dyn Fn(Status) + Send + Sync>;
+
+fn start(apn: &str, notify: Option<Notify>) -> Result<Link, Error> {
     let context = sim7080::context(apn).ok_or(Error::InvalidApn)?;
     let mut lease = OWNED.lock().unwrap();
     match *lease {
@@ -44,18 +59,19 @@ pub fn connect(apn: &str) -> Result<impl Session, Error> {
     let shared = Arc::new(Shared {
         status: Mutex::new(Status::Connecting),
         stop: AtomicBool::new(false),
+        notify,
     });
     let worker = thread::Builder::new()
         .name("cellular".into())
-        .stack_size(24 * 1024)
+        .stack_size(15 * 1024)
         .spawn({
             let shared = shared.clone();
             move || {
                 let result = run(&context, &shared, stop_read);
-                *shared.status.lock().unwrap() = match result {
+                shared.publish(match result {
                     Ok(()) => Status::Stopped,
                     Err(error) => Status::Failed(error),
-                };
+                });
                 *OWNED.lock().unwrap() = if result == Err(Error::RecoveryRequired) {
                     Lease::Faulted
                 } else {
@@ -77,6 +93,28 @@ pub fn connect(apn: &str) -> Result<impl Session, Error> {
 struct Shared {
     status: Mutex<Status>,
     stop: AtomicBool,
+    notify: Option<Notify>,
+}
+
+impl Shared {
+    fn publish(&self, status: Status) {
+        let previous = std::mem::replace(&mut *self.status.lock().unwrap(), status);
+        if previous != status {
+            if let Some(notify) = &self.notify {
+                notify(status);
+            }
+        }
+    }
+
+    fn failed(&self, error: Error) {
+        self.publish(
+            if self.notify.is_some() && error != Error::RecoveryRequired {
+                Status::Retrying(error)
+            } else {
+                Status::Failed(error)
+            },
+        );
+    }
 }
 
 struct Link {
@@ -98,7 +136,7 @@ impl Session for Link {
         if let Some(worker) = self.worker.take() {
             self.stopped = Some(worker.join().unwrap_or_else(|_| {
                 *OWNED.lock().unwrap() = Lease::Faulted;
-                *self.shared.status.lock().unwrap() = Status::Failed(Error::RecoveryRequired);
+                self.shared.publish(Status::Failed(Error::RecoveryRequired));
                 Err(Error::RecoveryRequired)
             }));
         }
@@ -113,11 +151,50 @@ impl Drop for Link {
 }
 
 fn run(context: &str, shared: &Shared, stop: File) -> Result<(), Error> {
+    let mut delay = Duration::from_secs(1);
+    loop {
+        let mut online = false;
+        let result = attempt(context, shared, &stop, &mut online);
+        let Err(error) = result else { return result };
+        if shared.notify.is_none() || error == Error::RecoveryRequired {
+            return result;
+        }
+        if shared.stop.load(Ordering::Acquire) {
+            return Ok(());
+        }
+        shared.failed(error);
+        if online {
+            delay = Duration::from_secs(1);
+        }
+        let retry_at = Instant::now() + delay;
+        while !shared.stop.load(Ordering::Acquire) {
+            let remaining = retry_at.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                break;
+            }
+            ffi::wait(
+                None,
+                None,
+                Some(&stop),
+                None,
+                remaining.as_millis().max(1) as i32,
+            )
+            .map_err(io_error)?;
+        }
+        if shared.stop.load(Ordering::Acquire) {
+            return Ok(());
+        }
+        delay = (delay * 2).min(Duration::from_secs(30));
+        shared.publish(Status::Connecting);
+    }
+}
+
+fn attempt(context: &str, shared: &Shared, stop: &File, online: &mut bool) -> Result<(), Error> {
     let mut uart = ffi::open(env!("CELLULAR_DEVICE")).map_err(io_error)?;
     ffi::raw(&uart).map_err(io_error)?;
     let mut modem = Modem {
         uart: &mut uart,
-        cancel: Some((&shared.stop, &stop)),
+        cancel: Some((&shared.stop, stop)),
     };
     let mut dialed = false;
     let result = (|| {
@@ -127,7 +204,7 @@ fn run(context: &str, shared: &Shared, stop: File) -> Result<(), Error> {
         let response = modem.command(sim7080::DIAL, Reply::Connect, DIAL);
         dialed = response != Err(Error::Rejected);
         response?;
-        modem.network(shared)
+        modem.network(shared, online)
     })();
     // A stop after a published fault joins teardown and retains that fault.
     let result = if shared.stop.load(Ordering::Acquire) {
@@ -136,7 +213,7 @@ fn run(context: &str, shared: &Shared, stop: File) -> Result<(), Error> {
         result
     };
     if let Err(error) = result {
-        *shared.status.lock().unwrap() = Status::Failed(error);
+        shared.failed(error);
     }
     if dialed {
         modem.cancel = None;
@@ -254,7 +331,7 @@ impl Modem<'_> {
         }
     }
 
-    fn network(&mut self, shared: &Shared) -> Result<(), Error> {
+    fn network(&mut self, shared: &Shared, online: &mut bool) -> Result<(), Error> {
         let mut tun = ffi::open("/dev/tun").map_err(io_error)?;
         let interface = ffi::Interface::create(&tun).map_err(io_error)?;
         let mut ppp = PPPoS::new(Config {
@@ -267,7 +344,6 @@ impl Modem<'_> {
         let mut input = [0; 512];
         let mut packet = [0; MTU];
         let mut frames = frames::Frames::default();
-        let mut online = false;
         let deadline = Instant::now() + NEGOTIATION;
         let mut echo_at = deadline;
         let mut echo_id = 0u8;
@@ -283,7 +359,7 @@ impl Modem<'_> {
         }
         loop {
             let now = Instant::now();
-            let until = if online {
+            let until = if *online {
                 if now >= echo_at {
                     if unanswered == ECHO_MISSES {
                         return Err(Error::LinkLost);
@@ -308,7 +384,7 @@ impl Modem<'_> {
                 }
                 deadline.min(request.retry_at)
             };
-            match self.wait(online.then_some(&tun), None, until) {
+            match self.wait((*online).then_some(&tun), None, until) {
                 Err(Error::Timeout) => continue,
                 result => result?,
             }
@@ -319,12 +395,12 @@ impl Modem<'_> {
                         // At this boundary only one complete frame is available.
                         match ppp.poll(&mut tx, &mut rx) {
                             PPPoSAction::Transmit(count) => {
-                                if !online {
+                                if !*online {
                                     request.record(&tx[..count])?;
                                 }
                                 self.write(&tx[..count], Instant::now() + COMMAND)?
                             }
-                            PPPoSAction::Received(range) if online => {
+                            PPPoSAction::Received(range) if *online => {
                                 match tun.write(&rx[range.clone()]) {
                                     Ok(written) if written == range.len() => (),
                                     // TUN is packet-oriented. Drop on backpressure.
@@ -332,7 +408,7 @@ impl Modem<'_> {
                                     _ => return Err(Error::Io),
                                 }
                             }
-                            PPPoSAction::EchoReply(id) if online && id == echo_id => {
+                            PPPoSAction::EchoReply(id) if *online && id == echo_id => {
                                 unanswered = 0;
                             }
                             _ => (),
@@ -341,10 +417,10 @@ impl Modem<'_> {
                 }
             }
             let status = ppp.status();
-            if status.phase == Phase::Dead || (online && status.ipv4.is_none()) {
+            if status.phase == Phase::Dead || (*online && status.ipv4.is_none()) {
                 return Err(Error::LinkLost);
             }
-            if !online && status.phase == Phase::Open {
+            if !*online && status.phase == Phase::Open {
                 let ipv4 = status.ipv4.ok_or(Error::Rejected)?;
                 let address = ipv4.address.ok_or(Error::Rejected)?;
                 // Some peers omit their point-to-point address. The NuttX
@@ -352,11 +428,11 @@ impl Modem<'_> {
                 interface
                     .bring_up(address, ipv4.peer_address.unwrap_or(address))
                     .map_err(io_error)?;
-                online = true;
+                *online = true;
                 echo_at = Instant::now() + ECHO_INTERVAL;
-                *shared.status.lock().unwrap() = Status::Online { address };
+                shared.publish(Status::Online { address });
             }
-            if online {
+            if *online {
                 if let Some(bytes) = read_ready(&mut tun, &mut packet)? {
                     let count = ppp.send(bytes, &mut tx).map_err(|_| Error::Io)?;
                     self.write(&tx[..count], Instant::now() + COMMAND)?;

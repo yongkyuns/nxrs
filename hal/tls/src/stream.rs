@@ -1,3 +1,4 @@
+use std::borrow::Borrow;
 use std::io::{self, Read, Write};
 use std::net::{Shutdown, TcpStream};
 
@@ -26,12 +27,14 @@ impl Stream for TcpStream {
     }
 
     fn abort(&mut self) {
-        let _ = self.shutdown(Shutdown::Both);
+        shutdown_tcp(&*self);
     }
 
     fn retire(self) {
-        // Close directly. On NuttX, shutdown disables the callback that
-        // reclaims queued TCP writes when the network device goes down.
-        drop(self);
+        crate::platform::retire_tcp(self);
     }
+}
+
+pub(crate) fn shutdown_tcp(stream: impl Borrow<TcpStream>) {
+    let _ = stream.borrow().shutdown(Shutdown::Both);
 }

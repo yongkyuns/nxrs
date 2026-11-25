@@ -957,14 +957,13 @@ fn build_or_prepare(
         cargo.env_remove("NUTTX_STD_MACHO_LINK");
     }
     if trace {
-        cargo.arg(format!(
-            "-Zbuild-std-features=backtrace-trace-only,optimize_for_size{}",
-            if immediate {
-                ",panic_immediate_abort"
-            } else {
-                ""
-            }
-        ));
+        // std's panic hook is gated by `backtrace`. Trace-only selects raw
+        // addresses in the formatter, but does not enable the hook itself.
+        cargo.arg(if immediate {
+            "-Zbuild-std-features=backtrace-trace-only,optimize_for_size,panic_immediate_abort"
+        } else {
+            "-Zbuild-std-features=backtrace-trace-only,optimize_for_size,backtrace"
+        });
     }
     if let Some(config) = env::var_os("NXRS_CARGO_CONFIG") {
         cargo.arg("--config").arg(config);

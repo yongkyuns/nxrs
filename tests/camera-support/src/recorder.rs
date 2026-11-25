@@ -1,5 +1,5 @@
-use camera_service::Frames;
-use recording_service::Recordings;
+use camera::capture::Frames;
+use crate::recording::Recordings;
 use crate::{reader::Reader, AppState, AppStats, Error, Progress};
 
 /// Composes Frames + Recordings. It cannot shut down its frame provider.

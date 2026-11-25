@@ -222,20 +222,17 @@ pub(super) fn run(directory: PathBuf, age: u64, stack_bytes: usize, case: Case) 
                 })
             }
         }
-        let worker = detection_service::Worker::spawn(
+        let detection = detection_service::Session::start(
             detection_service::WorkerOptions {
                 frame_capacity: 16384,
                 sample_interval_ms: 100,
                 stack_bytes: 65536,
             },
+            detection_service::Policy::default(),
             || Ok(Synthetic),
         )
         .unwrap();
-        live.attach_detection(
-            home_cam::SecurityDetection::new(worker, detection_service::Policy::default())
-                .unwrap(),
-        )
-        .unwrap();
+        live.attach_detection(detection).unwrap();
     }
     let (width, height) = if media { (320, 240) } else { (96, 96) };
     live.start(width, height).unwrap();

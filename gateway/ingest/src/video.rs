@@ -3,7 +3,7 @@
 use crate::{
     config::Config, detections::Sample, protocol::Reader, runner, tls::Prepared, Error, Result,
 };
-use detection_wire::{Version, VideoFrame};
+use detection_service::wire::{Version, VideoFrame};
 use std::time::Duration;
 use tokio::{
     io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt},

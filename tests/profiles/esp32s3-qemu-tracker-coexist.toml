@@ -1,4 +1,15 @@
 # Keep the modem on UART2 and connect the virtual H4 controller through NuttX RAM UART.
 extends = "esp32s3-qemu-tracker-upload"
 nuttx-config = "esp32s3-qemu-tracker-coexist.conf"
-hal = { ble = "nuttx" }
+hal = { ble = "nuttx", execution = "nuttx", boot = "nuttx", watchdog = "nuttx" }
+
+[watchdog]
+device = "/dev/watchdog0"
+mode = "runtime"
+
+[scheduling]
+background = 90
+normal = 100
+
+[devices.navigation]
+navigation-period-ms = 500

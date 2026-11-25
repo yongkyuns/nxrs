@@ -4,28 +4,34 @@ version.workspace = true
 edition.workspace = true
 
 [package.metadata.nxrs]
-required-capabilities = ["imu", "gnss", "display", "touch", "settings", "tls"]
+required-capabilities = ["imu", "gnss"]
 
 [package.metadata.nxrs.firmware]
 bin = "motion-tracker"
 command = "motion_tracker"
 priority = 100
-stack-size = 32768
+stack-size = 14848
 
 [[bin]]
 name = "motion-tracker"
 path = "src/main.rs"
 
 [dependencies]
+log = "0.4"
+nxrs-log-router = { path = "../../service/logging" }
 nxrs-composition = { path = "../../platform", features = ["imu", "gnss", "battery"] }
 nxrs-battery = { path = "../../hal/battery" }
 nxrs-display = { path = "../../hal/display" }
 nxrs-touch = { path = "../../hal/touch" }
 nxrs-gnss = { path = "../../hal/gnss" }
 nxrs-imu = { path = "../../hal/imu" }
+nxrs-boot = { path = "../../hal/boot" }
+nxrs-watchdog = { path = "../../hal/watchdog" }
 nxrs-messaging = { path = "../../shared/messaging", features = ["channels"] }
+nxrs-navigation-services = { path = "../../service/navigation" }
 nxrs-settings = { path = "../../hal/settings" }
 nxrs-cellular = { path = "../../hal/cellular" }
 nxrs-ble = { path = "../../hal/ble", features = ["peripheral"] }
+nxrs-execution = { path = "../../hal/execution" }
 nxrs-tls = { path = "../../hal/tls", features = ["pairing"] }
 qrcodegen = "1.8"

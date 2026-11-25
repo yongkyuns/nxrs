@@ -7,8 +7,8 @@ use crate::{
     protocol::{Frame, Packet, Reader},
     runner, Error, Result,
 };
-use capture_wire::{AudioStamp, MicrophoneState, BLOCK_BYTES, BLOCK_SAMPLES, SAMPLE_RATE_HZ};
-use detection_wire::{Version, VideoFrame};
+use stream_service::wire::{AudioStamp, MicrophoneState, BLOCK_BYTES, BLOCK_SAMPLES, SAMPLE_RATE_HZ};
+use detection_service::wire::{Version, VideoFrame};
 use serde::Deserialize;
 use std::time::Duration;
 use tokio::{

@@ -120,7 +120,14 @@
       "0133-esp32s3-qemu-host-entropy.patch",
       "0134-sim-macos-pty.patch",
       "0135-sim-macos-libc-symbol-prefix.patch",
-      "0136-sim-replace-macos-archive-members.patch"
+      "0136-sim-replace-macos-archive-members.patch",
+      "0137-bluetooth-nonblocking-notify.patch",
+      "0138-bluetooth-retire-failed-acl-transport.patch",
+      "0139-bluetooth-strip-write-command-handle.patch",
+      "0140-esp32s3-serialize-vhci-send.patch",
+      "0141-bluetooth-reclaim-tx-credits-before-allocation.patch",
+      "0142-stack-guard-use-saved-interrupt-context.patch",
+      "0143-esp32s3-cores3-register-watchdog.patch"
     ]
   },
   "mcuboot": {

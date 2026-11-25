@@ -4,9 +4,9 @@ This Rust service adds bounded inference scheduling and person-presence events
 to `app/home-cam`. The detector API, models, image preprocessing and native
 compute implementations belong to [`hal/detector`](../../hal/detector/README.md).
 Applications acquire `detector::open(Config)` and never import a platform SDK.
-The service owns frame admission, its worker, expiry, temporal confirmation and
-alert policy. The current camera snapshot preserves presence, events and bounded person boxes
-from providers that report localization.
+The detection session owns frame admission, its worker, expiry, temporal
+confirmation, event history and publication. Its snapshot exposes presence,
+events and bounded person boxes from providers that report localization.
 
 The product profile chooses its detector model and worker budget. The firmware
 frontend includes the required model dependencies automatically; the default
@@ -28,25 +28,31 @@ promise real-time performance for those resolutions.
 
 ## Integration and ownership
 
-The app accepts an explicitly constructed `SecurityDetection` before capture
-starts. Product wiring creates `Worker` with a frame capacity, sample interval,
-stack budget and model initializer. For example:
+The app attaches a `detection_service::Session` before starting capture.
+Product wiring supplies the frame capacity, sample interval, stack budget,
+alert policy and model initializer.
 
 ```rust,ignore
-let worker = Worker::spawn(
+use detection_service::{Policy, Session, WorkerOptions};
+
+let detection = Session::start(
     WorkerOptions {
         frame_capacity: 153_600,
         sample_interval_ms: 2_000,
         stack_bytes: 512 * 1024,
     },
+    Policy::default(),
     || detector::open(detector::Config::default()).map_err(Into::into),
 )?;
-let detection = SecurityDetection::new(worker, Policy::default())?;
 camera.attach_detection(detection)?;
 camera.start(320, 240)?;
 // The existing owner continues calling camera.poll(now_ms, online).
 // camera.detection().unwrap().snapshot() exposes typed state and recent events.
 ```
+
+Home-cam passes JPEGs with their source frame identity to the session and
+forwards its encoded metadata. Gateways use `detection_service::wire` with
+default features disabled to build only the [versioned protocol](../../docs/camera-detection-delivery.md).
 
 One preallocated JPEG buffer moves from producer to inference to completion and
 back. A slow model cannot accumulate queued frames, allocate on offers, or retain
@@ -54,8 +60,8 @@ a borrowed camera frame. The camera owner only performs a bounded copy and
 nonblocking mailbox transfers. Decode/inference runs on one separate worker;
 no decoder thread pool is enabled. Inference continues offline. Video remains
 independent of model errors. Stop closes admission and joins before dropping
-model/buffer storage; a failed worker cannot report clean shutdown. Replace the
-worker before restarting a stopped detection-enabled composition.
+model/buffer storage; a failed worker cannot report clean shutdown. Attach a
+fresh detection session before restarting.
 
 The fixture supplies an explicit sampling budget and a lower-priority worker
 (90 versus the camera owner's 100). This uses one native scheduler call under
@@ -89,7 +95,7 @@ and explicit stop may wait; capture poll/admission do not wait for the worker.
 - Results expire after five seconds; confirmation samples may be at most four
   seconds apart. Future/backwards/repeated metadata is rejected. Failure,
   expiry and startup are `Unavailable`, distinct from `Clear` and `Person`.
-- The application retains eight typed events (`PersonEntered`, `PersonLeft`,
+- The session retains eight typed events (`PersonEntered`, `PersonLeft`,
   `Unavailable`) with monotonically increasing IDs and a total event count.
   Consumers can detect overwritten history. IDs are per composition instance;
   consumers retaining history across restart also need an owner-supplied session

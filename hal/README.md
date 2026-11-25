@@ -87,16 +87,15 @@ and deliberate fixture exports. `src/platform/mod.rs` contains only one selected
 implementation module and named factory exports, not implementation code or
 wildcard re-exports. An unbound acquisition must fail explicitly.
 
-Ordinary shared Rust `std` facilities stay in their own modules, independent of
-hardware admission: file replay in `camera::replay`, recording in
-`storage::recording` and UDP in `transport::udp`, selected by their nondefault
-`replay`, `recording` and `udp` Cargo features. The camera
+Explicit file replay and recording use the nondefault `replay` and `recording`
+Cargo features on `camera::replay` and `storage::recording`. TCP and UDP use
+`std::net`. The camera
 [fixed replay aliases](camera/README.md) retain the same software meaning under
-every profile. The old profile-dependent storage and transport factories are
-removed. Synchronous record-file acquisition is the fixed
+every profile. Synchronous record-file acquisition is the fixed
 `storage::create_record_file(path, max_records, max_frame_bytes)` operation; it
 returns `Unsupported` when unavailable and never substitutes queued recording.
-`PacketSink` is the sole packet-output trait name. Cargo determines which crates
+Camera frame history and stop belong to `camera::capture::Session`. Station retry
+and rejoin belong to `wifi::Reconnector`. Cargo determines which crates
 are built; profiles select physical resource bindings and NuttX configuration.
 
 ## Build and qualification ownership

@@ -1,6 +1,6 @@
 //! Latest-value forwarding has its own task and deadlines; video never awaits HTTP.
 use crate::{config::DetectionConfig, control::publisher_post, protocol::Frame, Error};
-use detection_wire::{Source, Update};
+use detection_service::wire::{Source, Update};
 use std::time::Duration;
 use tokio::{
     sync::watch,
@@ -109,7 +109,7 @@ mod tests {
             camera_id: "cam_one".into(),
         };
         let (tx, rx) = watch::channel(None);
-        let fixture: detection_wire::Snapshot = serde_json::from_slice(include_bytes!(
+        let fixture: detection_service::wire::Snapshot = serde_json::from_slice(include_bytes!(
             "../../../clients/ios/Tests/NxrsMonitorCoreTests/Fixtures/detection.json"
         ))
         .unwrap();

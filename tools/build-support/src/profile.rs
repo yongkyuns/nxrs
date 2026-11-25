@@ -21,7 +21,6 @@ pub const CAPABILITIES: &[&str] = &[
     "audio",
     "settings",
     "storage",
-    "transport",
     "led",
     "imu",
     "gnss",
@@ -131,9 +130,9 @@ pub(crate) fn sensor_stack(v: &Value) -> Result<u64> {
         .as_u64()
         .unwrap_or(16384);
     if v.get("stack-bytes")
-        .is_some_and(|x| !integer(x, 8192, 262144))
+        .is_some_and(|x| !integer(x, 3072, 262144))
     {
-        return Err("sensor stack-bytes must be between 8192 and 262144".into());
+        return Err("sensor stack-bytes must be between 3072 and 262144".into());
     }
     Ok(stack)
 }
@@ -1340,7 +1339,7 @@ mod tests {
             ("imu", "address", json!(0x70)),
             ("imu", "frequency", json!(0)),
             ("imu", "irq-device", json!(false)),
-            ("gnss", "stack-bytes", json!(1)),
+            ("gnss", "stack-bytes", json!(3071)),
         ] {
             let mut p = base.clone();
             p.data[cap][key] = bad;

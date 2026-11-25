@@ -799,7 +799,10 @@ impl<T: Stream> Connection<'_, T> {
         }
         Ok(upper)
     }
-    fn operation(&mut self, action: impl FnOnce(*mut c_void) -> c_int) -> Result<c_int, Error> {
+    // Each transport shares the SDK deadline and record-workspace path across
+    // handshake, read, write and close.
+    #[inline(never)]
+    fn operation(&mut self, action: &mut dyn FnMut(*mut c_void) -> c_int) -> Result<c_int, Error> {
         let epoch = self.epoch()?;
         self.socket.calls.set(8);
         self.socket.bytes.set(8192);
@@ -808,8 +811,16 @@ impl<T: Stream> Connection<'_, T> {
         } else {
             self.until.min(self.handshake_until)
         });
-        let result =
-            timed(self.identity, epoch, || action(self.ssl.pointer())).map_err(|e| self.fail(e))?;
+        let record = self
+            .ready
+            .then(|| self.identity.record.enter())
+            .transpose()
+            .map_err(|e| self.fail(e))?;
+        let result = timed(self.identity, epoch, || action(self.ssl.pointer()));
+        if let Some(record) = record {
+            record.finish().map_err(|e| self.fail(e))?;
+        }
+        let result = result.map_err(|e| self.fail(e))?;
         self.epoch()?;
         if self.socket.fault.get() {
             return Err(self.fail(Error::Io));
@@ -823,7 +834,7 @@ impl<T: Stream> Connection<'_, T> {
             return Ok(true);
         }
         if unsafe { tls_handshake_over(self.ssl.pointer()) } == 0 {
-            let status = self.operation(|p| unsafe { mbedtls_ssl_handshake_step(p) })?;
+            let status = self.operation(&mut |p| unsafe { mbedtls_ssl_handshake_step(p) })?;
             if status == unsafe { tls_want_read() } || status == unsafe { tls_want_write() } {
                 return Ok(false);
             }
@@ -897,7 +908,7 @@ impl<T: Stream> Connection<'_, T> {
         if self.pending_size != 0 {
             return Err(self.fail(Error::InvalidInput));
         }
-        let status = self.operation(|p| unsafe { mbedtls_ssl_close_notify(p) })?;
+        let status = self.operation(&mut |p| unsafe { mbedtls_ssl_close_notify(p) })?;
         if status == unsafe { tls_want_read() } || status == unsafe { tls_want_write() } {
             return Ok(false);
         }
@@ -934,14 +945,15 @@ impl<T: Stream> Read for Connection<'_, T> {
         if !self.poll().map_err(io_error)? {
             return Err(io::ErrorKind::WouldBlock.into());
         }
-        let status =
-            match self.operation(|p| unsafe { mbedtls_ssl_read(p, output.as_mut_ptr(), size) }) {
-                Ok(status) => status,
-                Err(error) => {
-                    output[..size].fill(0);
-                    return Err(io_error(error));
-                }
-            };
+        let status = match self
+            .operation(&mut |p| unsafe { mbedtls_ssl_read(p, output.as_mut_ptr(), size) })
+        {
+            Ok(status) => status,
+            Err(error) => {
+                output[..size].fill(0);
+                return Err(io_error(error));
+            }
+        };
         let result = self.io_status(status);
         if result.is_err() {
             output[..size].fill(0);
@@ -967,7 +979,7 @@ impl<T: Stream> Write for Connection<'_, T> {
         let pointer = self.pending.as_ptr();
         let size = self.pending_size;
         let status = self
-            .operation(|p| unsafe { mbedtls_ssl_write(p, pointer, size) })
+            .operation(&mut |p| unsafe { mbedtls_ssl_write(p, pointer, size) })
             .map_err(io_error)?;
         let result = self.io_status(status);
         if let Ok(n) = result {

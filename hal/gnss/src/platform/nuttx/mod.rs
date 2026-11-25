@@ -214,7 +214,6 @@ impl<R: Protocol + AsRef<Serial> + AsMut<Serial> + Send + 'static> crate::Device
         session::start(self.stack_bytes, cancel, delivery, move |stop, emit| {
             let mut storage = self.storage.lock().map_err(|_| DeviceError::Io)?;
             let device = storage.as_mut().ok_or(DeviceError::Io)?;
-            let origin = std::time::Instant::now();
             let result = (|| {
                 while !stop.load(Ordering::Acquire) {
                     if !readiness::wait(
@@ -227,7 +226,7 @@ impl<R: Protocol + AsRef<Serial> + AsMut<Serial> + Send + 'static> crate::Device
                         break;
                     }
                     let mut connected = true;
-                    let now = origin.elapsed().as_millis().try_into().unwrap_or(u64::MAX);
+                    let now = acquisition::monotonic_ms();
                     device.receiver.read_events(now, |fix| {
                         if connected {
                             connected = match fix {

@@ -3,6 +3,3 @@ name = "nxrs-std-udp"
 version.workspace = true
 edition.workspace = true
 publish = false
-
-[target.'cfg(target_os = "nuttx")'.dependencies]
-nxrs-transport = { path = "../../../hal/transport", features = ["udp"] }

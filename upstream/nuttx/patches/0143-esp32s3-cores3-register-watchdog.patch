@@ -1,0 +1,28 @@
+diff --git a/boards/xtensa/esp32s3/esp32s3-m5-cores3/src/esp32s3_boot.c b/boards/xtensa/esp32s3/esp32s3-m5-cores3/src/esp32s3_boot.c
+--- a/boards/xtensa/esp32s3/esp32s3-m5-cores3/src/esp32s3_boot.c
++++ b/boards/xtensa/esp32s3/esp32s3-m5-cores3/src/esp32s3_boot.c
+@@ -7,6 +7,9 @@
+ #include <nuttx/fs/fs.h>
+ #include <syslog.h>
+ #include "esp32s3_i2c.h"
++#ifdef CONFIG_WATCHDOG
++#  include "esp32s3_board_wdt.h"
++#endif
+ #ifdef CONFIG_ESP32S3_M5_CORES3_LCD
+ int cores3_lcd_bus_initialize(void);
+ #endif
+@@ -23,6 +26,14 @@
+ #ifdef CONFIG_BOARD_LATE_INITIALIZE
+ void board_late_initialize(void)
+ {
++#ifdef CONFIG_WATCHDOG
++  int watchdog = board_wdt_init();
++  if (watchdog < 0)
++    {
++      syslog(LOG_ERR, "CoreS3 watchdog registration failed: %d\n",
++             watchdog);
++    }
++#endif
+ #ifdef CONFIG_I2C_DRIVER
+   int result = board_i2c_init();
+   if (result < 0) syslog(LOG_ERR, "CoreS3 I2C registration failed: %d\n", result);

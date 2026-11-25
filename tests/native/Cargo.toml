@@ -4,9 +4,6 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
-nxrs-camera-test-support = { path = "../camera-support" }
-nxrs-camera-service = { path = "../../service/camera" }
-nxrs-recording-service = { path = "../../service/recording" }
+nxrs-camera-test-support = { path = "../camera-support", features = ["udp"] }
 nxrs-camera = { path = "../../hal/camera", features = ["replay"] }
 nxrs-storage = { path = "../../hal/storage", features = ["recording"] }
-nxrs-transport = { path = "../../hal/transport", features = ["udp"] }
