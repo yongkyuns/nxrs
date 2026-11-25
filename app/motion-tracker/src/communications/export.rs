@@ -376,6 +376,7 @@ mod tests {
             longitude_deg: -76.0,
             speed_mps: 2.0,
             course_rad: None,
+            quality: None,
         })
     }
 

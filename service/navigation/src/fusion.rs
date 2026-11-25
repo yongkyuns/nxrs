@@ -312,6 +312,7 @@ mod tests {
             longitude_deg: 179.999,
             speed_mps: 1.0,
             course_rad: Some(0.8),
+            quality: None,
         };
         let state = core.on_gnss(fix);
         assert_eq!((state.north_m, state.east_m), (0.0, 0.0));

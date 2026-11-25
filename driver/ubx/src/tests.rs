@@ -131,7 +131,7 @@ fn nav_pvt_only_exports_resolved_utc_and_preserves_negative_fraction() {
     for (flags, expected) in [(3, None), (6, None), (7, Some(1_767_225_599_900))] {
         payload[11] = flags;
         let mut report = None;
-        decoder.consume(&frame(1, 7, &payload), |event| {
+        decoder.consume(&frame(1, 7, &payload), &mut |event| {
             if let ubx::Event::NavPvt(value) = event {
                 report = Some(value.unwrap().receiver_utc_ms);
             }
@@ -147,14 +147,14 @@ fn fragmented_nav_pvt_reports_epoch_coordinates_speed_and_heading_quality() {
     for split in 0..=wire.len() {
         let mut decoder = ubx::Decoder::default();
         let mut reports = Vec::new();
-        decoder.consume(&wire[..split], |e| {
+        decoder.consume(&wire[..split], &mut |e| {
             if let ubx::Event::NavPvt(r) = e {
-                reports.push(r)
+                reports.push(r.copied())
             }
         });
-        decoder.consume(&wire[split..], |e| {
+        decoder.consume(&wire[split..], &mut |e| {
             if let ubx::Event::NavPvt(r) = e {
-                reports.push(r)
+                reports.push(r.copied())
             }
         });
         assert_eq!(reports.len(), 1);
@@ -170,12 +170,45 @@ fn fragmented_nav_pvt_reports_epoch_coordinates_speed_and_heading_quality() {
     still[60..64].fill(0);
     let mut decoder = ubx::Decoder::default();
     let mut reports = Vec::new();
-    decoder.consume(&frame(1, 7, &still), |e| {
+    decoder.consume(&frame(1, 7, &still), &mut |e| {
         if let ubx::Event::NavPvt(r) = e {
-            reports.push(r)
+            reports.push(r.copied())
         }
     });
     assert_eq!(reports[0].unwrap().heading_rad, None);
+}
+
+#[test]
+fn satellite_framer_checks_shape_and_checksum_at_the_protocol_limit() {
+    use crate::framing::{Event, Framer};
+
+    let mut payload = [0; 8 + 255 * 12];
+    payload[4] = 1;
+    payload[5] = 255;
+    for block in payload[8..].chunks_exact_mut(12) {
+        block[2] = 55;
+        block[8] = 4;
+    }
+    let valid = frame(1, 0x35, &payload);
+    let mut corrupt = valid.clone();
+    *corrupt.last_mut().unwrap() ^= 1;
+    payload[5] -= 1;
+    let wrong_count = frame(1, 0x35, &payload);
+    let mut parser = Framer::default();
+    let mut errors = 0;
+    let mut summaries = Vec::new();
+    for byte in corrupt.into_iter().chain(wrong_count).chain(valid) {
+        match parser.push(byte) {
+            Some(Event::Invalid) => errors += 1,
+            Some(Event::Satellites(_, status)) => summaries.push(status),
+            Some(Event::Frame(_)) => panic!("NAV-SAT must be reduced"),
+            None => {}
+        }
+    }
+    assert_eq!(errors, 2);
+    assert_eq!(summaries.len(), 1);
+    assert_eq!((summaries[0].visible, summaries[0].tracked), (255, 255));
+    assert_eq!(summaries[0].mean_cn0_db_hz, Some(55));
 }
 
 #[test]
@@ -185,9 +218,9 @@ fn invalid_fix_values_and_bad_coordinates_are_rejected() {
         payload[offset] = value;
         let mut decoder = ubx::Decoder::default();
         let mut reports = Vec::new();
-        decoder.consume(&frame(1, 7, &payload), |e| {
+        decoder.consume(&frame(1, 7, &payload), &mut |e| {
             if let ubx::Event::NavPvt(r) = e {
-                reports.push(r)
+                reports.push(r.copied())
             }
         });
         assert_eq!(reports, [Err(DriverError::NoFix)]);
@@ -197,9 +230,9 @@ fn invalid_fix_values_and_bad_coordinates_are_rejected() {
         payload[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
         let mut decoder = ubx::Decoder::default();
         let mut reports = Vec::new();
-        decoder.consume(&frame(1, 7, &payload), |e| {
+        decoder.consume(&frame(1, 7, &payload), &mut |e| {
             if let ubx::Event::NavPvt(r) = e {
-                reports.push(r)
+                reports.push(r.copied())
             }
         });
         assert_eq!(reports, [Err(DriverError::InvalidData)]);
@@ -289,7 +322,7 @@ fn malformed_or_unrequested_configuration_values_are_not_accepted() {
     ] {
         let mut decoder = ubx::Decoder::default();
         let mut accepted = false;
-        decoder.consume(&frame(6, 0x8b, &payload), |e| {
+        decoder.consume(&frame(6, 0x8b, &payload), &mut |e| {
             accepted |= matches!(e, ubx::Event::Rate(..))
         });
         assert!(!accepted);
@@ -300,7 +333,7 @@ fn malformed_or_unrequested_configuration_values_are_not_accepted() {
 fn decoder_reset_discards_a_partial_frame() {
     let wire = frame(1, 7, &pvt(1));
     let mut driver = Driver::new(Stream::default());
-    driver.decoder.consume(&wire[..20], |_| {});
+    driver.decoder.consume(&wire[..20], &mut |_| {});
     driver.reset_decoder();
     driver.io_mut().input.extend(&wire[20..]);
     let mut reports = Vec::new();

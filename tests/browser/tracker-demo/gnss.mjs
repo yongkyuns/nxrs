@@ -3,7 +3,8 @@ import { word, le } from './h4.mjs';
 
 const { EmulatorMessage, ProtoVersion } = pb.esp_cosim.v1;
 const text = new TextDecoder();
-const key = [7, 0, 0x91, 0x20];
+const pvtKey = [7, 0, 0x91, 0x20];
+const satelliteKey = [0x16, 0, 0x91, 0x20];
 const measurementKey = [1, 0, 0x21, 0x30];
 const cyclesKey = [2, 0, 0x21, 0x30];
 
@@ -21,7 +22,7 @@ function frame(kind, id, payload) {
 export class GnssReceiver {
     #machine;
     #pending = [];
-    #rate = 7;
+    #rates = new Map([[pvtKey, 7], [satelliteKey, 0]]);
     #measurementMs = 1000;
     #navigationCycles = 1;
     #tow = 0;
@@ -63,12 +64,14 @@ export class GnssReceiver {
                 this.#navigation(id, payload);
                 continue;
             }
-            if (!key.every((byte, i) => payload[4 + i] === byte)) throw new Error('Invalid UBX key');
+            const key = [pvtKey, satelliteKey].find(
+                candidate => candidate.every((byte, i) => payload[4 + i] === byte));
+            if (!key) throw new Error('Invalid UBX key');
             if (id === 0x8a && length === 9) {
-                this.#rate = payload[8];
+                this.#rates.set(key, payload[8]);
                 this.#reply(frame(5, 1, [6, 0x8a]));
             } else if (id === 0x8b && length === 8) {
-                this.#reply(frame(6, 0x8b, [1, 0, 0, 0, ...key, this.#rate]));
+                this.#reply(frame(6, 0x8b, [1, 0, 0, 0, ...key, this.#rates.get(key)]));
             } else throw new Error('Unsupported UBX configuration');
         }
     }
@@ -100,7 +103,8 @@ export class GnssReceiver {
             if (msg.uartTx?.port === 1) this.#receive(msg.uartTx.data);
         }
         const cycles = this.#machine.cycles();
-        if (this.#rate === 1 && cycles >= this.#nextFix) {
+        const rate = this.#rates.get(pvtKey);
+        if (rate === 1 && cycles >= this.#nextFix) {
             const periodMs = this.#measurementMs * this.#navigationCycles;
             // Delay the first fix until the guest finishes configuring NAV-PVT.
             if (this.#nextFix) {
@@ -114,6 +118,6 @@ export class GnssReceiver {
                 this.#reply(frame(1, 7, payload));
             }
             this.#nextFix = cycles + periodMs * 1000 * this.#machine.cycles_per_us();
-        } else if (this.#rate !== 1) this.#nextFix = 0;
+        } else if (rate !== 1) this.#nextFix = 0;
     }
 }

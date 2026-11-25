@@ -1,5 +1,5 @@
 //! Stream metadata around a normalized synchronous receiver.
-use crate::{DeviceError, GnssFix};
+use crate::{DeviceError, FixQuality, GnssFix, SatelliteStatus};
 use peripheral::gnss::{Receiver as Protocol, Report};
 
 pub(crate) struct Receiver<R> {
@@ -57,6 +57,19 @@ impl<R: Protocol> Receiver<R> {
                     longitude_deg: report.longitude_deg,
                     speed_mps: report.speed_mps,
                     course_rad: report.course_rad,
+                    quality: report.quality.map(|quality| FixQuality {
+                        satellites_used: quality.satellites_used,
+                        horizontal_accuracy_m: quality.horizontal_accuracy_m,
+                        vertical_accuracy_m: quality.vertical_accuracy_m,
+                        speed_accuracy_mps: quality.speed_accuracy_mps,
+                        position_dop: quality.position_dop,
+                        satellites: quality.satellites.map(|status| SatelliteStatus {
+                            visible: status.visible,
+                            tracked: status.tracked,
+                            mean_cn0_db_hz: status.mean_cn0_db_hz,
+                            age_ms: status.age_ms,
+                        }),
+                    }),
                 }));
             })
             .map_err(map_error)

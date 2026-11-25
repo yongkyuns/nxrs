@@ -24,8 +24,8 @@ HAL-owned workers acquire data and publish bounded typed events to services.
 
 M-Bus silkscreen uses legacy ESP32 pin numbers, not CoreS3 GPIO numbers. Set
 M135’s GNSS UART routing to legacy TX17/RX16, corresponding to CoreS3 TX17/RX18.
-The GNSS HAL enables NAV-PVT in receiver RAM and restores its previous rate
-on release; the receiver UART1 must retain its default UBX input/output support.
+The M9N driver enables NAV-PVT and NAV-SAT in receiver RAM and restores their
+previous rates on release. UART1 needs UBX input and output enabled.
 Select the module IMU’s alternate **0x68** address to avoid the onboard sensor.
 The vendor documentation lists 0x69 while its sensor example uses 0x68; verify
 the module address switch before applying power.
@@ -55,6 +55,9 @@ uses the NAV-PVT solution epoch to place each fix on the same boot monotonic
 clock as the IMUs. Missing or ambiguous pairs use UART reception time.
 Check `time_source` in the tracker's `--stream-usb` output. [M135 switch settings](https://docs.m5stack.com/en/guide/module_gnss/pins_change) ·
 [NEO-M9N time pulse](https://content.u-blox.com/sites/default/files/NEO-M9N_Integrationmanual_UBX-19014286.pdf#page=56)
+
+See the [GNSS capability guide](../hal/gnss/README.md) for the accuracy and
+satellite data attached to a fix.
 
 BMI270 IRQ and timer wakes use the same FIFO drain and typed-event path. At the
 configured 100 Hz ODR and one-frame watermark, timer wakes are requested every

@@ -47,6 +47,7 @@ pub fn open<S: FnMut(Event) -> messaging::DeliveryResult<Event> + Send + 'static
                 longitude_deg: f64::from(fix.longitude_e7) / 10_000_000.0,
                 speed_mps: fix.speed_mm_s as f32 / 1_000.0,
                 course_rad: fix.course_mrad.map(|value| value as f32 / 1_000.0),
+                quality: None,
             })) {
                 break;
             }

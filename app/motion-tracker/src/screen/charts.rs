@@ -182,6 +182,7 @@ mod tests {
                 longitude_deg,
                 speed_mps: 0.0,
                 course_rad: None,
+                quality: None,
             })
         };
         let mut snapshot = Snapshot {
