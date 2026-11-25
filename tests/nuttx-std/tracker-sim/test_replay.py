@@ -85,7 +85,10 @@ class ReplayTests(unittest.TestCase):
             trace(input_path)
             log = io.BytesIO()
             native.run(Path(os.environ["NXRS_TRACKER_REPLAY_IMAGE"]), log, input_path)
-            samples = [json.loads(line[line.index(b'{"v":1,'):]) for line in log.getvalue().splitlines()
+            # Replay stops the guest after the expected sensor counts. A final
+            # console write may still be in progress when it stops.
+            lines = log.getvalue().split(b'\n')[:-1]
+            samples = [json.loads(line[line.index(b'{"v":1,'):]) for line in lines
                        if b'{"v":1,' in line]
             states = [sample["gnss"]["state"] for sample in samples]
             first_live = states.index("live")

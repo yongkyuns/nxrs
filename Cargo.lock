@@ -1399,7 +1399,7 @@ dependencies = [
  "log",
  "nxrs-composition",
  "nxrs-log-router",
- "nxrs-motion-tracker",
+ "nxrs-messaging",
  "nxrs-navigation-services",
 ]
 

@@ -50,6 +50,7 @@ async function boot() {
     let nextPanel = started;
     let nextStatus = started;
     let lastFrame = 0;
+    let lastQrScan = 0;
     let bootOutput = '';
     let booted = false;
 
@@ -80,18 +81,25 @@ async function boot() {
                 nextPanel = now + 50;
                 const sequence = wordAt(machine, symbols.tracker_frame_sequence);
                 if (wordAt(machine, symbols.tracker_model_error)) throw new Error('Guest LCD model reported an error');
-                if (sequence > lastFrame && sequence % 2 === 0) {
-                    lastFrame = sequence;
+                const newFrame = sequence > lastFrame;
+                const scan = h4.trackerAdvertising && sequence > lastQrScan;
+                if (sequence % 2 === 0 && (newFrame || (phase === 'ready' && scan))) {
                     const frame = readPanel(machine, symbols);
                     if (phase === 'tracker') report('ready');
-                    if (phase === 'ready' && h4.trackerAdvertising) {
+                    // The guest may finish painting before its advertising
+                    // command reaches H4. Scan that same frame once both are ready.
+                    if (phase === 'ready' && scan) {
+                        lastQrScan = sequence;
                         const code = globalThis.jsQR(frame, width, height, { inversionAttempts: 'dontInvert' });
                         if (code && /^NXRS1:[0-9A-F]{64}$/.test(code.data)) {
                             const key = Uint8Array.from(code.data.slice(6).match(/../g), byte => parseInt(byte, 16));
                             pair(key).catch(fail);
                         }
                     }
-                    postMessage({ type: 'frame', buffer: frame.buffer }, [frame.buffer]);
+                    if (newFrame) {
+                        lastFrame = sequence;
+                        postMessage({ type: 'frame', buffer: frame.buffer }, [frame.buffer]);
+                    }
                 }
             }
 

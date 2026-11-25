@@ -4,20 +4,22 @@ mod publication;
 mod radio;
 mod tiles;
 mod uplink;
+mod wire;
 
 pub(super) use export::Capture;
+pub(super) use tiles::{Key, Tile, Zoom, SIDE};
 pub(super) use uplink::{Config as CellularConfig, Endpoint};
+pub(super) use wire::write_usb;
 
-use crate::{
-    map::{Key, Response, Tile},
-    tracker::Snapshot,
-};
+use crate::tracker::Snapshot;
+use navigation::observations::SharedObservations;
 use publication::Publisher;
 use std::cell::OnceCell;
 use std::io;
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
+use tiles::Response;
 
 const ACTIVE_POLL: Duration = Duration::from_millis(15);
 
@@ -54,10 +56,24 @@ pub enum Pairing {
 struct Shared {
     stopping: bool,
     pairing: Option<Pairing>,
-    latest: Option<Snapshot>,
     view: View,
     tile_request: Option<Key>,
     tile: Option<Tile>,
+}
+
+#[derive(Clone)]
+pub(super) struct Telemetry {
+    pub readings: SharedObservations<2>,
+    pub capture: Arc<Capture>,
+    pub interval: Duration,
+}
+
+impl Telemetry {
+    pub(super) fn snapshot(&self, now: Instant) -> Snapshot {
+        let mut snapshot = Snapshot::from(self.readings.snapshot(now));
+        snapshot.clock = self.capture.clock();
+        snapshot
+    }
 }
 
 pub struct Communications {
@@ -70,15 +86,30 @@ impl Communications {
         pair: bool,
         cellular: Option<CellularConfig>,
         tile_relay: Option<Endpoint>,
-        capture: Arc<Capture>,
-        notify: impl FnMut() + Send + 'static,
+        telemetry: Telemetry,
+        mut notify: impl FnMut() + Send + 'static,
     ) -> io::Result<Self> {
         let shared = Arc::new(Mutex::new(Shared::default()));
         let incoming = shared.clone();
         let task = thread::Builder::new()
             .name("tracker-links".into())
             .stack_size(23 * 1024)
-            .spawn(move || run(&incoming, pair, cellular, tile_relay, &capture, notify))?;
+            .spawn(move || {
+                let result = run(
+                    &incoming,
+                    pair,
+                    cellular,
+                    tile_relay,
+                    telemetry,
+                    &mut notify,
+                );
+                if let Err(error) = &result {
+                    incoming.lock().unwrap().view = unavailable();
+                    notify();
+                    log::error!("motion-tracker communications stopped: {error}");
+                }
+                result
+            })?;
         Ok(Self {
             shared,
             task: Some(task),
@@ -90,14 +121,10 @@ impl Communications {
         self.task.as_ref().unwrap().thread().unpark();
     }
 
-    pub fn offer(&self, sample: Snapshot) {
-        if let Ok(mut shared) = self.shared.try_lock() {
-            shared.latest = Some(sample);
-            self.task.as_ref().unwrap().thread().unpark();
-        }
-    }
-
     pub fn view(&self, previous: View) -> View {
+        if self.task.as_ref().is_some_and(JoinHandle::is_finished) {
+            return unavailable();
+        }
         self.shared
             .try_lock()
             .map_or(previous, |shared| shared.view)
@@ -128,6 +155,13 @@ impl Communications {
     }
 }
 
+fn unavailable() -> View {
+    View {
+        link: LinkStatus::Unavailable,
+        key: None,
+    }
+}
+
 impl Drop for Communications {
     fn drop(&mut self) {
         let _ = self.stop();
@@ -147,19 +181,29 @@ fn run(
     pair: bool,
     cellular: Option<CellularConfig>,
     tile_relay: Option<Endpoint>,
-    capture: &Capture,
-    mut notify: impl FnMut(),
+    telemetry: Telemetry,
+    notify: &mut impl FnMut(),
 ) -> io::Result<()> {
-    capture.register_owner();
+    // Pairing from the display can spawn this worker after the display has
+    // taken its fixed background priority.
+    match execution::configure_current(execution::Priority::Normal) {
+        Ok(()) | Err(execution::Error::Unsupported) => {}
+        Err(error) => {
+            return Err(io::Error::other(format!(
+                "tracker links priority: {error:?}"
+            )))
+        }
+    }
+    telemetry.capture.register_owner();
     let collector = cellular.as_ref().and_then(|config| config.collector);
     let mut modem = cellular.map(uplink::Modem::start).transpose()?;
     serve(
         shared,
         pair,
-        collector.zip(modem.as_ref()),
+        modem.as_ref().map(|modem| (modem, collector)),
         tile_relay,
-        capture,
-        &mut notify,
+        &telemetry,
+        notify,
     );
     // Both transports and their shared TLS identity have left scope.
     modem.as_mut().map_or(Ok(()), uplink::Modem::stop)
@@ -168,9 +212,9 @@ fn run(
 fn serve(
     shared: &Mutex<Shared>,
     pair: bool,
-    cellular: Option<(Endpoint, &uplink::Modem)>,
+    modem: Option<(&uplink::Modem, Option<Endpoint>)>,
     tile_relay: Option<Endpoint>,
-    capture: &Capture,
+    telemetry: &Telemetry,
     notify: &mut impl FnMut(),
 ) {
     let identity = OnceCell::new();
@@ -184,9 +228,12 @@ fn serve(
     let mut pairing_failed = false;
     let mut publication = Publisher::default();
     let mut command = pair.then_some(Pairing::Start);
+    let mut next_report = Instant::now();
+    let cellular = modem.and_then(|(modem, endpoint)| endpoint.map(|endpoint| (endpoint, modem)));
+    let mut cellular_status = None;
 
     loop {
-        let (sample, pair, tile) = {
+        let (pair, tile) = {
             let mut inbox = shared.lock().unwrap();
             if inbox.stopping {
                 break;
@@ -194,24 +241,28 @@ fn serve(
             let tile = inbox
                 .tile_request
                 .filter(|key| inbox.tile.as_ref().is_none_or(|tile| tile.key != *key));
-            (
-                inbox.latest.take(),
-                inbox.pairing.take().or(command.take()),
-                tile,
-            )
+            (inbox.pairing.take().or(command.take()), tile)
         };
         let now = Instant::now();
+        if let Some((modem, _)) = modem {
+            let status = modem.status();
+            if cellular_status != Some(status) {
+                log::info!("motion-tracker cellular {status:?}");
+                cellular_status = Some(status);
+            }
+        }
         if radio.as_ref().is_some_and(|output| output.expired(now)) {
             radio = None;
         }
         if let Some(pair) = pair {
             pairing_failed = false;
+            next_radio = now;
             match pair {
                 Pairing::Cancel => radio = None,
                 Pairing::Start => match radio.as_mut() {
                     Some(output) => output.show_pairing_code(),
                     None => match tls_identity(&identity)
-                        .and_then(|identity| radio::pair(identity, capture))
+                        .and_then(|identity| radio::pair(identity, &telemetry.capture))
                     {
                         Ok(output) => radio = Some(output),
                         Err(error) => {
@@ -222,14 +273,20 @@ fn serve(
                 },
             }
         }
+        let reporting = radio.as_ref().is_some_and(radio::Output::live) || cellular.is_some();
+        let fault = telemetry.capture.take_sensor_failed();
+        let sample = (reporting && (fault || now >= next_report)).then(|| {
+            next_report = now + telemetry.interval;
+            telemetry.snapshot(now)
+        });
         tiles.select(tile, now);
         let mut phone_tile = None;
         let view = match radio.as_mut() {
             Some(output) => {
-                let samples_ready = capture.take_ready();
+                let samples_ready = telemetry.capture.take_ready();
                 if output.take_ready() || samples_ready || now >= next_radio {
                     phone_tile = output.service(now, tiles.phone_request());
-                    next_radio = now + ACTIVE_POLL;
+                    next_radio = output.next_service(now + ACTIVE_POLL);
                 }
                 if let Some(snapshot) = &sample {
                     output.offer(snapshot, now, tiles.phone_request());
@@ -251,10 +308,7 @@ fn serve(
                     }
                 }
             }
-            None if pairing_failed => View {
-                link: LinkStatus::Unavailable,
-                key: None,
-            },
+            None if pairing_failed => unavailable(),
             None => View::default(),
         };
         let previous = std::mem::replace(&mut shared.lock().unwrap().view, view);
@@ -315,12 +369,23 @@ fn serve(
                 notify();
             }
         }
-        if radio.is_some() || upload.is_some() || tiles.busy() {
-            thread::park_timeout(ACTIVE_POLL);
-        } else if retry_pending {
-            thread::park_timeout(retry.next.saturating_duration_since(Instant::now()));
-        } else {
-            thread::park();
+        let mut wake = reporting.then_some(next_report);
+        let active_radio = radio.as_ref().is_some_and(radio::Output::active);
+        if radio.is_some() && !active_radio {
+            wake = Some(wake.map_or(next_radio, |deadline| deadline.min(next_radio)));
+        }
+        if active_radio || upload.is_some() || tiles.busy() {
+            let poll = Instant::now() + ACTIVE_POLL;
+            wake = Some(wake.map_or(poll, |deadline| deadline.min(poll)));
+        }
+        if retry_pending {
+            wake = Some(wake.map_or(retry.next, |deadline| deadline.min(retry.next)));
+        }
+        match wake {
+            Some(deadline) => {
+                thread::park_timeout(deadline.saturating_duration_since(Instant::now()))
+            }
+            None => thread::park(),
         }
     }
 }

@@ -1,4 +1,5 @@
 use super::font::glyph;
+use crate::communications::{Tile, SIDE};
 
 #[derive(Clone, Copy)]
 pub(super) struct Area {
@@ -73,8 +74,7 @@ impl Canvas<'_> {
         }
     }
 
-    pub fn map(&mut self, area: Area, origin: (i32, i32), tile: &crate::map::Tile) {
-        use crate::map::SIDE;
+    pub fn map(&mut self, area: Area, origin: (i32, i32), tile: &Tile) {
         let mut colors = [0; SIDE];
         let (x0, y0) = origin;
         let bottom = self.top + (self.pixels.len() / self.width) as i32;

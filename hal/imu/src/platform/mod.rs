@@ -1,4 +1,10 @@
 //! Select one implementation from the validated profile binding.
+#[allow(
+    dead_code,
+    reason = "Bound providers may reuse only the optional secondary accessor."
+)]
+pub mod unbound;
+
 cfg_if::cfg_if! {
     if #[cfg(platform = "nuttx")] {
         #[cfg(not(test))]
@@ -12,7 +18,6 @@ cfg_if::cfg_if! {
         pub mod simulation;
         pub use simulation as selected;
     } else {
-        pub mod unbound;
         pub use unbound as selected;
     }
 }

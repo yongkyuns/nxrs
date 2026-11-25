@@ -1,4 +1,5 @@
-use crate::map::{Position, Viewport, Zoom};
+use super::map::{Position, Viewport};
+use crate::communications::Zoom;
 use crate::tracker::{Reading, Snapshot};
 use std::{
     collections::VecDeque,

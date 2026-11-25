@@ -146,6 +146,10 @@ mod spi_ffi { pub fn transfer(_: i32, _: u16, _: u32, _: u8, _: &[u8], _: &mut [
 #[cfg(unix)]
 #[path = @HAL_FACTORY@] pub mod construction;
 #[cfg(unix)]
+mod platform {
+    #[path = @HAL_UNBOUND@] pub mod unbound;
+}
+#[cfg(unix)]
 #[path = @FACTORY@] mod production;
 // Windows cannot compile the Unix descriptor implementation. Still compile
 // the generated declaration/alias syntax against its typed resource contracts.
@@ -162,6 +166,9 @@ mod production {
     }
     struct Instance<S, R>(std::marker::PhantomData<(S, R)>);
     impl<S: Sync, R: Sync> crate::Device for Instance<S, R> {}
+    pub fn unavailable_secondary() -> &'static impl Device {
+        &Instance::<(), ()>(std::marker::PhantomData)
+    }
     macro_rules! declare_device {
         ($name:ident, $id:literal, $sensor:ty, $resource:ty, $open:path, $binding:expr, $irq:expr, $stack:expr, $reference:tt) => {
             const _: fn() = || { let _: $resource = $open($binding, ()); let _: Option<&str> = $irq; };
@@ -198,6 +205,7 @@ fn main() {
             &format!("{:?}", source.join("driver/i2c/tests/support/mod.rs")),
         )
         .replace("@HAL_FACTORY@", &format!("{:?}", source.join("hal/imu/src/platform/nuttx/mod.rs")))
+        .replace("@HAL_UNBOUND@", &format!("{:?}", source.join("hal/imu/src/platform/unbound.rs")))
         .replace(
             "@FACTORY@",
             &format!("{:?}", source.join("platform/src/nuttx/imu.rs")),
@@ -207,6 +215,7 @@ fn main() {
     let single_device = r#"
 fn verify_named() {
     assert_eq!(production::devices::primary_imu() as *const _ as *const (), production::devices::@DEVICE@() as *const _ as *const ());
+    assert!(matches!(production::devices::secondary().default_config(), Err(DeviceError::Unsupported)));
 }
 "#;
     let cargo = env!("CARGO");

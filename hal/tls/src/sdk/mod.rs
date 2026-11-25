@@ -179,6 +179,9 @@ pub struct Identity {
     _lease: Lease,
 }
 impl Identity {
+    /// This provider implements pinned TLS client connections.
+    pub const SUPPORTS_PINNED_CLIENT: bool = true;
+
     pub(crate) fn generate(source: impl Entropy + 'static) -> Result<Self, Error> {
         let source: Box<dyn Entropy> = try_boxed(source)?;
         let callback = Callback {

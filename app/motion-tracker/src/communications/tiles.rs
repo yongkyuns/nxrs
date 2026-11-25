@@ -1,6 +1,10 @@
 //! Route one visible tile request over the paired phone or a pinned IP relay.
+mod wire;
+
+use wire::REQUEST_BYTES;
+pub use wire::{Key, Receiver, Response, Tile, Zoom, SIDE};
+
 use super::Endpoint;
-use crate::map::{Key, Receiver, Response, REQUEST_BYTES};
 use std::{
     io::{self, Write},
     net::{SocketAddr, TcpStream},
@@ -151,6 +155,12 @@ struct Dial(Option<JoinHandle<io::Result<TcpStream>>>);
 
 impl Dial {
     fn start(endpoint: Endpoint) -> io::Result<Self> {
+        if !tls::Identity::SUPPORTS_PINNED_CLIENT {
+            return Err(io::Error::new(
+                io::ErrorKind::Unsupported,
+                "map relay TLS is unavailable",
+            ));
+        }
         thread::Builder::new()
             .name("tracker-tile-dial".into())
             .stack_size(8 * 1024)
