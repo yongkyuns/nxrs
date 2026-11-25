@@ -104,6 +104,18 @@ callbacks; no sink trait or forwarding worker is needed. Multi-instance identity
 uses local variants or bounded tags when needed. Explicit fan-out needs a partial-admission policy; a
 sender clone is not a broadcast subscription.
 
+### Notification and retention
+
+Specify what a wakeup tells the reader and what remains available to read. The distinction applies at different layers, from driver buffers to application middleware.
+
+| Example | Contract to examine |
+| --- | --- |
+| NuttX buffered sensor driver | Interrupt or polling acquisition pushes records into the driver's upper-half ring buffer. The reader retrieves buffered events through the device interface. [NuttX sensor drivers](https://nuttx.apache.org/docs/latest/os/drivers/special/sensors/sensors_uorb.html#programming-modes) |
+| Zephyr zbus | A subscriber receives a channel reference and reads its current value. A message subscriber receives a copy, while an inline listener runs in the publisher's context. [Zephyr zbus observers](https://docs.zephyrproject.org/latest/services/zbus/index.html#concepts) |
+| PX4 uORB | A topic in the flight stack retains one message by default. Configured deeper queues retain more history, and a slow subscriber can still lose messages. [PX4 uORB buffer length](https://docs.px4.io/main/en/middleware/uorb#uorb-buffer-length-orb_queue_length) |
+
+For NXRS, decide per consumer whether it needs current state or ordered history. If one wake can cover several retained records, define how a bounded drain will resume while unread records remain. Check freshness for latest-state readers and use sequence numbers or explicit loss reports for readers that need history.
+
 ## Dedicated capacity, one logical wait point
 
 The baseline for a service needing importance isolation is independently bounded

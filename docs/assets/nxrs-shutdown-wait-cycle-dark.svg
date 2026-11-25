@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="380" viewBox="0 0 800 380" role="img" aria-labelledby="title description">
+  <title id="title">Shutdown can wait on its own queue</title>
+  <desc id="description">The consumer calls join and stops draining a full queue. The producer cannot exit until its blocking send completes. The send needs a free slot that only the joining consumer can make available.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 8 8" refX="6" refY="4" markerWidth="8" markerHeight="8" markerUnits="userSpaceOnUse" orient="auto">
+      <path d="M1 1 L6 4 L1 7" fill="none" stroke="#8199B1" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+    </marker>
+    <filter id="shadow" x="-10%" y="-20%" width="120%" height="145%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="3" result="blur"/>
+      <feOffset in="blur" dx="0" dy="3" result="offset-blur"/>
+      <feFlood flood-color="#000000" flood-opacity="0.055" result="shadow-color"/>
+      <feComposite in="shadow-color" in2="offset-blur" operator="in" result="card-shadow"/>
+      <feMerge><feMergeNode in="card-shadow"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <style>
+      text { font-family: Inter, "Helvetica Neue", Arial, sans-serif; }
+      .card { fill: #1A2533; stroke: #34465A; stroke-width: 1.2; }
+      .label { fill: #E5EDF5; font-weight: 500; letter-spacing: -0.4px; }
+      .subtitle { fill: #ACBDCE; font-size: 18px; }
+      .edge { fill: none; stroke: #8199B1; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; marker-end: url(#arrow); }
+      .edge-label { fill: #ACBDCE; font-size: 16px; }
+    </style>
+  </defs>
+  <rect width="800" height="380" rx="24" fill="#10161F"/>
+
+  <text x="400" y="44" text-anchor="middle" class="label" font-size="27">Shutdown can wait on its own queue</text>
+  <g id="node-join" data-panel="true">
+    <rect x="130" y="68" width="480" height="76" rx="15" class="card" filter="url(#shadow)"/>
+    <rect x="145" y="88" width="4" height="36" rx="2" fill="#F2A06A"/>
+    <text x="370" y="100" text-anchor="middle" class="label" font-size="22">Consumer calls join</text>
+    <text x="370" y="127" text-anchor="middle" class="subtitle">The consumer stops draining the queue</text>
+  </g>
+  <g id="node-send" data-panel="true">
+    <rect x="130" y="176" width="480" height="76" rx="15" class="card" filter="url(#shadow)"/>
+    <rect x="145" y="196" width="4" height="36" rx="2" fill="#83C5EA"/>
+    <text x="370" y="208" text-anchor="middle" class="label" font-size="22">Producer must exit</text>
+    <text x="370" y="235" text-anchor="middle" class="subtitle">Its send is blocked waiting for space</text>
+  </g>
+  <g id="node-drain" data-panel="true">
+    <rect x="130" y="284" width="480" height="76" rx="15" class="card" filter="url(#shadow)"/>
+
+    <text x="370" y="316" text-anchor="middle" class="label" font-size="22">Queue needs a free slot</text>
+    <text x="370" y="343" text-anchor="middle" class="subtitle">Only the consumer can drain it</text>
+  </g>
+  <path id="edge-join-send" data-from="join" data-to="send" d="M370 144 V174" class="edge"/>
+  <path id="edge-send-drain" data-from="send" data-to="drain" d="M370 252 V282" class="edge"/>
+  <path id="edge-drain-join" data-from="drain" data-to="join" d="M610 322 H680 V106 H612" class="edge"/>
+  <text x="697" y="210" text-anchor="start" class="edge-label">waits</text>
+  <text x="697" y="231" text-anchor="start" class="edge-label">for join</text>
+
+</svg>

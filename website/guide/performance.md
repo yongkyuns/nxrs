@@ -35,6 +35,20 @@ Use the same measurement points in each comparison. Record producer admission ti
 
 An inbox with `N` slots bounds queued messages. It does not bound all work in the system: include producer-held values, a message currently handled, pending replies, retry storage, and downstream buffers. Sustained arrival above service capacity eventually saturates any finite queue.
 
+### Size the queue and check the deadline separately
+
+Suppose the queue starts empty and the consumer pauses for 50 ms. A regular record arrives every 10 ms starting at the beginning of the pause, with four extra records in one burst. There are five regular arrivals before draining resumes, so nine slots cover the pause. At 64 bytes per inline record, the slots hold 576 bytes of payload. Budget queue metadata, an in-flight record and any upstream buffers separately.
+
+<figure class="architecture-art">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="../../docs/assets/nxrs-queue-deadline-dark.svg">
+    <img src="../../docs/assets/nxrs-queue-deadline.svg" alt="A record arriving at the start of a 50 ms pause misses its 20 ms deadline even though all nine arrivals fit in the queue." width="800" height="286" loading="lazy">
+  </picture>
+  <figcaption>The hypothetical workload assumes one pause and an empty queue at its start. <a href="../../docs/assets/nxrs-queue-deadline.svg">Open the full-size diagram</a>.</figcaption>
+</figure>
+
+A record arriving at the start of the pause spends 50 ms waiting before the consumer can handle it. With a 20 ms deadline, measure what prevents the consumer from draining and reduce that delay. When pauses recur, check how fast the consumer clears the backlog while new records keep arriving.
+
 ## Measure memory use
 
 Record deployed code and read-only data, mutable static data, queue and payload storage, allocated thread stacks, heap high-water marks and retained buffers. Include alignment, allocator behavior and memory placement where they affect the result.
