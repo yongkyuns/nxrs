@@ -1,4 +1,5 @@
 //! Select one implementation from the validated profile binding.
+#[allow(dead_code, reason = "Bound providers may reuse only the optional secondary accessor.")]
 pub mod unbound;
 
 cfg_if::cfg_if! {
