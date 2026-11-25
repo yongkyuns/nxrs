@@ -2,6 +2,12 @@
 #ifndef TLS_CRYPTO_CONFIG_H
 #define TLS_CRYPTO_CONFIG_H
 #define MBEDTLS_PLATFORM_C
+#define MBEDTLS_PLATFORM_MEMORY
+#include <stddef.h>
+void *tls_record_calloc(size_t count, size_t size);
+void tls_record_free(void *pointer);
+#define MBEDTLS_PLATFORM_CALLOC_MACRO tls_record_calloc
+#define MBEDTLS_PLATFORM_FREE_MACRO tls_record_free
 #include <time.h>
 time_t tls_platform_time(time_t *output);
 #define MBEDTLS_HAVE_TIME

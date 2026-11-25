@@ -14,6 +14,7 @@ mod ffi;
 use ffi::*;
 
 mod connection;
+mod record;
 use crate::{Certificates, TimeLease};
 pub use connection::Connection;
 
@@ -173,7 +174,8 @@ pub struct Identity {
     enrollment: RefCell<Option<Rc<connection::Enrollment>>>,
     pk: Option<Opaque>,
     _single_thread: PhantomData<Rc<()>>,
-    // Declared last: source destruction must finish before another SDK owner.
+    record: record::Memory,
+    // Declared last: source and workspace retire before another SDK owner.
     _lease: Lease,
 }
 impl Identity {
@@ -186,6 +188,14 @@ impl Identity {
         OWNED
             .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
             .map_err(|_| Error::Busy)?;
+        let lease = Lease;
+        let record = match record::Memory::prepare() {
+            Ok(record) => record,
+            Err(error) => {
+                drop(callback);
+                return Err(error);
+            }
+        };
         UNEXPECTED_CALLBACK.store(false, Ordering::Release);
         let mut identity = Self {
             callback,
@@ -193,7 +203,8 @@ impl Identity {
             enrollment: RefCell::new(None),
             pk: None,
             _single_thread: PhantomData,
-            _lease: Lease,
+            record,
+            _lease: lease,
         };
         // SAFETY: sole SDK owner; the stable callback source already exists.
         identity.sdk(|| unsafe { psa_crypto_init() })?;

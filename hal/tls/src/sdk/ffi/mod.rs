@@ -29,6 +29,9 @@ unsafe extern "C" {
     pub(super) fn tls_pk_align() -> usize;
     pub(super) fn tls_csr_size() -> usize;
     pub(super) fn tls_csr_align() -> usize;
+    pub(super) fn calloc(count: usize, size: usize) -> *mut c_void;
+    pub(super) fn free(pointer: *mut c_void);
+    pub(super) fn mbedtls_platform_zeroize(buffer: *mut c_void, len: usize);
     pub(super) fn psa_crypto_init() -> c_int;
     pub(super) fn mbedtls_psa_crypto_free();
     pub(super) fn psa_generate_key(attributes: *const c_void, key: *mut u32) -> c_int;
@@ -190,6 +193,8 @@ unsafe extern "C" {
         size: usize,
         length: *mut usize,
     ) -> c_int;
+    pub(super) fn tls_test_calloc(size: usize) -> *mut c_void;
+    pub(super) fn tls_test_free(pointer: *mut c_void);
     pub(super) fn tls_test_export_usage() -> u32;
     pub(super) fn tls_test_entropy_probe(bits: *mut usize, output: *mut u8, size: usize) -> c_int;
 }

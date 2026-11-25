@@ -545,7 +545,20 @@ class Sessions(unittest.TestCase):
 
     def test_same_key_renewal_updates_an_active_connections_crl_deadline(self):
         root, process, credentials, error = self.start(case='renew')
+        index = root/'index'
+        original = index.read_text()
+        now = time.time()
+        expiry = time.strftime('%y%m%d%H%M%SZ', time.gmtime(now + 3600))
+        revoked = time.strftime('%y%m%d%H%M%SZ', time.gmtime(now - 60))
+        # Exercise renewal with a valid CRL near the 8 KiB enrollment limit.
+        private(index, original + ''.join(
+            f'R\t{expiry}\t{revoked}\t{0x10000000 + i:08X}\tunknown\t/CN=revoked-{i}\n'
+            for i in range(330)
+        ))
+        credentials.crl()
         credentials.call('crl', '-in', root/'crl.pem', '-outform', 'DER', '-out', root/'renewed-crl.der')
+        self.assertLessEqual((root/'renewed-crl.der').stat().st_size, 8192)
+        private(index, original)
         credentials.issue('other', client=True)
         private(root/'wrong-peer.der', ssl.PEM_cert_to_DER_cert((root/'other.pem').read_text()))
         credentials.crl(seconds=60)
