@@ -16,6 +16,7 @@ unsafe extern "C" {
 
 const DEADLINE: Duration = Duration::from_secs(3);
 const FRAMES: u64 = 6;
+const SAMPLE_INTERVAL_US: u32 = 10_000;
 
 fn open() -> (impl Session, Inbox<Event>) {
     let (sender, inbox) = bounded(FRAMES as usize);
@@ -60,7 +61,7 @@ fn check_sample(sample: ImuSample, index: u64) {
         512.0 + 64.0 * index_f,
     ];
     assert_eq!(sample.sequence, index + 1);
-    assert_eq!(sample.sample_interval_us, 10_000);
+    assert_eq!(sample.sample_interval_us, SAMPLE_INTERVAL_US);
     for (value, raw) in sample.accel_mps2.into_iter().zip(expected_accel) {
         assert!((value - raw * (4.0 * 9.80665 / 32768.0)).abs() < 1e-4);
     }
@@ -79,11 +80,20 @@ fn finish(session: &mut impl Session, expected: Result<(), DeviceError>) {
 fn sample_burst() {
     let (mut session, inbox) = open();
     publish(false);
+    let mut previous_timestamp = None;
     for index in 0..FRAMES {
         let Event::Sample(sample) = inbox.wait(Some(DEADLINE)).expect("FIFO sample") else {
             panic!("unexpected IMU fault");
         };
         check_sample(sample, index);
+        assert!(sample.is_capture_time);
+        if let Some(previous) = previous_timestamp {
+            assert_eq!(
+                sample.timestamp_us.checked_sub(previous),
+                Some(u64::from(SAMPLE_INTERVAL_US))
+            );
+        }
+        previous_timestamp = Some(sample.timestamp_us);
     }
     session.request_stop().expect("request IMU stop");
     finish(&mut session, Ok(()));
