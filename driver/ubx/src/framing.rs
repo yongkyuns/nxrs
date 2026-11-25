@@ -1,6 +1,6 @@
 //! Retain small UBX messages and reduce NAV-SAT blocks as they arrive.
 use kinavis_ubx::{Frame, SYNC_1, SYNC_2};
-use peripheral::gnss::SatelliteStatus;
+use peripheral::gnss::{Constellation, SatelliteReport, SatelliteSignal, SatelliteStatus};
 
 const NAV_SAT: [u8; 2] = [1, 0x35];
 const SAT_HEADER: u16 = 8;
@@ -10,7 +10,7 @@ pub(super) const MAX_SAT_FRAME_BYTES: u16 = MAX_SAT_PAYLOAD + 8;
 
 pub(super) enum Event<'a> {
     Frame(Frame<'a>),
-    Satellites(u32, SatelliteStatus),
+    Satellites(u32, SatelliteReport<'a>),
     Invalid,
 }
 
@@ -25,12 +25,39 @@ enum State {
     ChecksumB,
 }
 
+const SIGNALS: usize = 24;
+
 #[derive(Default)]
 struct Signals {
+    strongest: [SatelliteSignal; SIGNALS],
+    measured: u8,
     sum: u16,
     reported: u8,
     tracked: u8,
-    cn0: u8,
+    current: SatelliteSignal,
+}
+
+impl Signals {
+    fn record(&mut self, tracked: bool) {
+        self.tracked += u8::from(tracked);
+        let cn0 = self.current.cn0_db_hz;
+        if cn0 == 0 {
+            return;
+        }
+        if tracked {
+            self.sum += u16::from(cn0);
+            self.reported += 1;
+        }
+        let index = usize::from(self.measured);
+        self.measured += 1;
+        if let Some(slot) = self.strongest.get_mut(index) {
+            *slot = self.current;
+        } else if let Some(weakest) = self.strongest.iter_mut().min_by_key(|s| s.cn0_db_hz) {
+            if cn0 > weakest.cn0_db_hz {
+                *weakest = self.current;
+            }
+        }
+    }
 }
 
 pub(super) struct Framer {
@@ -89,7 +116,10 @@ impl Framer {
                 if self.at == self.header.len() as u16 {
                     let length = self.length();
                     let valid_length = if self.is_satellite_report() {
-                        self.signals = Signals::default();
+                        self.signals.measured = 0;
+                        self.signals.sum = 0;
+                        self.signals.reported = 0;
+                        self.signals.tracked = 0;
                         (SAT_HEADER..=MAX_SAT_PAYLOAD).contains(&length)
                             && (length - SAT_HEADER).is_multiple_of(SAT_BLOCK)
                     } else {
@@ -113,14 +143,10 @@ impl Framer {
                     self.payload[usize::from(self.at)] = byte;
                 } else {
                     match (self.at - SAT_HEADER) % SAT_BLOCK {
-                        2 => self.signals.cn0 = byte,
-                        8 if byte & 7 >= 4 => {
-                            self.signals.tracked += 1;
-                            if self.signals.cn0 != 0 {
-                                self.signals.sum += u16::from(self.signals.cn0);
-                                self.signals.reported += 1;
-                            }
-                        }
+                        0 => self.signals.current.constellation = constellation(byte),
+                        1 => self.signals.current.id = byte,
+                        2 => self.signals.current.cn0_db_hz = byte,
+                        8 => self.signals.record(byte & 7 >= 4),
                         _ => {}
                     }
                 }
@@ -161,12 +187,30 @@ impl Framer {
             (readings > 0).then(|| ((self.signals.sum + readings / 2) / readings) as u8);
         Event::Satellites(
             u32::from_le_bytes(self.payload[..4].try_into().unwrap()),
-            SatelliteStatus {
-                visible,
-                tracked: self.signals.tracked,
-                mean_cn0_db_hz,
-                age_ms: 0,
+            SatelliteReport {
+                status: SatelliteStatus {
+                    visible,
+                    tracked: self.signals.tracked,
+                    mean_cn0_db_hz,
+                    age_ms: 0,
+                },
+                interval_ms: 0,
+                measured: self.signals.measured,
+                signals: &self.signals.strongest[..usize::from(self.signals.measured).min(SIGNALS)],
             },
         )
+    }
+}
+
+fn constellation(gnss_id: u8) -> Constellation {
+    match gnss_id {
+        0 => Constellation::Gps,
+        1 => Constellation::Sbas,
+        2 => Constellation::Galileo,
+        3 => Constellation::Beidou,
+        5 => Constellation::Qzss,
+        6 => Constellation::Glonass,
+        7 => Constellation::Navic,
+        _ => Constellation::Other,
     }
 }

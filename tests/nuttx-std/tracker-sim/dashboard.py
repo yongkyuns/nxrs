@@ -656,10 +656,16 @@ async def scenario(guest, panel, phone, args):
     await panel.reveal_menu()
     await panel.wait_pixel(118, 33, 0x57f4)  # selected IMU 2 underline
     await panel.tap(195, 20)
+    guest.gnss.wire.sendall(guest.gnss.satellite_packet(guest.tow_ms, [(0, 3, 45), (2, 11, 25)]))
+    await panel.wait_pixel(40, 196, 0x57f4)  # GPS bar
+    await panel.wait_pixel(63, 196, 0x661f)  # shorter Galileo bar
+    await panel.reveal_menu()
+    await panel.wait_pixel(195, 33, 0x57f4)  # selected GNSS underline
+    await panel.tap(155, 20)
     gnss = await panel.wait_pixel(0, 0, 0x0883)
     assert gnss.crop((0, 40, WIDTH, 140)).tobytes() != imu2.crop((0, 40, WIDTH, 140)).tobytes()
     await panel.reveal_menu()
-    await panel.wait_pixel(195, 33, 0x57f4)  # selected GNSS underline
+    await panel.wait_pixel(155, 33, 0x57f4)  # selected map underline
     await panel.tap(275, 20)
     cancelled_key = await panel.pairing_key()
     await panel.tap(275, 20)

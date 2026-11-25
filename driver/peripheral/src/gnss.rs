@@ -26,6 +26,33 @@ pub struct SatelliteStatus {
     pub age_ms: u32,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Constellation {
+    Gps,
+    Galileo,
+    Beidou,
+    Glonass,
+    Sbas,
+    Qzss,
+    Navic,
+    #[default]
+    Other,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct SatelliteSignal {
+    pub constellation: Constellation,
+    pub id: u8,
+    pub cn0_db_hz: u8,
+}
+
+pub struct SatelliteReport<'a> {
+    pub status: SatelliteStatus,
+    pub interval_ms: u32,
+    pub measured: u8,
+    pub signals: &'a [SatelliteSignal],
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Error {
     Io,
@@ -54,8 +81,10 @@ pub enum TimePulse {
     Utc(u32),
 }
 
-pub enum Report {
+pub enum Report<'a> {
     Fix(Measurement),
+    /// A checked report, available while searching for a fix as well.
+    Satellites(SatelliteReport<'a>),
     /// None invalidates the timing association, for example on loss of lock.
     Pulse(Option<TimePulse>),
 }
@@ -70,5 +99,5 @@ pub trait Receiver {
     fn restore(&mut self, deadline: Instant) -> Result<(), Error>;
     /// Read at most one bounded chunk. Invalid frames are recoverable events;
     /// transport failures terminate the call. NoFix is not a corrupt frame.
-    fn read_available(&mut self, emit: impl FnMut(Result<Report, Error>)) -> Result<(), Error>;
+    fn read_available(&mut self, emit: impl FnMut(Result<Report<'_>, Error>)) -> Result<(), Error>;
 }

@@ -180,8 +180,11 @@ motion_tracker --battery
 ```
 
 Use the bounded runs to confirm each IMU is live, the interval survives restart,
-and acquisition can close and reopen. Open the GNSS tab outdoors after the
-receiver acquires a fix. For a bench capture, add `--stream-usb`. That option
+and acquisition can close and reopen. Swipe down and open **GNSS** to see
+satellites, signal strength by constellation, estimated accuracy, and PDOP.
+The chart shows up to 24 strongest signals, including while the receiver
+searches for a fix. Open **Map** for the route and position. For a bench
+capture, add `--stream-usb`. That option
 includes precise coordinates while a fix is fresh and emits one versioned JSON
 object per line. The first and second entries in `imu` are the onboard and
 module sensors. Each live entry carries the source sequence, monotonic timestamp

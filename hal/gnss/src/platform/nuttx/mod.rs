@@ -272,10 +272,10 @@ impl<R: Protocol + AsRef<Serial> + AsMut<Serial> + Send + 'static> crate::Device
                         }
                     }
                     let now = acquisition::monotonic_us();
-                    device.receiver.read_events(now, |fix| {
+                    device.receiver.read_events(now, |event| {
                         if connected {
-                            connected = match fix {
-                                Ok(fix) => emit(Event::Fix(fix)),
+                            connected = match event {
+                                Ok(event) => emit(event),
                                 Err(DeviceError::Busy) => true,
                                 Err(_) => emit(Event::InvalidFrame),
                             };

@@ -71,6 +71,13 @@ class NeoM9n:
         self.fix_sent = True
 
     @staticmethod
+    def satellite_packet(tow_ms, signals):
+        payload = struct.pack('<IBB2x', tow_ms, 1, len(signals))
+        for system, satellite, strength in signals:
+            payload += struct.pack('<BBB5xI', system, satellite, strength, 4)
+        return ubx(1, 0x35, payload)
+
+    @staticmethod
     def fix_packet(tow_ms, longitude_deg=-11.5166667, speed_mps=0, latitude_deg=48.1173,
                    *, utc=None, replay=False):
         position = bytearray(92)

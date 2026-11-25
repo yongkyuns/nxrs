@@ -2,15 +2,18 @@
 #![cfg_attr(target_os = "none", no_std)]
 #![deny(unsafe_code)]
 mod api;
-pub use api::{Device, DeviceError, Event, FixQuality, GnssFix, SatelliteStatus, Session};
+pub use api::{
+    Constellation, Device, DeviceError, Event, FixQuality, GnssFix, SatelliteReport,
+    SatelliteSignal, SatelliteStatus, Session,
+};
 pub use messaging::{DeliveryError, Rejected};
 #[cfg(not(platform = "nuttx"))]
 mod fixtures;
 mod platform;
 #[cfg(any(test, platform = "nuttx"))]
-mod receiver;
-#[cfg(any(test, platform = "nuttx"))]
 mod pps;
+#[cfg(any(test, platform = "nuttx"))]
+mod receiver;
 #[cfg(any(test, platform = "mock", platform = "nuttx", platform = "simulation"))]
 mod session;
 /// Construction is reserved for platform catalogues and qualification.
