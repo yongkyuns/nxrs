@@ -90,7 +90,14 @@ pub(crate) fn render_instances(
 
     source.push_str("pub mod devices {\n");
     let accessors = graph.accessors(catalogs, capability)?;
-    if capability == "imu" && !accessors.contains_key("secondary") {
+    // The SDK catalogue supplies this fallback. Product catalogues generate
+    // only the physical device and alias accessors they declare.
+    if capability == "imu"
+        && catalogs
+            .package(capability)
+            .is_some_and(|catalogue| catalogue.name == "nxrs-composition")
+        && !accessors.contains_key("secondary")
+    {
         source.push_str("pub use super::unavailable_secondary as secondary;\n");
     }
     for (accessor, id) in accessors {
@@ -379,6 +386,7 @@ mod tests {
             .unwrap();
         let imu = render_instances(&graph, &catalogs, "imu", 16384).unwrap();
         assert!(imu.contains("::r#test_imu::AnotherSensor<resources::Bus>"));
+        assert!(!imu.contains("unavailable_secondary"));
         assert!(imu.contains(", 16384, false);"));
         assert!(!imu.contains("peripheral::imu"));
         assert!(imu
@@ -435,9 +443,6 @@ mod tests {
             trait Device {{}}
             mod imu_wiring {{
                 use crate::Device;
-                struct Unavailable;
-                impl Device for Unavailable {{}}
-                pub fn unavailable_secondary() -> &'static impl Device {{ &Unavailable }}
                 mod resource {{ pub struct Config<'a> {{ pub path: &'a str, pub frequency: u32 }} }}
                 mod resources {{
                     pub type Bus = ();
