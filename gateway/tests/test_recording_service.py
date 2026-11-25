@@ -53,3 +53,17 @@ class RecordingTests(unittest.TestCase):
     def test_template_drift_is_not_a_partial_security_profile(self):
         with self.assertRaises(ValueError):
             recording.files(VOLUME, '', '{}')
+
+    def test_matter_guard_requires_encrypted_recording_and_is_explicit(self):
+        with tempfile.TemporaryDirectory() as parent, patch.object(strict_vpn.vpn, 'generate') as generate:
+            with self.assertRaises(ValueError):
+                strict_vpn.generate(Path(parent)/'bundle', 'host', 'gateway', 'peer', 'endpoint', 'key',
+                                    recording_privacy=True)
+            generate.assert_not_called()
+        unit = strict_vpn.services()['nxrs-media.service']
+        media = json.dumps(strict_vpn.media_config('10.77.0.1'))
+        standalone = json.loads(recording.files(VOLUME, unit, media)['mediamtx.json'])
+        guarded = json.loads(recording.files(VOLUME, unit, media, recording_privacy=True)['mediamtx.json'])
+        self.assertNotIn('recordRequiresPermit', standalone['paths']['reference'])
+        self.assertTrue(guarded['paths']['reference']['recordRequiresPermit'])
+        self.assertEqual(guarded['paths']['reference']['recordPath'], standalone['paths']['reference']['recordPath'])

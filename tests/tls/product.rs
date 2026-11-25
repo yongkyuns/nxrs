@@ -119,14 +119,14 @@ pub(super) fn run(directory: PathBuf, age: u64, stack_bytes: usize, case: Case) 
                     home_cam::bootstrap::initialize(std::sync::Arc::new(commission))?;
                 if time_stall {
                     let mut time = context.time;
-                    context.time = Box::new(move |identity| {
+                    context.time = Box::new(move |identity, channel, step| {
                         std::thread::sleep(Duration::from_millis(1500));
-                        time(identity)
+                        time(identity, channel, step)
                     });
                 }
                 return Ok(context);
             }
-            let mut identity = tls::open().map_err(home_cam::Error::Tls)?;
+            let identity = tls::open().map_err(home_cam::Error::Tls)?;
             let mut csr = [0; 1024];
             let size = identity.request("fixture", &mut csr).unwrap();
             std::fs::write(root.join("request.csr"), &csr[..size]).unwrap();
@@ -145,8 +145,19 @@ pub(super) fn run(directory: PathBuf, age: u64, stack_bytes: usize, case: Case) 
                 issuer: public(root.join("issuer.der")),
                 approved_peer: public(root.join("peer.der")),
                 revocations: public(root.join("revocations.der")),
-                time: Box::new(move |_: &tls::Identity| {
+                time: Box::new(move |_: &tls::Identity, _: home_cam::TimeChannel<'_, '_>, step: home_cam::RefreshStep<'_>| {
                     let _ = &local;
+                    if time_root.join("refresh-time").exists() {
+                        println!("TIME_REFRESHING");
+                        std::io::stdout().flush().unwrap();
+                        let deadline = Instant::now() + Duration::from_secs(5);
+                        while time_root.join("refresh-time").exists() {
+                            if Instant::now() >= deadline {
+                                return Err(tls::Error::Time);
+                            }
+                            step()?;
+                        }
+                    }
                     if time_root.join("block-time").exists() {
                         println!("TIME_BLOCKED");
                         std::io::stdout().flush().unwrap();
@@ -211,20 +222,17 @@ pub(super) fn run(directory: PathBuf, age: u64, stack_bytes: usize, case: Case) 
                 })
             }
         }
-        let worker = detection_service::Worker::spawn(
+        let detection = detection_service::Session::start(
             detection_service::WorkerOptions {
                 frame_capacity: 16384,
                 sample_interval_ms: 100,
                 stack_bytes: 65536,
             },
+            detection_service::Policy::default(),
             || Ok(Synthetic),
         )
         .unwrap();
-        live.attach_detection(
-            home_cam::SecurityDetection::new(worker, detection_service::Policy::default())
-                .unwrap(),
-        )
-        .unwrap();
+        live.attach_detection(detection).unwrap();
     }
     let (width, height) = if media { (320, 240) } else { (96, 96) };
     live.start(width, height).unwrap();
@@ -325,7 +333,7 @@ pub(super) fn run(directory: PathBuf, age: u64, stack_bytes: usize, case: Case) 
         drop(live);
     }
     // Even a failed camera stop must have joined TLS and released its SDK owner.
-    let mut replacement = tls::open().expect("TLS worker joined and released native owner");
+    let replacement = tls::open().expect("TLS worker joined and released native owner");
     let mut csr = [0; 1024];
     let count = replacement.request("replacement", &mut csr).unwrap();
     std::fs::write(directory.join("replacement.csr"), &csr[..count]).unwrap();

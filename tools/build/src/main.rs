@@ -32,7 +32,7 @@ fn usage() -> &'static str {
     "usage:
   cargo nxrs build --app <app> --platform <platform> [--profile <profile>] [--out <path>] [--dry-run]
   cargo nxrs build --manifest-path <path> --profile <qualification-profile> [--bin <bin>]
-  cargo nxrs config [check | show | explain CONFIG_SYMBOL] [build selection flags]
+  cargo nxrs config [check | show | explain CONFIG_SYMBOL | recover] [selection flags]
   cargo nxrs platforms
   cargo nxrs apps
   cargo nxrs profile --platform <profile> [--target-os <os>]
@@ -42,7 +42,52 @@ fn usage() -> &'static str {
 Run cargo nxrs platforms to list platform defaults.
 Use --workspace-root <path> before a command to select an Nxrs checkout.
 Run cargo nxrs build --help for build options.
+Run cargo nxrs config --help to edit and check NuttX settings.
 NuttX signed profiles require the existing signing-key, verification-root, version and counter inputs."
+}
+fn config_usage() -> &'static str {
+    "usage:
+  cargo nxrs config [selection flags]
+  cargo nxrs config check [selection flags]
+  cargo nxrs config show [selection flags]
+  cargo nxrs config explain CONFIG_SYMBOL [selection flags]
+  cargo nxrs config recover
+
+Commands:
+  config                     Open the terminal editor; choose missing selections
+  check                      Check the effective native NuttX configuration
+  show                       Print the native configuration and explanations as JSON
+  explain CONFIG_SYMBOL      Explain one setting, its dependencies, and its owner
+  recover                    Finish an interrupted configuration-source publication
+
+Selection:
+  --app <app>                Select an application under app/
+  --manifest-path <path>     Select an external or qualification Cargo manifest
+  --bin <bin>                Select a binary target in that manifest
+  --platform <platform>     Select a platform family and its default profile
+  --profile <profile>       Select a specific product or qualification profile
+  --overlay <path>          Apply an ordered peripheral overlay; repeat as needed
+  --out <path>              Choose the build directory to prepare on Save & sync
+  --features <features>     Enable Cargo features; repeat as needed
+  --no-default-features     Disable the application's default Cargo features
+
+Examples:
+  cargo nxrs apps
+  cargo nxrs platforms
+  cargo nxrs config --app APP --platform PLATFORM
+  cargo nxrs config check --app APP --platform PLATFORM
+  cargo nxrs config explain CONFIG_DEBUG_ASSERTIONS --app APP --platform PLATFORM
+
+Run from the Nxrs checkout, or pass --workspace-root <path> before config.
+In an app/ directory, config can infer the application. Scripts must provide
+any ambiguous app/platform selections. Selection paths are relative to the root.
+
+Inspection needs the NuttX host tools and pinned kconfiglib==14.1.0. Save & sync
+also needs the target compiler/SDK; it writes the owning fragment or resource
+profile, then refreshes prepared build inputs. Firmware compilation is separate.
+Use the same selection with cargo nxrs build to build the saved configuration.
+See website/guide/profiles.md#configure-nuttx for editing and source ownership.
+Use cargo nxrs build --help for additional build and qualification options."
 }
 fn build_usage() -> &'static str {
     "usage:
@@ -135,9 +180,11 @@ fn config_command(root: &Path, args: &[String]) -> Result<ExitCode> {
         [action, flags @ ..] if action == "check" => (Operation::Check, flags),
         [action, flags @ ..] if action == "show" => (Operation::Show, flags),
         [action, symbol, flags @ ..] if action == "explain" => (Operation::Explain(symbol), flags),
-        [action] if action == "--help" || action == "-h" => {
-            println!("usage: cargo nxrs config [check | show | explain CONFIG_SYMBOL | recover] [build selection flags]");
-            return Ok(ExitCode::SUCCESS);
+        [action] if action == "explain" => {
+            return Err(format!(
+                "config explain requires a CONFIG_SYMBOL\n{}",
+                config_usage()
+            ));
         }
         [action] if action == "recover" => {
             nxrs_build_support::source_transaction::recover(root)?;
@@ -146,6 +193,18 @@ fn config_command(root: &Path, args: &[String]) -> Result<ExitCode> {
         _ => (Operation::Config, args),
     };
     project_command(root, flags, operation)
+}
+
+fn nuttx_platforms(root: &Path) -> Result<Vec<String>> {
+    let mut choices = Vec::new();
+    for (platform, name) in platform_defaults(root)? {
+        let profile = Profile::resolve(root, &name)
+            .map_err(|error| format!("cannot inspect platform {platform}: {error}"))?;
+        if profile.data.get("board").is_some() {
+            choices.push(platform);
+        }
+    }
+    Ok(choices)
 }
 
 fn project_command(root: &Path, args: &[String], operation: Operation<'_>) -> Result<ExitCode> {
@@ -240,23 +299,29 @@ fn project_command(root: &Path, args: &[String], operation: Operation<'_>) -> Re
                 }
             }
             if app.is_none() {
-                let mut choices = fs::read_dir(root.join("app")).map_err(|e| e.to_string())?
+                let mut choices = fs::read_dir(root.join("app"))
+                    .map_err(|e| e.to_string())?
                     .filter_map(|entry| entry.ok())
                     .filter(|entry| entry.path().join("Cargo.toml").is_file())
                     .filter_map(|entry| entry.file_name().into_string().ok())
                     .collect::<Vec<_>>();
                 choices.sort();
-                app = Some(config_tui::select("application", &choices, matches!(operation, Operation::Config))?);
+                app = Some(config_tui::select(
+                    "application",
+                    "--app",
+                    &choices,
+                    matches!(operation, Operation::Config),
+                )?);
             }
         }
         if platform.is_none() && profile.is_none() {
-            let choices = platform_defaults(root)?.into_keys()
-                .filter(|name| nxrs_build::profile::platform_default(root, name)
-                    .and_then(|profile| nxrs_build::profile::profile_path(root, &profile))
-                    .and_then(|path| nxrs_build::profile::manifest(&path))
-                    .is_ok_and(|data| data.get("board").is_some()))
-                .collect::<Vec<_>>();
-            platform = Some(config_tui::select("platform", &choices, matches!(operation, Operation::Config))?);
+            let choices = nuttx_platforms(root)?;
+            platform = Some(config_tui::select(
+                "platform",
+                "--platform",
+                &choices,
+                matches!(operation, Operation::Config),
+            )?);
         }
     }
     let path = match (app, manifest) {
@@ -335,23 +400,41 @@ fn project_command(root: &Path, args: &[String], operation: Operation<'_>) -> Re
             return Err("config requires a NuttX profile and native resolution".into());
         }
         if matches!(operation, Operation::Config) {
-            let session = nxrs_build::config_edit::Session::new(root.to_path_buf(), app, profile, out, options)?;
-            config_tui::run(session, |session| editor::refresh(&session.root, &session.out))?;
+            let session = nxrs_build::config_edit::Session::new(
+                root.to_path_buf(),
+                app,
+                profile,
+                out,
+                options,
+            )?;
+            config_tui::run(session, |session| {
+                editor::refresh(&session.root, &session.out)
+            })?;
             return Ok(ExitCode::SUCCESS);
         }
         let report = nxrs_build::nuttx::inspect_config(root, &app, &profile, &options)?;
         match operation {
             Operation::Check => {
                 nxrs_build::nuttx_config::check_report(&report)?;
-                println!("{}: {} passes native olddefconfig ({})", app.bin, profile.name(), report["backend"].as_str().unwrap_or("Kconfig"));
+                println!(
+                    "{}: {} passes native olddefconfig ({})",
+                    app.bin,
+                    profile.name(),
+                    report["backend"].as_str().unwrap_or("Kconfig")
+                );
             }
             Operation::Show => {
-                println!("{}", serde_json::to_string_pretty(&report).map_err(|e| e.to_string())?);
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&report).map_err(|e| e.to_string())?
+                );
                 nxrs_build::nuttx_config::check_report(&report)?;
             }
             Operation::Explain(name) => {
                 let key = name.strip_prefix("CONFIG_").unwrap_or(name);
-                let symbol = report["symbols"].get(key).ok_or_else(|| format!("unknown Kconfig symbol {name}"))?;
+                let symbol = report["symbols"]
+                    .get(key)
+                    .ok_or_else(|| format!("unknown Kconfig symbol {name}"))?;
                 println!("{}", config_tui::describe(key, symbol));
                 nxrs_build::nuttx_config::check_report(&report)?;
             }
@@ -454,6 +537,12 @@ fn run() -> Result<ExitCode> {
             Some(build_usage())
         }
         "profile" if raw[1..].iter().any(|s| s == "-h" || s == "--help") => Some(profile_usage()),
+        "config"
+            if raw[1..].iter().any(|s| s == "-h" || s == "--help")
+                || raw.get(1).is_some_and(|s| s == "help") =>
+        {
+            Some(config_usage())
+        }
         _ => None,
     };
     if let Some(help) = help {

@@ -1,0 +1,2999 @@
+{
+  "schema": "wroom-comparison-review-v1",
+  "date": "2026-11-17",
+  "hardware_class": "ESP32-S3 WROOM",
+  "physical_fresh_boots": 48,
+  "restore_verified": true,
+  "private_flash_and_serial_not_exported": true,
+  "source_inventories": {
+    "e7d1a00ba5b6cfd0099139427d3e681747634f083b69462c4f00e33f1ac1ced3": {
+      ".cargo/config.toml": "aa3972f8b5097a04c36c556f1a18a64dd7a60108c3cf7bf4c7bd2014f08e6811",
+      "Cargo.lock": "b438e96c47d07432c0532f43aae8a791fbd603c56888ae09635aa40512ed4b45",
+      "Cargo.toml": "9761cf0fd19e3c98541c29a99f0ce075fa4de889e9ae82d3badd51bedaf8176e",
+      "platform/nuttx/linker/esp32s3-mpsc.ld": "17b1861fe51134925d708b5d3af7922b78857a30ac21042940e154e4c7506d8b",
+      "tests/event-services-comparison/image_package.py": "4b67b076cd938eb37963478f92ab1df1338b70542f07c83f49b212af4aa48441",
+      "tests/mpsc-comparison/bench.py": "02208fd4b9149b2a7202af9225daa9a02dafcfba0aa92e6266557aa13939d5f9",
+      "tests/mpsc-comparison/boards/esp32s3/app.overlay": "20651e8a1defe6eb7c92005640970b41b762cdc68c0c036f8a4cda1508035619",
+      "tests/mpsc-comparison/boards/esp32s3/board.h": "ccc8b31305c6e0907cbeee7d23ce657a5f245ac1a436d5bbde445d8b6f66d476",
+      "tests/mpsc-comparison/boards/esp32s3/clock.c": "0fe21cbfa28c414306e61dad70422936f325da5722c53d6471c268280f2a31d6",
+      "tests/mpsc-comparison/boards/esp32s3/clock.h": "ea917c4aa858f58d211cd99c073a4edf80f621487b2fc5db59cbc7a407651bd6",
+      "tests/mpsc-comparison/boards/esp32s3/console_nuttx.c": "d8f215b1ae8a30bf5fd30bd2c64ce46d2f04d34f5ab48c3d68dabf8444772fcc",
+      "tests/mpsc-comparison/boards/esp32s3/console_zephyr.c": "afb93a6d8a334acbec7546cd46a5e12384fead2b644f115e0cc9827c00e022b7",
+      "tests/mpsc-comparison/boards/esp32s3/irq_probe.c": "776633307d024302afa3bb97f43e6aa0ef468a283aab5e2af83b8886e30f91b6",
+      "tests/mpsc-comparison/boards/esp32s3/prj.conf": "b3be77f363e8ec45857f27e4c16e2ac305b0b41f73b62d0bf4df537035b8a957",
+      "tests/mpsc-comparison/boards/pico2w/app.overlay": "13efc1dc7611615d7543fa2800111d36197f84783d6772620f46226a83cb1cfa",
+      "tests/mpsc-comparison/boards/pico2w/board.h": "c62325674ea184946d0079bfbd104080700b0c07f0495fe50f65e6c091ab4472",
+      "tests/mpsc-comparison/boards/pico2w/bootstrap.c": "29b524c8f8aa41dc6c0316d78f66429e5ef551fb802d24974cfa02ae7f4e86b2",
+      "tests/mpsc-comparison/boards/pico2w/clock.c": "c36c0ce826c9c871a1fe7a8a751813c185ff32b78a826bc5a5eb8f94d7a3b374",
+      "tests/mpsc-comparison/boards/pico2w/clock.h": "7fab8a6581e050160857dd4ae6232d087da2291847a84a315548e6df8a4938e7",
+      "tests/mpsc-comparison/boards/pico2w/console_nuttx.c": "ebe946ae366a8f7d1984186dd99bf103b4842e76e0b58f728583867e331dbc17",
+      "tests/mpsc-comparison/boards/pico2w/console_zephyr.c": "52b5ab09db540d963bcf4461d56b1f99ecd9acfcfbec52a2c06565c5bdc7f113",
+      "tests/mpsc-comparison/boards/pico2w/prj.conf": "3e8c4fae740492b14cd0db503473652569ee8ba7f59702a7dc1ea388fb6bd7cd",
+      "tests/mpsc-comparison/boards.toml": "95cab7d12cdeb6e586055c7443be73cdb6502fa02618b069d7ca2c6dde00aeb9",
+      "tests/mpsc-comparison/build.py": "71735013d8a9d2a185a45a7b815daf67e38365291bba9129456e824ac8394b91",
+      "tests/mpsc-comparison/capture.py": "1b3d598b2ba410579bffdae6dd828ca8be5accacf1499429f5e1ebdda3366af0",
+      "tests/mpsc-comparison/irq_metrics.py": "42e60dd9c8689adce497c096d9365144be0b6b4f7a6523491a874f1b905cb207",
+      "tests/mpsc-comparison/metrics.py": "29eea86c21189c0409fc6f95378d24dd56923d2e7494ea8a78f85910c7770c13",
+      "tests/mpsc-comparison/native_queue_host.c": "f5178e26c877283b959babd2c2a501c28f1bf4cb5b97b51ba1ab0e6d311454b1",
+      "tests/mpsc-comparison/placement.py": "61d66ddcce7e5b89dc42c69497ea559051124a38d0f1f338f0fc35137071aeb0",
+      "tests/mpsc-comparison/rust/Cargo.lock": "3e0cc215663502e7bdf1f94685032c2168141032f244a993614c3233b34ba2db",
+      "tests/mpsc-comparison/rust/Cargo.toml": "20294b8a78311b10a5c4ca25d0d74cd5ec7f7c25f6f7f087baaf8e19ff1f9c99",
+      "tests/mpsc-comparison/rust/build.rs": "10c16158eac4f8d175460ca4e1543e7912f9d86f8a4a62e0d7d6330cac843b44",
+      "tests/mpsc-comparison/rust/src/arrivals.rs": "900258f804ef584660f01836c51ccde5d9b75522a6ed689e427facbe7e493cf2",
+      "tests/mpsc-comparison/rust/src/engine.rs": "b5a7f2e1f486b0f16e231128d685dcc9d184453c3f2bd0bcfa356af8c2915829",
+      "tests/mpsc-comparison/rust/src/irq_probe.rs": "d287cb3d75ba0416c2f98dd2d34c9511ef5a622b200d9f8c69e05099210c6c0b",
+      "tests/mpsc-comparison/rust/src/irq_probe_disabled.rs": "3914d872b05851b0fb2539cd26f18e614244fefa850bb14c3b698f4f6fbcafdc",
+      "tests/mpsc-comparison/rust/src/irq_protocol.rs": "802f3ff4d209bb2e42f8744c7170d5a185435458dd5b7b3b3f9215b73e9ff1bd",
+      "tests/mpsc-comparison/rust/src/lib.rs": "4a75103e76ee289e75b85960312b3d3b4e0567030c09e6be440b758506d91722",
+      "tests/mpsc-comparison/rust/src/main.rs": "bc29284d81aa6884f88dc686e1925ec683f56d840101baf45d7ca6c9db87f88e",
+      "tests/mpsc-comparison/rust/src/platform/host.rs": "5ed9df31f3b0bdfcce64425e75538f74c456e655154612680c36ebcde8b34faf",
+      "tests/mpsc-comparison/rust/src/platform/mod.rs": "3753d997b90d11aec75d89516a8f29bb736e32423b0d44358915c345788dba82",
+      "tests/mpsc-comparison/rust/src/platform/native.rs": "8ce30436579e13a192b39befa5b04d4ae31e846932059e9cd93851464a9392b4",
+      "tests/mpsc-comparison/rust/src/platform/nuttx.rs": "24773545b683dd1e481fc606d9a411232e364e5a79c5c3385290f154bbab1c47",
+      "tests/mpsc-comparison/rust/src/platform/zephyr.rs": "a12ab45ce017d86522d7ec903d6fb0e91b80caa89681808fda35c2449ad8ca10",
+      "tests/mpsc-comparison/rust/src/transport.rs": "ecad8216cc42c9d3177166317321aa33ac3d321536a801edeb9ccd689127bb58",
+      "tests/mpsc-comparison/sdk_nuttx.c": "95f1d6050c49782faacb77dacd36a9b2e976a8b4614acea8d6b576e802e1c324",
+      "tests/mpsc-comparison/sdk_nuttx_queue.h": "79f0517d889da763cd92068513dc483169d373778943a227d1e7bdf60bf9411b",
+      "tests/mpsc-comparison/sdk_zephyr.c": "e18d29283265e53b80bcf7553d9b05440d4391b3e14b6b14c6b03a2fe6c1376b",
+      "tests/mpsc-comparison/test_backend_selection.py": "58fc7d67886233db376c29414bea486df908869e8b18b76b3ef46380873cc6a1",
+      "tests/mpsc-comparison/test_irq_probe.py": "0cfe2f621e0ef692943f04e05b0de0b87f16bb1c89e843adbc1080fa719f5bc4",
+      "tests/mpsc-comparison/test_metrics.py": "da092bf0e6cd96b919a71a0dad8068bc71e2fccd0de641617a88b126caa85584",
+      "tests/mpsc-comparison/test_native_queue.py": "2397ed567dd512fd6b2c92a3c69b0e49e41eacb372f69cb9767e9dcbe8953a56",
+      "tests/mpsc-comparison/test_observers.py": "0e33af7a07ed01d4ecf74f9a12506fc1248429d2b70f27734232cae664482192",
+      "tests/mpsc-comparison/test_placement.py": "267e27aff36714a80a5f30219f13cb4a4dbe67cf526cd22c8ad772a780323c34",
+      "tests/mpsc-comparison/test_python_path.py": "7bf86ad9a2a5ae5decd772dbbcff2b7117e540e8e16c26ee6ece80a4b8907c9c",
+      "tests/mpsc-comparison/test_workflow.py": "02afb3365a833e4f16c8840e73f842d4d3f91a02e5113f60db5bca5850eca2da",
+      "tests/mpsc-comparison/toolchains.example.toml": "94cfd84c82cfc5ec0eb69411d9de96cd70ccb9a23f5667963a74b4e694990640",
+      "tests/mpsc-comparison/zephyr/CMakeLists.txt": "89abd5d9403d4f9e39eda6dfaed32a81fe2c2854aa15f70a0ab0a72e7d1d807b",
+      "tests/nuttx-std/channels/mpsc-fixture-iram.ld": "0180f6853e038a5ef5154841140086378c4b9c1af0a5a72e8aef5da607429adc",
+      "tests/profiles/esp32s3-mpsc.toml": "c04b9f2ab4bfed8302b6c000568b3e587e5454471214535d4abad03d8d0f0cd2",
+      "tests/profiles/pico2w-mpsc.toml": "743d2a87c740554730480bff3f9dcf323dbd74a96c32411f51ae05fc58299fd4",
+      "tests/rtos_harness/zephyr.py": "54b60c67863fadab0be5677767a86892a35888541abe324154c527ebb225752d",
+      "tools/build/Cargo.toml": "b700e4b4d64a15335f128974f5f9a985b42f62b923547fefa14377370a799603",
+      "tools/build/nuttx/init.py": "f7b976b1bc3741ab26195a5f5826bf25e4f4823d4c79315f79191b909365d9ca",
+      "tools/build/nuttx/kconfig.py": "f62b2579fdb5bdb5ec261eae743a89808bcf84cb5dbe6724afeaff5efa88acbb",
+      "tools/build/nuttx/mcuboot.py": "3e1b51f95338a6384e856800d26b118aa3277cb1b232f870a56795a78db8aecb",
+      "tools/build/nuttx/std-app/Kconfig": "da5716d5d97d8bea50b9a41b2c7691bbfc7217b9f279c94da3dc638b9cb91d63",
+      "tools/build/nuttx/std-app/Make.defs": "1115a2b33f40040d008558b99b4606a605d35111092b564113be31bddcd87f6a",
+      "tools/build/nuttx/std-app/Makefile": "9bb12e6f37a9c6c113cd84861175a4e9f4423ee898488455efbb301687e79e69",
+      "tools/build/src/boot.rs": "d853534a08134b3915339e859d278875a394d6b6d211dd7b288d4d30a59c5685",
+      "tools/build/src/build.rs": "1b359b917a927494e8ee518eb763592b0123037d9b71a552e8102c9e0930af7d",
+      "tools/build/src/cargo_graph.rs": "16587c3e4f1f085c6f9c5e0a3a0607d631ba6c8354cf3cddc7f8c0df3c5c091b",
+      "tools/build/src/commands.rs": "17f3d8d30cd2c85d9bab10098b1c35f98445a2567b530f6d276da76f49afbbae",
+      "tools/build/src/config_edit.rs": "b341b7a280d076b9f5d24d42157062bbb0ab7d54d057bd36e2412e6f3ba5870b",
+      "tools/build/src/config_tui/presentation.rs": "77ed563e9538a59d6285bb5b38a3f974de7520214cab4551a4bd8bb5863444fd",
+      "tools/build/src/config_tui.rs": "72359243c7f97874b010fc6ca2c500cf2e9b0c6de145309b6f462b72db100ae8",
+      "tools/build/src/deployment.rs": "9b15817e6ebff11fe52dcfdf50149fb74817ca580508a136fd103d01a4c40440",
+      "tools/build/src/editor.rs": "83a8962855ebec85e8fbd20a06c54e7c2e1f48414a9f67a8492240ae9a89c610",
+      "tools/build/src/factory.rs": "af588863aed00964c6f8de111e9a7acea13ef711d7615f6571268fb86ad2afb9",
+      "tools/build/src/inspect.rs": "f4934f80774da210163043736c34b98eed93cb01361ef813236005eab6a1cd3b",
+      "tools/build/src/lib.rs": "9f624f14a457b99ad225a88d94318c1964dd7ceb06fd62ab063041e0c4380b23",
+      "tools/build/src/linker.rs": "00f8fe4d44f0fa6524989c4522b34863a753b549930917bc38cdaa0fcf6b61d0",
+      "tools/build/src/main.rs": "97482b7ea8505017b9d0256bb28fc8bc905d03fc3404751e03ea0ebe2fdf8c67",
+      "tools/build/src/nuttx.rs": "9c83c23253e0fb90e42291647e277e344769870748dfa0221c8daa73b2bc8680",
+      "tools/build/src/nuttx_config.rs": "6a8e47ccf1e13af90d7b0c6f9c635c1ee3ac2faf903cd243e46785c530c1638f",
+      "tools/build/src/radio.rs": "7671aab3e20fb6a6e52482fec166b0d0d9fc1c3e21de0b6078798d08d0d9483a",
+      "tools/build/src/reuse.rs": "5a0072f30cb306e2bffd6fb5da76fa92ff9723fb922cdfd69f52dd5350ee366c",
+      "tools/build/src/sdk.rs": "c4dea8497100c752f988dcb0a3bc608f4669e862ed202e4c273df3857ed3b2ab",
+      "tools/build/src/source.rs": "f293bcc628a5e5298bb93efe38cfb4c2bb862d4fadb89ed34f4e5674966891a9",
+      "tools/build/src/web.rs": "26192de663602cbdc25727866d88cc5f9796fb2df09fd6d476911b3d34d1d4f3",
+      "tools/build/tests/cargo_graph.rs": "55c24c4caf07dc35790eba8ecfd59f254ae5c0122035d6fc8049347a70c8c48f",
+      "tools/build/tests/cli.rs": "ba909afb86e2faa1d162e75d285ae85bf7c0b6b305c4c5457b8675bb3e5b8a56",
+      "tools/build/tests/config_cli.rs": "3b180ccd52574876729ed6c6e6580d06c9d3be1bbfaf45f0108917efabcb6d25",
+      "tools/build/tests/external_composition.rs": "b85c98e8db51cca19203a36288b7ef85db602f5a8c8f57690043b57ac83d42a2",
+      "tools/build/tests/gio_profile.rs": "f3b5f82f0999488b9389cd3d29c79c000673090582834eac5cbe7f956bfa20ee",
+      "tools/build/tests/imu_profile_freshness.rs": "041fa99b839edd6b1e3b3b614b6283cf1f000ccdce02c51a5b54562c5c73fce6",
+      "tools/build/tests/native_header_freshness.rs": "3405ff1ee500036a3451795101195f2dd853f021528ddb691c90d20215ad75c2",
+      "tools/build/tests/nuttx_helper_ownership.rs": "07c217f73c277d4a7e2ae7affa20cbf354efafca4480bb2894c27f8f9baa2cd5",
+      "tools/build/tests/protected_qualification.rs": "a843e93251c6ba16695b76c95ee1b39fa920a2e423d77a53f859fbe3dc06c70f",
+      "tools/build/tests/tls_source.rs": "8ad61f2e5e94d73852d06420446f4364c104193196d39a321aff5e713a28bac5",
+      "tools/build/tests/tui_dependencies.rs": "00510e06112b93cdbf64b53a28bc6035c90ffcbc76702e15d8bef6f812b971fa",
+      "tools/build-support/Cargo.toml": "ecd9accd131bb7d88a1c48b419ff0a456977ddd6893a6ba013aaa989d1f78373",
+      "tools/build-support/cargo/build_sdk.rs": "568ee2624e369fc58d4f93abcb227b30a4bfd60a2650efa7acb69f17651a5750",
+      "tools/build-support/cargo/composition.rs": "dc00d88f4bdad9a2a79d6cd550f38699ffc2fe9d316382feffe9d105a8cbcd6e",
+      "tools/build-support/cargo/gio.rs": "7965c358951d35e6d8d6a825e8c3585cd4e43ced1f66bcca87852e0ad354fef9",
+      "tools/build-support/cargo/hal.rs": "a007413b3520fbb8577dcbb412494702d27e03c43cf0c4ee788b8fe3dedf3531",
+      "tools/build-support/cargo/resource.rs": "d529b08a7e691ea7f80eca8e39f31ea504f8ea752b8577f810811fb1e3d5cfd4",
+      "tools/build-support/cargo/tls.rs": "52c72f52946b3acda3cfd11294c5fbbb30a9898f2b2a46dfda99381e21bf198d",
+      "tools/build-support/src/archive.rs": "6d2bb1805266fa409445c3cd0a8326210ff64788c0802f2b87493f2a42996b3b",
+      "tools/build-support/src/bindings.rs": "0d46ab3b86090058e3de85a6eea24c968e8d273e328aa5bdd6ca1ced7b0aa617",
+      "tools/build-support/src/composition.rs": "3f8aae492a58738d3e6624115d0841c49a68ebd38403d580e6b31ece2cfbe100",
+      "tools/build-support/src/configuration.rs": "1e8ab5fb550f912fd98f8613492cbc9238e8b369a14e8e4494e3d0292a8cf874",
+      "tools/build-support/src/lib.rs": "b0ef98563dab45ebabc201e7d6d40dbb4482a8ae32760f639980eaaef7fc0c38",
+      "tools/build-support/src/native.rs": "c991112c488e72d244a847912cbd9c76fbf0016124a0aa347abc08b22bcd8d00",
+      "tools/build-support/src/native_nuttx.rs": "66a660acec76df81ee49d6a72bc56b28f24c7d3cb7b3a21e53c9d7850629845a",
+      "tools/build-support/src/nuttx_resources.rs": "7513b4d488ff5071a8f2133f55667d34265ea3b292debce32f3b28603403d93d",
+      "tools/build-support/src/overlay.rs": "36b7dc726410ef728bd1732c2c93a3c93084813eeb46cd5667bd560e1678df61",
+      "tools/build-support/src/preparation.rs": "6d0060affc075fc2eb718e630c02f7ea746826d8216a9f3fcf648619930e6f8f",
+      "tools/build-support/src/prepared_resource.rs": "52fd34a838533ff9b99b20e609d7ea817cacad39032204e8fb589421362d180e",
+      "tools/build-support/src/profile.rs": "887d4bdb5b50d8f444325a6154f93980e3bff9fac5e2022d389ddba6f09477b6",
+      "tools/build-support/src/resolved.rs": "599e517f2ce5d6e4f00c46d2abb8729cdebab2588da390535f0b9dd78b9dd8a5",
+      "tools/build-support/src/source.rs": "b7499fbefca81e03620bf4105542e08da67240700938d171af1dbeda13cbe7ca",
+      "tools/build-support/src/source_transaction.rs": "10a78543db30eadf7a75ed2e5d9c18eb3c826cf6f3500bcdfc4ef9b19ca2d47d",
+      "upstream/build-patches.json": "f9bcb752e97635ff88ff1570126c6576dcefd6a7d0dd2e463a232c65bad662e3",
+      "upstream/esp-hal-3rdparty/patches/0001-mbedtls-pair-configured-allocators.patch": "6942e4bc70fd5f492d621da218fe8dd228d84d988be8d9747f2372c749c4ee0b",
+      "upstream/esp-hal-3rdparty/patches/0002-intr-alloc-pair-capability-allocators.patch": "a8a459f1da6f7aa1d9c1689d25bcc563027f1f24ed097150059eaa1e016c45dd",
+      "upstream/esp-hal-3rdparty/patches/0003-esp32s3-serialize-wifi-phy-state.patch": "292c9428a1c581797312f4995b7192b8d15bf468160d3e1efd8eae22183a9ce1",
+      "upstream/esp-hal-3rdparty/patches/0004-forbid-efuse-programming.patch": "0425818ee45afdcaf214261511720fb54101d259d72afdb14a19338bb193949a",
+      "upstream/esp-hal-3rdparty/patches/0005-esp32s3-inherit-watchdog-clock.patch": "b135afe957fa47bc2d548deda39ae9290e27ff7e065634c508a289289e6bc8ad",
+      "upstream/esp-hal-3rdparty/patches/0006-esp32s3-inherit-watchdog-user-handoff.patch": "6176f7d0c194521e27e0fdb144800e54cf73b9562e2bbee8ddb81a570b9fe302",
+      "upstream/esp-hal-3rdparty/patches/0007-wpa-aes-symbol-prefix.patch": "fd3005f68b468e7150ca278d5553969f0f885e02fb412d2d912e0baff03f4628",
+      "upstream/esp-hal-3rdparty/patches/0008-esp32s3-smp-rng.patch": "7ae0727dcd887acb4885714c7dc2fc7da49e4b7ae4e8930debe4b08de1f629d4",
+      "upstream/nuttx/patches/0001-Fix-ESP32S3-BLE-advertising.patch": "942c201f876281e49828fa03a4a3f6fd3c654257df736014ae2279b207c32dd9",
+      "upstream/nuttx/patches/0002-Add-ESP32S3-NimBLE-HCI-configuration-option.patch": "42b8aee1e9b07268f56ae6f1b94db95c4be21a8f8d2af44542b2d7531d8b964f",
+      "upstream/nuttx/patches/0003-Add-ESP32-S3-camera-driver-for-OV3660-sensor.patch": "025c1e0448e86b3b0271782729f74b95b0fbb0961b5a039773900d9c7e7cd09f",
+      "upstream/nuttx/patches/0004-Enable-ESP32-S3-Wi-Fi-HAL-helpers-under-NuttX.patch": "44682e689e1cf5cee59653c4cf1acef53b41f75e2a1e988ea981cddb34e74344",
+      "upstream/nuttx/patches/0005-net-udp-return-zero-length-datagrams-from-readahead.patch": "54cd2d0902a823ba1de2c9c584309e8e5680a899f8a168d979bd9cc1895d459d",
+      "upstream/nuttx/patches/0006-flat-build-global-pthread-keys.patch": "776a412266a0ec3d30b2aef62f11ad05119b53dcc71bc836b33dfd0e93f84101",
+      "upstream/nuttx/patches/0007-esp32s3-spiram-size-mismatch-return.patch": "db8bb04fa12065079c11e618c8327cdcfcc763974c63785006782210fa63a489",
+      "upstream/nuttx/patches/0008-esp32s3-devkit-freenove-userled.patch": "20a1acee516e69e08fb5ad88964ae196ab98bf307ee819de6a39a40af634608a",
+      "upstream/nuttx/patches/0009-bcmf-accept-disabled-encoding.patch": "33ba12b6fe668d4fd4ac2875fb9f5c13c1fefd05a9ff07ae90a0411d52de18e1",
+      "upstream/nuttx/patches/0011-pico2w-wifi-board.patch": "3b87b7f1804393e5ffc728f99d3310da5b31498f9238cd59898b1134a35233f1",
+      "upstream/nuttx/patches/0012-rp23xx-cyw43439-backport-compatibility.patch": "fe2b2afe3cbfc46229b07afa3f07abbf6411a8188ec1f74ae99c38ff3e12f113",
+      "upstream/nuttx/patches/0013-bcmf-gspi-release-receive-frames.patch": "40d832c74e245438ec440adaa8d077a81f33b4fe8dee2b13b816ca4940f1b565",
+      "upstream/nuttx/patches/0014-cyw43439-shared-bus-bluetooth.patch": "933a8f22efe19c9e7f494a53a174d5ac2113f30460e3b962c276f2145dd25853",
+      "upstream/nuttx/patches/0015-rp23xx-cyw43439-irq-state.patch": "f47fd63a060eb260a4aaefe6aad4af2c9dc9c5c32bc7e4d32d3cfce1d0c82086",
+      "upstream/nuttx/patches/0016-cdcacm-1200bps-bootloader.patch": "1fc5a5ebad561a137c4d145ccd29bc86a3f36911a9b3465a5f0eb403680bda3a",
+      "upstream/nuttx/patches/0017-bluetooth-hci-sync-lifetime.patch": "922931c93781437d7d3a3c4445a5e57ed9c1f1c3b82cba2d4ae841f15a3a0894",
+      "upstream/nuttx/patches/0018-esp32s3-ble-pair-kernel-allocators.patch": "1fd5185e08eaddf6c37f0911116039343aac4cbf36a1b7c7cee24403ce09c22b",
+      "upstream/nuttx/patches/0019-bluetooth-host-receive-capacity.patch": "9e3b0aa3bc33108cc36fb6c46437b2e269e24dadad2d34a935e37cfec0be4fd7",
+      "upstream/nuttx/patches/0020-bluetooth-att-mtu-negotiation.patch": "6566996f1f2d8b8e925237bfc692cf21f70a3df977bda9c3aee59f30b42350bb",
+      "upstream/nuttx/patches/0021-rp2xxx-cyw43439-clm-alignment.patch": "c81f42f35877d573f86ff180e2df27761ef02a3fb7703726729d04fe8eb260bd",
+      "upstream/nuttx/patches/0022-net-tcp-poll-connecting-sockets.patch": "8c8689f5ffe59af34f78dd43b7340d3994fa95ca58ffbc5feb925aca4845ba06",
+      "upstream/nuttx/patches/0023-bluetooth-advertising-errors.patch": "434971feffa79adcb7e513a1d82a01e69388de7f7c813d923f965eb17fcf2f9e",
+      "upstream/nuttx/patches/0026-bluetooth-acl-send-log-level.patch": "4207d5c2a007f61550e742b422fbe2b195c909ed010006c5d591fe89b7bd31ff",
+      "upstream/nuttx/patches/0027-bcmf-gspi-frame-capacity.patch": "7817c9a610fe81e54fee401285988e269db3ddefd5cc57878bd8a12fe7532ef8",
+      "upstream/nuttx/patches/0028-rp23xx-cyw43439-board-calibration.patch": "c5c2697576fafcd64190f7819e9bdbcb6a56453dd22c1e1aed62d0bddf5f6e12",
+      "upstream/nuttx/patches/0029-bcmf-gspi-tx-backpressure.patch": "a95bc145519d24dafcb17b2c5bc7ed34c98c1cf0a0fd5c7169dd6f33c7eb4ae7",
+      "upstream/nuttx/patches/0030-bt-sync-legacy-advertising-state.patch": "db24a1aa1188565c6455521a52b3bb174190f68b34668ec02590014284b310d9",
+      "upstream/nuttx/patches/0035-bluetooth-gatt-connection-callbacks.patch": "b4dcf5cdb6ee527c1b0b49d4938be1eab013fdd3591d829bea6da7d1cbf1a037",
+      "upstream/nuttx/patches/0036-bcmf-gspi-validate-receive-frames.patch": "ff94261bfc3d7ce66ec52a9c7eb4c0a7bdd16581daeec1664bd88626f3eba750",
+      "upstream/nuttx/patches/0037-bcmf-gspi-stage-byte-transfers.patch": "a1eb7af329323e1fb53bd98210815440d51604da963a2e0bf25774cbd22c8720",
+      "upstream/nuttx/patches/0038-bcmf-gspi-propagate-register-errors.patch": "5120ac29ddc32a2b4106236b235310c5ec4c02595b14f675de9701633de79514",
+      "upstream/nuttx/patches/0039-bluetooth-reclaim-connection-credits.patch": "4e26bf030e9bb1ba61165623b1b10106b0973be63b1b8c64e775815b36ff0370",
+      "upstream/nuttx/patches/0040-bcmf-gspi-align-f2-transfers.patch": "572920d17aa712b1ba5cd66b64be5744fa31cf787dd6461d314f4abdfe258292",
+      "upstream/nuttx/patches/0041-bcmf-gspi-acknowledge-error-interrupts.patch": "8e17f2026e5826135d3c43b52cc5d688a254fc724df3d1725c8156a86a85b26a",
+      "upstream/nuttx/patches/0042-tcp-preserve-retransmission-progress.patch": "6529adf25c7b675ff8bf154a9764c341cfe32d7dbbe257faac4584033ff8820a",
+      "upstream/nuttx/patches/0044-rp23xx-cyw43439-pio-rx-count.patch": "3c01f1556e2ee9cc82604f8b1cc6b68e7a1a863286a3a85bddf000b3b3327455",
+      "upstream/nuttx/patches/0045-rp23xx-dma-preserve-pending-interrupts.patch": "4be664a5eca510815f50308a50cf7cfa4500bf20922c98a0a15306b39a592b66",
+      "upstream/nuttx/patches/0047-rp23xx-cyw43439-dma-lifetime.patch": "03e6d47aa3dd32977d06a5b9ffd608958d03c866dd06b8f8915bde3c79bdca9b",
+      "upstream/nuttx/patches/0048-rp23xx-cyw43439-pio-rx-fifo.patch": "23812bcbf31516c4efc33f56f18663148983539bafa9f9f25f2281b2ed8b60b7",
+      "upstream/nuttx/patches/0049-rp23xx-pio-dreq-index.patch": "24f00065cc2fcf319555459a8455e03c9f060fd293d65a399a69dcef6e00a1bf",
+      "upstream/nuttx/patches/0051-bluetooth-retain-disconnect-reason.patch": "0167f5ef6205a10af34385581a3234eec02ae447f74db41b1f1e00920100cd74",
+      "upstream/nuttx/patches/0052-esp32s3-ble-wrap-kernel-deallocator.patch": "8e34158209a7043a83dd116554ca93b8b1bb0f86c9506cfa6dea9177e89a2824",
+      "upstream/nuttx/patches/0059-bluetooth-complete-pending-att-on-disconnect.patch": "76f12386cc3fff2398bbefcfead4220bc83f58dad743389af79e876facd20943",
+      "upstream/nuttx/patches/0060-bluetooth-service-discovery-bounds.patch": "7de0f9971a62386feb430def8e6701ce56c2335ec648b92f63dd1e176dc623df",
+      "upstream/nuttx/patches/0061-bluetooth-negotiated-gatt-mtu.patch": "c2481a035b7625dd5d6f6b77d354ee62b7061caa011c0a41d4648cfe2c0e8a3b",
+      "upstream/nuttx/patches/0062-bluetooth-discovery-completion-status.patch": "1958f571b982b67503458726b30ee987a3e310b5b309570cdbdd21085e79adee",
+      "upstream/nuttx/patches/0063-bluetooth-expand-short-uuid-correctly.patch": "0722ec39b9e7568cb9a91d9bfb51b8c9e03f8708ce39ea30ced2fc7366a8a86e",
+      "upstream/nuttx/patches/0064-rp23xx-picoboot-only-usb-recovery.patch": "1d3f10b911ecfb05167611c566eec1a7d793bd2776241b1a8a75c4583928c727",
+      "upstream/nuttx/patches/0065-bluetooth-scan-failure-recovery.patch": "4535e21b4659250e4920c1c2d506aaa7619297bb7c0ffac95575052443a2d011",
+      "upstream/nuttx/patches/0067-ov3660-image-sensor.patch": "cc50b6fadb3c1dee712dc6f8d3285dbf95cf9ba736ab186cd08a3fe210bbb610",
+      "upstream/nuttx/patches/0068-esp32s3-freenove-video-capture.patch": "be4636884236c908a11f6ab582485bff3ce9392a9f4f717aa800eb829478b88c",
+      "upstream/nuttx/patches/0069-esp32s3-camera-clock-and-dma-length.patch": "79bd3b6b3084ffb94d5ef282a26ec000a91dae6d8abdefb47fbf87e785b4c563",
+      "upstream/nuttx/patches/0070-esp32s3-camera-dma-cache-ownership.patch": "e536c40e34d7474861e9c163dcb47431a5420b0847937e1b8460da71e32cee9b",
+      "upstream/nuttx/patches/0071-video-capture-lifecycle-errors.patch": "d277752306b6babb0be662480d3e8efa46cc15c2a60a3deee3161a08267e3825",
+      "upstream/nuttx/patches/0072-xtensa-espressif-irq-adapter-lifetime.patch": "437f085fcfa50535bca42d1750d570b7bdb4889e224394e523357781470109d7",
+      "upstream/nuttx/patches/0073-video-propagate-capture-start-errors.patch": "eed8d1aba184a2ec543b617684456a4a48723f0afae9041ef9f563df16fb6867",
+      "upstream/nuttx/patches/0074-ov3660-jpeg-capture.patch": "fa1af889a5fd0566ad4da3b761b13761c3a63c8429feabd95cac3b6650aaa019",
+      "upstream/nuttx/patches/0075-esp32s3-camera-jpeg-frame-boundaries.patch": "e13b98f6e93083f0955a4ed22b2769f5ff9cd2c31113c2ccbc7774e2aa69d022",
+      "upstream/nuttx/patches/0076-esp32s3-initialize-performance-counter-frequency.patch": "c19766c68c91484e656f4dd8cf5fd5a20ffb217ac475b68de0b285f45565ce5d",
+      "upstream/nuttx/patches/0077-net-skip-packets-consumed-by-link-layer.patch": "2c69a90ffee168bb9dbb804d7f2086359be7c1fecd50fa38783cf7d9f86eb28e",
+      "upstream/nuttx/patches/0078-tcp-validate-sequence-before-ack-progress.patch": "d6c98c2e5de18d4c24fa02202ba9fa7a396e6b98f6fbbf94326722c9c32220b9",
+      "upstream/nuttx/patches/0079-video-rollback-failed-qbuf.patch": "15f8f23ee3c5104c3993684b9c2f829ce8152fc29c85598868e5bcee729d1d84",
+      "upstream/nuttx/patches/0080-esp32s3-camera-continuous-frame-boundaries.patch": "d6a2d4e2ac1689039ede80c9484dd1f031999b98b07ba3543b5b5900993dd7e7",
+      "upstream/nuttx/patches/0081-esp32s3-camera-vga-jpeg-capacity.patch": "b4af6372f7b9602ee8b65cc33c71e101de1db44cad91f8e4cefc51bb22db1c93",
+      "upstream/nuttx/patches/0082-esp32s3-camera-bounded-dma-cache-work.patch": "255632e86160044d9d1b0f9dc3436d9079786e015bb7dcc7efed0905ee859554",
+      "upstream/nuttx/patches/0083-ov3660-jpeg-quality-control.patch": "39e53f6fd9a4156c93c0bb397a59c1317ec3676192eafd90675c44d1fccbecf1",
+      "upstream/nuttx/patches/0084-video-initialize-scalar-control-wrappers.patch": "c614d7adbc06da4e97b8dd2efd26a649132bd6914b434972cb91145a5c800ef1",
+      "upstream/nuttx/patches/0085-esp32s3-camera-reset-synchronization.patch": "d8aeb65174e33820cb84cccff2cdb56a113f36b50711efa9946557c5ec4c2e97",
+      "upstream/nuttx/patches/0086-tcp-accept-progress-after-partial-retransmission.patch": "22b08a1ff09afdeab91605ef8d41f05648bca8f53dea21fa197de4c8f9b9d690",
+      "upstream/nuttx/patches/0087-tcp-allow-congestion-window-recovery.patch": "d603f7aca5e8c0ec59f777d63b72f3e87ce5432495ad99d9988baf66d1686ec4",
+      "upstream/nuttx/patches/0088-esp32s3-camera-prefer-fixed-pll-clock.patch": "49cd6293d4da1cda819d772e0f3a7b7d3933c2276b9e6ddfdac1b643591c7503",
+      "upstream/nuttx/patches/0089-esp32s3-camera-configurable-clock-drive.patch": "113caa7514f7510fa30590c657e2609d7e8a3f3a657936f752c7539c16136ea6",
+      "upstream/nuttx/patches/0090-rp23xx-rng-bounded-failure.patch": "2f0ccf4330de2a4ccd9036ab76ef928008dbc6f4dba4d2a3a1997f439a3a875c",
+      "upstream/nuttx/patches/0091-arc4random-fail-closed.patch": "b96b03b8aa8f30064dc58c3477fc276b3f79903650e6e053f611778efbc41017",
+      "upstream/nuttx/patches/0092-sim-host-random.patch": "3142e2f1a08e7cdf3c92b0c47bf0c11d90ddbb5f26ea6a06a5c7eeb8623cf497",
+      "upstream/nuttx/patches/0093-esp32s3-guard-rf-entropy.patch": "a8a496375552fccffa21975d3607d2258f8884d39e260ff41d323fa581e7bea0",
+      "upstream/nuttx/patches/0094-esp32s3-boot-watchdog-handoff.patch": "049915456ceef426b400e32a9f283524966f2ec6b33ae335e17dc291d0d6f318",
+      "upstream/nuttx/patches/0095-esp32s3-encrypted-ota-partition-config.patch": "35943a7a0966ab45605acda6ad6fdbc1cb4e2f83d7c64666bf7a618035dde35e",
+      "upstream/nuttx/patches/0096-esp32s3-propagate-encrypted-write-errors.patch": "21d5c2b8fd7f2096558c70d3f3f461229685d0951fb1fb31ddfdb8ef4c7e7d3c",
+      "upstream/nuttx/patches/0097-esp32s3-encrypted-flash-contract.patch": "46b0af10608efea8e016ed03f0958cf4ca8787cc2f426fc5b7cae5cd0c113593",
+      "upstream/nuttx/patches/0098-esp32s3-select-encrypted-flash-driver.patch": "0a2562acfe8858f5736fedc91b77737d8fa0d6e1e4d586e32cfe034abe52840b",
+      "upstream/nuttx/patches/0099-esp32s3-encrypted-write-alignment.patch": "b2cf1088f8a0a96ada0899ce7601a7a4b5369bd3e57ab15446e3b217c90b12ac",
+      "upstream/nuttx/patches/0100-esp32s3-inherit-boot-watchdog.patch": "52a328b7a6ff17c1f11674be86fcb17ff73f5ac1d4fbbedc271a719b5ffdf20e",
+      "upstream/nuttx/patches/0101-netdev-poll-thread-lifetime.patch": "00414c6d253ba03df472b0aaee563b0870792d597a04c8ac4d192770f9096fdc",
+      "upstream/nuttx/patches/0102-camera-stop-acknowledgement.patch": "5c1198bdfcf7c7d36180e8cbd7ff514ab1ff54bdf502a1b9b068e30863fdcbe8",
+      "upstream/nuttx/patches/0103-esp32s3-config-partition.patch": "52d4bc543da2c80c3f255c4f9796ad8f0db0fbacbc28969553667f2bdd2e6e98",
+      "upstream/nuttx/patches/0104-esp32s3-m5-cores3-raw-resources.patch": "820f6d56a7a66bab97dff20c9b11f923b4511d864a1e5825729778115df4fe45",
+      "upstream/nuttx/patches/0105-sched-migrate-affinity-with-empty-ready-queue.patch": "db97e23657a8ea3614847c3e54b400d786274a9b7b301e0728044f8735eb5c6f",
+      "upstream/nuttx/patches/0106-esp32s3-direct-voluntary-switch.patch": "48ef4d006298eab80e0305c8a426aaf63a10e19f64cf1ca2f07b1e07d3b9051f",
+      "upstream/nuttx/patches/0107-esp32s3-product-iram-layout.patch": "63124893607df60b28914eb1103b3735ba6a0ff81db53216b235c3af79b139f6",
+      "upstream/nuttx/patches/0108-xtensa-simpleboot-hash-offset.patch": "5e2a5030ffc59c33cc830e2db7c0624b702562774a560a5eb28fad4a63c73f87",
+      "upstream/nuttx/patches/0109-esp32s3-cores3-protected-memory-map.patch": "93320bcf3cf895d1e3d721972993d912de4989278e40ae37e9afabd0aae8ba72",
+      "upstream/nuttx/patches/0110-esp32s3-protected-toolchain-libm.patch": "734ad23869b33f09c8dc7c78d46d95a1ad95ef7fc94db7f661e1b5567bdcf555",
+      "upstream/nuttx/patches/0111-esp32s3-devkit-configurable-imu-irq.patch": "95b51763167890e5015744d696f3f1521e9de23c945308818cb1d67ebf906064",
+      "upstream/nuttx/patches/0112-i2c-scheduler-note-qualification.patch": "0fe0e3b281b52cf77227a2eed43bed1dbde194a422536dfd4fbabc1981b28601",
+      "upstream/nuttx/patches/0113-pty-window-size-ioctls.patch": "3f538f3b7ad31d6f39a87e92aa51467069d37221f3f49989e942c7fc1061158f",
+      "upstream/nuttx/patches/0114-tcp-reuseaddr-listener-recovery.patch": "8cd2f1643c9ff6f3586160fad14aa6e8382d9aecf958ad64256bb0c1b4b5f2c8",
+      "upstream/nuttx/patches/0115-esp32s3-smp-flash-rendezvous.patch": "c3c8f489e7f888c29439f917212d643d7d549d7d268b701da32d2375e1cd06ed",
+      "upstream/nuttx/patches/0116-xtensa-serialize-wifi-reconnect.patch": "91ba7031022d4daaec1fd7c46a56cd90d4b96ae92b3fb9ef266d09102c9c50be",
+      "upstream/nuttx/patches/0117-mm-heap-propagate-lock-failure.patch": "0d0d134b0aa8ee188f220bebabb99d507abe62455e24c1c74bdc4560c5bde40c",
+      "upstream/nuttx/patches/0118-esp32s3-smp-psram-atomics.patch": "a44cccb7af5d06b8775396ca2009d0074157114432be663c56823531909919dd",
+      "upstream/nuttx/patches/0119-esp32s3-board-reset-cause.patch": "3d685f51f4f78fc1c0cc86338512182ad5b60e260d587bf483f46b520bdd5df3",
+      "upstream/nuttx/patches/0120-rp23xx-peripheral-device-controls.patch": "5aa998941d8428466900518207258b30c2fd3a907ec7e9983f1dac1431033f9c",
+      "upstream/nuttx/patches/0121-espressif-ledc-gpio-readback.patch": "7d2eb260248274b4301fd3b694ed3b803a7b28f54ad0c353786897785cd36971",
+      "upstream/nuttx/patches/0122-esp32s3-spi-write-only-pio.patch": "0c6eb88b8b51f2d1a419f79da8a2d7b1f23eb6328064e18f17b77091bcadf788",
+      "upstream/nuttx/patches/0123-esp32s3-cores3-display-resources.patch": "d788c976e11fe401263da6d5dc761f453f855d02cfa5ea35b3564b9d1263271a",
+      "upstream/nuttx/patches/0124-esp32s3-maintenance-volume.patch": "671cb5ff861e58a007b8b35027ba14cc470d26b2906c15d7c60a7c3e2eadf25e",
+      "upstream/nuttx/patches/0125-esp32s3-camera-smp-irq-lifetime.patch": "50594d6b6eff2750d4e7eea31e24127d796011e6ecf6426d6a3e59b7e9a3ca34",
+      "upstream/nuttx-apps/patches/0001-Add-ESP32S3-VHCI-transport-support-for-NimBLE.patch": "409241e8ef70864b14f5e88902802c846d15ba14b37c5e827e4be72fc3a19377",
+      "upstream/nuttx-apps/patches/0002-nsh-dmesg-reset-options.patch": "e6b5d7acc5e549d411ad0fe828fadb302ff514dd05d47a13070009a81a435fa1",
+      "upstream/nuttx-apps/patches/0003-dhcpc-pad-option.patch": "3f0aaa26c11e6b8085fb67f76ba249a885e5761381a9c96fd6935fbdbb60db69",
+      "upstream/nuttx-apps/patches/0004-mcuboot-current-helpers.patch": "2489012cf0f0c01d7b07cb6ecb121e750542ca13c1ddfd8f56b347ceb79004fd",
+      "upstream/nuttx-apps/patches/0005-dropbear-bounded-service.patch": "1f06c8b9e05e8d7d1d4d9b4b767621a57277e97d6146cc111827313a1273bffc",
+      "upstream/nuttx-apps/patches/0006-dropbear-initialize-remote-prompt.patch": "38feffe0ffbbec2e2b2ace53870b5a88f7bcee60c0f4fe7babe27749ac9d495d",
+      "upstream/rust-std/patches/0001-native-pollfd-initialization.patch": "7c54623c9a11048b48542556bca74c125f72bad10f3614559494e8591837adac",
+      "upstream/rust-std/patches/0002-nuttx-parker.patch": "48eebe76d3bcfcf296a80d3c7031a6f24607ccd2a01407a0bbdd0e80c51320dc",
+      "upstream/rust-std/patches/0003-nuttx-fd-sanitization.patch": "e852e13d2a9727c42811f1e998133dbc1f342abdd31553d3431929f16983be78",
+      "upstream/rust-std/patches/0004-nuttx-sigign.patch": "a8e66524913eada4313ee47c4d5cd796b40059829f1a7986acd2ef2473aede83",
+      "upstream/rust-std/patches/0005-nuttx-libc-override.patch": "3d1bee39788213982dfcbb99b1fa4f070689da98746046c185fe3b9a935f0268",
+      "upstream/rust-std/patches/0006-nightly-nuttx-libc-override.patch": "4119f8d6470e48c5463e791f9cc61c50223c7a619350b4bc45f636a6703bae6c",
+      "upstream/rust-std/patches/0007-nuttx-bounded-channel.patch": "a05906ef679a3c3f0185b879d91687d7346988e90b4ee08ad5adc861723fb28f",
+      "upstream/rust-std/patches/0008-esp-nuttx-parker-selection.patch": "186ef1ff65f8859ac6f0aa56534b6c201ab88ad23312d8cfbc62c40e8df33933",
+      "upstream/rust-std/patches/0009-nightly-nuttx-parker-selection.patch": "0b3780d130bf8de3226c23b44ee40eadaac16a20100d5053e141e323d1face4d",
+      "upstream/rust-std/patches/0010-unbounded-operation-boundaries.patch": "423f1fad806c3fc983d95e973e67fb0d47a5842debe7998d82e3ac52124c43ef",
+      "upstream/rust-std/patches/0011-rendezvous-operation-boundaries.patch": "4ebe82b65bfb3f57558198784a913f4b482ebd36305195573a97ed79cc2b932b",
+      "upstream/rust-std/patches/0012-nuttx-main-thread-once.patch": "03b8d13f14ad81553c203cd6a05995baaab3d24e3eeae9c6342a0bb7d323edf9",
+      "upstream/rust-std/proposals/0001-nuttx-libm-inverse-hyperbolic.patch": "c767b19fc1762f544fd1197f24e9b159c5d12edbc45e24f684d4962beda0d9f2"
+    },
+    "b4523dda83b66e9ed271d837a49d0f033a1fcd3efb69c30dd20278fe7a6158a1": {
+      "../embassy-comparison/stack.x": "2439448dd688756a4e12326c72cf09075e0f7d9168684d8e0376aa24d702c944",
+      ".cargo/config.toml": "17052d9c9a4a9353d1b12b02ce1fd3f867a0a289fe21346e4944f0c084a776ea",
+      "CMakeLists.txt": "16ba083cdf0d7b8262b15225e8812048a952448bcc6bf6db89e711f87fe97696",
+      "Cargo.lock": "d5e70ff6069f77510d08f9dc4cbd8f6f37894bd110991758b8f32c131dd412ad",
+      "Cargo.toml": "1dc0486d54dbc8d1fc15020d3c2d674a8a542a4bda14170404b68caf5261c12c",
+      "build.py": "cf9bda6a5af3191f3362b6256cafd52e45ce2564cea9c1fc38327882d6ecae28",
+      "build.rs": "5fd49187c5db89454d3b6228bc2bc97a0de4e35974dfa3cfc4e89842097ee3f8",
+      "clock.h": "7e40dc2d01d748222c11387530a85991b97489f996e572c001ceb93da5a3b796",
+      "contract.h": "aad4e1f880518c45928871d70e36b464fa9fa456388b0efe7fb0f9c842968bd5",
+      "controls.h": "3bdacb8f74771f15fe2319d39caa630df39797bf1db3b34a8f10589c1b5f118e",
+      "controls.rs": "1ce5fa409f606a39f4db497bb48b26b80b4630b5536a1304f98dd487ad54b048",
+      "core.c": "2cfd4175fa1965589e1c466d416242375f52b2d043b7cfbcdb2ff26e26c08c0b",
+      "core.rs": "6f7eeeb501f01be78239261ee29dace5d1546e2dac590ed76ffeee2a29015cff",
+      "embassy.rs": "baa61f35bf310bbeb802e258a971fc6ff993c03ff7f7581a7eb6fa8dcabdc81d",
+      "entry.c": "121aa768622015c464f423c24ca1a7f941488c689657695f5723e064b61773da",
+      "experiment.rs": "969903fd975f33778a221a658f7228b176ce71c099fd2225f87f7f0358c45215",
+      "hal.h": "30124fd6a22cf244f13651d6bb15ce6b88d8fd4ea58667169a51d39b8d896e05",
+      "hal.rs": "a299201f2dd247d78dd92edb11076b4335fb3774616e9a07ee5e50d10a736cce",
+      "hal_nuttx.c": "404a1f312bd49faa19e851d2b51fd17f9e4f5baf7922bf0bbcdf232b525a3be5",
+      "hal_zephyr.c": "520050bd6051113eac8cb1d5c8a578f47fd6bc306a53a11e8b8e69b4bef52339",
+      "instrumentation.h": "7b32fb20333ae30c12c8f62829ee45ae47db975f70d16e8ebf792412a2724c8c",
+      "native_stack.h": "fff09b4e59297c957220b901ac0c93fea44e82b5f6331a83b315024de111a7d4",
+      "nuttx-minimal.conf": "09c19731bfe52b768f7876969bca4b15aab3da11763c9fdc203e52ef998d0acc",
+      "nuttx.rs": "f398ffe34d9ac1367d9bca9bbff13c3e32c7ba24d045ccf020a2a7b1caee64fb",
+      "nuttx_console.c": "d0aa8b0b024e7bd763c5935c30fa3b3c02f9a695d7b89a4924d940626304751a",
+      "nuttx_profile.py": "ae7ee83715419301b1911dbaf0bfe9fa8ed26ae110b9a38bccd1b9b034b62481",
+      "owned_slot.rs": "b6afba02f943259a6df977e8dceaa7bc75156744bfaf650616158d86e91921b0",
+      "platform.h": "341fe0176ae6a9729a4d443d1b0887de4acd53111919f3f11edbd6e0fc0bcd70",
+      "platform_nuttx.c": "3c793a4975d4b298011a48f0b9ee60c259a61e812fc990c1809262d7fcc6f95a",
+      "platform_zephyr.c": "06a12b11d4b4e69972f40f03366d03b01a694c7642d08be147ebcd031cea1b12",
+      "runtime.c": "7d2c1fa362b63280abe1e4b5313082b7d627ec6fade0c6dce6746e77d5f6950e",
+      "runtime.h": "44b4eaa2a4fc6e1f4456695a70659f0c3a93995b0752285130a2f8a370cebd0e",
+      "saturation.c": "882ca9d0b8da382ff8360c840776c5f557f8cfb25c31e82d31d483bb06df16c2",
+      "saturation.h": "174bfb4dca65c4e71dff3db7e0f93570862b62995c483308b10869f9ca63e3c7",
+      "scheduling.rs": "aae5e24c3e408acf8d64936f1c11aaec88935a8e9d39a71a7bea14aa91f08b36",
+      "stack_config.rs": "e004698a2d4f5ab130b981ead9f478120a9530f70f3f888eaa7753b205c5d211",
+      "stack_watermark.rs": "12f122ea8c45d098c805d0251cf75d91a41964314c1960141623884935ee9ce5",
+      "telemetry.rs": "fa8e23aad7f726a1c2bb336318fcd4d10d17b184449b07cc2b8a61dd3f0b78e6",
+      "timer-1ms.conf": "b0e47679d25e0219c5266985feeecca3dcf1e4d912b18489ab07659842f05b60",
+      "zephyr_main.c": "27d35ee9f6aeac9cae25e4a509d0782ca54cc8ba301972a872054ae368e1272d",
+      "../rtos-bench/build.py": "e9a2fa4882963f440edf9e559c8f46e5644ec6af098865940a7a906731a9950d",
+      "../rtos_harness/images.py": "190c236ed264116f49d159d5cf3d3167e637a7a30be8936187958bcf1d11d623",
+      "../rtos_harness/zephyr.py": "54b60c67863fadab0be5677767a86892a35888541abe324154c527ebb225752d",
+      "../service-footprint/Cargo.toml": "97e733b36d775dd9254e78c93cb9f11c89aa8cec5adf686691bf235a9ecdd6b5",
+      "../service-footprint/build_c.py": "8495675d80241b7efd543aa8dc5d29f09e5d9e18ebe5715ba4f8f45a6d602cca",
+      "../service-footprint/relink_rust.py": "35579a76d268a9a680ac252b430215acf5022b03834e9c438d5687330f3be85c",
+      "../zephyr-comparison/app.overlay": "20651e8a1defe6eb7c92005640970b41b762cdc68c0c036f8a4cda1508035619",
+      "../zephyr-comparison/prj.conf": "1e35bed6e09c09360a99a257b2614ef09ac74f5a7adc947b8b255f1b679552b0"
+    },
+    "a0dfcdf8c7c71e4738c6dc0fa1abaa4c38c9c949eb6f3b13a1a89d5188315656": {
+      "../embassy-comparison/stack.x": "2439448dd688756a4e12326c72cf09075e0f7d9168684d8e0376aa24d702c944",
+      ".cargo/config.toml": "17052d9c9a4a9353d1b12b02ce1fd3f867a0a289fe21346e4944f0c084a776ea",
+      "CMakeLists.txt": "16ba083cdf0d7b8262b15225e8812048a952448bcc6bf6db89e711f87fe97696",
+      "Cargo.lock": "d5e70ff6069f77510d08f9dc4cbd8f6f37894bd110991758b8f32c131dd412ad",
+      "Cargo.toml": "1dc0486d54dbc8d1fc15020d3c2d674a8a542a4bda14170404b68caf5261c12c",
+      "build.py": "cf9bda6a5af3191f3362b6256cafd52e45ce2564cea9c1fc38327882d6ecae28",
+      "build.rs": "5fd49187c5db89454d3b6228bc2bc97a0de4e35974dfa3cfc4e89842097ee3f8",
+      "clock.h": "7e40dc2d01d748222c11387530a85991b97489f996e572c001ceb93da5a3b796",
+      "contract.h": "aad4e1f880518c45928871d70e36b464fa9fa456388b0efe7fb0f9c842968bd5",
+      "controls.h": "3bdacb8f74771f15fe2319d39caa630df39797bf1db3b34a8f10589c1b5f118e",
+      "controls.rs": "1ce5fa409f606a39f4db497bb48b26b80b4630b5536a1304f98dd487ad54b048",
+      "core.c": "2cfd4175fa1965589e1c466d416242375f52b2d043b7cfbcdb2ff26e26c08c0b",
+      "core.rs": "6f7eeeb501f01be78239261ee29dace5d1546e2dac590ed76ffeee2a29015cff",
+      "embassy.rs": "baa61f35bf310bbeb802e258a971fc6ff993c03ff7f7581a7eb6fa8dcabdc81d",
+      "entry.c": "121aa768622015c464f423c24ca1a7f941488c689657695f5723e064b61773da",
+      "experiment.rs": "969903fd975f33778a221a658f7228b176ce71c099fd2225f87f7f0358c45215",
+      "hal.h": "30124fd6a22cf244f13651d6bb15ce6b88d8fd4ea58667169a51d39b8d896e05",
+      "hal.rs": "a299201f2dd247d78dd92edb11076b4335fb3774616e9a07ee5e50d10a736cce",
+      "hal_nuttx.c": "404a1f312bd49faa19e851d2b51fd17f9e4f5baf7922bf0bbcdf232b525a3be5",
+      "hal_zephyr.c": "520050bd6051113eac8cb1d5c8a578f47fd6bc306a53a11e8b8e69b4bef52339",
+      "instrumentation.h": "7b32fb20333ae30c12c8f62829ee45ae47db975f70d16e8ebf792412a2724c8c",
+      "native_stack.h": "fff09b4e59297c957220b901ac0c93fea44e82b5f6331a83b315024de111a7d4",
+      "nuttx.rs": "f398ffe34d9ac1367d9bca9bbff13c3e32c7ba24d045ccf020a2a7b1caee64fb",
+      "owned_slot.rs": "b6afba02f943259a6df977e8dceaa7bc75156744bfaf650616158d86e91921b0",
+      "platform.h": "341fe0176ae6a9729a4d443d1b0887de4acd53111919f3f11edbd6e0fc0bcd70",
+      "platform_nuttx.c": "3c793a4975d4b298011a48f0b9ee60c259a61e812fc990c1809262d7fcc6f95a",
+      "platform_zephyr.c": "06a12b11d4b4e69972f40f03366d03b01a694c7642d08be147ebcd031cea1b12",
+      "runtime.c": "7d2c1fa362b63280abe1e4b5313082b7d627ec6fade0c6dce6746e77d5f6950e",
+      "runtime.h": "44b4eaa2a4fc6e1f4456695a70659f0c3a93995b0752285130a2f8a370cebd0e",
+      "saturation.c": "882ca9d0b8da382ff8360c840776c5f557f8cfb25c31e82d31d483bb06df16c2",
+      "saturation.h": "174bfb4dca65c4e71dff3db7e0f93570862b62995c483308b10869f9ca63e3c7",
+      "scheduling.rs": "aae5e24c3e408acf8d64936f1c11aaec88935a8e9d39a71a7bea14aa91f08b36",
+      "stack_config.rs": "e004698a2d4f5ab130b981ead9f478120a9530f70f3f888eaa7753b205c5d211",
+      "stack_watermark.rs": "12f122ea8c45d098c805d0251cf75d91a41964314c1960141623884935ee9ce5",
+      "telemetry.rs": "fa8e23aad7f726a1c2bb336318fcd4d10d17b184449b07cc2b8a61dd3f0b78e6",
+      "timer-1ms.conf": "b0e47679d25e0219c5266985feeecca3dcf1e4d912b18489ab07659842f05b60",
+      "zephyr_main.c": "27d35ee9f6aeac9cae25e4a509d0782ca54cc8ba301972a872054ae368e1272d",
+      "../rtos-bench/build.py": "e9a2fa4882963f440edf9e559c8f46e5644ec6af098865940a7a906731a9950d",
+      "../rtos_harness/images.py": "190c236ed264116f49d159d5cf3d3167e637a7a30be8936187958bcf1d11d623",
+      "../rtos_harness/zephyr.py": "54b60c67863fadab0be5677767a86892a35888541abe324154c527ebb225752d",
+      "../service-footprint/Cargo.toml": "97e733b36d775dd9254e78c93cb9f11c89aa8cec5adf686691bf235a9ecdd6b5",
+      "../service-footprint/build_c.py": "8495675d80241b7efd543aa8dc5d29f09e5d9e18ebe5715ba4f8f45a6d602cca",
+      "../service-footprint/relink_rust.py": "35579a76d268a9a680ac252b430215acf5022b03834e9c438d5687330f3be85c",
+      "../zephyr-comparison/app.overlay": "20651e8a1defe6eb7c92005640970b41b762cdc68c0c036f8a4cda1508035619",
+      "../zephyr-comparison/prj.conf": "1e35bed6e09c09360a99a257b2614ef09ac74f5a7adc947b8b255f1b679552b0"
+    }
+  },
+  "builds": {
+    "timing-std": {
+      "source_inventory": "e7d1a00ba5b6cfd0099139427d3e681747634f083b69462c4f00e33f1ac1ced3",
+      "build_id": "0c6472b43bb4cb6288cb70b55b8fc223e26b1766d77e5baca787587c8b9415dc",
+      "artifact_sha256": {
+        "firmware/nuttx/nuttx": "c993f05f0eb8fd5c3a9c43bba7b4ac10628f275344e902149f9124c336d2fdf0",
+        "firmware.bin": "f987fca4d6535f5145060d762361d0b5c4810f0fee5c824efeca41d0bd73a923",
+        "firmware/resolved.config": "e3f15fd9763ce3c8a3cc792d8bbfae4e76790765e465d03516899f7f8aa96c46"
+      },
+      "placement": {
+        "elf_sha256": "c993f05f0eb8fd5c3a9c43bba7b4ac10628f275344e902149f9124c336d2fdf0",
+        "resolver_sha256": "0362ef7d157a8175159084dbfe0d8ab9d4c207a8ada9c3cc3ae1e45dae9daab4",
+        "visited": 93,
+        "flash_boundaries": [],
+        "matched_placement_qualified": false,
+        "unresolved_indirect_count": 9
+      }
+    },
+    "timing-zephyr": {
+      "source_inventory": "e7d1a00ba5b6cfd0099139427d3e681747634f083b69462c4f00e33f1ac1ced3",
+      "build_id": "c4ae67e3daece143522e80533b4ea53a08306a3213128516f6befe221f2015de",
+      "artifact_sha256": {
+        "firmware/zephyr/zephyr.elf": "0fbb1b8bf29aa9904d2b6b24b2a853ffdec982b8428fadf8a09cb01385571e78",
+        "firmware.bin": "d73a42ecbdd8e72c4d2c78356c3fc62e92d5c96ef821807c46a1fc19585b80d4",
+        "firmware/zephyr/.config": "1dc22f1b5fc9d23236eca02a5b4d9eba47a4e4aedb051cfd3c550bddcb88c34f"
+      },
+      "placement": {
+        "elf_sha256": "0fbb1b8bf29aa9904d2b6b24b2a853ffdec982b8428fadf8a09cb01385571e78",
+        "resolver_sha256": "0362ef7d157a8175159084dbfe0d8ab9d4c207a8ada9c3cc3ae1e45dae9daab4",
+        "visited": 113,
+        "flash_boundaries": [],
+        "matched_placement_qualified": false,
+        "unresolved_indirect_count": 20
+      }
+    },
+    "ram-nuttx-0": {
+      "source_inventory": "b4523dda83b66e9ed271d837a49d0f033a1fcd3efb69c30dd20278fe7a6158a1",
+      "artifact_sha256": {
+        "resolved.config": "b97e863385c150f2cd7990509c3b9c25292d6e2f1551b248b4cb40186a879509",
+        "app.elf": "950583a42162451a07e881c46fe41689e49f610755515f200886a794dfbd032f",
+        "image.bin": "08ad440792bb543ae693a9a93544cd830097307c2d1da9706627261cddb6c988"
+      },
+      "configuration": {
+        "worker_capacity": 0,
+        "worker_stack_bytes": 4096,
+        "slots": 480,
+        "event_bytes": 64,
+        "queues": 60,
+        "instrumentation": "lean",
+        "publication_timer_resolution_ms": 1
+      },
+      "section_accounting": {
+        "resident_ram_bytes": 69956,
+        "loadbearing_flash_bytes": 116239
+      }
+    },
+    "ram-zephyr-0": {
+      "source_inventory": "a0dfcdf8c7c71e4738c6dc0fa1abaa4c38c9c949eb6f3b13a1a89d5188315656",
+      "artifact_sha256": {
+        "resolved.config": "b18ce8e4deef4ace00be765570f53b9f65e5e25fce3bdfd99d2995d7ad260781",
+        "app.elf": "48f4b43f3daf3321a517079457eea92067cc0213a725bf382a7f156e23ccce69",
+        "image.bin": "376cc4e75fd94d9ee301ad7195e855963eab6bcdd3aabfbb8da8d176908b25c2"
+      },
+      "configuration": {
+        "worker_capacity": 0,
+        "worker_stack_bytes": 4096,
+        "slots": 480,
+        "event_bytes": 64,
+        "queues": 60,
+        "instrumentation": "lean",
+        "publication_timer_resolution_ms": 1
+      },
+      "section_accounting": {
+        "resident_ram_bytes": 118956,
+        "loadbearing_flash_bytes": 90832
+      }
+    },
+    "ram-nuttx-1": {
+      "source_inventory": "b4523dda83b66e9ed271d837a49d0f033a1fcd3efb69c30dd20278fe7a6158a1",
+      "artifact_sha256": {
+        "resolved.config": "b97e863385c150f2cd7990509c3b9c25292d6e2f1551b248b4cb40186a879509",
+        "app.elf": "d03f7af5923e547df24ee04168b58d5ae2f0c1eb2830ae8fb703bc2d79f03551",
+        "image.bin": "93fb840fa3f72e82def3c8fccdfe26be19ba3404e07bb71213d937a4a781f1a5"
+      },
+      "configuration": {
+        "worker_capacity": 1,
+        "worker_stack_bytes": 4096,
+        "slots": 480,
+        "event_bytes": 64,
+        "queues": 60,
+        "instrumentation": "lean",
+        "publication_timer_resolution_ms": 1
+      },
+      "section_accounting": {
+        "resident_ram_bytes": 69988,
+        "loadbearing_flash_bytes": 117271
+      }
+    },
+    "ram-zephyr-1": {
+      "source_inventory": "a0dfcdf8c7c71e4738c6dc0fa1abaa4c38c9c949eb6f3b13a1a89d5188315656",
+      "artifact_sha256": {
+        "resolved.config": "b18ce8e4deef4ace00be765570f53b9f65e5e25fce3bdfd99d2995d7ad260781",
+        "app.elf": "35205300439c9f63c9a7c628c191359426587fccc62cb02b767f859a8487ea6a",
+        "image.bin": "8b9b087154336121add2ffdbd30a4fe9567e6c4fa0d891415d2a98e890432263"
+      },
+      "configuration": {
+        "worker_capacity": 1,
+        "worker_stack_bytes": 4096,
+        "slots": 480,
+        "event_bytes": 64,
+        "queues": 60,
+        "instrumentation": "lean",
+        "publication_timer_resolution_ms": 1
+      },
+      "section_accounting": {
+        "resident_ram_bytes": 123212,
+        "loadbearing_flash_bytes": 90976
+      }
+    },
+    "ram-nuttx-20": {
+      "source_inventory": "b4523dda83b66e9ed271d837a49d0f033a1fcd3efb69c30dd20278fe7a6158a1",
+      "artifact_sha256": {
+        "resolved.config": "b97e863385c150f2cd7990509c3b9c25292d6e2f1551b248b4cb40186a879509",
+        "app.elf": "05056fcac5301a452cd7a671919d2a28aa479ee90dd5811bd7610d909ec4ddea",
+        "image.bin": "b09df347bf789a9a559cea98d9c50327d764d9b15911e17d8ccb12dd50215c44"
+      },
+      "configuration": {
+        "worker_capacity": 20,
+        "worker_stack_bytes": 4096,
+        "slots": 480,
+        "event_bytes": 64,
+        "queues": 60,
+        "instrumentation": "lean",
+        "publication_timer_resolution_ms": 1
+      },
+      "section_accounting": {
+        "resident_ram_bytes": 70516,
+        "loadbearing_flash_bytes": 117347
+      }
+    },
+    "ram-zephyr-20": {
+      "source_inventory": "a0dfcdf8c7c71e4738c6dc0fa1abaa4c38c9c949eb6f3b13a1a89d5188315656",
+      "artifact_sha256": {
+        "resolved.config": "b18ce8e4deef4ace00be765570f53b9f65e5e25fce3bdfd99d2995d7ad260781",
+        "app.elf": "748ddc41601adfde9cb4507c11144bcbdcfe00a4df23b0ea81d4a1742af61bce",
+        "image.bin": "404e48eca76a1c5dee16f28fcadc629c366a546d759073668d615283e6495334"
+      },
+      "configuration": {
+        "worker_capacity": 20,
+        "worker_stack_bytes": 4096,
+        "slots": 480,
+        "event_bytes": 64,
+        "queues": 60,
+        "instrumentation": "lean",
+        "publication_timer_resolution_ms": 1
+      },
+      "section_accounting": {
+        "resident_ram_bytes": 204076,
+        "loadbearing_flash_bytes": 91088
+      }
+    },
+    "ram-nuttx-20-usable": {
+      "source_inventory": "b4523dda83b66e9ed271d837a49d0f033a1fcd3efb69c30dd20278fe7a6158a1",
+      "artifact_sha256": {
+        "resolved.config": "b97e863385c150f2cd7990509c3b9c25292d6e2f1551b248b4cb40186a879509",
+        "app.elf": "c71d4a470ffcfea0c5f791c17d1ab265c999ae0446216cda75ee23878e0e790d",
+        "image.bin": "1f4c20166ee87ad8caecddf2988e68ead27691b969cba280f6896493fcf8a415"
+      },
+      "configuration": {
+        "worker_capacity": 20,
+        "worker_stack_bytes": 4336,
+        "slots": 480,
+        "event_bytes": 64,
+        "queues": 60,
+        "instrumentation": "lean",
+        "publication_timer_resolution_ms": 1
+      },
+      "section_accounting": {
+        "resident_ram_bytes": 70516,
+        "loadbearing_flash_bytes": 117351
+      }
+    }
+  },
+  "timing": [
+    {
+      "build": "timing-std",
+      "pass": 1,
+      "case": "paced-p1-b16-q8",
+      "messages_s": 99.61374139460455,
+      "delivery_p99_us": 7.375,
+      "offered": 256,
+      "admitted": 256,
+      "delivered": 256,
+      "rejected": 0,
+      "normal_loss_gate": true,
+      "console_sha256": "336b627dc6fa385d23b6d31450cd62466a4febc92c646274a961c8b637455d32"
+    },
+    {
+      "build": "timing-zephyr",
+      "pass": 1,
+      "case": "paced-p1-b16-q8",
+      "messages_s": 99.6136129979033,
+      "delivery_p99_us": 8.1875,
+      "offered": 256,
+      "admitted": 256,
+      "delivered": 256,
+      "rejected": 0,
+      "normal_loss_gate": true,
+      "console_sha256": "5c60a1ba8941203cf5ac8ece97a71d3db9c9a1e8fc7a37db4383637becdeeb46"
+    },
+    {
+      "build": "timing-std",
+      "pass": 1,
+      "case": "stream-p4-b16-q8",
+      "messages_s": 161683.14682140248,
+      "delivery_p99_us": 50.375,
+      "offered": 2048,
+      "admitted": 2048,
+      "delivered": 2048,
+      "rejected": 0,
+      "normal_loss_gate": true,
+      "console_sha256": "1b4c2957e209dc10fb5bc4e3f0cdf3071534b49b29dcd193b994a6637ffc30eb"
+    },
+    {
+      "build": "timing-zephyr",
+      "pass": 1,
+      "case": "stream-p4-b16-q8",
+      "messages_s": 149579.8089169067,
+      "delivery_p99_us": 52.0,
+      "offered": 2048,
+      "admitted": 2048,
+      "delivered": 2048,
+      "rejected": 0,
+      "normal_loss_gate": true,
+      "console_sha256": "5392c7018aeff6d2943bd818c702648c915c6886700164b294b44b25acb8df59"
+    },
+    {
+      "build": "timing-std",
+      "pass": 1,
+      "case": "stream-p4-b64-q8",
+      "messages_s": 87157.28101626752,
+      "delivery_p99_us": 85.375,
+      "offered": 2048,
+      "admitted": 2048,
+      "delivered": 2048,
+      "rejected": 0,
+      "normal_loss_gate": true,
+      "console_sha256": "8733e495d0371e1a17f0f8355ecf58ff5897789b81a3b9a08980c120cec49de7"
+    },
+    {
+      "build": "timing-zephyr",
+      "pass": 1,
+      "case": "stream-p4-b64-q8",
+      "messages_s": 84386.18629445546,
+      "delivery_p99_us": 85.3125,
+      "offered": 2048,
+      "admitted": 2048,
+      "delivered": 2048,
+      "rejected": 0,
+      "normal_loss_gate": true,
+      "console_sha256": "b6f27bbf5bc59f14e9b936f4620fe3b98d252f9d508f34ebe52fdf3a5a6cde18"
+    },
+    {
+      "build": "timing-std",
+      "pass": 1,
+      "case": "sustained-p4-b16-q8",
+      "messages_s": 268504.9149994514,
+      "delivery_p99_us": null,
+      "offered": 131072,
+      "admitted": 131072,
+      "delivered": 131072,
+      "rejected": 0,
+      "normal_loss_gate": true,
+      "console_sha256": "7f6c3463ceb055f2ee925438a45125baedaf4e13596d4aedb942986087039c9a"
+    },
+    {
+      "build": "timing-zephyr",
+      "pass": 1,
+      "case": "sustained-p4-b16-q8",
+      "messages_s": 234835.21798172136,
+      "delivery_p99_us": null,
+      "offered": 131072,
+      "admitted": 131072,
+      "delivered": 131072,
+      "rejected": 0,
+      "normal_loss_gate": true,
+      "console_sha256": "a26b57c9a5bf5387bb1852dbce4915d0f765cc5a36528faa1ac4628e5d2dddd6"
+    },
+    {
+      "build": "timing-zephyr",
+      "pass": 2,
+      "case": "paced-p1-b16-q8",
+      "messages_s": 99.6136129979033,
+      "delivery_p99_us": 8.1875,
+      "offered": 256,
+      "admitted": 256,
+      "delivered": 256,
+      "rejected": 0,
+      "normal_loss_gate": true,
+      "console_sha256": "db794b16432ed7bf445b613c889672e6e57b1e0c23e21272ee8ee7f44e1ac09e"
+    },
+    {
+      "build": "timing-std",
+      "pass": 2,
+      "case": "paced-p1-b16-q8",
+      "messages_s": 99.61374139460455,
+      "delivery_p99_us": 7.375,
+      "offered": 256,
+      "admitted": 256,
+      "delivered": 256,
+      "rejected": 0,
+      "normal_loss_gate": true,
+      "console_sha256": "68e3c96be6d22c0f8ceb0ed777e06d8fb8cb195614083a670ab6612d531664eb"
+    },
+    {
+      "build": "timing-zephyr",
+      "pass": 2,
+      "case": "stream-p4-b16-q8",
+      "messages_s": 149579.8089169067,
+      "delivery_p99_us": 51.9375,
+      "offered": 2048,
+      "admitted": 2048,
+      "delivered": 2048,
+      "rejected": 0,
+      "normal_loss_gate": true,
+      "console_sha256": "02aecf756e22669f6ee2f8b2ce9b020f6dbb209fb56248675939f7c1df8c2360"
+    },
+    {
+      "build": "timing-std",
+      "pass": 2,
+      "case": "stream-p4-b16-q8",
+      "messages_s": 161682.34905190236,
+      "delivery_p99_us": 50.375,
+      "offered": 2048,
+      "admitted": 2048,
+      "delivered": 2048,
+      "rejected": 0,
+      "normal_loss_gate": true,
+      "console_sha256": "0b8e023266786f69a321def53c263bdce3831421a369ef745a841ae035542743"
+    },
+    {
+      "build": "timing-zephyr",
+      "pass": 2,
+      "case": "stream-p4-b64-q8",
+      "messages_s": 84385.96897847344,
+      "delivery_p99_us": 85.3125,
+      "offered": 2048,
+      "admitted": 2048,
+      "delivered": 2048,
+      "rejected": 0,
+      "normal_loss_gate": true,
+      "console_sha256": "b13f37cfb45dddc1112c96fc02f1d6845a9acac2b491525e00f6c2890bcffbbe"
+    },
+    {
+      "build": "timing-std",
+      "pass": 2,
+      "case": "stream-p4-b64-q8",
+      "messages_s": 87157.28101626752,
+      "delivery_p99_us": 85.375,
+      "offered": 2048,
+      "admitted": 2048,
+      "delivered": 2048,
+      "rejected": 0,
+      "normal_loss_gate": true,
+      "console_sha256": "becfb0c7969b03e90dcfbe760110c4536ab030bf3f2512c7fe42259a2afbcca1"
+    },
+    {
+      "build": "timing-zephyr",
+      "pass": 2,
+      "case": "sustained-p4-b16-q8",
+      "messages_s": 234835.21798172136,
+      "delivery_p99_us": null,
+      "offered": 131072,
+      "admitted": 131072,
+      "delivered": 131072,
+      "rejected": 0,
+      "normal_loss_gate": true,
+      "console_sha256": "caa4acb35dc391aee4dd1fbffd9e64eae2b65ea8656b41e1c07d4d2e66ce8c5d"
+    },
+    {
+      "build": "timing-std",
+      "pass": 2,
+      "case": "sustained-p4-b16-q8",
+      "messages_s": 268504.8806219336,
+      "delivery_p99_us": null,
+      "offered": 131072,
+      "admitted": 131072,
+      "delivered": 131072,
+      "rejected": 0,
+      "normal_loss_gate": true,
+      "console_sha256": "5ca207dcc7fd3042f0ee537985a9e317524226150e4a48bd658ec59a2ff33705"
+    },
+    {
+      "build": "timing-std",
+      "pass": 3,
+      "case": "paced-p1-b16-q8",
+      "messages_s": 99.61374139460455,
+      "delivery_p99_us": 7.375,
+      "offered": 256,
+      "admitted": 256,
+      "delivered": 256,
+      "rejected": 0,
+      "normal_loss_gate": true,
+      "console_sha256": "8d8e59af8164335883b1ec6acc41f1e659ab96e625f63877ecd3e3f93556da25"
+    },
+    {
+      "build": "timing-zephyr",
+      "pass": 3,
+      "case": "paced-p1-b16-q8",
+      "messages_s": 99.6136129979033,
+      "delivery_p99_us": 8.1875,
+      "offered": 256,
+      "admitted": 256,
+      "delivered": 256,
+      "rejected": 0,
+      "normal_loss_gate": true,
+      "console_sha256": "589d772cf93241699fd4f1968717ad8e0f49fa293aa868ba501456e0f8196cf6"
+    },
+    {
+      "build": "timing-std",
+      "pass": 3,
+      "case": "stream-p4-b16-q8",
+      "messages_s": 161683.14682140248,
+      "delivery_p99_us": 50.375,
+      "offered": 2048,
+      "admitted": 2048,
+      "delivered": 2048,
+      "rejected": 0,
+      "normal_loss_gate": true,
+      "console_sha256": "cbcf641c43e23bbccc14a4afa952b116df9ff51d623262f2b64666921101d696"
+    },
+    {
+      "build": "timing-zephyr",
+      "pass": 3,
+      "case": "stream-p4-b16-q8",
+      "messages_s": 149579.8089169067,
+      "delivery_p99_us": 51.9375,
+      "offered": 2048,
+      "admitted": 2048,
+      "delivered": 2048,
+      "rejected": 0,
+      "normal_loss_gate": true,
+      "console_sha256": "98c261d731d367d29fed5ec177eff3c57034f44bdcd99a912adbdb94fc73c4c8"
+    },
+    {
+      "build": "timing-std",
+      "pass": 3,
+      "case": "stream-p4-b64-q8",
+      "messages_s": 87157.04919340897,
+      "delivery_p99_us": 85.4375,
+      "offered": 2048,
+      "admitted": 2048,
+      "delivered": 2048,
+      "rejected": 0,
+      "normal_loss_gate": true,
+      "console_sha256": "bdb8373eb557113774e0faf37b8fec57688adc42806cd5072691a4ceaa8ad932"
+    },
+    {
+      "build": "timing-zephyr",
+      "pass": 3,
+      "case": "stream-p4-b64-q8",
+      "messages_s": 84386.18629445546,
+      "delivery_p99_us": 85.3125,
+      "offered": 2048,
+      "admitted": 2048,
+      "delivered": 2048,
+      "rejected": 0,
+      "normal_loss_gate": true,
+      "console_sha256": "c22807b7cbb9d3aee9731f3706f11aac720d14bd20ed4b80e3ec31690fbaf800"
+    },
+    {
+      "build": "timing-std",
+      "pass": 3,
+      "case": "sustained-p4-b16-q8",
+      "messages_s": 268504.8806219336,
+      "delivery_p99_us": null,
+      "offered": 131072,
+      "admitted": 131072,
+      "delivered": 131072,
+      "rejected": 0,
+      "normal_loss_gate": true,
+      "console_sha256": "f97fb52dbd42168f022254dd64ee8147ea386e87c06e695ab517ab21dc651d80"
+    },
+    {
+      "build": "timing-zephyr",
+      "pass": 3,
+      "case": "sustained-p4-b16-q8",
+      "messages_s": 234835.21798172136,
+      "delivery_p99_us": null,
+      "offered": 131072,
+      "admitted": 131072,
+      "delivered": 131072,
+      "rejected": 0,
+      "normal_loss_gate": true,
+      "console_sha256": "f395a8aede68cd561f17c3be1ac4d555fe56a6ec21418a31343b14d7d9574d4a"
+    }
+  ],
+  "ram": [
+    {
+      "build": "ram-nuttx-0",
+      "cohort": "equal-request",
+      "pass": 1,
+      "memory": {
+        "resident_static_bytes": 69956,
+        "ram_code_and_vectors_bytes": 34520,
+        "observed_heap_peak_bytes": 12608,
+        "whole_image_observed_peak_bytes": 82564,
+        "stack_reservations_added_again": false,
+        "production_minimum": false,
+        "peak_scope": "cumulative since boot across all profiles and reporting",
+        "note": "NuttX heap includes its worker stacks. Static Zephyr/Embassy reservations already belong to ELF RAM; do not add occupancy again."
+      },
+      "profiles": [
+        {
+          "profile": "alloc-threads-0",
+          "raw_output_sha256": "319d0caf5896bb3fe8ac23777c67ade26fbe4780e354af8458350412b76b98ae",
+          "free_raw_output_sha256": "7a7838154fe1efc9f01dcd058ec5b0a473fd080aa0fc0aa35566ef5a40e3d037",
+          "worker_stacks": {
+            "count": 0,
+            "requested_each": 4096,
+            "reserved_min": 0,
+            "reserved_max": 0,
+            "observed_used_max": 0,
+            "before_thread_return": true,
+            "worst_case_bound": false
+          },
+          "errors": 0,
+          "heap_phases": {
+            "baseline": 9988,
+            "threads": 9988,
+            "threads-joined": 9988,
+            "cleanup": 9988
+          },
+          "heap_delta": {
+            "baseline": 0,
+            "threads": 0,
+            "threads-joined": 0,
+            "cleanup": 0
+          }
+        }
+      ]
+    },
+    {
+      "build": "ram-zephyr-0",
+      "cohort": "equal-request",
+      "pass": 1,
+      "memory": {
+        "resident_static_bytes": 118956,
+        "ram_code_and_vectors_bytes": 47824,
+        "observed_heap_peak_bytes": null,
+        "whole_image_observed_peak_bytes": 118956,
+        "stack_reservations_added_again": false,
+        "production_minimum": false,
+        "peak_scope": "cumulative since boot across all profiles and reporting",
+        "note": "NuttX heap includes its worker stacks. Static Zephyr/Embassy reservations already belong to ELF RAM; do not add occupancy again."
+      },
+      "profiles": [
+        {
+          "profile": "alloc-threads-0",
+          "raw_output_sha256": "5bdd3a209457b57210829f3d428279733263043450e16e34d45ed95082f86806",
+          "free_raw_output_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "worker_stacks": {
+            "count": 0,
+            "requested_each": 4096,
+            "reserved_min": 0,
+            "reserved_max": 0,
+            "observed_used_max": 0,
+            "before_thread_return": true,
+            "worst_case_bound": false
+          },
+          "errors": 0,
+          "heap_phases": {
+            "baseline": 20,
+            "threads": 20,
+            "threads-joined": 20,
+            "cleanup": 20
+          },
+          "heap_delta": {
+            "baseline": 0,
+            "threads": 0,
+            "threads-joined": 0,
+            "cleanup": 0
+          }
+        }
+      ]
+    },
+    {
+      "build": "ram-nuttx-1",
+      "cohort": "equal-request",
+      "pass": 1,
+      "memory": {
+        "resident_static_bytes": 69988,
+        "ram_code_and_vectors_bytes": 34520,
+        "observed_heap_peak_bytes": 14664,
+        "whole_image_observed_peak_bytes": 84652,
+        "stack_reservations_added_again": false,
+        "production_minimum": false,
+        "peak_scope": "cumulative since boot across all profiles and reporting",
+        "note": "NuttX heap includes its worker stacks. Static Zephyr/Embassy reservations already belong to ELF RAM; do not add occupancy again."
+      },
+      "profiles": [
+        {
+          "profile": "alloc-threads-1",
+          "raw_output_sha256": "e074f50cb080955c241ca49a7a32f4b0c47063f340ee84edd611a174089daabc",
+          "free_raw_output_sha256": "6e95c13302f621e8dc916415654d024ea6c553628f7bbfdb7f9b8af1ddb19b10",
+          "worker_stacks": {
+            "count": 1,
+            "requested_each": 4096,
+            "reserved_min": 3864,
+            "reserved_max": 3864,
+            "observed_used_max": 720,
+            "before_thread_return": true,
+            "worst_case_bound": false
+          },
+          "errors": 0,
+          "heap_phases": {
+            "baseline": 9988,
+            "threads": 14316,
+            "threads-joined": 9988,
+            "cleanup": 9988
+          },
+          "heap_delta": {
+            "baseline": 0,
+            "threads": 4328,
+            "threads-joined": 0,
+            "cleanup": 0
+          }
+        }
+      ]
+    },
+    {
+      "build": "ram-zephyr-1",
+      "cohort": "equal-request",
+      "pass": 1,
+      "memory": {
+        "resident_static_bytes": 123212,
+        "ram_code_and_vectors_bytes": 47824,
+        "observed_heap_peak_bytes": null,
+        "whole_image_observed_peak_bytes": 123212,
+        "stack_reservations_added_again": false,
+        "production_minimum": false,
+        "peak_scope": "cumulative since boot across all profiles and reporting",
+        "note": "NuttX heap includes its worker stacks. Static Zephyr/Embassy reservations already belong to ELF RAM; do not add occupancy again."
+      },
+      "profiles": [
+        {
+          "profile": "alloc-threads-1",
+          "raw_output_sha256": "f528e295a96800137964a12f3df6c5b2f8766ef28bf2bc31f2019f42be76a001",
+          "free_raw_output_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "worker_stacks": {
+            "count": 1,
+            "requested_each": 4096,
+            "reserved_min": 4096,
+            "reserved_max": 4096,
+            "observed_used_max": 372,
+            "before_thread_return": true,
+            "worst_case_bound": false
+          },
+          "errors": 0,
+          "heap_phases": {
+            "baseline": 20,
+            "threads": 20,
+            "threads-joined": 20,
+            "cleanup": 20
+          },
+          "heap_delta": {
+            "baseline": 0,
+            "threads": 0,
+            "threads-joined": 0,
+            "cleanup": 0
+          }
+        }
+      ]
+    },
+    {
+      "build": "ram-nuttx-20",
+      "cohort": "equal-request",
+      "pass": 1,
+      "memory": {
+        "resident_static_bytes": 70516,
+        "ram_code_and_vectors_bytes": 34520,
+        "observed_heap_peak_bytes": 148432,
+        "whole_image_observed_peak_bytes": 218948,
+        "stack_reservations_added_again": false,
+        "production_minimum": false,
+        "peak_scope": "cumulative since boot across all profiles and reporting",
+        "note": "NuttX heap includes its worker stacks. Static Zephyr/Embassy reservations already belong to ELF RAM; do not add occupancy again."
+      },
+      "profiles": [
+        {
+          "profile": "alloc-threads-20",
+          "raw_output_sha256": "00fc1e42506ee15bbef4a55375474b258aae904beafd2f185e14b73ee2e8faf7",
+          "free_raw_output_sha256": "acae8cfcadd1d6adbe263d6ce83eaaf174486b59330e8079df3d52f685e0e85c",
+          "worker_stacks": {
+            "count": 20,
+            "requested_each": 4096,
+            "reserved_min": 3864,
+            "reserved_max": 3872,
+            "observed_used_max": 720,
+            "before_thread_return": true,
+            "worst_case_bound": false
+          },
+          "errors": 0,
+          "heap_phases": {
+            "baseline": 9988,
+            "threads": 96612,
+            "threads-joined": 10052,
+            "cleanup": 10052
+          },
+          "heap_delta": {
+            "baseline": 0,
+            "threads": 86624,
+            "threads-joined": 64,
+            "cleanup": 64
+          }
+        },
+        {
+          "profile": "alloc-queues",
+          "raw_output_sha256": "94311a9a3eb8a901a568f56580c246f31ca0a8cff1559e3def3678f394c0a53e",
+          "free_raw_output_sha256": "e0df03c53a5db476c1fb08d230cd275dd9da46afac3dd9fabb3cb4e1791165f9",
+          "worker_stacks": {
+            "count": 0,
+            "requested_each": 4096,
+            "reserved_min": 0,
+            "reserved_max": 0,
+            "observed_used_max": 0,
+            "before_thread_return": true,
+            "worst_case_bound": false
+          },
+          "errors": 0,
+          "heap_phases": {
+            "baseline": 10052,
+            "queues-empty": 23676,
+            "queues-full": 61436,
+            "queues-drained": 23676,
+            "cleanup": 10700
+          },
+          "heap_delta": {
+            "baseline": 0,
+            "queues-empty": 13624,
+            "queues-full": 51384,
+            "queues-drained": 13624,
+            "cleanup": 648
+          }
+        },
+        {
+          "profile": "saturation",
+          "raw_output_sha256": "a2262eceafc56817af202b613d557d0daa470e35db4a32288208b1ddaefe1766",
+          "free_raw_output_sha256": "a2e190cbb0ce0edcf5bb24df498b26c63d61e92015b2f7a9ba1539d961b27c3e",
+          "worker_stacks": {
+            "count": 20,
+            "requested_each": 4096,
+            "reserved_min": 3864,
+            "reserved_max": 3872,
+            "observed_used_max": 720,
+            "before_thread_return": true,
+            "worst_case_bound": false
+          },
+          "errors": 0,
+          "cycles": [
+            {
+              "cycle": 0,
+              "empty_heap": 110244,
+              "full_heap": 148004,
+              "drained_heap": 110244,
+              "filled": 480,
+              "drained": 480,
+              "overflow_rejected": 60,
+              "depth_full": 60,
+              "depth_zero": 60,
+              "errors": 0
+            },
+            {
+              "cycle": 1,
+              "empty_heap": 110244,
+              "full_heap": 148004,
+              "drained_heap": 110244,
+              "filled": 480,
+              "drained": 480,
+              "overflow_rejected": 60,
+              "depth_full": 60,
+              "depth_zero": 60,
+              "errors": 0
+            },
+            {
+              "cycle": 2,
+              "empty_heap": 110244,
+              "full_heap": 148004,
+              "drained_heap": 110244,
+              "filled": 480,
+              "drained": 480,
+              "overflow_rejected": 60,
+              "depth_full": 60,
+              "depth_zero": 60,
+              "errors": 0
+            }
+          ]
+        }
+      ],
+      "ledger": {
+        "worker_storage": 87184,
+        "queue_storage": 62536,
+        "ram_code": 34520,
+        "other_linked_storage": 24284,
+        "baseline_heap_and_composition_peak": 10424
+      }
+    },
+    {
+      "build": "ram-zephyr-20",
+      "cohort": "equal-request",
+      "pass": 1,
+      "memory": {
+        "resident_static_bytes": 204076,
+        "ram_code_and_vectors_bytes": 47824,
+        "observed_heap_peak_bytes": null,
+        "whole_image_observed_peak_bytes": 204076,
+        "stack_reservations_added_again": false,
+        "production_minimum": false,
+        "peak_scope": "cumulative since boot across all profiles and reporting",
+        "note": "NuttX heap includes its worker stacks. Static Zephyr/Embassy reservations already belong to ELF RAM; do not add occupancy again."
+      },
+      "profiles": [
+        {
+          "profile": "alloc-threads-20",
+          "raw_output_sha256": "b677654fe6d2ce81931b04807fc085591777210b8c138ce453aa747a6549b2bc",
+          "free_raw_output_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "worker_stacks": {
+            "count": 20,
+            "requested_each": 4096,
+            "reserved_min": 4096,
+            "reserved_max": 4096,
+            "observed_used_max": 372,
+            "before_thread_return": true,
+            "worst_case_bound": false
+          },
+          "errors": 0,
+          "heap_phases": {
+            "baseline": 20,
+            "threads": 20,
+            "threads-joined": 20,
+            "cleanup": 20
+          },
+          "heap_delta": {
+            "baseline": 0,
+            "threads": 0,
+            "threads-joined": 0,
+            "cleanup": 0
+          }
+        },
+        {
+          "profile": "alloc-queues",
+          "raw_output_sha256": "912cb7e0b2032f6f66d1c8d24b93a3fa36366dafc1c32767b341c9e0d704acc6",
+          "free_raw_output_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "worker_stacks": {
+            "count": 0,
+            "requested_each": 4096,
+            "reserved_min": 0,
+            "reserved_max": 0,
+            "observed_used_max": 0,
+            "before_thread_return": true,
+            "worst_case_bound": false
+          },
+          "errors": 0,
+          "heap_phases": {
+            "baseline": 20,
+            "queues-empty": 20,
+            "queues-full": 20,
+            "queues-drained": 20,
+            "cleanup": 20
+          },
+          "heap_delta": {
+            "baseline": 0,
+            "queues-empty": 0,
+            "queues-full": 0,
+            "queues-drained": 0,
+            "cleanup": 0
+          }
+        },
+        {
+          "profile": "saturation",
+          "raw_output_sha256": "6c2d624b5c993f22f5710b4da30b95914414690e30f834f90c12cbeddbbdf996",
+          "free_raw_output_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "worker_stacks": {
+            "count": 20,
+            "requested_each": 4096,
+            "reserved_min": 4096,
+            "reserved_max": 4096,
+            "observed_used_max": 372,
+            "before_thread_return": true,
+            "worst_case_bound": false
+          },
+          "errors": 0,
+          "cycles": [
+            {
+              "cycle": 0,
+              "empty_heap": 20,
+              "full_heap": 20,
+              "drained_heap": 20,
+              "filled": 480,
+              "drained": 480,
+              "overflow_rejected": 60,
+              "depth_full": 60,
+              "depth_zero": 60,
+              "errors": 0
+            },
+            {
+              "cycle": 1,
+              "empty_heap": 20,
+              "full_heap": 20,
+              "drained_heap": 20,
+              "filled": 480,
+              "drained": 480,
+              "overflow_rejected": 60,
+              "depth_full": 60,
+              "depth_zero": 60,
+              "errors": 0
+            },
+            {
+              "cycle": 2,
+              "empty_heap": 20,
+              "full_heap": 20,
+              "drained_heap": 20,
+              "filled": 480,
+              "drained": 480,
+              "overflow_rejected": 60,
+              "depth_full": 60,
+              "depth_zero": 60,
+              "errors": 0
+            }
+          ]
+        }
+      ],
+      "ledger": {
+        "worker_storage": 85120,
+        "queue_storage": 34880,
+        "ram_code": 47824,
+        "other_linked_storage": 36252,
+        "baseline_heap_and_composition_peak": 0
+      }
+    },
+    {
+      "build": "ram-zephyr-1",
+      "cohort": "equal-request",
+      "pass": 2,
+      "memory": {
+        "resident_static_bytes": 123212,
+        "ram_code_and_vectors_bytes": 47824,
+        "observed_heap_peak_bytes": null,
+        "whole_image_observed_peak_bytes": 123212,
+        "stack_reservations_added_again": false,
+        "production_minimum": false,
+        "peak_scope": "cumulative since boot across all profiles and reporting",
+        "note": "NuttX heap includes its worker stacks. Static Zephyr/Embassy reservations already belong to ELF RAM; do not add occupancy again."
+      },
+      "profiles": [
+        {
+          "profile": "alloc-threads-1",
+          "raw_output_sha256": "a9894384e016972cc8f23c03e0d472a66d661583ea5dca1583b3accdf42eff9d",
+          "free_raw_output_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "worker_stacks": {
+            "count": 1,
+            "requested_each": 4096,
+            "reserved_min": 4096,
+            "reserved_max": 4096,
+            "observed_used_max": 372,
+            "before_thread_return": true,
+            "worst_case_bound": false
+          },
+          "errors": 0,
+          "heap_phases": {
+            "baseline": 20,
+            "threads": 20,
+            "threads-joined": 20,
+            "cleanup": 20
+          },
+          "heap_delta": {
+            "baseline": 0,
+            "threads": 0,
+            "threads-joined": 0,
+            "cleanup": 0
+          }
+        }
+      ]
+    },
+    {
+      "build": "ram-nuttx-1",
+      "cohort": "equal-request",
+      "pass": 2,
+      "memory": {
+        "resident_static_bytes": 69988,
+        "ram_code_and_vectors_bytes": 34520,
+        "observed_heap_peak_bytes": 14664,
+        "whole_image_observed_peak_bytes": 84652,
+        "stack_reservations_added_again": false,
+        "production_minimum": false,
+        "peak_scope": "cumulative since boot across all profiles and reporting",
+        "note": "NuttX heap includes its worker stacks. Static Zephyr/Embassy reservations already belong to ELF RAM; do not add occupancy again."
+      },
+      "profiles": [
+        {
+          "profile": "alloc-threads-1",
+          "raw_output_sha256": "e074f50cb080955c241ca49a7a32f4b0c47063f340ee84edd611a174089daabc",
+          "free_raw_output_sha256": "6e95c13302f621e8dc916415654d024ea6c553628f7bbfdb7f9b8af1ddb19b10",
+          "worker_stacks": {
+            "count": 1,
+            "requested_each": 4096,
+            "reserved_min": 3864,
+            "reserved_max": 3864,
+            "observed_used_max": 720,
+            "before_thread_return": true,
+            "worst_case_bound": false
+          },
+          "errors": 0,
+          "heap_phases": {
+            "baseline": 9988,
+            "threads": 14316,
+            "threads-joined": 9988,
+            "cleanup": 9988
+          },
+          "heap_delta": {
+            "baseline": 0,
+            "threads": 4328,
+            "threads-joined": 0,
+            "cleanup": 0
+          }
+        }
+      ]
+    },
+    {
+      "build": "ram-zephyr-20",
+      "cohort": "equal-request",
+      "pass": 2,
+      "memory": {
+        "resident_static_bytes": 204076,
+        "ram_code_and_vectors_bytes": 47824,
+        "observed_heap_peak_bytes": null,
+        "whole_image_observed_peak_bytes": 204076,
+        "stack_reservations_added_again": false,
+        "production_minimum": false,
+        "peak_scope": "cumulative since boot across all profiles and reporting",
+        "note": "NuttX heap includes its worker stacks. Static Zephyr/Embassy reservations already belong to ELF RAM; do not add occupancy again."
+      },
+      "profiles": [
+        {
+          "profile": "alloc-threads-20",
+          "raw_output_sha256": "ca6fe68d7a688410c348e242030bcf2579e0256eaad9a0524008793f0e077dc8",
+          "free_raw_output_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "worker_stacks": {
+            "count": 20,
+            "requested_each": 4096,
+            "reserved_min": 4096,
+            "reserved_max": 4096,
+            "observed_used_max": 372,
+            "before_thread_return": true,
+            "worst_case_bound": false
+          },
+          "errors": 0,
+          "heap_phases": {
+            "baseline": 20,
+            "threads": 20,
+            "threads-joined": 20,
+            "cleanup": 20
+          },
+          "heap_delta": {
+            "baseline": 0,
+            "threads": 0,
+            "threads-joined": 0,
+            "cleanup": 0
+          }
+        },
+        {
+          "profile": "alloc-queues",
+          "raw_output_sha256": "1cf4cdd3b9c294faa7ad726cd5503c5271c53691d578fe4258856e10d48e3aab",
+          "free_raw_output_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "worker_stacks": {
+            "count": 0,
+            "requested_each": 4096,
+            "reserved_min": 0,
+            "reserved_max": 0,
+            "observed_used_max": 0,
+            "before_thread_return": true,
+            "worst_case_bound": false
+          },
+          "errors": 0,
+          "heap_phases": {
+            "baseline": 20,
+            "queues-empty": 20,
+            "queues-full": 20,
+            "queues-drained": 20,
+            "cleanup": 20
+          },
+          "heap_delta": {
+            "baseline": 0,
+            "queues-empty": 0,
+            "queues-full": 0,
+            "queues-drained": 0,
+            "cleanup": 0
+          }
+        },
+        {
+          "profile": "saturation",
+          "raw_output_sha256": "6c2d624b5c993f22f5710b4da30b95914414690e30f834f90c12cbeddbbdf996",
+          "free_raw_output_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "worker_stacks": {
+            "count": 20,
+            "requested_each": 4096,
+            "reserved_min": 4096,
+            "reserved_max": 4096,
+            "observed_used_max": 372,
+            "before_thread_return": true,
+            "worst_case_bound": false
+          },
+          "errors": 0,
+          "cycles": [
+            {
+              "cycle": 0,
+              "empty_heap": 20,
+              "full_heap": 20,
+              "drained_heap": 20,
+              "filled": 480,
+              "drained": 480,
+              "overflow_rejected": 60,
+              "depth_full": 60,
+              "depth_zero": 60,
+              "errors": 0
+            },
+            {
+              "cycle": 1,
+              "empty_heap": 20,
+              "full_heap": 20,
+              "drained_heap": 20,
+              "filled": 480,
+              "drained": 480,
+              "overflow_rejected": 60,
+              "depth_full": 60,
+              "depth_zero": 60,
+              "errors": 0
+            },
+            {
+              "cycle": 2,
+              "empty_heap": 20,
+              "full_heap": 20,
+              "drained_heap": 20,
+              "filled": 480,
+              "drained": 480,
+              "overflow_rejected": 60,
+              "depth_full": 60,
+              "depth_zero": 60,
+              "errors": 0
+            }
+          ]
+        }
+      ],
+      "ledger": {
+        "worker_storage": 85120,
+        "queue_storage": 34880,
+        "ram_code": 47824,
+        "other_linked_storage": 36252,
+        "baseline_heap_and_composition_peak": 0
+      }
+    },
+    {
+      "build": "ram-nuttx-20",
+      "cohort": "equal-request",
+      "pass": 2,
+      "memory": {
+        "resident_static_bytes": 70516,
+        "ram_code_and_vectors_bytes": 34520,
+        "observed_heap_peak_bytes": 148432,
+        "whole_image_observed_peak_bytes": 218948,
+        "stack_reservations_added_again": false,
+        "production_minimum": false,
+        "peak_scope": "cumulative since boot across all profiles and reporting",
+        "note": "NuttX heap includes its worker stacks. Static Zephyr/Embassy reservations already belong to ELF RAM; do not add occupancy again."
+      },
+      "profiles": [
+        {
+          "profile": "alloc-threads-20",
+          "raw_output_sha256": "00fc1e42506ee15bbef4a55375474b258aae904beafd2f185e14b73ee2e8faf7",
+          "free_raw_output_sha256": "acae8cfcadd1d6adbe263d6ce83eaaf174486b59330e8079df3d52f685e0e85c",
+          "worker_stacks": {
+            "count": 20,
+            "requested_each": 4096,
+            "reserved_min": 3864,
+            "reserved_max": 3872,
+            "observed_used_max": 720,
+            "before_thread_return": true,
+            "worst_case_bound": false
+          },
+          "errors": 0,
+          "heap_phases": {
+            "baseline": 9988,
+            "threads": 96612,
+            "threads-joined": 10052,
+            "cleanup": 10052
+          },
+          "heap_delta": {
+            "baseline": 0,
+            "threads": 86624,
+            "threads-joined": 64,
+            "cleanup": 64
+          }
+        },
+        {
+          "profile": "alloc-queues",
+          "raw_output_sha256": "94311a9a3eb8a901a568f56580c246f31ca0a8cff1559e3def3678f394c0a53e",
+          "free_raw_output_sha256": "e0df03c53a5db476c1fb08d230cd275dd9da46afac3dd9fabb3cb4e1791165f9",
+          "worker_stacks": {
+            "count": 0,
+            "requested_each": 4096,
+            "reserved_min": 0,
+            "reserved_max": 0,
+            "observed_used_max": 0,
+            "before_thread_return": true,
+            "worst_case_bound": false
+          },
+          "errors": 0,
+          "heap_phases": {
+            "baseline": 10052,
+            "queues-empty": 23676,
+            "queues-full": 61436,
+            "queues-drained": 23676,
+            "cleanup": 10700
+          },
+          "heap_delta": {
+            "baseline": 0,
+            "queues-empty": 13624,
+            "queues-full": 51384,
+            "queues-drained": 13624,
+            "cleanup": 648
+          }
+        },
+        {
+          "profile": "saturation",
+          "raw_output_sha256": "a2262eceafc56817af202b613d557d0daa470e35db4a32288208b1ddaefe1766",
+          "free_raw_output_sha256": "a2e190cbb0ce0edcf5bb24df498b26c63d61e92015b2f7a9ba1539d961b27c3e",
+          "worker_stacks": {
+            "count": 20,
+            "requested_each": 4096,
+            "reserved_min": 3864,
+            "reserved_max": 3872,
+            "observed_used_max": 720,
+            "before_thread_return": true,
+            "worst_case_bound": false
+          },
+          "errors": 0,
+          "cycles": [
+            {
+              "cycle": 0,
+              "empty_heap": 110244,
+              "full_heap": 148004,
+              "drained_heap": 110244,
+              "filled": 480,
+              "drained": 480,
+              "overflow_rejected": 60,
+              "depth_full": 60,
+              "depth_zero": 60,
+              "errors": 0
+            },
+            {
+              "cycle": 1,
+              "empty_heap": 110244,
+              "full_heap": 148004,
+              "drained_heap": 110244,
+              "filled": 480,
+              "drained": 480,
+              "overflow_rejected": 60,
+              "depth_full": 60,
+              "depth_zero": 60,
+              "errors": 0
+            },
+            {
+              "cycle": 2,
+              "empty_heap": 110244,
+              "full_heap": 148004,
+              "drained_heap": 110244,
+              "filled": 480,
+              "drained": 480,
+              "overflow_rejected": 60,
+              "depth_full": 60,
+              "depth_zero": 60,
+              "errors": 0
+            }
+          ]
+        }
+      ],
+      "ledger": {
+        "worker_storage": 87184,
+        "queue_storage": 62536,
+        "ram_code": 34520,
+        "other_linked_storage": 24284,
+        "baseline_heap_and_composition_peak": 10424
+      }
+    },
+    {
+      "build": "ram-zephyr-0",
+      "cohort": "equal-request",
+      "pass": 2,
+      "memory": {
+        "resident_static_bytes": 118956,
+        "ram_code_and_vectors_bytes": 47824,
+        "observed_heap_peak_bytes": null,
+        "whole_image_observed_peak_bytes": 118956,
+        "stack_reservations_added_again": false,
+        "production_minimum": false,
+        "peak_scope": "cumulative since boot across all profiles and reporting",
+        "note": "NuttX heap includes its worker stacks. Static Zephyr/Embassy reservations already belong to ELF RAM; do not add occupancy again."
+      },
+      "profiles": [
+        {
+          "profile": "alloc-threads-0",
+          "raw_output_sha256": "5bdd3a209457b57210829f3d428279733263043450e16e34d45ed95082f86806",
+          "free_raw_output_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "worker_stacks": {
+            "count": 0,
+            "requested_each": 4096,
+            "reserved_min": 0,
+            "reserved_max": 0,
+            "observed_used_max": 0,
+            "before_thread_return": true,
+            "worst_case_bound": false
+          },
+          "errors": 0,
+          "heap_phases": {
+            "baseline": 20,
+            "threads": 20,
+            "threads-joined": 20,
+            "cleanup": 20
+          },
+          "heap_delta": {
+            "baseline": 0,
+            "threads": 0,
+            "threads-joined": 0,
+            "cleanup": 0
+          }
+        }
+      ]
+    },
+    {
+      "build": "ram-nuttx-0",
+      "cohort": "equal-request",
+      "pass": 2,
+      "memory": {
+        "resident_static_bytes": 69956,
+        "ram_code_and_vectors_bytes": 34520,
+        "observed_heap_peak_bytes": 12608,
+        "whole_image_observed_peak_bytes": 82564,
+        "stack_reservations_added_again": false,
+        "production_minimum": false,
+        "peak_scope": "cumulative since boot across all profiles and reporting",
+        "note": "NuttX heap includes its worker stacks. Static Zephyr/Embassy reservations already belong to ELF RAM; do not add occupancy again."
+      },
+      "profiles": [
+        {
+          "profile": "alloc-threads-0",
+          "raw_output_sha256": "319d0caf5896bb3fe8ac23777c67ade26fbe4780e354af8458350412b76b98ae",
+          "free_raw_output_sha256": "7a7838154fe1efc9f01dcd058ec5b0a473fd080aa0fc0aa35566ef5a40e3d037",
+          "worker_stacks": {
+            "count": 0,
+            "requested_each": 4096,
+            "reserved_min": 0,
+            "reserved_max": 0,
+            "observed_used_max": 0,
+            "before_thread_return": true,
+            "worst_case_bound": false
+          },
+          "errors": 0,
+          "heap_phases": {
+            "baseline": 9988,
+            "threads": 9988,
+            "threads-joined": 9988,
+            "cleanup": 9988
+          },
+          "heap_delta": {
+            "baseline": 0,
+            "threads": 0,
+            "threads-joined": 0,
+            "cleanup": 0
+          }
+        }
+      ]
+    },
+    {
+      "build": "ram-nuttx-20",
+      "cohort": "equal-request",
+      "pass": 3,
+      "memory": {
+        "resident_static_bytes": 70516,
+        "ram_code_and_vectors_bytes": 34520,
+        "observed_heap_peak_bytes": 148432,
+        "whole_image_observed_peak_bytes": 218948,
+        "stack_reservations_added_again": false,
+        "production_minimum": false,
+        "peak_scope": "cumulative since boot across all profiles and reporting",
+        "note": "NuttX heap includes its worker stacks. Static Zephyr/Embassy reservations already belong to ELF RAM; do not add occupancy again."
+      },
+      "profiles": [
+        {
+          "profile": "alloc-threads-20",
+          "raw_output_sha256": "acfd4f2c06b09fb20bf4ee41eab723c1f067eba2099b0dc903a22a20bfcbff14",
+          "free_raw_output_sha256": "acae8cfcadd1d6adbe263d6ce83eaaf174486b59330e8079df3d52f685e0e85c",
+          "worker_stacks": {
+            "count": 20,
+            "requested_each": 4096,
+            "reserved_min": 3864,
+            "reserved_max": 3872,
+            "observed_used_max": 720,
+            "before_thread_return": true,
+            "worst_case_bound": false
+          },
+          "errors": 0,
+          "heap_phases": {
+            "baseline": 9988,
+            "threads": 96612,
+            "threads-joined": 10052,
+            "cleanup": 10052
+          },
+          "heap_delta": {
+            "baseline": 0,
+            "threads": 86624,
+            "threads-joined": 64,
+            "cleanup": 64
+          }
+        },
+        {
+          "profile": "alloc-queues",
+          "raw_output_sha256": "d34a84844b0f2f44a8fc31e7e9a19130974f619be9f8acec6ba0ab1ad07d3743",
+          "free_raw_output_sha256": "e0df03c53a5db476c1fb08d230cd275dd9da46afac3dd9fabb3cb4e1791165f9",
+          "worker_stacks": {
+            "count": 0,
+            "requested_each": 4096,
+            "reserved_min": 0,
+            "reserved_max": 0,
+            "observed_used_max": 0,
+            "before_thread_return": true,
+            "worst_case_bound": false
+          },
+          "errors": 0,
+          "heap_phases": {
+            "baseline": 10052,
+            "queues-empty": 23676,
+            "queues-full": 61436,
+            "queues-drained": 23676,
+            "cleanup": 10700
+          },
+          "heap_delta": {
+            "baseline": 0,
+            "queues-empty": 13624,
+            "queues-full": 51384,
+            "queues-drained": 13624,
+            "cleanup": 648
+          }
+        },
+        {
+          "profile": "saturation",
+          "raw_output_sha256": "c7905785bb28ff5569dc12fbe34c2b444d38056a0ccb90ce09e0e558e58918ab",
+          "free_raw_output_sha256": "a2e190cbb0ce0edcf5bb24df498b26c63d61e92015b2f7a9ba1539d961b27c3e",
+          "worker_stacks": {
+            "count": 20,
+            "requested_each": 4096,
+            "reserved_min": 3864,
+            "reserved_max": 3872,
+            "observed_used_max": 720,
+            "before_thread_return": true,
+            "worst_case_bound": false
+          },
+          "errors": 0,
+          "cycles": [
+            {
+              "cycle": 0,
+              "empty_heap": 110244,
+              "full_heap": 148004,
+              "drained_heap": 110244,
+              "filled": 480,
+              "drained": 480,
+              "overflow_rejected": 60,
+              "depth_full": 60,
+              "depth_zero": 60,
+              "errors": 0
+            },
+            {
+              "cycle": 1,
+              "empty_heap": 110244,
+              "full_heap": 148004,
+              "drained_heap": 110244,
+              "filled": 480,
+              "drained": 480,
+              "overflow_rejected": 60,
+              "depth_full": 60,
+              "depth_zero": 60,
+              "errors": 0
+            },
+            {
+              "cycle": 2,
+              "empty_heap": 110244,
+              "full_heap": 148004,
+              "drained_heap": 110244,
+              "filled": 480,
+              "drained": 480,
+              "overflow_rejected": 60,
+              "depth_full": 60,
+              "depth_zero": 60,
+              "errors": 0
+            }
+          ]
+        }
+      ],
+      "ledger": {
+        "worker_storage": 87184,
+        "queue_storage": 62536,
+        "ram_code": 34520,
+        "other_linked_storage": 24284,
+        "baseline_heap_and_composition_peak": 10424
+      }
+    },
+    {
+      "build": "ram-zephyr-20",
+      "cohort": "equal-request",
+      "pass": 3,
+      "memory": {
+        "resident_static_bytes": 204076,
+        "ram_code_and_vectors_bytes": 47824,
+        "observed_heap_peak_bytes": null,
+        "whole_image_observed_peak_bytes": 204076,
+        "stack_reservations_added_again": false,
+        "production_minimum": false,
+        "peak_scope": "cumulative since boot across all profiles and reporting",
+        "note": "NuttX heap includes its worker stacks. Static Zephyr/Embassy reservations already belong to ELF RAM; do not add occupancy again."
+      },
+      "profiles": [
+        {
+          "profile": "alloc-threads-20",
+          "raw_output_sha256": "b677654fe6d2ce81931b04807fc085591777210b8c138ce453aa747a6549b2bc",
+          "free_raw_output_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "worker_stacks": {
+            "count": 20,
+            "requested_each": 4096,
+            "reserved_min": 4096,
+            "reserved_max": 4096,
+            "observed_used_max": 372,
+            "before_thread_return": true,
+            "worst_case_bound": false
+          },
+          "errors": 0,
+          "heap_phases": {
+            "baseline": 20,
+            "threads": 20,
+            "threads-joined": 20,
+            "cleanup": 20
+          },
+          "heap_delta": {
+            "baseline": 0,
+            "threads": 0,
+            "threads-joined": 0,
+            "cleanup": 0
+          }
+        },
+        {
+          "profile": "alloc-queues",
+          "raw_output_sha256": "912cb7e0b2032f6f66d1c8d24b93a3fa36366dafc1c32767b341c9e0d704acc6",
+          "free_raw_output_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "worker_stacks": {
+            "count": 0,
+            "requested_each": 4096,
+            "reserved_min": 0,
+            "reserved_max": 0,
+            "observed_used_max": 0,
+            "before_thread_return": true,
+            "worst_case_bound": false
+          },
+          "errors": 0,
+          "heap_phases": {
+            "baseline": 20,
+            "queues-empty": 20,
+            "queues-full": 20,
+            "queues-drained": 20,
+            "cleanup": 20
+          },
+          "heap_delta": {
+            "baseline": 0,
+            "queues-empty": 0,
+            "queues-full": 0,
+            "queues-drained": 0,
+            "cleanup": 0
+          }
+        },
+        {
+          "profile": "saturation",
+          "raw_output_sha256": "6c2d624b5c993f22f5710b4da30b95914414690e30f834f90c12cbeddbbdf996",
+          "free_raw_output_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "worker_stacks": {
+            "count": 20,
+            "requested_each": 4096,
+            "reserved_min": 4096,
+            "reserved_max": 4096,
+            "observed_used_max": 372,
+            "before_thread_return": true,
+            "worst_case_bound": false
+          },
+          "errors": 0,
+          "cycles": [
+            {
+              "cycle": 0,
+              "empty_heap": 20,
+              "full_heap": 20,
+              "drained_heap": 20,
+              "filled": 480,
+              "drained": 480,
+              "overflow_rejected": 60,
+              "depth_full": 60,
+              "depth_zero": 60,
+              "errors": 0
+            },
+            {
+              "cycle": 1,
+              "empty_heap": 20,
+              "full_heap": 20,
+              "drained_heap": 20,
+              "filled": 480,
+              "drained": 480,
+              "overflow_rejected": 60,
+              "depth_full": 60,
+              "depth_zero": 60,
+              "errors": 0
+            },
+            {
+              "cycle": 2,
+              "empty_heap": 20,
+              "full_heap": 20,
+              "drained_heap": 20,
+              "filled": 480,
+              "drained": 480,
+              "overflow_rejected": 60,
+              "depth_full": 60,
+              "depth_zero": 60,
+              "errors": 0
+            }
+          ]
+        }
+      ],
+      "ledger": {
+        "worker_storage": 85120,
+        "queue_storage": 34880,
+        "ram_code": 47824,
+        "other_linked_storage": 36252,
+        "baseline_heap_and_composition_peak": 0
+      }
+    },
+    {
+      "build": "ram-nuttx-0",
+      "cohort": "equal-request",
+      "pass": 3,
+      "memory": {
+        "resident_static_bytes": 69956,
+        "ram_code_and_vectors_bytes": 34520,
+        "observed_heap_peak_bytes": 12608,
+        "whole_image_observed_peak_bytes": 82564,
+        "stack_reservations_added_again": false,
+        "production_minimum": false,
+        "peak_scope": "cumulative since boot across all profiles and reporting",
+        "note": "NuttX heap includes its worker stacks. Static Zephyr/Embassy reservations already belong to ELF RAM; do not add occupancy again."
+      },
+      "profiles": [
+        {
+          "profile": "alloc-threads-0",
+          "raw_output_sha256": "319d0caf5896bb3fe8ac23777c67ade26fbe4780e354af8458350412b76b98ae",
+          "free_raw_output_sha256": "7a7838154fe1efc9f01dcd058ec5b0a473fd080aa0fc0aa35566ef5a40e3d037",
+          "worker_stacks": {
+            "count": 0,
+            "requested_each": 4096,
+            "reserved_min": 0,
+            "reserved_max": 0,
+            "observed_used_max": 0,
+            "before_thread_return": true,
+            "worst_case_bound": false
+          },
+          "errors": 0,
+          "heap_phases": {
+            "baseline": 9988,
+            "threads": 9988,
+            "threads-joined": 9988,
+            "cleanup": 9988
+          },
+          "heap_delta": {
+            "baseline": 0,
+            "threads": 0,
+            "threads-joined": 0,
+            "cleanup": 0
+          }
+        }
+      ]
+    },
+    {
+      "build": "ram-zephyr-0",
+      "cohort": "equal-request",
+      "pass": 3,
+      "memory": {
+        "resident_static_bytes": 118956,
+        "ram_code_and_vectors_bytes": 47824,
+        "observed_heap_peak_bytes": null,
+        "whole_image_observed_peak_bytes": 118956,
+        "stack_reservations_added_again": false,
+        "production_minimum": false,
+        "peak_scope": "cumulative since boot across all profiles and reporting",
+        "note": "NuttX heap includes its worker stacks. Static Zephyr/Embassy reservations already belong to ELF RAM; do not add occupancy again."
+      },
+      "profiles": [
+        {
+          "profile": "alloc-threads-0",
+          "raw_output_sha256": "5bdd3a209457b57210829f3d428279733263043450e16e34d45ed95082f86806",
+          "free_raw_output_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "worker_stacks": {
+            "count": 0,
+            "requested_each": 4096,
+            "reserved_min": 0,
+            "reserved_max": 0,
+            "observed_used_max": 0,
+            "before_thread_return": true,
+            "worst_case_bound": false
+          },
+          "errors": 0,
+          "heap_phases": {
+            "baseline": 20,
+            "threads": 20,
+            "threads-joined": 20,
+            "cleanup": 20
+          },
+          "heap_delta": {
+            "baseline": 0,
+            "threads": 0,
+            "threads-joined": 0,
+            "cleanup": 0
+          }
+        }
+      ]
+    },
+    {
+      "build": "ram-nuttx-1",
+      "cohort": "equal-request",
+      "pass": 3,
+      "memory": {
+        "resident_static_bytes": 69988,
+        "ram_code_and_vectors_bytes": 34520,
+        "observed_heap_peak_bytes": 14664,
+        "whole_image_observed_peak_bytes": 84652,
+        "stack_reservations_added_again": false,
+        "production_minimum": false,
+        "peak_scope": "cumulative since boot across all profiles and reporting",
+        "note": "NuttX heap includes its worker stacks. Static Zephyr/Embassy reservations already belong to ELF RAM; do not add occupancy again."
+      },
+      "profiles": [
+        {
+          "profile": "alloc-threads-1",
+          "raw_output_sha256": "e074f50cb080955c241ca49a7a32f4b0c47063f340ee84edd611a174089daabc",
+          "free_raw_output_sha256": "6e95c13302f621e8dc916415654d024ea6c553628f7bbfdb7f9b8af1ddb19b10",
+          "worker_stacks": {
+            "count": 1,
+            "requested_each": 4096,
+            "reserved_min": 3864,
+            "reserved_max": 3864,
+            "observed_used_max": 720,
+            "before_thread_return": true,
+            "worst_case_bound": false
+          },
+          "errors": 0,
+          "heap_phases": {
+            "baseline": 9988,
+            "threads": 14316,
+            "threads-joined": 9988,
+            "cleanup": 9988
+          },
+          "heap_delta": {
+            "baseline": 0,
+            "threads": 4328,
+            "threads-joined": 0,
+            "cleanup": 0
+          }
+        }
+      ]
+    },
+    {
+      "build": "ram-zephyr-1",
+      "cohort": "equal-request",
+      "pass": 3,
+      "memory": {
+        "resident_static_bytes": 123212,
+        "ram_code_and_vectors_bytes": 47824,
+        "observed_heap_peak_bytes": null,
+        "whole_image_observed_peak_bytes": 123212,
+        "stack_reservations_added_again": false,
+        "production_minimum": false,
+        "peak_scope": "cumulative since boot across all profiles and reporting",
+        "note": "NuttX heap includes its worker stacks. Static Zephyr/Embassy reservations already belong to ELF RAM; do not add occupancy again."
+      },
+      "profiles": [
+        {
+          "profile": "alloc-threads-1",
+          "raw_output_sha256": "a9894384e016972cc8f23c03e0d472a66d661583ea5dca1583b3accdf42eff9d",
+          "free_raw_output_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "worker_stacks": {
+            "count": 1,
+            "requested_each": 4096,
+            "reserved_min": 4096,
+            "reserved_max": 4096,
+            "observed_used_max": 372,
+            "before_thread_return": true,
+            "worst_case_bound": false
+          },
+          "errors": 0,
+          "heap_phases": {
+            "baseline": 20,
+            "threads": 20,
+            "threads-joined": 20,
+            "cleanup": 20
+          },
+          "heap_delta": {
+            "baseline": 0,
+            "threads": 0,
+            "threads-joined": 0,
+            "cleanup": 0
+          }
+        }
+      ]
+    },
+    {
+      "build": "ram-nuttx-20-usable",
+      "cohort": "minimum-usable-4k",
+      "pass": 1,
+      "memory": {
+        "resident_static_bytes": 70516,
+        "ram_code_and_vectors_bytes": 34520,
+        "observed_heap_peak_bytes": 153232,
+        "whole_image_observed_peak_bytes": 223748,
+        "stack_reservations_added_again": false,
+        "production_minimum": false,
+        "peak_scope": "cumulative since boot across all profiles and reporting",
+        "note": "NuttX heap includes its worker stacks. Static Zephyr/Embassy reservations already belong to ELF RAM; do not add occupancy again."
+      },
+      "profiles": [
+        {
+          "profile": "alloc-threads-20",
+          "raw_output_sha256": "6512fe683e5b07a9f83c52188010309e9f57bfa457661cc1273c26fdaf90e654",
+          "free_raw_output_sha256": "2e9a2d4c340f5d8e3f734f2828dde1c17b4b23a3c7748ea5160a7b7d2fcb52d1",
+          "worker_stacks": {
+            "count": 20,
+            "requested_each": 4336,
+            "reserved_min": 4104,
+            "reserved_max": 4112,
+            "observed_used_max": 720,
+            "before_thread_return": true,
+            "worst_case_bound": false
+          },
+          "errors": 0,
+          "heap_phases": {
+            "baseline": 9988,
+            "threads": 101412,
+            "threads-joined": 10052,
+            "cleanup": 10052
+          },
+          "heap_delta": {
+            "baseline": 0,
+            "threads": 91424,
+            "threads-joined": 64,
+            "cleanup": 64
+          }
+        },
+        {
+          "profile": "alloc-queues",
+          "raw_output_sha256": "94311a9a3eb8a901a568f56580c246f31ca0a8cff1559e3def3678f394c0a53e",
+          "free_raw_output_sha256": "a4f440613fcf657a2246287cc53c80e902381b650e6e84dded05efb4861480cf",
+          "worker_stacks": {
+            "count": 0,
+            "requested_each": 4336,
+            "reserved_min": 0,
+            "reserved_max": 0,
+            "observed_used_max": 0,
+            "before_thread_return": true,
+            "worst_case_bound": false
+          },
+          "errors": 0,
+          "heap_phases": {
+            "baseline": 10052,
+            "queues-empty": 23676,
+            "queues-full": 61436,
+            "queues-drained": 23676,
+            "cleanup": 10700
+          },
+          "heap_delta": {
+            "baseline": 0,
+            "queues-empty": 13624,
+            "queues-full": 51384,
+            "queues-drained": 13624,
+            "cleanup": 648
+          }
+        },
+        {
+          "profile": "saturation",
+          "raw_output_sha256": "f6f579affeed1013a2e47cd0749047514cf4388cff81a07ce5c7a8ea5eb3856a",
+          "free_raw_output_sha256": "67a1f44777df4205328b6f4678ce2122b4913abe0dac7213314f4906cbde92a7",
+          "worker_stacks": {
+            "count": 20,
+            "requested_each": 4336,
+            "reserved_min": 4104,
+            "reserved_max": 4112,
+            "observed_used_max": 720,
+            "before_thread_return": true,
+            "worst_case_bound": false
+          },
+          "errors": 0,
+          "cycles": [
+            {
+              "cycle": 0,
+              "empty_heap": 115044,
+              "full_heap": 152804,
+              "drained_heap": 115044,
+              "filled": 480,
+              "drained": 480,
+              "overflow_rejected": 60,
+              "depth_full": 60,
+              "depth_zero": 60,
+              "errors": 0
+            },
+            {
+              "cycle": 1,
+              "empty_heap": 115044,
+              "full_heap": 152804,
+              "drained_heap": 115044,
+              "filled": 480,
+              "drained": 480,
+              "overflow_rejected": 60,
+              "depth_full": 60,
+              "depth_zero": 60,
+              "errors": 0
+            },
+            {
+              "cycle": 2,
+              "empty_heap": 115044,
+              "full_heap": 152804,
+              "drained_heap": 115044,
+              "filled": 480,
+              "drained": 480,
+              "overflow_rejected": 60,
+              "depth_full": 60,
+              "depth_zero": 60,
+              "errors": 0
+            }
+          ]
+        }
+      ],
+      "ledger": {
+        "worker_storage": 91984,
+        "queue_storage": 62536,
+        "ram_code": 34520,
+        "other_linked_storage": 24284,
+        "baseline_heap_and_composition_peak": 10424
+      }
+    },
+    {
+      "build": "ram-zephyr-20",
+      "cohort": "minimum-usable-4k",
+      "pass": 1,
+      "memory": {
+        "resident_static_bytes": 204076,
+        "ram_code_and_vectors_bytes": 47824,
+        "observed_heap_peak_bytes": null,
+        "whole_image_observed_peak_bytes": 204076,
+        "stack_reservations_added_again": false,
+        "production_minimum": false,
+        "peak_scope": "cumulative since boot across all profiles and reporting",
+        "note": "NuttX heap includes its worker stacks. Static Zephyr/Embassy reservations already belong to ELF RAM; do not add occupancy again."
+      },
+      "profiles": [
+        {
+          "profile": "alloc-threads-20",
+          "raw_output_sha256": "b677654fe6d2ce81931b04807fc085591777210b8c138ce453aa747a6549b2bc",
+          "free_raw_output_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "worker_stacks": {
+            "count": 20,
+            "requested_each": 4096,
+            "reserved_min": 4096,
+            "reserved_max": 4096,
+            "observed_used_max": 372,
+            "before_thread_return": true,
+            "worst_case_bound": false
+          },
+          "errors": 0,
+          "heap_phases": {
+            "baseline": 20,
+            "threads": 20,
+            "threads-joined": 20,
+            "cleanup": 20
+          },
+          "heap_delta": {
+            "baseline": 0,
+            "threads": 0,
+            "threads-joined": 0,
+            "cleanup": 0
+          }
+        },
+        {
+          "profile": "alloc-queues",
+          "raw_output_sha256": "62a5840eb6b43caa225149b5455dd293b28941300aab55388bd898c6c1465b86",
+          "free_raw_output_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "worker_stacks": {
+            "count": 0,
+            "requested_each": 4096,
+            "reserved_min": 0,
+            "reserved_max": 0,
+            "observed_used_max": 0,
+            "before_thread_return": true,
+            "worst_case_bound": false
+          },
+          "errors": 0,
+          "heap_phases": {
+            "baseline": 20,
+            "queues-empty": 20,
+            "queues-full": 20,
+            "queues-drained": 20,
+            "cleanup": 20
+          },
+          "heap_delta": {
+            "baseline": 0,
+            "queues-empty": 0,
+            "queues-full": 0,
+            "queues-drained": 0,
+            "cleanup": 0
+          }
+        },
+        {
+          "profile": "saturation",
+          "raw_output_sha256": "6c2d624b5c993f22f5710b4da30b95914414690e30f834f90c12cbeddbbdf996",
+          "free_raw_output_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "worker_stacks": {
+            "count": 20,
+            "requested_each": 4096,
+            "reserved_min": 4096,
+            "reserved_max": 4096,
+            "observed_used_max": 372,
+            "before_thread_return": true,
+            "worst_case_bound": false
+          },
+          "errors": 0,
+          "cycles": [
+            {
+              "cycle": 0,
+              "empty_heap": 20,
+              "full_heap": 20,
+              "drained_heap": 20,
+              "filled": 480,
+              "drained": 480,
+              "overflow_rejected": 60,
+              "depth_full": 60,
+              "depth_zero": 60,
+              "errors": 0
+            },
+            {
+              "cycle": 1,
+              "empty_heap": 20,
+              "full_heap": 20,
+              "drained_heap": 20,
+              "filled": 480,
+              "drained": 480,
+              "overflow_rejected": 60,
+              "depth_full": 60,
+              "depth_zero": 60,
+              "errors": 0
+            },
+            {
+              "cycle": 2,
+              "empty_heap": 20,
+              "full_heap": 20,
+              "drained_heap": 20,
+              "filled": 480,
+              "drained": 480,
+              "overflow_rejected": 60,
+              "depth_full": 60,
+              "depth_zero": 60,
+              "errors": 0
+            }
+          ]
+        }
+      ],
+      "ledger": {
+        "worker_storage": 85120,
+        "queue_storage": 34880,
+        "ram_code": 47824,
+        "other_linked_storage": 36252,
+        "baseline_heap_and_composition_peak": 0
+      }
+    },
+    {
+      "build": "ram-zephyr-20",
+      "cohort": "minimum-usable-4k",
+      "pass": 2,
+      "memory": {
+        "resident_static_bytes": 204076,
+        "ram_code_and_vectors_bytes": 47824,
+        "observed_heap_peak_bytes": null,
+        "whole_image_observed_peak_bytes": 204076,
+        "stack_reservations_added_again": false,
+        "production_minimum": false,
+        "peak_scope": "cumulative since boot across all profiles and reporting",
+        "note": "NuttX heap includes its worker stacks. Static Zephyr/Embassy reservations already belong to ELF RAM; do not add occupancy again."
+      },
+      "profiles": [
+        {
+          "profile": "alloc-threads-20",
+          "raw_output_sha256": "b677654fe6d2ce81931b04807fc085591777210b8c138ce453aa747a6549b2bc",
+          "free_raw_output_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "worker_stacks": {
+            "count": 20,
+            "requested_each": 4096,
+            "reserved_min": 4096,
+            "reserved_max": 4096,
+            "observed_used_max": 372,
+            "before_thread_return": true,
+            "worst_case_bound": false
+          },
+          "errors": 0,
+          "heap_phases": {
+            "baseline": 20,
+            "threads": 20,
+            "threads-joined": 20,
+            "cleanup": 20
+          },
+          "heap_delta": {
+            "baseline": 0,
+            "threads": 0,
+            "threads-joined": 0,
+            "cleanup": 0
+          }
+        },
+        {
+          "profile": "alloc-queues",
+          "raw_output_sha256": "912cb7e0b2032f6f66d1c8d24b93a3fa36366dafc1c32767b341c9e0d704acc6",
+          "free_raw_output_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "worker_stacks": {
+            "count": 0,
+            "requested_each": 4096,
+            "reserved_min": 0,
+            "reserved_max": 0,
+            "observed_used_max": 0,
+            "before_thread_return": true,
+            "worst_case_bound": false
+          },
+          "errors": 0,
+          "heap_phases": {
+            "baseline": 20,
+            "queues-empty": 20,
+            "queues-full": 20,
+            "queues-drained": 20,
+            "cleanup": 20
+          },
+          "heap_delta": {
+            "baseline": 0,
+            "queues-empty": 0,
+            "queues-full": 0,
+            "queues-drained": 0,
+            "cleanup": 0
+          }
+        },
+        {
+          "profile": "saturation",
+          "raw_output_sha256": "6c2d624b5c993f22f5710b4da30b95914414690e30f834f90c12cbeddbbdf996",
+          "free_raw_output_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "worker_stacks": {
+            "count": 20,
+            "requested_each": 4096,
+            "reserved_min": 4096,
+            "reserved_max": 4096,
+            "observed_used_max": 372,
+            "before_thread_return": true,
+            "worst_case_bound": false
+          },
+          "errors": 0,
+          "cycles": [
+            {
+              "cycle": 0,
+              "empty_heap": 20,
+              "full_heap": 20,
+              "drained_heap": 20,
+              "filled": 480,
+              "drained": 480,
+              "overflow_rejected": 60,
+              "depth_full": 60,
+              "depth_zero": 60,
+              "errors": 0
+            },
+            {
+              "cycle": 1,
+              "empty_heap": 20,
+              "full_heap": 20,
+              "drained_heap": 20,
+              "filled": 480,
+              "drained": 480,
+              "overflow_rejected": 60,
+              "depth_full": 60,
+              "depth_zero": 60,
+              "errors": 0
+            },
+            {
+              "cycle": 2,
+              "empty_heap": 20,
+              "full_heap": 20,
+              "drained_heap": 20,
+              "filled": 480,
+              "drained": 480,
+              "overflow_rejected": 60,
+              "depth_full": 60,
+              "depth_zero": 60,
+              "errors": 0
+            }
+          ]
+        }
+      ],
+      "ledger": {
+        "worker_storage": 85120,
+        "queue_storage": 34880,
+        "ram_code": 47824,
+        "other_linked_storage": 36252,
+        "baseline_heap_and_composition_peak": 0
+      }
+    },
+    {
+      "build": "ram-nuttx-20-usable",
+      "cohort": "minimum-usable-4k",
+      "pass": 2,
+      "memory": {
+        "resident_static_bytes": 70516,
+        "ram_code_and_vectors_bytes": 34520,
+        "observed_heap_peak_bytes": 153232,
+        "whole_image_observed_peak_bytes": 223748,
+        "stack_reservations_added_again": false,
+        "production_minimum": false,
+        "peak_scope": "cumulative since boot across all profiles and reporting",
+        "note": "NuttX heap includes its worker stacks. Static Zephyr/Embassy reservations already belong to ELF RAM; do not add occupancy again."
+      },
+      "profiles": [
+        {
+          "profile": "alloc-threads-20",
+          "raw_output_sha256": "6512fe683e5b07a9f83c52188010309e9f57bfa457661cc1273c26fdaf90e654",
+          "free_raw_output_sha256": "9e09aa8ebe12c1bcd965434bcceef5c894ad77e34133396bf2ee136e29cf2aba",
+          "worker_stacks": {
+            "count": 20,
+            "requested_each": 4336,
+            "reserved_min": 4104,
+            "reserved_max": 4112,
+            "observed_used_max": 720,
+            "before_thread_return": true,
+            "worst_case_bound": false
+          },
+          "errors": 0,
+          "heap_phases": {
+            "baseline": 9988,
+            "threads": 101412,
+            "threads-joined": 10052,
+            "cleanup": 10052
+          },
+          "heap_delta": {
+            "baseline": 0,
+            "threads": 91424,
+            "threads-joined": 64,
+            "cleanup": 64
+          }
+        },
+        {
+          "profile": "alloc-queues",
+          "raw_output_sha256": "94311a9a3eb8a901a568f56580c246f31ca0a8cff1559e3def3678f394c0a53e",
+          "free_raw_output_sha256": "fc612abc6c2afc7ec224b47f42dae8abd6d857f59287111167ee7dfe54599bde",
+          "worker_stacks": {
+            "count": 0,
+            "requested_each": 4336,
+            "reserved_min": 0,
+            "reserved_max": 0,
+            "observed_used_max": 0,
+            "before_thread_return": true,
+            "worst_case_bound": false
+          },
+          "errors": 0,
+          "heap_phases": {
+            "baseline": 10052,
+            "queues-empty": 23676,
+            "queues-full": 61436,
+            "queues-drained": 23676,
+            "cleanup": 10700
+          },
+          "heap_delta": {
+            "baseline": 0,
+            "queues-empty": 13624,
+            "queues-full": 51384,
+            "queues-drained": 13624,
+            "cleanup": 648
+          }
+        },
+        {
+          "profile": "saturation",
+          "raw_output_sha256": "f6f579affeed1013a2e47cd0749047514cf4388cff81a07ce5c7a8ea5eb3856a",
+          "free_raw_output_sha256": "67a1f44777df4205328b6f4678ce2122b4913abe0dac7213314f4906cbde92a7",
+          "worker_stacks": {
+            "count": 20,
+            "requested_each": 4336,
+            "reserved_min": 4104,
+            "reserved_max": 4112,
+            "observed_used_max": 720,
+            "before_thread_return": true,
+            "worst_case_bound": false
+          },
+          "errors": 0,
+          "cycles": [
+            {
+              "cycle": 0,
+              "empty_heap": 115044,
+              "full_heap": 152804,
+              "drained_heap": 115044,
+              "filled": 480,
+              "drained": 480,
+              "overflow_rejected": 60,
+              "depth_full": 60,
+              "depth_zero": 60,
+              "errors": 0
+            },
+            {
+              "cycle": 1,
+              "empty_heap": 115044,
+              "full_heap": 152804,
+              "drained_heap": 115044,
+              "filled": 480,
+              "drained": 480,
+              "overflow_rejected": 60,
+              "depth_full": 60,
+              "depth_zero": 60,
+              "errors": 0
+            },
+            {
+              "cycle": 2,
+              "empty_heap": 115044,
+              "full_heap": 152804,
+              "drained_heap": 115044,
+              "filled": 480,
+              "drained": 480,
+              "overflow_rejected": 60,
+              "depth_full": 60,
+              "depth_zero": 60,
+              "errors": 0
+            }
+          ]
+        }
+      ],
+      "ledger": {
+        "worker_storage": 91984,
+        "queue_storage": 62536,
+        "ram_code": 34520,
+        "other_linked_storage": 24284,
+        "baseline_heap_and_composition_peak": 10424
+      }
+    },
+    {
+      "build": "ram-nuttx-20-usable",
+      "cohort": "minimum-usable-4k",
+      "pass": 3,
+      "memory": {
+        "resident_static_bytes": 70516,
+        "ram_code_and_vectors_bytes": 34520,
+        "observed_heap_peak_bytes": 153232,
+        "whole_image_observed_peak_bytes": 223748,
+        "stack_reservations_added_again": false,
+        "production_minimum": false,
+        "peak_scope": "cumulative since boot across all profiles and reporting",
+        "note": "NuttX heap includes its worker stacks. Static Zephyr/Embassy reservations already belong to ELF RAM; do not add occupancy again."
+      },
+      "profiles": [
+        {
+          "profile": "alloc-threads-20",
+          "raw_output_sha256": "6512fe683e5b07a9f83c52188010309e9f57bfa457661cc1273c26fdaf90e654",
+          "free_raw_output_sha256": "2e9a2d4c340f5d8e3f734f2828dde1c17b4b23a3c7748ea5160a7b7d2fcb52d1",
+          "worker_stacks": {
+            "count": 20,
+            "requested_each": 4336,
+            "reserved_min": 4104,
+            "reserved_max": 4112,
+            "observed_used_max": 720,
+            "before_thread_return": true,
+            "worst_case_bound": false
+          },
+          "errors": 0,
+          "heap_phases": {
+            "baseline": 9988,
+            "threads": 101412,
+            "threads-joined": 10052,
+            "cleanup": 10052
+          },
+          "heap_delta": {
+            "baseline": 0,
+            "threads": 91424,
+            "threads-joined": 64,
+            "cleanup": 64
+          }
+        },
+        {
+          "profile": "alloc-queues",
+          "raw_output_sha256": "94311a9a3eb8a901a568f56580c246f31ca0a8cff1559e3def3678f394c0a53e",
+          "free_raw_output_sha256": "a4f440613fcf657a2246287cc53c80e902381b650e6e84dded05efb4861480cf",
+          "worker_stacks": {
+            "count": 0,
+            "requested_each": 4336,
+            "reserved_min": 0,
+            "reserved_max": 0,
+            "observed_used_max": 0,
+            "before_thread_return": true,
+            "worst_case_bound": false
+          },
+          "errors": 0,
+          "heap_phases": {
+            "baseline": 10052,
+            "queues-empty": 23676,
+            "queues-full": 61436,
+            "queues-drained": 23676,
+            "cleanup": 10700
+          },
+          "heap_delta": {
+            "baseline": 0,
+            "queues-empty": 13624,
+            "queues-full": 51384,
+            "queues-drained": 13624,
+            "cleanup": 648
+          }
+        },
+        {
+          "profile": "saturation",
+          "raw_output_sha256": "f6f579affeed1013a2e47cd0749047514cf4388cff81a07ce5c7a8ea5eb3856a",
+          "free_raw_output_sha256": "67a1f44777df4205328b6f4678ce2122b4913abe0dac7213314f4906cbde92a7",
+          "worker_stacks": {
+            "count": 20,
+            "requested_each": 4336,
+            "reserved_min": 4104,
+            "reserved_max": 4112,
+            "observed_used_max": 720,
+            "before_thread_return": true,
+            "worst_case_bound": false
+          },
+          "errors": 0,
+          "cycles": [
+            {
+              "cycle": 0,
+              "empty_heap": 115044,
+              "full_heap": 152804,
+              "drained_heap": 115044,
+              "filled": 480,
+              "drained": 480,
+              "overflow_rejected": 60,
+              "depth_full": 60,
+              "depth_zero": 60,
+              "errors": 0
+            },
+            {
+              "cycle": 1,
+              "empty_heap": 115044,
+              "full_heap": 152804,
+              "drained_heap": 115044,
+              "filled": 480,
+              "drained": 480,
+              "overflow_rejected": 60,
+              "depth_full": 60,
+              "depth_zero": 60,
+              "errors": 0
+            },
+            {
+              "cycle": 2,
+              "empty_heap": 115044,
+              "full_heap": 152804,
+              "drained_heap": 115044,
+              "filled": 480,
+              "drained": 480,
+              "overflow_rejected": 60,
+              "depth_full": 60,
+              "depth_zero": 60,
+              "errors": 0
+            }
+          ]
+        }
+      ],
+      "ledger": {
+        "worker_storage": 91984,
+        "queue_storage": 62536,
+        "ram_code": 34520,
+        "other_linked_storage": 24284,
+        "baseline_heap_and_composition_peak": 10424
+      }
+    },
+    {
+      "build": "ram-zephyr-20",
+      "cohort": "minimum-usable-4k",
+      "pass": 3,
+      "memory": {
+        "resident_static_bytes": 204076,
+        "ram_code_and_vectors_bytes": 47824,
+        "observed_heap_peak_bytes": null,
+        "whole_image_observed_peak_bytes": 204076,
+        "stack_reservations_added_again": false,
+        "production_minimum": false,
+        "peak_scope": "cumulative since boot across all profiles and reporting",
+        "note": "NuttX heap includes its worker stacks. Static Zephyr/Embassy reservations already belong to ELF RAM; do not add occupancy again."
+      },
+      "profiles": [
+        {
+          "profile": "alloc-threads-20",
+          "raw_output_sha256": "b677654fe6d2ce81931b04807fc085591777210b8c138ce453aa747a6549b2bc",
+          "free_raw_output_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "worker_stacks": {
+            "count": 20,
+            "requested_each": 4096,
+            "reserved_min": 4096,
+            "reserved_max": 4096,
+            "observed_used_max": 372,
+            "before_thread_return": true,
+            "worst_case_bound": false
+          },
+          "errors": 0,
+          "heap_phases": {
+            "baseline": 20,
+            "threads": 20,
+            "threads-joined": 20,
+            "cleanup": 20
+          },
+          "heap_delta": {
+            "baseline": 0,
+            "threads": 0,
+            "threads-joined": 0,
+            "cleanup": 0
+          }
+        },
+        {
+          "profile": "alloc-queues",
+          "raw_output_sha256": "912cb7e0b2032f6f66d1c8d24b93a3fa36366dafc1c32767b341c9e0d704acc6",
+          "free_raw_output_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "worker_stacks": {
+            "count": 0,
+            "requested_each": 4096,
+            "reserved_min": 0,
+            "reserved_max": 0,
+            "observed_used_max": 0,
+            "before_thread_return": true,
+            "worst_case_bound": false
+          },
+          "errors": 0,
+          "heap_phases": {
+            "baseline": 20,
+            "queues-empty": 20,
+            "queues-full": 20,
+            "queues-drained": 20,
+            "cleanup": 20
+          },
+          "heap_delta": {
+            "baseline": 0,
+            "queues-empty": 0,
+            "queues-full": 0,
+            "queues-drained": 0,
+            "cleanup": 0
+          }
+        },
+        {
+          "profile": "saturation",
+          "raw_output_sha256": "6c2d624b5c993f22f5710b4da30b95914414690e30f834f90c12cbeddbbdf996",
+          "free_raw_output_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "worker_stacks": {
+            "count": 20,
+            "requested_each": 4096,
+            "reserved_min": 4096,
+            "reserved_max": 4096,
+            "observed_used_max": 372,
+            "before_thread_return": true,
+            "worst_case_bound": false
+          },
+          "errors": 0,
+          "cycles": [
+            {
+              "cycle": 0,
+              "empty_heap": 20,
+              "full_heap": 20,
+              "drained_heap": 20,
+              "filled": 480,
+              "drained": 480,
+              "overflow_rejected": 60,
+              "depth_full": 60,
+              "depth_zero": 60,
+              "errors": 0
+            },
+            {
+              "cycle": 1,
+              "empty_heap": 20,
+              "full_heap": 20,
+              "drained_heap": 20,
+              "filled": 480,
+              "drained": 480,
+              "overflow_rejected": 60,
+              "depth_full": 60,
+              "depth_zero": 60,
+              "errors": 0
+            },
+            {
+              "cycle": 2,
+              "empty_heap": 20,
+              "full_heap": 20,
+              "drained_heap": 20,
+              "filled": 480,
+              "drained": 480,
+              "overflow_rejected": 60,
+              "depth_full": 60,
+              "depth_zero": 60,
+              "errors": 0
+            }
+          ]
+        }
+      ],
+      "ledger": {
+        "worker_storage": 85120,
+        "queue_storage": 34880,
+        "ram_code": 47824,
+        "other_linked_storage": 36252,
+        "baseline_heap_and_composition_peak": 0
+      }
+    }
+  ],
+  "toolchain": {
+    "c_compiler_sha256": "a6410478f3c07ddfe917a53fd2bc6ead60b0d74d07141ee26e657eddf845d40d",
+    "rust_compiler_sha256": "75f10fc1ade88a8e7e957a4549096b5ca6d263016999be280d37ee34425906f1",
+    "c": "Espressif GCC 14.2.0 esp-14.2.0_20251107",
+    "rust": "Espressif 1.90.0.0 abf50ae2e / LLVM 20.1.1",
+    "nuttx": "2b5c0de5e933281c209f954a63b99cf10c132346",
+    "zephyr": "41d10b59730406bbab4ca9f1fbbe9e96aafb4966"
+  }
+}

@@ -1,0 +1,116 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="970" viewBox="0 0 800 970" role="img" aria-labelledby="title description">
+  <title id="title">Nxrs camera and Matter gateway</title>
+  <desc id="description">The ESP32 sends one authenticated feed to gateway ingest. MediaMTX serves Nxrs viewers and a shared RTSP reader in the Matter bridge. Gateway control feeds a separate detection subscription. The bridge serves snapshots and occupancy through Matter commands, and streams WebRTC media directly to each receiver.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 8 8" refX="6" refY="4" markerWidth="8" markerHeight="8" markerUnits="userSpaceOnUse" orient="auto">
+      <path d="M1 1 L6 4 L1 7" fill="none" stroke="#8199B1" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+    </marker>
+    <filter id="shadow" x="-10%" y="-20%" width="120%" height="145%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="3" result="blur"/>
+      <feOffset in="blur" dx="0" dy="3" result="offset-blur"/>
+      <feFlood flood-color="#000000" flood-opacity="0.055" result="shadow-color"/>
+      <feComposite in="shadow-color" in2="offset-blur" operator="in" result="card-shadow"/>
+      <feMerge><feMergeNode in="card-shadow"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <style>
+      text { font-family: Inter, "Helvetica Neue", Arial, sans-serif; }
+      .card { fill: #1A2533; stroke: #34465A; stroke-width: 1.2; }
+      .label { fill: #E5EDF5; font-weight: 500; letter-spacing: -0.4px; }
+      .subtitle { fill: #ACBDCE; font-size: 18px; }
+      .edge { fill: none; stroke: #8199B1; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; marker-end: url(#arrow); }
+      .edge-label { fill: #ACBDCE; font-size: 16px; }
+    </style>
+  </defs>
+  <rect width="800" height="970" rx="24" fill="#10161F"/>
+
+  <g id="node-camera" data-panel="true">
+    <rect x="24" y="24" width="752" height="100" rx="15" class="card" filter="url(#shadow)"/>
+    <rect x="39" y="44" width="4" height="60" rx="2" fill="#83C5EA"/>
+    <text x="400" y="56" text-anchor="middle" class="label" font-size="22">ESP32 camera · Nxrs on NuttX</text>
+    <text x="400" y="83" text-anchor="middle" class="subtitle">Product profile → camera and detector HALs → home-cam</text>
+  </g>
+  <g id="group-gateway"><rect x="24" y="176" width="752" height="274" rx="21" fill="#141E2B" stroke="#3B5066" stroke-width="1.2"/><text x="48" y="211" class="label" font-size="21">Nxrs gateway</text></g>
+  <g id="group-bridge"><rect x="24" y="517" width="502" height="279" rx="21" fill="#141E2B" stroke="#3B5066" stroke-width="1.2"/><text x="48" y="552" class="label" font-size="21">Matter bridge</text></g>
+  <path id="edge-camera-ingest" data-from="camera" data-to="ingest" d="M400 124 V220" class="edge"/>
+  <text x="416" y="152" text-anchor="start" class="edge-label">Authenticated camera feed</text>
+  <g id="node-ingest" data-panel="true">
+    <rect x="224" y="222" width="352" height="80" rx="15" class="card" filter="url(#shadow)"/>
+
+    <text x="400" y="254" text-anchor="middle" class="label" font-size="22">Camera ingest</text>
+    <text x="400" y="281" text-anchor="middle" class="subtitle">Encodes H.264 and optional Opus</text>
+  </g>
+  <path id="edge-ingest-media" data-from="ingest" data-to="media" d="M313 302 V327 H203 V349" class="edge"/>
+  <text x="186" y="321" text-anchor="middle" class="edge-label">Encoded media</text>
+  <path id="edge-ingest-control" data-from="ingest" data-to="control" d="M487 302 V327 H597 V349" class="edge"/>
+  <text x="632" y="321" text-anchor="middle" class="edge-label">Validated detection</text>
+  <g id="node-media" data-panel="true">
+    <rect x="46" y="351" width="314" height="80" rx="15" class="card" filter="url(#shadow)"/>
+
+    <text x="203" y="383" text-anchor="middle" class="label" font-size="22">RTSP publisher · MediaMTX</text>
+    <text x="203" y="410" text-anchor="middle" class="subtitle">One publication per camera</text>
+  </g>
+  <g id="node-control" data-panel="true">
+    <rect x="440" y="351" width="314" height="80" rx="15" class="card" filter="url(#shadow)"/>
+
+    <text x="597" y="383" text-anchor="middle" class="label" font-size="22">Gateway control</text>
+    <text x="597" y="410" text-anchor="middle" class="subtitle">Catalogue · grants · detection SSE</text>
+  </g>
+  <path id="edge-media-reader" data-from="media" data-to="reader" d="M146 431 V505 H204 V571" class="edge"/>
+  <text x="158" y="479" text-anchor="start" class="edge-label">Scoped loopback RTSP</text>
+  <path id="edge-control-occupancy" data-from="control" data-to="occupancy" d="M548 431 V496 H406 V571" class="edge"/>
+  <text x="437" y="479" text-anchor="middle" class="edge-label">Scoped loopback SSE</text>
+  <path id="edge-gateway-native" data-from="gateway" data-to="native" d="M662 450 V571" class="edge"/>
+  <g id="node-native" data-panel="true">
+    <rect x="548" y="573" width="228" height="112" rx="15" class="card" filter="url(#shadow)"/>
+
+    <text x="662" y="605" text-anchor="middle" class="label" font-size="22">Nxrs Home / API</text>
+    <text x="662" y="632" text-anchor="middle" class="subtitle">HTTPS API and WHEP</text>
+    <text x="662" y="657" text-anchor="middle" class="subtitle">WebRTC media</text>
+  </g>
+  <g id="node-reader" data-panel="true">
+    <rect x="40" y="573" width="212" height="80" rx="15" class="card" filter="url(#shadow)"/>
+
+    <text x="146" y="605" text-anchor="middle" class="label" font-size="22">Shared RTSP input</text>
+    <text x="146" y="632" text-anchor="middle" class="subtitle">H.264 and snapshots</text>
+  </g>
+  <g id="node-occupancy" data-panel="true">
+    <rect x="284" y="573" width="222" height="80" rx="15" class="card" filter="url(#shadow)"/>
+
+    <text x="395" y="605" text-anchor="middle" class="label" font-size="22">Occupancy</text>
+    <text x="395" y="632" text-anchor="middle" class="subtitle">Freshness · reachability</text>
+  </g>
+  <path id="edge-reader-peer" data-from="reader" data-to="peer" d="M146 653 V684" class="edge"/>
+  <path id="edge-reader-matter" data-from="reader" data-to="matter" d="M220 653 V673 H313 V684" class="edge"/>
+  <text x="268" y="667" text-anchor="middle" class="edge-label">JPEG</text>
+  <path id="edge-occupancy-matter" data-from="occupancy" data-to="matter" d="M406 653 V684" class="edge"/>
+  <g id="node-peer" data-panel="true">
+    <rect x="40" y="686" width="212" height="76" rx="15" class="card" filter="url(#shadow)"/>
+
+    <text x="146" y="731" text-anchor="middle" class="label" font-size="22">WebRTC per viewer</text>
+
+  </g>
+  <g id="node-matter" data-panel="true">
+    <rect x="284" y="686" width="222" height="100" rx="15" class="card" filter="url(#shadow)"/>
+
+    <text x="395" y="718" text-anchor="middle" class="label" font-size="22">Matter node</text>
+    <text x="395" y="745" text-anchor="middle" class="subtitle">0 Root · 1 Camera</text>
+    <text x="395" y="770" text-anchor="middle" class="subtitle">2 Aggregator · 3 Sensor</text>
+  </g>
+  <path id="edge-peer-receiver" data-from="peer" data-to="receiver" d="M146 762 V847" class="edge"/>
+  <text x="158" y="829" text-anchor="start" class="edge-label">Direct ICE and media</text>
+  <path id="edge-controller-matter" data-from="controller" data-to="matter" d="M395 849 V788" class="edge"/>
+  <text x="408" y="829" text-anchor="start" class="edge-label">LAN discovery and control</text>
+  <g id="node-receiver" data-panel="true">
+    <rect x="40" y="849" width="212" height="96" rx="15" class="card" filter="url(#shadow)"/>
+
+    <text x="146" y="881" text-anchor="middle" class="label" font-size="22">Video receiver</text>
+    <text x="146" y="908" text-anchor="middle" class="subtitle">Home Assistant or app</text>
+  </g>
+  <g id="node-controller" data-panel="true">
+    <rect x="284" y="849" width="222" height="96" rx="15" class="card" filter="url(#shadow)"/>
+
+    <text x="395" y="881" text-anchor="middle" class="label" font-size="22">Matter controller</text>
+    <text x="395" y="908" text-anchor="middle" class="subtitle">Home Assistant or SDK</text>
+  </g>
+
+</svg>

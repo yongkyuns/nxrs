@@ -1,0 +1,34 @@
+--- a/arch/xtensa/src/esp32s3/esp32s3_rng.c
++++ b/arch/xtensa/src/esp32s3/esp32s3_rng.c
+@@ -137,6 +137,17 @@
+   return count;
+ }
+ 
++#ifdef CONFIG_ESP32S3_QEMU_IMAGE
++bool esp32s3_qemu_entropy_available(void)
++{
++  /* Espressif QEMU exposes this signature in a reserved APB control
++   * register and backs the RNG data register with QEMU guest randomness.
++   */
++
++  return getreg32(0x600263f8) == 0x51454d55;
++}
++#endif
++
+ /* /dev/random requires active RF entropy.  /dev/urandom retains the legacy
+  * raw RNG interface, which is not a qualified cryptographic source at boot.
+  */
+@@ -144,6 +155,13 @@
+ static ssize_t esp32s3_trng_read(struct file *filep, char *buffer,
+                                  size_t buflen)
+ {
++#ifdef CONFIG_ESP32S3_QEMU_IMAGE
++  if (esp32s3_qemu_entropy_available())
++    {
++      return esp32s3_rng_read(filep, buffer, buflen);
++    }
++#endif
++
+ #if (defined(CONFIG_ESPRESSIF_WIFI) || defined(CONFIG_ESPRESSIF_BLE)) && \
+     !defined(CONFIG_ESPRESSIF_AUTO_SLEEP) && !defined(CONFIG_PM) && !defined(CONFIG_ESP32S3_AUTO_SLEEP)
+   _lock_t lock;

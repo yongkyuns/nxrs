@@ -83,15 +83,27 @@ fn apply(root: &Path, args: &[String], announce: bool) -> Result<()> {
     } else {
         serde_json::from_str(DEFAULT_SETTINGS).map_err(|e| e.to_string())?
     };
-    let mut options = &mut settings;
-    for key in ["lsp", "rust-analyzer", "initialization_options"] {
-        options = options
+    let mut server = &mut settings;
+    for key in ["lsp", "rust-analyzer"] {
+        server = server
             .as_object_mut()
             .ok_or("invalid Zed language server settings")?
             .entry(key)
             .or_insert_with(|| json!({}));
     }
-    let options = options
+    let server = server
+        .as_object_mut()
+        .ok_or("invalid rust-analyzer settings")?;
+    server
+        .entry("binary")
+        .or_insert_with(|| json!({}))
+        .as_object_mut()
+        .ok_or("invalid rust-analyzer binary settings")?
+        .entry("ignore_system_version")
+        .or_insert(json!(true));
+    let options = server
+        .entry("initialization_options")
+        .or_insert_with(|| json!({}))
         .as_object_mut()
         .ok_or("invalid rust-analyzer initialization_options")?;
     options.insert("cargo".into(), cargo);

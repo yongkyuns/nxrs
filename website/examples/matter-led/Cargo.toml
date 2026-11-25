@@ -1,0 +1,20 @@
+[package]
+name = "nxrs-matter-led"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.98.1"
+publish = false
+
+[workspace]
+
+[dependencies]
+async-signal = "0.2"
+embassy-time = { version = "0.5", features = ["std"] }
+embassy-time-queue-utils = { version = "0.3", features = ["generic-queue-64"] }
+env_logger = "0.11"
+futures-lite = "2"
+nxrs-controller-demo = { path = "../controller" }
+nxrs-led = { path = "../../../hal/led" }
+rand = "0.10"
+rs-matter = { git = "https://github.com/project-chip/rs-matter", rev = "a530a2972b860162527a9ec9df4ee62156b0ad69", features = ["astro-dnssd", "groups", "persistent-subscriptions"] }
+static_cell = "2"

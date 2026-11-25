@@ -4,7 +4,6 @@ on:
     paths:
       - 'hal/storage/**'
       - 'hal/camera/**'
-      - 'hal/common/**'
       - 'app/**'
       - 'service/**'
       - 'shared/messaging/**'

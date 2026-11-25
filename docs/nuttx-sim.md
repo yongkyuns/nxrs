@@ -1,7 +1,45 @@
 # NuttX simulator qualification
 
-The x86-64 NuttX simulator is now retained as a **core-only compatibility
-oracle**, not as evidence for the production Rust `std` execution model.
+NuttX `sim` runs the kernel as a host process. Nxrs has a native Apple Silicon
+tracker test using Rust `std`, and a separate Linux x86-64 compatibility fixture
+for camera, recording and monitoring.
+
+## Native tracker on Apple Silicon
+
+The `nuttx-sim-tracker` profile builds the ordinary `motion_tracker` application
+and NuttX-side Rust standard library. The test registers the same BMI270 I²C
+fixture as ESP32-S3 QEMU and attaches the same scripted UBX receiver to a
+simulated NuttX UART through a temporary host pseudoterminal. The
+`Native NuttX tracker (Apple Silicon)` CI job runs these cases in one boot:
+
+- GNSS fixes pause and resume while both IMUs keep reporting.
+- The primary IMU fails after reporting live data. The secondary IMU and GNSS
+  keep reporting, and the faulted run exits with an error.
+- A stalled display transfer fills the tracker inbox. USB diagnostics report
+  the drops, and fresh samples resume for both IMUs and GNSS.
+- A final healthy launch verifies release of the devices. Every run checks
+  restoration of the GNSS receiver's original update rate.
+
+Use Xcode command-line tools, GNU Make and GNU sed (as `make` and `sed` on
+`PATH`), `kconfig-tweak` from NuttX's `kconfig-frontends`, CMake, `flock`,
+`genromfs`, and Python 3.11 or later with `kconfiglib` and `lief`.
+Install `nightly-2025-09-15` with `rust-src`, and provide the pinned Mbed TLS
+archive at `target/mbedtls-4.2.0.tar.bz2` or with `NXRS_TLS_ARCHIVE`.
+See the [Mbed TLS source pin](../upstream/mbedtls/source.json) for the download.
+
+```sh
+cargo nxrs build --app motion-tracker --profile nuttx-sim-tracker \
+  --target-c-source tests/nuttx-std/tracker-sim/devices.c \
+  --target-c-source tests/nuttx-std/tracker-sim/native_init.c \
+  --out target/nuttx-sim-tracker
+python3 tests/nuttx-std/tracker-sim/native.py target/nuttx-sim-tracker/nuttx/nuttx
+```
+
+The build checks the native Rust/C ABI and confirms application imports such as
+POSIX I/O, polling and pthreads resolve inside NuttX. Use the ESP32-S3 QEMU
+scenario for the dashboard and BLE session, and hardware for physical timing.
+
+## Linux x86-64 compatibility fixture
 
 It boots a real NuttX sim kernel, exercises the same camera/recording/monitoring
 behavior as the ESP32-S3 std integration, and independently checks target VFS,
@@ -74,11 +112,10 @@ Rust core is rebuilt with the simulator's small/PIC code model via the scoped
 `-Zbuild-std=core` path. No Rust std or host POSIX runtime is linked into this
 fixture.
 
-## Qualification boundary
+## Linux fixture qualification boundary
 
-Do not use this simulator as proof that Rust std works on NuttX. Ordinary
-main/std is independently qualified on real NuttX targets, and the full
-camera/storage/std-UDP integration is qualified under ESP32-S3 QEMU.
+The Linux fixture covers core-based execution. The full camera, storage and
+Rust std UDP integration is qualified under ESP32-S3 QEMU.
 
 The simulator remains useful because it cheaply exercises same-kernel reentry,
 fault injection and target/host-link isolation. It can be removed later if those

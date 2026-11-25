@@ -2,6 +2,16 @@
 # Every entry requires semantic review; scalar interfaces do not prove thin glue.
 
 [[bridge]]
+path = "hal/cellular/src/platform/nuttx/ffi/link.c"
+kind = "abi"
+reason = "Target serial flags and termios, descriptor readiness and individual TUN interface controls. Rust owns the modem, packet path and link lifecycle."
+
+[[bridge]]
+path = "hal/touch/src/platform/nuttx/ffi/layout.c"
+kind = "abi"
+reason = "Target touchscreen sample offsets, event masks and nonblocking open flag. Rust owns the descriptor, reads and press delivery."
+
+[[bridge]]
 path = "driver/pwm/src/platform/nuttx/ffi/pwm.c"
 kind = "abi"
 reason = "NuttX single-channel PWM layout and individual configure, start and stop ioctls."
@@ -159,7 +169,7 @@ path = "hal/detector/src/platform/nuttx/ffi/context.c"
 kind = "abi"
 reason = "NuttX target-header cop_ai state and CPU/affinity ABI. Rust owns serialization, placement/context leases and restoration; no native thread creation or detector policy."
 [[bridge]]
-path = "hal/config/src/platform/nuttx/ffi/config.c"
+path = "hal/settings/src/platform/nuttx/ffi/config.c"
 kind = "abi"
 reason = "NuttX config-data ioctl layout and errno translation. Rust owns files, keys, bounds and product-record validation."
 
@@ -168,6 +178,11 @@ reason = "NuttX config-data ioctl layout and errno translation. Rust owns files,
 path = "hal/console/src/platform/nuttx/ffi/console.c"
 kind = "abi"
 reason = "Target termios/poll layout only; Rust owns descriptor, mode lifetime and deadlines."
+
+[[bridge]]
+path = "hal/ssh/src/platform/nuttx/ffi/service.c"
+kind = "abi"
+reason = "NuttX builtin and waitpid ABI and native credential paths; Rust owns the task lifecycle."
 
 [[bridge]]
 path = "hal/execution/src/platform/nuttx/ffi/scheduling.c"
@@ -180,7 +195,7 @@ kind = "abi"
 reason = "Synchronous netinit SDK operation; Rust serializes once-only acquisition and retains partial failures."
 
 [[bridge]]
-path = "hal/acquisition/src/platform/nuttx/ffi/events.c"
+path = "shared/acquisition/src/platform/nuttx/ffi/events.c"
 kind = "abi"
 reason = "Target pollfd layout and pipe2 flags only. Shared Rust readiness owns descriptor lifetime and cancellation; HALs own reads, deadlines and event admission."
 
@@ -193,3 +208,13 @@ reason = "Individual GPIO interrupt ioctls only. NuttX owns ISR notifications; t
 path = "hal/display/src/platform/nuttx/ffi/spi.c"
 kind = "abi"
 reason = "Translate a borrowed command and bytes into the NuttX SPI command/data sequence."
+
+[[bridge]]
+path = "hal/audio/src/platform/nuttx/ffi/audio.c"
+kind = "abi"
+reason = "NuttX queued audio ioctls, message queue layout and aligned APB fields. Rust owns descriptor admission, submission, buffer identities, deadlines, sample conversion and retirement."
+
+[[bridge]]
+path = "hal/ble/src/platform/nuttx/ffi/peripheral.c"
+kind = "abi"
+reason = "Bluetooth host GATT layouts, advertising and synchronous SDK callback translations"

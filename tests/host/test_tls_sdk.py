@@ -30,6 +30,8 @@ class TlsSdkTests(unittest.TestCase):
         cases.extend((s3 | {unsupported}, False)
                      for unsupported in ('PM', 'ESPRESSIF_AUTO_SLEEP',
                                          'ESP32S3_AUTO_SLEEP'))
+        qemu = (s3 - {'ESPRESSIF_WIFI'}) | {'ESP32S3_QEMU_IMAGE'}
+        cases.extend([(qemu, True), (qemu, False), (qemu - {'DEV_RANDOM'}, False)])
         with tempfile.TemporaryDirectory() as temporary:
             work = Path(temporary)
             (work/'nuttx').mkdir()
@@ -39,9 +41,13 @@ class TlsSdkTests(unittest.TestCase):
                     defines.append('#define CONFIG_RP23XX_RNG_POLL_TIMEOUT 100000')
                 (work/'nuttx/config.h').write_text('\n'.join(defines)+'\n')
                 library = work/f'gate{index}.so'
+                marker = work/'marker.c'
+                is_qemu = expected and 'ESP32S3_QEMU_IMAGE' in config
+                marker.write_text('#include <stdbool.h>\nbool esp32s3_qemu_entropy_available(void) { return '
+                                  + str(int(is_qemu)) + '; }\n')
                 subprocess.run(['cc', '-shared', '-fPIC', '-Wall', '-Wextra', '-Werror',
                                 '-I'+str(work), str(ROOT/'hal/tls/src/platform/nuttx/ffi/rng.c'),
-                                '-o', str(library)], check=True, capture_output=True)
+                                str(marker), '-o', str(library)], check=True, capture_output=True)
                 gate = ctypes.CDLL(str(library))
                 gate.tls_rng_admitted.restype = ctypes.c_bool
                 self.assertEqual(gate.tls_rng_admitted(), expected,

@@ -4,7 +4,6 @@ on:
   pull_request:
     paths:
       - 'hal/led/**'
-      - 'hal/common/**'
       - 'tools/build-support/**'
       - 'platform/*/profile.toml'
       - 'platform/*/profiles/**'

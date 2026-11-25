@@ -23,7 +23,7 @@ Run it from the NXRS repository root and check that `.cargo/config.toml` is pres
 
 ## A host example requests a board or device
 
-The introductory `hello`, `worker`, and `std-demo` examples do not need a hardware profile. Check that you are running the command from [Getting started](getting-started.md), rather than a device-specific application.
+The introductory `hello`, `worker`, and `std-demo` examples do not need a hardware profile. Compare your command with the [example you meant to run](examples.md#choose-an-example-by-task).
 
 Remove an old `NXRS_PLATFORM` assignment when returning to standard-library-only tests. When using a HAL, select the intended host or hardware profile explicitly.
 

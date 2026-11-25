@@ -1,6 +1,6 @@
 //! CoreBluetooth GATT behavior. All SDK operations execute on its serial queue.
 //! The front door uses try_lock; retirement signals never need that lock.
-use crate::gatt_backend::{
+use crate::platform::runtime::gatt_backend::{
     Backend, Event as BackendEvent, Kind, Outcome, Request as Operation, Wake, CAPACITY,
 };
 use crate::{Error, OperationId, SessionId};
@@ -13,39 +13,16 @@ use std::{
         Mutex,
     },
 };
-unsafe extern "C" {
-    fn mac_gatt_initialize();
-    fn mac_gatt_allocate();
-    fn mac_gatt_poke();
-    fn mac_gatt_defer();
-    fn mac_gatt_errno(kind: u32) -> i32;
-    fn mac_gatt_authorization() -> i32;
-    fn mac_gatt_manager();
-    fn mac_gatt_manager_state() -> u32;
-    fn mac_gatt_object(field: u32, index: usize) -> *mut c_void;
-    fn mac_gatt_count(field: u32) -> usize;
-    fn mac_gatt_identity(object: *mut c_void, bytes: *mut u8);
-    fn mac_gatt_uuid(
-        object: *mut c_void,
-        characteristic: bool,
-        bytes: *mut *const u8,
-        len: *mut usize,
-    );
-    fn mac_gatt_retrieve(identity: *const u8, index: usize, count: *mut usize) -> *mut c_void;
-    fn mac_gatt_scan();
-    fn mac_gatt_stop_scan();
-    fn mac_gatt_connect(peripheral: *mut c_void);
-    fn mac_gatt_connected() -> bool;
-    fn mac_gatt_cancel();
-    fn mac_gatt_services(uuid: *const u8);
-    fn mac_gatt_characteristics(service: *mut c_void, uuid: *const u8);
-    fn mac_gatt_pin(attribute: *mut c_void);
-    fn mac_gatt_properties(attribute: *mut c_void) -> u32;
-    fn mac_gatt_max_write() -> usize;
-    fn mac_gatt_read(attribute: *mut c_void);
-    fn mac_gatt_write(attribute: *mut c_void, data: *const u8, len: usize);
-    fn mac_gatt_detach(release: bool);
-}
+#[path = "ffi/gatt.rs"]
+mod ffi;
+use self::ffi::{
+    mac_gatt_allocate, mac_gatt_authorization, mac_gatt_cancel, mac_gatt_characteristics,
+    mac_gatt_connect, mac_gatt_connected, mac_gatt_count, mac_gatt_defer, mac_gatt_detach,
+    mac_gatt_errno, mac_gatt_identity, mac_gatt_initialize, mac_gatt_manager,
+    mac_gatt_manager_state, mac_gatt_max_write, mac_gatt_object, mac_gatt_pin, mac_gatt_poke,
+    mac_gatt_properties, mac_gatt_read, mac_gatt_retrieve, mac_gatt_scan, mac_gatt_services,
+    mac_gatt_stop_scan, mac_gatt_uuid, mac_gatt_write,
+};
 #[derive(Clone, Copy, PartialEq)]
 enum Phase {
     Idle,

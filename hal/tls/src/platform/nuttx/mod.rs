@@ -1,8 +1,6 @@
 #![allow(unsafe_code)]
-unsafe extern "C" {
-    fn tls_rng_admitted() -> bool;
-    fn tls_entropy_open_flags() -> i32;
-}
+mod ffi;
+use self::ffi::{tls_entropy_open_flags, tls_rng_admitted};
 use crate::entropy;
 #[cfg(test)]
 pub(crate) use entropy::Source;

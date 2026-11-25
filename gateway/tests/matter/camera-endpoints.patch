@@ -1,0 +1,295 @@
+--- a/examples/src/bin/webrtc_camera.rs
++++ b/examples/src/bin/webrtc_camera.rs
+@@ -46,10 +46,6 @@
+ use rand::Rng;
+ 
+ use rs_matter::crypto::{default_crypto, CanonEcPointRef, CanonEcScalarRef, Crypto};
+-use rs_matter::dm::clusters::app::cam_av_settings::{
+-    CamAvSettingsConfig, CamAvSettingsError, CamAvSettingsHandler, CamAvSettingsHooks, DptzView,
+-    Mptz, CLUSTER_DPTZ_ONLY,
+-};
+ use rs_matter::dm::clusters::app::cam_av_stream::{
+     AudioCapabilitiesConfig, AudioCodecEnum, AudioStreamParams, CamAvError, CameraAvStreamConfig,
+     CameraAvStreamHandler, CameraAvStreamHooks, Feature as CameraFeature,
+@@ -59,11 +55,10 @@
+     AnswerOutcome, HandlerAsyncAdaptor as WebRtcAdaptor, IceCandidateSink, OfferAccess, OfferParams,
+     OutboundWork, SolicitOutcome, WebRtcError, WebRtcHooks, WebRtcProvHandler,
+ };
+-use rs_matter::dm::clusters::app::zone_mgmt::{
+-    HandlerAsyncAdaptor as ZoneMgmtAdaptor, ZoneMgmtConfig, ZoneMgmtHandler, ZoneMgmtHooks,
+-};
+ use rs_matter::dm::clusters::basic_info::BasicInfoConfig;
++use rs_matter::dm::clusters::binding::{self, BindingHandler, Bindings};
+ use rs_matter::dm::clusters::decl::globals::{ICECandidateStruct, WebRTCEndReasonEnum};
++use rs_matter::dm::clusters::decl::web_rtc_transport_requestor;
+ use rs_matter::dm::clusters::desc::{self, ClusterHandler as _};
+ use rs_matter::dm::clusters::groups::{self, ClusterHandler as _};
+ use rs_matter::attest::DeviceAttestation;
+@@ -242,51 +237,6 @@
+ 
+     async fn deallocate_video(&self, id: u16) -> Result<(), CamAvError> {
+         info!("cam-av: deallocate video #{}", id);
+-        Ok(())
+-    }
+-}
+-
+-/// Number of detection zones the demo can hold (manufacturer + user).
+-const ZONE_NZ: usize = 4;
+-/// Maximum vertices per zone polygon.
+-const ZONE_NV: usize = 8;
+-/// Maximum number of triggers (one per zone is plenty for the demo).
+-const ZONE_NT: usize = 4;
+-
+-/// Hooks for the Zone Management cluster. The demo has no real motion
+-/// detector — hooks just log so an operator can see the cluster being
+-/// driven by a controller.
+-struct DemoZoneHooks;
+-
+-impl ZoneMgmtHooks<ZONE_NV> for DemoZoneHooks {
+-    async fn zone_created(
+-        &self,
+-        zone: &rs_matter::dm::clusters::app::zone_mgmt::Zone<ZONE_NV>,
+-    ) -> Result<(), rs_matter::dm::clusters::app::zone_mgmt::ZoneError> {
+-        info!(
+-            "zone-mgmt: zone #{} created ({} vertices)",
+-            zone.zone_id,
+-            zone.vertices.len()
+-        );
+-        Ok(())
+-    }
+-
+-    async fn zone_removed(
+-        &self,
+-        id: u16,
+-    ) -> Result<(), rs_matter::dm::clusters::app::zone_mgmt::ZoneError> {
+-        info!("zone-mgmt: zone #{} removed", id);
+-        Ok(())
+-    }
+-
+-    async fn trigger_set(
+-        &self,
+-        t: &rs_matter::dm::clusters::app::zone_mgmt::Trigger,
+-    ) -> Result<(), rs_matter::dm::clusters::app::zone_mgmt::ZoneError> {
+-        info!(
+-            "zone-mgmt: trigger set zone=#{} initial={}s max={}s blind={}s",
+-            t.zone_id, t.initial_duration, t.max_duration, t.blind_duration
+-        );
+         Ok(())
+     }
+ }
+@@ -1512,31 +1462,7 @@
+ static WEBRTC: StaticCell<WebRtc> = StaticCell::new();
+ static CAM_AV: StaticCell<CameraAvStreamHandler<'static, Str0mCamHooks, CAM_AV_NV, 1>> =
+     StaticCell::new();
+-static ZONE_MGMT: StaticCell<ZoneMgmtHandler<DemoZoneHooks, ZONE_NZ, ZONE_NV, ZONE_NT>> =
+-    StaticCell::new();
+-/// DPTZ-only demo: 1 video stream, 1 viewport entry, 0 presets.
+-const CAM_AV_SETTINGS_NP: usize = 0;
+-const CAM_AV_SETTINGS_NS: usize = 2;
+-
+-/// Hooks for `CameraAVSettingsUserLevelManagement`. The str0m demo
+-/// has a fixed lens and a fixed encoded resolution, so all hooks just
+-/// log: the actual viewport translation would be the
+-/// application's responsibility (e.g. GPU crop) in a real product.
+-struct DemoCamAvSettingsHooks;
+-
+-impl CamAvSettingsHooks for DemoCamAvSettingsHooks {
+-    async fn dptz_apply(&self, view: &DptzView) -> Result<(), CamAvSettingsError> {
+-        info!(
+-            "cam-av-settings: dptz stream=#{} viewport=({},{})-({},{})",
+-            view.video_stream_id, view.x1, view.y1, view.x2, view.y2
+-        );
+-        Ok(())
+-    }
+-}
+-
+-static CAM_AV_SETTINGS: StaticCell<
+-    CamAvSettingsHandler<DemoCamAvSettingsHooks, CAM_AV_SETTINGS_NP, CAM_AV_SETTINGS_NS>,
+-> = StaticCell::new();
++const CAMERA_BINDING_CAPACITY: usize = 32;
+ static SHARED: StaticCell<Str0mShared> = StaticCell::new();
+ 
+ // ---------------------------------------------------------------------------
+@@ -1723,39 +1649,7 @@
+         1,
+         Str0mHooks { shared },
+     ));
+-    let cam_av_settings = CAM_AV_SETTINGS.init(CamAvSettingsHandler::new(
+-        Dataver::new_rand(&mut rand),
+-        1,
+-        CLUSTER_DPTZ_ONLY,
+-        CamAvSettingsConfig {
+-            pan_range: (0, 0),
+-            tilt_range: (0, 0),
+-            zoom_max: 1,
+-            default_position: Mptz {
+-                pan: None,
+-                tilt: None,
+-                zoom: None,
+-            },
+-            max_presets: 0,
+-        },
+-        DemoCamAvSettingsHooks,
+-    ));
+-
+-    let zone_mgmt = ZONE_MGMT.init(ZoneMgmtHandler::new(
+-        Dataver::new_rand(&mut rand),
+-        1,
+-        ZoneMgmtConfig {
+-            max_zones: ZONE_NZ as u8,
+-            max_user_defined_zones: ZONE_NZ as u8,
+-            sensitivity_max: 0,
+-            default_sensitivity: 0,
+-            two_d_cartesian_max: (1920, 1080),
+-        },
+-        rs_matter::dm::clusters::app::zone_mgmt::Feature::TWO_DIMENSIONAL_CARTESIAN_ZONE.bits()
+-            | rs_matter::dm::clusters::app::zone_mgmt::Feature::USER_DEFINED.bits(),
+-        DemoZoneHooks,
+-    ));
+-
++    let camera_bindings = Bindings::<CAMERA_BINDING_CAPACITY>::new();
+     let occupancy = Occupancy::new(Dataver::new_rand(&mut rand));
+     let sensor = Bridged::new(
+         Dataver::new_rand(&mut rand),
+@@ -1771,8 +1665,7 @@
+             rand,
+             webrtc,
+             cam_av,
+-            cam_av_settings,
+-            zone_mgmt,
++            &camera_bindings,
+             camera_id,
+             &sensor,
+             &occupancy,
+@@ -1891,18 +1784,18 @@
+ const NODE: Node<'static> = Node {
+     endpoints: &[
+         root_endpoint!(eth),
+-        Endpoint::new(
++        Endpoint::new_with_clients(
+             1,
+             devices!(DEV_TYPE_CAMERA, DEV_TYPE_BRIDGED_NODE),
+             clusters!(
+                 desc::DescHandler::CLUSTER,
+                 groups::GroupsHandler::CLUSTER,
+                 CameraAvStreamHandler::<Str0mCamHooks, CAM_AV_NV, 1>::CLUSTER_VIDEO_AUDIO_SNAPSHOT,
+-                rs_matter::dm::clusters::app::cam_av_settings::CLUSTER_DPTZ_ONLY,
+-                ZoneMgmtHandler::<DemoZoneHooks, ZONE_NZ, ZONE_NV, ZONE_NT>::CLUSTER,
++                binding::CLUSTER,
+                 WebRtc::CLUSTER,
+                 Bridged::CLUSTER
+             ),
++            &[web_rtc_transport_requestor::FULL_CLUSTER.id],
+         ),
+         Endpoint::new(
+             2,
+@@ -1927,12 +1820,7 @@
+     mut rand: impl Rng + Copy,
+     webrtc: &'a WebRtc,
+     cam_av: &'a CameraAvStreamHandler<'static, Str0mCamHooks, CAM_AV_NV, 1>,
+-    cam_av_settings: &'a CamAvSettingsHandler<
+-        DemoCamAvSettingsHooks,
+-        CAM_AV_SETTINGS_NP,
+-        CAM_AV_SETTINGS_NS,
+-    >,
+-    zone_mgmt: &'a ZoneMgmtHandler<DemoZoneHooks, ZONE_NZ, ZONE_NV, ZONE_NT>,
++    camera_bindings: &'a Bindings<CAMERA_BINDING_CAPACITY>,
+     camera_id: String,
+     sensor: &'a Bridged,
+     occupancy: &'a Occupancy,
+@@ -1985,19 +1873,10 @@
+                 rs_matter::dm::clusters::app::cam_av_stream::HandlerAsyncAdaptor(cam_av),
+             )
+             .chain(
+-                |e, c| {
+-                    e == 1
+-                        && c == rs_matter::dm::clusters::app::cam_av_settings::CLUSTER_DPTZ_ONLY.id
+-                },
+-                rs_matter::dm::clusters::app::cam_av_settings::HandlerAsyncAdaptor(cam_av_settings),
+-            )
+-            .chain(
+-                |e, c| {
+-                    e == 1
+-                        && c == ZoneMgmtHandler::<DemoZoneHooks, ZONE_NZ, ZONE_NV, ZONE_NT>::CLUSTER
+-                            .id
+-                },
+-                ZoneMgmtAdaptor(zone_mgmt),
++                |e, c| e == 1 && c == binding::CLUSTER.id,
++                DmAsync(
++                    BindingHandler::new(Dataver::new_rand(&mut rand), 1, camera_bindings).adapt(),
++                ),
+             )
+             .chain(
+                 |e, c| e == 1 && c == WebRtc::CLUSTER.id,
+--- a/rs-matter-dm/src/clusters/binding.rs
++++ b/rs-matter-dm/src/clusters/binding.rs
+@@ -64,7 +64,7 @@
+     LifecycleOp, ReadContext, WriteContext,
+ };
+ use crate::error::{Error, ErrorCode};
+-use crate::persist::{KvBlobStore, KvBlobStoreAccess, Persist};
++use crate::persist::{KvBlobStore, KvBlobStoreAccess, Persist, FABRIC_KEYS_START};
+ use crate::tlv::{FromTLV, TLVArray, TLVBuilderParent, ToTLV};
+ use crate::utils::cell::RefCell;
+ use crate::utils::init::{init, Init};
+@@ -150,13 +150,30 @@
+     ///
+     /// Called on startup via the [`LifecycleOp::Startup`] lifecycle operation
+     /// delivered to the [`BindingHandler`] instance(s) borrowing this registry.
+-    fn load_persist<S: KvBlobStoreAccess>(&self, kv: S) -> Result<(), Error> {
+-        let Some(loaded) = Persist::new(kv).load_tlv::<Vec<Binding, N>>(BINDINGS_KEY)? else {
++    fn load_persist<C: HandlerContext>(&self, ctx: &C) -> Result<(), Error> {
++        let kv = ctx.kv();
++        let Some(mut loaded) = Persist::new(&kv).load_tlv::<Vec<Binding, N>>(BINDINGS_KEY)? else {
+             self.state.lock(|cell| cell.borrow_mut().clear());
+             return Ok(());
+         };
+ 
++        // A fabric can be removed durably before the lifecycle hook clears its bindings.
++        // Repair that interrupted removal before opening the interaction transport.
++        let before = loaded.len();
++        kv.access(|store, buf| {
++            for index in (0..loaded.len()).rev() {
++                let key = FABRIC_KEYS_START + u16::from(loaded[index].fab_idx.get());
++                if store.load(key, buf)?.is_none() {
++                    loaded.remove(index);
++                }
++            }
++            Ok::<_, Error>(())
++        })?;
++        let repaired = loaded.len() != before;
+         self.state.lock(|cell| *cell.borrow_mut() = loaded);
++        if repaired {
++            self.store_persist(ctx)?;
++        }
+ 
+         info!("Loaded Binding entries for all endpoints from storage");
+         Ok(())
+@@ -266,11 +283,13 @@
+ 
+         self.state.lock(|cell| {
+             let mut state = cell.borrow_mut();
+-            // Drop every existing entry on this (endpoint, fabric)
+-            // in O(N) — one pass, in-place shift.
+-            state.retain(|e| !(e.local_endpoint == endpoint_id && e.fab_idx == fab_idx));
+-            // Now bulk-insert the validated list. Capacity-exhausted
+-            // here means the *combined* fabric counts exceeded `N`.
++            let belongs_to_writer =
++                |entry: &Binding| entry.local_endpoint == endpoint_id && entry.fab_idx == fab_idx;
++            let retained = state.iter().filter(|entry| !belongs_to_writer(entry)).count();
++            if retained + count > N {
++                return Err(ErrorCode::ResourceExhausted.into());
++            }
++            state.retain(|entry| !belongs_to_writer(entry));
+             for sb in parsed {
+                 state.push(sb).map_err(|_| ErrorCode::ResourceExhausted)?;
+             }
+@@ -444,7 +463,7 @@
+     fn lifecycle(&self, ctx: impl HandlerContext, op: LifecycleOp) -> Result<(), Error> {
+         match op {
+             LifecycleOp::AccessChanged => Ok(()),
+-            LifecycleOp::Startup => self.bindings.load_persist(ctx.kv()),
++            LifecycleOp::Startup => self.bindings.load_persist(&ctx),
+             LifecycleOp::FactoryReset => ctx
+                 .kv()
+                 .access(|store, buf| self.bindings.reset_persist(store, buf)),

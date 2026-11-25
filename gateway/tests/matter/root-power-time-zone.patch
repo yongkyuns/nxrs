@@ -1,0 +1,131 @@
+--- a/examples/src/bin/webrtc_camera.rs
++++ b/examples/src/bin/webrtc_camera.rs
+@@ -45,6 +45,8 @@
+ 
+ use rand::Rng;
+ 
++use nxrs_gateway_matter::config::HostPowerSource;
++
+ use rs_matter::crypto::{default_crypto, CanonEcPointRef, CanonEcScalarRef, Crypto};
+ use rs_matter::dm::clusters::app::cam_av_stream::{
+     AudioCapabilitiesConfig, AudioCodecEnum, AudioStreamParams, CamAvError, CameraAvStreamConfig,
+@@ -61,6 +63,10 @@
+ use rs_matter::dm::clusters::decl::web_rtc_transport_requestor;
+ use rs_matter::dm::clusters::desc::{self, ClusterHandler as _};
+ use rs_matter::dm::clusters::groups::{self, ClusterHandler as _};
++use rs_matter::dm::clusters::power_source::{
++    self, PowerSourceConfig, PowerSourceHandler, PowerSourceStatusEnum, WiredCurrentTypeEnum,
++};
++use rs_matter::dm::clusters::time_sync::{self, TimeSyncHandler, TimeZoneStore};
+ use rs_matter::attest::DeviceAttestation;
+ use rs_matter::dm::devices::DEV_TYPE_CAMERA;
+ use rs_matter::dm::endpoints;
+@@ -101,7 +107,8 @@
+     identify,
+ };
+ use rs_matter::dm::devices::{
+-    DEV_TYPE_AGGREGATOR, DEV_TYPE_BRIDGED_NODE, DEV_TYPE_OCCUPANCY_SENSOR,
++    DEV_TYPE_AGGREGATOR, DEV_TYPE_BRIDGED_NODE, DEV_TYPE_OCCUPANCY_SENSOR, DEV_TYPE_POWER_SOURCE,
++    DEV_TYPE_ROOT_NODE,
+ };
+ use rs_matter::dm::Async as DmAsync;
+ use rs_matter::respond::DefaultResponder;
+@@ -110,7 +117,7 @@
+ use rs_matter::transport::exchange::MatterBuffers;
+ use rs_matter::utils::futures::{select, select4, Coalesce};
+ use rs_matter::utils::init::InitMaybeUninit;
+-use rs_matter::{clusters, devices, root_endpoint, Matter, MATTER_PORT};
++use rs_matter::{clusters, devices, Matter, MATTER_PORT};
+ use topology::{Bridged, Occupancy};
+ 
+ use static_cell::StaticCell;
+@@ -1528,9 +1535,10 @@
+     let snapshot_path = deployment.snapshot_ffmpeg.as_deref().ok_or(ErrorCode::Invalid)?;
+     let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
+     let inputs = if maintenance.is_none() {
++        let power = deployment.host_power_source.ok_or(ErrorCode::Invalid)?;
+         let lan = Lan::select(deployment.ice_address, deployment.lan_interface.as_deref())?;
+         let inputs = runtime.block_on(deployment.inputs(initialize)).map_err(|_| ErrorCode::Invalid)?;
+-        Some((lan, inputs))
++        Some((lan, inputs, power))
+     } else {
+         None
+     };
+@@ -1560,7 +1568,18 @@
+         }
+         return Ok(());
+     }
+-    let (lan, (reader, video, feed)) = inputs.ok_or(ErrorCode::Invalid)?;
++    let (lan, (reader, video, feed), power) = inputs.ok_or(ErrorCode::Invalid)?;
++    let (wired_current_type, description) = match power {
++        HostPowerSource::Ac => (WiredCurrentTypeEnum::AC, "AC mains"),
++        HostPowerSource::Dc => (WiredCurrentTypeEnum::DC, "External DC"),
++    };
++    let host_power = PowerSourceConfig {
++        status: PowerSourceStatusEnum::Active,
++        order: 0,
++        description,
++        endpoint_list: &[0, 2],
++        wired_current_type,
++    };
+     let matter = MATTER.uninit().init_with(Matter::init(
+         BASIC_INFO.init(attestation.basic_info()), verifier.into(), attestation, MATTER_PORT,
+     ));
+@@ -1649,6 +1668,7 @@
+         1,
+         Str0mHooks { shared },
+     ));
++    let time_zones = TimeZoneStore::new();
+     let camera_bindings = Bindings::<CAMERA_BINDING_CAPACITY>::new();
+     let occupancy = Occupancy::new(Dataver::new_rand(&mut rand));
+     let sensor = Bridged::new(
+@@ -1666,6 +1686,8 @@
+             webrtc,
+             cam_av,
+             &camera_bindings,
++            &host_power,
++            &time_zones,
+             camera_id,
+             &sensor,
+             &occupancy,
+@@ -1783,7 +1805,11 @@
+ 
+ const NODE: Node<'static> = Node {
+     endpoints: &[
+-        root_endpoint!(eth),
++        Endpoint::new(
++            0,
++            devices!(DEV_TYPE_ROOT_NODE, DEV_TYPE_POWER_SOURCE),
++            clusters!(eth, time_sync(time_zone); power_source::CLUSTER),
++        ),
+         Endpoint::new_with_clients(
+             1,
+             devices!(DEV_TYPE_CAMERA, DEV_TYPE_BRIDGED_NODE),
+@@ -1821,6 +1847,8 @@
+     webrtc: &'a WebRtc,
+     cam_av: &'a CameraAvStreamHandler<'static, Str0mCamHooks, CAM_AV_NV, 1>,
+     camera_bindings: &'a Bindings<CAMERA_BINDING_CAPACITY>,
++    host_power: &'a PowerSourceConfig<'a>,
++    time_zones: &'a TimeZoneStore,
+     camera_id: String,
+     sensor: &'a Bridged,
+     occupancy: &'a Occupancy,
+@@ -1830,6 +1858,18 @@
+         endpoints::EthSysHandlerBuilder::new()
+             .netif_diag(&UnixNetifs)
+             .build(matter, rand)
++            .chain(
++                |e, c| e == 0 && c == power_source::CLUSTER.id,
++                DmAsync(PowerSourceHandler::new(Dataver::new_rand(&mut rand), host_power).adapt()),
++            )
++            .chain(
++                |e, c| e == 0 && c == time_sync::FULL_CLUSTER.id,
++                DmAsync(
++                    TimeSyncHandler::new_with_time_zone(
++                        Dataver::new_rand(&mut rand), matter, time_zones,
++                    ).adapt(),
++                ),
++            )
+             .chain(
+                 |e, c| e == 2 && c == desc::DescHandler::CLUSTER.id,
+                 DmAsync(desc::DescHandler::new_aggregator(Dataver::new_rand(&mut rand)).adapt()),

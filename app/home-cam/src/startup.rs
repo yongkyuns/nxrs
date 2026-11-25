@@ -3,7 +3,7 @@
 use crate::{LiveCamera, StreamOutput};
 use boot::{Control, State};
 use camera::Camera;
-use camera_service::Frames;
+use camera::capture::Frames;
 use watchdog::ArmedWatchdog;
 use wifi::QuiescenceControl;
 
@@ -81,7 +81,7 @@ fn health<D: Camera, const N: usize, B: AsRef<[u8]> + AsMut<[u8]>, O: StreamOutp
     max_age_ms: u64,
 ) -> Option<Health> {
     if max_age_ms == 0
-        || live.capture.state() != camera_service::CameraState::Running
+        || live.capture.state() != camera::capture::State::Running
         || live.server.stopped()
     {
         return None;
@@ -273,7 +273,7 @@ mod tests {
     }
     fn live(trace: Trace) -> LiveCamera<Source, 4, [u8; 4], Output> {
         LiveCamera {
-            capture: camera_service::CameraService::with_buffers(
+            capture: camera::capture::Session::with_buffers(
                 Source(trace.clone()),
                 [[0; 4]],
                 [0; 4],
@@ -354,20 +354,18 @@ mod tests {
                 )?))
             }
         }
-        let worker = detection_service::Worker::spawn(
+        let detection = detection_service::Session::start(
             detection_service::WorkerOptions {
                 frame_capacity: 4,
                 sample_interval_ms: 1,
                 stack_bytes: 65536,
             },
+            detection_service::Policy::default(),
             || Ok(Detector),
         )
         .unwrap();
         let mut live = live(trace(""));
-        live.attach_detection(
-            crate::SecurityDetection::new(worker, detection_service::Policy::default()).unwrap(),
-        )
-        .unwrap();
+        live.attach_detection(detection).unwrap();
         live.start(96, 96).unwrap();
         live.poll(100, true).unwrap();
         assert!(!healthy(&live, 110, 5000));

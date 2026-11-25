@@ -1,0 +1,508 @@
+diff --git a/examples/src/bin/webrtc_camera.rs b/examples/src/bin/webrtc_camera.rs
+--- a/examples/src/bin/webrtc_camera.rs
++++ b/examples/src/bin/webrtc_camera.rs
+@@ -69,7 +69,7 @@
+
+ #![recursion_limit = "256"]
+
+-use core::cell::RefCell;
++use core::cell::{Cell, RefCell};
+ use core::pin::pin;
+
+ use nxrs_gateway_matter::media::{AccessUnit, Audio, AudioPacket, Pictures, Reader, Video};
+@@ -96,7 +96,7 @@
+     RateDistortionPoint, StreamUsageEnum, VideoCodecEnum, VideoSensorParams, VideoStream,
+ };
+ use rs_matter::dm::clusters::app::webrtc_prov::{
+-    AnswerOutcome, HandlerAsyncAdaptor as WebRtcAdaptor, IceCandidateSink, OfferParams,
++    AnswerOutcome, HandlerAsyncAdaptor as WebRtcAdaptor, IceCandidateSink, OfferAccess, OfferParams,
+     OutboundWork, SolicitOutcome, WebRtcError, WebRtcHooks, WebRtcProvHandler,
+ };
+ use rs_matter::dm::clusters::app::zone_mgmt::{
+@@ -338,6 +338,8 @@
+
+ /// Hook-side handle to a live session.
+ struct SessionCtrl {
++    access: OfferAccess,
++    revoked: Rc<Cell<bool>>,
+     ice_mline_index: u16,
+     remote_cand_tx: Sender<Candidate>,
+     shutdown_tx: Sender<()>,
+@@ -357,6 +359,7 @@
+ // The pending offer or the running peer owns these references until its media
+ // resources retire. Failed negotiation unwinds through the same Drop.
+ struct StreamRefs {
++    revoked: Rc<Cell<bool>>,
+     view: LiveView,
+     camera: &'static CamAv,
+     video: u16,
+@@ -406,7 +409,12 @@
+         }
+     }
+
+-    fn streams(&self, params: &OfferParams) -> Result<(StreamRefs, Option<Audio>), WebRtcError> {
++    fn streams(&self, session_id: u16, params: &OfferParams) -> Result<(StreamRefs, Option<Audio>), WebRtcError> {
++        // This example negotiates a fresh peer per offer. Keep the previous worker
++        // and its access guard in the table until its session has ended.
++        if self.inner.borrow().sessions.get(&session_id).is_some() {
++            return Err(WebRtcError::InvalidInState);
++        }
+         if params.stream_usage != StreamUsageEnum::LiveView {
+             return Err(WebRtcError::DynamicConstraint);
+         }
+@@ -422,6 +430,7 @@
+             .acquire_video(video)
+             .map_err(|_| WebRtcError::DynamicConstraint)?;
+         let mut refs = StreamRefs {
++            revoked: Rc::new(Cell::new(false)),
+             view,
+             camera: self.camera,
+             video,
+@@ -580,6 +589,10 @@
+     });
+     let mut connected = false;
+     'outer: loop {
++        if refs.revoked.get() {
++            end_reason = WebRTCEndReasonEnum::NoUserMedia;
++            break;
++        }
+         if refs.view.retired() {
+             end_reason = WebRTCEndReasonEnum::PrivacyMode;
+             break;
+@@ -654,6 +667,10 @@
+                     },
+                     media_event,
+                 ).await;
++                if refs.revoked.get() {
++                    end_reason = WebRTCEndReasonEnum::NoUserMedia;
++                    break;
++                }
+                 if refs.view.retired() {
+                     end_reason = WebRTCEndReasonEnum::PrivacyMode;
+                     break;
+@@ -1115,12 +1132,32 @@
+ }
+
+ impl WebRtcHooks for Str0mHooks {
++    fn recheck_access(&self, allowed: impl Fn(&OfferAccess) -> bool) {
++        for (id, ctrl) in &self.shared.inner.borrow().sessions.entries {
++            if allowed(&ctrl.access) || ctrl.revoked.replace(true) {
++                continue;
++            }
++            if ctrl.pending_offer.borrow_mut().take().is_some() {
++                // No worker owns this deferred offer. Its references are already released.
++                let _ = self.shared.outbound_tx.try_send(OutboundWork::End {
++                    session_id: *id,
++                    reason: WebRTCEndReasonEnum::NoUserMedia,
++                });
++            } else {
++                // Wake the worker even when the camera is idle. The sticky flag
++                // also covers a queued handoff or an immediate ACL re-grant.
++                let _ = ctrl.shutdown_tx.try_send(());
++            }
++        }
++    }
++
+     async fn on_solicit_offer(
+         &self,
+         session_id: u16,
+         params: &OfferParams,
+     ) -> Result<SolicitOutcome, WebRtcError> {
+-        let (refs, sound) = self.shared.streams(params)?;
++        let (refs, sound) = self.shared.streams(session_id, params)?;
++        let revoked = refs.revoked.clone();
+         let (mut rtc, socket, _, local_addr, local_cand_sdp) = new_peer(sound.is_some())?;
+         let mut changes = rtc.sdp_api();
+         let mid = changes.add_media(MediaKind::Video, Direction::SendOnly, None, None, None);
+@@ -1147,6 +1184,8 @@
+         self.shared.inner.borrow_mut().sessions.insert(
+             session_id,
+             SessionCtrl {
++                access: params.access,
++                revoked,
+                 ice_mline_index: 0,
+                 remote_cand_tx,
+                 shutdown_tx,
+@@ -1189,7 +1228,8 @@
+             WebRtcError::DynamicConstraint
+         })?;
+
+-        let (refs, sound) = self.shared.streams(params)?;
++        let (refs, sound) = self.shared.streams(session_id, params)?;
++        let revoked = refs.revoked.clone();
+         let (mut rtc, socket, local_addr, host_addr, local_cand_sdp) = new_peer(sound.is_some())?;
+         let (answer, ice_mline_index) = accept_offer(&mut rtc, offer, sound.is_some())?;
+         let answer_sdp = answer.to_sdp_string();
+@@ -1204,6 +1244,8 @@
+             inner.sessions.insert(
+                 session_id,
+                 SessionCtrl {
++                    access: params.access,
++                    revoked,
+                     ice_mline_index,
+                     remote_cand_tx,
+                     shutdown_tx,
+diff --git a/rs-matter-node-core/src/acl.rs b/rs-matter-node-core/src/acl.rs
+--- a/rs-matter-node-core/src/acl.rs
++++ b/rs-matter-node-core/src/acl.rs
+@@ -148,7 +148,7 @@
+
+ /// An enum modeling the different authentication modes
+ // TODO: Check if this and the SessionMode can be combined into some generic data structure
+-#[derive(FromPrimitive, Copy, Clone, PartialEq, Debug)]
++#[derive(FromPrimitive, Copy, Clone, PartialEq, Eq, Hash, Debug)]
+ #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+ #[repr(u8)]
+ ///
+@@ -255,6 +255,7 @@
+ }
+
+ /// The Subjects that identify the Accessor
++#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+ pub struct AccessorSubjects([u64; MAX_ACCESSOR_SUBJECTS]);
+
+ impl AccessorSubjects {
+@@ -336,6 +337,8 @@
+ ///
+ /// `Accessor`, in `rs-matter-node`, puts this together with the fabric
+ /// table that the requests are checked against.
++#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
++#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+ pub struct SubjectDescriptor {
+     /// The fabric index of the accessor
+     pub fab_idx: u8,
+diff --git a/rs-matter-dm-core/src/handler.rs b/rs-matter-dm-core/src/handler.rs
+--- a/rs-matter-dm-core/src/handler.rs
++++ b/rs-matter-dm-core/src/handler.rs
+@@ -553,6 +553,8 @@
+     /// persisted storage ([`HandlerContext::kv`]) - the mirror image of the
+     /// on-the-fly persistence the handler does while serving operations.
+     Startup,
++    /// Recheck continuing operations against the current access control list.
++    AccessChanged,
+     /// The node is being factory-reset.
+     ///
+     /// The typical reaction is to reset the handler's in-memory state to factory
+diff --git a/rs-matter-dm/src/clusters/acl.rs b/rs-matter-dm/src/clusters/acl.rs
+--- a/rs-matter-dm/src/clusters/acl.rs
++++ b/rs-matter-dm/src/clusters/acl.rs
+@@ -24,8 +24,8 @@
+ };
+ use crate::dm::endpoints::ROOT_ENDPOINT_ID;
+ use crate::dm::{
+-    ArrayAttributeRead, ArrayAttributeWrite, AttrDetails, Cluster, Dataver, HandlerContext,
+-    InvokeContext, NodeId, Privilege, ReadContext, WriteContext,
++    ArrayAttributeRead, ArrayAttributeWrite, AsyncHandler, AttrDetails, Cluster, Dataver, HandlerContext,
++    InvokeContext, LifecycleOp, NodeId, Privilege, ReadContext, WriteContext,
+ };
+ use crate::error::{Error, ErrorCode};
+ use crate::fabric::{Fabric, FabricPersist, Fabrics};
+@@ -341,7 +341,7 @@
+         // matter state lock so that we can compare the *old* and *new* ACL
+         // contents and produce one event per entry change. `Events::push` (used
+         // by the emit path) takes its own independent lock, so this is safe.
+-        ctx.transaction_id().with_state(self.matter, |state| {
++        let changed = ctx.transaction_id().with_state(self.matter, |state| {
+             let fabric = state.fabrics.fabric_mut(fab_idx)?;
+
+             match value {
+@@ -443,9 +443,13 @@
+             }
+
+             Ok(())
+-        })?;
+-
+-        persist.run()
++        });
++        // The in-memory policy takes effect before persistence. Never call a
++        // lifecycle handler with the fabric table locked, including error paths.
++        let notified = ctx.handler().lifecycle(&ctx, LifecycleOp::AccessChanged);
++        changed?;
++        persist.run()?;
++        notified
+     }
+
+     fn handle_review_fabric_restrictions<P: TLVBuilderParent>(
+diff --git a/rs-matter-dm/src/clusters/app/color_control.rs b/rs-matter-dm/src/clusters/app/color_control.rs
+--- a/rs-matter-dm/src/clusters/app/color_control.rs
++++ b/rs-matter-dm/src/clusters/app/color_control.rs
+@@ -3062,6 +3062,7 @@
+
+     fn lifecycle(&self, ctx: impl HandlerContext, op: LifecycleOp) -> Result<(), Error> {
+         match op {
++            LifecycleOp::AccessChanged => Ok(()),
+             LifecycleOp::Startup => {
+                 let restored = self.load_persisted(ctx.kv())?;
+                 self.startup(&ctx, restored);
+diff --git a/rs-matter-dm/src/clusters/app/fan_control.rs b/rs-matter-dm/src/clusters/app/fan_control.rs
+--- a/rs-matter-dm/src/clusters/app/fan_control.rs
++++ b/rs-matter-dm/src/clusters/app/fan_control.rs
+@@ -1425,6 +1425,7 @@
+
+     fn lifecycle(&self, ctx: impl HandlerContext, op: LifecycleOp) -> Result<(), Error> {
+         match op {
++            LifecycleOp::AccessChanged => Ok(()),
+             LifecycleOp::Startup => {
+                 self.validate();
+                 self.load_persisted(ctx.kv())?;
+diff --git a/rs-matter-dm/src/clusters/app/level_control.rs b/rs-matter-dm/src/clusters/app/level_control.rs
+--- a/rs-matter-dm/src/clusters/app/level_control.rs
++++ b/rs-matter-dm/src/clusters/app/level_control.rs
+@@ -1400,6 +1400,7 @@
+ impl<H: LevelControlHooks, OH: OnOffHooks> ClusterHandler for LevelControlHandler<'_, H, OH> {
+     fn lifecycle(&self, ctx: impl HandlerContext, op: LifecycleOp) -> Result<(), Error> {
+         match op {
++            LifecycleOp::AccessChanged => Ok(()),
+             LifecycleOp::Startup => {
+                 self.load_persisted(ctx.kv())?;
+                 self.startup();
+diff --git a/rs-matter-dm/src/clusters/app/on_off.rs b/rs-matter-dm/src/clusters/app/on_off.rs
+--- a/rs-matter-dm/src/clusters/app/on_off.rs
++++ b/rs-matter-dm/src/clusters/app/on_off.rs
+@@ -953,6 +953,7 @@
+
+     fn lifecycle(&self, ctx: impl HandlerContext, op: LifecycleOp) -> Result<(), Error> {
+         match op {
++            LifecycleOp::AccessChanged => Ok(()),
+             LifecycleOp::Startup => self.startup(&ctx),
+             LifecycleOp::FactoryReset => self.factory_reset(&ctx),
+             LifecycleOp::FabricRemoval { .. }
+diff --git a/rs-matter-dm/src/clusters/app/thermostat.rs b/rs-matter-dm/src/clusters/app/thermostat.rs
+--- a/rs-matter-dm/src/clusters/app/thermostat.rs
++++ b/rs-matter-dm/src/clusters/app/thermostat.rs
+@@ -1869,6 +1869,7 @@
+
+     fn lifecycle(&self, ctx: impl HandlerContext, op: LifecycleOp) -> Result<(), Error> {
+         match op {
++            LifecycleOp::AccessChanged => Ok(()),
+             LifecycleOp::Startup => {
+                 self.validate();
+                 self.load_persisted(ctx.kv())?;
+diff --git a/rs-matter-dm/src/clusters/app/webrtc_prov.rs b/rs-matter-dm/src/clusters/app/webrtc_prov.rs
+--- a/rs-matter-dm/src/clusters/app/webrtc_prov.rs
++++ b/rs-matter-dm/src/clusters/app/webrtc_prov.rs
+@@ -77,13 +77,14 @@
+ use core::future::Future;
+ use core::pin::pin;
+
++use crate::acl::{AccessReq, Accessor, AuthMode, SubjectDescriptor};
+ use crate::dm::clusters::decl::globals::{
+     ICECandidateStruct, StreamUsageEnum, WebRTCEndReasonEnum, WebRTCSessionStructArrayBuilder,
+     WebRTCSessionStructBuilder,
+ };
+ use crate::dm::{
+-    ArrayAttributeRead, Cluster, Dataver, EndptId, HandlerContext, InvokeContext, LifecycleOp,
+-    ReadContext,
++    Access, ArrayAttributeRead, Cluster, Dataver, EndptId, HandlerContext, InvokeContext, LifecycleOp,
++    Metadata, ReadContext,
+ };
+ use crate::error::{Error, ErrorCode};
+ use crate::sc::ExchangeInitiator as _;
+@@ -134,6 +135,36 @@
+     }
+ }
+
++/// Authenticated subject and command that admitted an ongoing media session.
++#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
++#[cfg_attr(feature = "defmt", derive(defmt::Format))]
++pub struct OfferAccess {
++    subject: SubjectDescriptor,
++    command: u32,
++}
++
++impl OfferAccess {
++    fn for_command(ctx: &impl InvokeContext, matter: &Matter<'_>) -> Result<Self, Error> {
++        let accessor = Accessor::for_operation(ctx, matter)?;
++        if accessor.auth_mode() != Some(AuthMode::Case) {
++            return Err(ErrorCode::UnsupportedAccess.into());
++        }
++        Ok(Self { subject: *accessor, command: ctx.cmd().cmd_id })
++    }
++
++    fn allowed(&self, ctx: &impl HandlerContext, matter: &Matter<'_>, endpoint_id: EndptId) -> bool {
++        ctx.metadata().access(|node| {
++            let Some(endpoint) = node.endpoint(endpoint_id) else { return false };
++            let Some(cluster) = endpoint.cluster(decl::FULL_CLUSTER.id) else { return false };
++            let Some(command) = cluster.command(self.command) else { return false };
++            let path = crate::im::GenericPath::new(Some(endpoint.id), Some(cluster.id), Some(command.id));
++            let mut request = AccessReq::new(&self.subject, path, Access::WRITE, endpoint.device_types);
++            request.set_target_perms(command.access);
++            matter.with_state(|state| request.allow(state.fabrics))
++        })
++    }
++}
++
+ /// Owned parameters of a `SolicitOffer` / `ProvideOffer` request.
+ ///
+ /// Owned (not TLV-borrowed) so it can cross `.await` points when passed
+@@ -141,6 +172,8 @@
+ #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+ #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+ pub struct OfferParams {
++    /// Authority used for ongoing access checks.
++    pub access: OfferAccess,
+     /// The stream usage requested by the peer.
+     pub stream_usage: StreamUsageEnum,
+     /// Originating endpoint of the controller hosting the
+@@ -280,6 +313,9 @@
+ /// All methods are `async` and invoked inline from the handler's command
+ /// dispatch. Implementations MUST NOT perform blocking I/O.
+ pub trait WebRtcHooks: MaybeSendSync {
++    /// Synchronously retire media whose original offer permission was withdrawn.
++    fn recheck_access(&self, allowed: impl Fn(&OfferAccess) -> bool);
++
+     /// Handle an inbound `SolicitOffer` command. The session ID has been
+     /// allocated; the hook decides whether to respond with `deferred = false`
+     /// (in which case it MUST shortly enqueue an [`OutboundWork::Offer`] so
+@@ -412,6 +448,10 @@
+ where
+     T: WebRtcHooks,
+ {
++    fn recheck_access(&self, allowed: impl Fn(&OfferAccess) -> bool) {
++        (*self).recheck_access(allowed)
++    }
++
+     fn on_solicit_offer(
+         &self,
+         session_id: u16,
+@@ -898,6 +938,12 @@
+     }
+
+     fn lifecycle(&self, ctx: impl HandlerContext, op: LifecycleOp) -> Result<(), Error> {
++        if matches!(
++            op,
++            LifecycleOp::AccessChanged | LifecycleOp::FailSafeExpiry | LifecycleOp::FabricRemoval { .. }
++        ) {
++            self.hooks.recheck_access(|access| access.allowed(&ctx, self.matter, self.endpoint_id));
++        }
+         if let LifecycleOp::FabricRemoval { fab_idx } = op {
+             if self.remove_fabric_sessions(fab_idx.get()) {
+                 ctx.notify_attr_changed(
+@@ -996,6 +1042,7 @@
+             return Err(ErrorCode::InvalidCommand.into());
+         }
+         let params = OfferParams {
++            access: OfferAccess::for_command(&ctx, self.matter)?,
+             stream_usage: request.stream_usage()?,
+             originating_endpoint_id: request.originating_endpoint_id()?,
+             video_stream_id: requested_stream(
+@@ -1064,6 +1111,7 @@
+             return Err(ErrorCode::InvalidCommand.into());
+         }
+         let params = OfferParams {
++            access: OfferAccess::for_command(&ctx, self.matter)?,
+             stream_usage: request.stream_usage()?,
+             originating_endpoint_id: request.originating_endpoint_id()?,
+             video_stream_id: requested_stream(
+diff --git a/rs-matter-dm/src/clusters/binding.rs b/rs-matter-dm/src/clusters/binding.rs
+--- a/rs-matter-dm/src/clusters/binding.rs
++++ b/rs-matter-dm/src/clusters/binding.rs
+@@ -443,6 +443,7 @@
+
+     fn lifecycle(&self, ctx: impl HandlerContext, op: LifecycleOp) -> Result<(), Error> {
+         match op {
++            LifecycleOp::AccessChanged => Ok(()),
+             LifecycleOp::Startup => self.bindings.load_persist(ctx.kv()),
+             LifecycleOp::FactoryReset => ctx
+                 .kv()
+diff --git a/rs-matter-dm/src/clusters/icd_mgmt/lit.rs b/rs-matter-dm/src/clusters/icd_mgmt/lit.rs
+--- a/rs-matter-dm/src/clusters/icd_mgmt/lit.rs
++++ b/rs-matter-dm/src/clusters/icd_mgmt/lit.rs
+@@ -912,6 +912,7 @@
+
+     fn lifecycle(&self, ctx: impl HandlerContext, op: LifecycleOp) -> Result<(), Error> {
+         match op {
++            LifecycleOp::AccessChanged => Ok(()),
+             LifecycleOp::Startup => {
+                 self.lit.load_persist(ctx.crypto(), ctx.kv())?;
+
+diff --git a/rs-matter-dm/src/clusters/mode.rs b/rs-matter-dm/src/clusters/mode.rs
+--- a/rs-matter-dm/src/clusters/mode.rs
++++ b/rs-matter-dm/src/clusters/mode.rs
+@@ -766,6 +766,7 @@
+         op: LifecycleOp,
+     ) -> Result<(), Error> {
+         match op {
++            LifecycleOp::AccessChanged => Ok(()),
+             LifecycleOp::Startup => {
+                 self.validate();
+                 self.load_persisted(ctx.kv())?;
+diff --git a/rs-matter-dm/src/clusters/mode_select.rs b/rs-matter-dm/src/clusters/mode_select.rs
+--- a/rs-matter-dm/src/clusters/mode_select.rs
++++ b/rs-matter-dm/src/clusters/mode_select.rs
+@@ -698,6 +698,7 @@
+
+     fn lifecycle(&self, ctx: impl HandlerContext, op: LifecycleOp) -> Result<(), Error> {
+         match op {
++            LifecycleOp::AccessChanged => Ok(()),
+             LifecycleOp::Startup => {
+                 self.validate();
+                 self.load_persisted(ctx.kv())?;
+diff --git a/rs-matter-dm/src/clusters/net_comm.rs b/rs-matter-dm/src/clusters/net_comm.rs
+--- a/rs-matter-dm/src/clusters/net_comm.rs
++++ b/rs-matter-dm/src/clusters/net_comm.rs
+@@ -855,6 +855,7 @@
+
+     fn lifecycle(&self, ctx: impl HandlerContext, op: LifecycleOp) -> Result<(), Error> {
+         match op {
++            LifecycleOp::AccessChanged => Ok(()),
+             LifecycleOp::Startup => {
+                 self.networks
+                     .access(|networks| load_networks(networks, self.networks_key, ctx.kv()))?;
+diff --git a/rs-matter-dm/src/clusters/ota_req.rs b/rs-matter-dm/src/clusters/ota_req.rs
+--- a/rs-matter-dm/src/clusters/ota_req.rs
++++ b/rs-matter-dm/src/clusters/ota_req.rs
+@@ -896,6 +896,7 @@
+
+     fn lifecycle(&self, ctx: impl HandlerContext, op: LifecycleOp) -> Result<(), Error> {
+         match op {
++            LifecycleOp::AccessChanged => Ok(()),
+             LifecycleOp::Startup => {
+                 self.providers.load_persist(ctx.kv())?;
+
+diff --git a/rs-matter-dm/src/clusters/scenes.rs b/rs-matter-dm/src/clusters/scenes.rs
+--- a/rs-matter-dm/src/clusters/scenes.rs
++++ b/rs-matter-dm/src/clusters/scenes.rs
+@@ -1654,6 +1654,7 @@
+
+     fn lifecycle(&self, ctx: impl HandlerContext, op: LifecycleOp) -> Result<(), Error> {
+         match op {
++            LifecycleOp::AccessChanged => Ok(()),
+             LifecycleOp::Startup => self.state.load_persist(ctx.kv()),
+             LifecycleOp::FactoryReset => ctx
+                 .kv()
+diff --git a/rs-matter-dm/src/clusters/time_sync.rs b/rs-matter-dm/src/clusters/time_sync.rs
+--- a/rs-matter-dm/src/clusters/time_sync.rs
++++ b/rs-matter-dm/src/clusters/time_sync.rs
+@@ -1164,6 +1164,7 @@
+         };
+
+         match op {
++            LifecycleOp::AccessChanged => Ok(()),
+             LifecycleOp::Startup => store.load_persist(ctx.kv()),
+             LifecycleOp::FactoryReset => ctx.kv().access(|kv, buf| store.reset_persist(kv, buf)),
+             LifecycleOp::FabricRemoval { .. }
+diff --git a/rs-matter-dm/src/clusters/user_label.rs b/rs-matter-dm/src/clusters/user_label.rs
+--- a/rs-matter-dm/src/clusters/user_label.rs
++++ b/rs-matter-dm/src/clusters/user_label.rs
+@@ -404,6 +404,7 @@
+
+     fn lifecycle(&self, ctx: impl HandlerContext, op: LifecycleOp) -> Result<(), Error> {
+         match op {
++            LifecycleOp::AccessChanged => Ok(()),
+             LifecycleOp::Startup => self.labels.load_persist(ctx.kv()),
+             LifecycleOp::FactoryReset => ctx
+                 .kv()
+diff --git a/tests/src/bin/camera_tests.rs b/tests/src/bin/camera_tests.rs
+--- a/tests/src/bin/camera_tests.rs
++++ b/tests/src/bin/camera_tests.rs
+@@ -183,6 +183,9 @@
+ }
+
+ impl WebRtcHooks for StubWebRtcHooks {
++    // This stub creates no media resources.
++    fn recheck_access(&self, _: impl Fn(&rs_matter::dm::clusters::app::webrtc_prov::OfferAccess) -> bool) {}
++
+     async fn on_solicit_offer(
+         &self,
+         _session_id: u16,

@@ -119,6 +119,11 @@ def run(site: Path, prefix: str, output: Path) -> dict:
             assert page.locator('#experimental-iot-camera').count() == 1
             assert page.locator('#navigation-and-service-composition').count() == 1
             report['checks'].append('primary navigation, grouped sidebar, breadcrumbs, pagination and existing example anchors')
+            page.get_by_role('link', name='Simulated Matter light', exact=True).click()
+            expect(page).to_have_url(url + 'reference/matter/led-example/')
+            expect(page.locator('h1')).to_have_text('Switch an Nxrs LED from Home Assistant')
+            expect(page.locator('#adapt-it-to-your-own-project')).to_be_visible()
+            report['checks'].append('examples lead directly to the standalone Matter light tutorial')
 
             main_nav.get_by_role('link', name='Getting started', exact=True).click()
             expect(page).to_have_url(url + 'guide/getting-started/')
@@ -143,7 +148,8 @@ def run(site: Path, prefix: str, output: Path) -> dict:
             report['checks'].append('neutral onboarding, new subsystem guides, code controls and source-backed example')
             report['checks'].append('guide pagination crosses section boundaries')
 
-            page.locator('#sidebar').get_by_role('link', name='Build a controller', exact=True).click()
+            page.locator('#sidebar').get_by_role('link', name='Services and concurrency', exact=True).click()
+            page.locator('.page-navigation a[rel="next"]').click()
             expect(page).to_have_url(url + 'guide/controller/')
             expect(page.locator('h1')).to_have_text('Build a controller')
             controller_figure = page.locator('.architecture-art').first
@@ -168,11 +174,27 @@ def run(site: Path, prefix: str, output: Path) -> dict:
             page.locator('#theme-toggle').click()
             report['checks'].append('engineering reference links back to guide; SVG picture follows explicit theme')
 
+            for reference in ('rtos-comparison', 'std-channel-performance'):
+                page.goto(url + f'reference/{reference}/', wait_until='networkidle')
+                figure = page.locator('.prose figure').last
+                picture = figure.locator('img')
+                figure.scroll_into_view_if_needed()
+                for theme in ('light', 'dark'):
+                    expect(page.locator('html')).to_have_attribute('data-theme', theme)
+                    picture.evaluate('(img) => img.decode()')
+                    expect(picture).to_be_visible()
+                    assert picture.evaluate('(img) => img.complete && img.naturalWidth > 0')
+                    assert picture.evaluate('(img) => img.currentSrc.endsWith("-dark.svg")') == (theme == 'dark')
+                    figure.screenshot(path=str(output / f'{reference}-{theme}.png'))
+                    page.locator('#theme-toggle').click()
+            report['checks'].append('comparison chart and latency diagram load and follow both themes')
+
             main_nav.get_by_role('link', name='Reference', exact=True).click()
             expect(page.locator('.reference-category h2').first).to_have_text('Framework and build system')
             expected = sorted(item['url'] for item in search if item['section'] == 'Reference')
             actual = sorted(page.locator('.reference-list a').evaluate_all('(links) => links.map(a => a.getAttribute("href"))'))
             assert actual == expected, (actual, expected)
+            page.screenshot(path=str(output / 'reference-index.png'), full_page=True)
             report['checks'].append('categorized reference index retains every source exactly once')
 
             main_nav.get_by_role('link', name='Rust API', exact=True).click()
@@ -204,12 +226,13 @@ def run(site: Path, prefix: str, output: Path) -> dict:
             expect(page.locator('h1')).to_have_text('Rust API reference')
             report['checks'].append('API catalog, public trait and method, source link, return navigation and native themes')
 
-            # These modules are explicitly included by the API build configuration.
-            for route in ('camera/replay/', 'storage/recording/', 'transport/udp/'):
+            # Check public routes for acquisition, shared I/O and protocol modules.
+            for route in ('camera/capture/', 'camera/replay/', 'storage/recording/',
+                          'detection_service/wire/', 'stream_service/wire/'):
                 page.goto(url + 'api/' + route + 'index.html', wait_until='networkidle')
                 expect(page.locator('h1')).to_contain_text(route.rstrip('/').split('/')[-1])
                 expect(api_nav.get_by_role('link', name='NXRS API reference', exact=True)).to_be_visible()
-            report['checks'].append('documented replay, recording and UDP feature modules are readable')
+            report['checks'].append('documented capture, replay, recording and protocol modules are readable')
 
             page.goto(url + 'api/peripheral/imu/trait.Imu.html', wait_until='networkidle')
             for crate in ('nxrs_bmi270', 'nxrs_lsm6dso'):
@@ -233,13 +256,25 @@ def run(site: Path, prefix: str, output: Path) -> dict:
 
             page.set_viewport_size({'width': 390, 'height': 844})
             routes = ['', 'reference/', 'api/'] + [item['url'][len(prefix):] for item in guides]
+            routes += [f'reference/{name}/' for name in ('rtos-comparison', 'std-channel-performance', 'rust-std-footprint', 'nuttx-std', 'camera-pico-performance', 'camera-detector-alternatives')]
             for route in routes:
                 page.goto(url + route, wait_until='networkidle')
                 width = page.evaluate('({viewport: innerWidth, document: document.documentElement.scrollWidth})')
                 assert width['document'] <= width['viewport'] + 1, (route, width)
-                assert page.locator('iframe').count() == 0
+                if route == 'guide/motion-tracker/':
+                    frame = page.locator('.tracker-demo iframe')
+                    assert page.locator('iframe').count() == 1
+                    assert frame.get_attribute('src') is None
+                    assert frame.get_attribute('data-src') == prefix + 'demos/motion-tracker/'
+                else:
+                    assert page.locator('iframe').count() == 0
                 for label in ('Getting started', 'User guide', 'Examples', 'Reference', 'Rust API', 'GitHub ↗'):
                     expect(main_nav.get_by_role('link', name=label, exact=True)).to_be_visible()
+                if route == 'reference/rtos-comparison/':
+                    mobile_figure = page.locator('.prose figure')
+                    mobile_figure.scroll_into_view_if_needed()
+                    mobile_figure.locator('img').evaluate('(img) => img.decode()')
+                    mobile_figure.screenshot(path=str(output / 'rtos-comparison-mobile.png'))
             page.goto(url + 'guide/getting-started/', wait_until='networkidle')
             expect(page.locator('.mobile-toc')).to_be_visible()
             page.locator('.mobile-toc summary').click()

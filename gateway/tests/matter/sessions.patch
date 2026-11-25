@@ -1,0 +1,718 @@
+diff --git a/examples/src/bin/webrtc_camera.rs b/examples/src/bin/webrtc_camera.rs
+--- a/examples/src/bin/webrtc_camera.rs
++++ b/examples/src/bin/webrtc_camera.rs
+@@ -18,53 +18,12 @@
+ //! An example Matter Camera device that bridges a real `str0m` WebRTC peer
+ //! into the Matter `WebRTCTransportProvider` (0x0553) cluster.
+ //!
+-//! # Scope
++//! Each admitted offer reserves one peer slot until its socket, media
++//! subscriptions and camera stream references have been released. A single
++//! driver polls and joins the peer futures. Matter signaling uses a bounded
++//! mailbox per session, with retirement taking precedence over negotiation.
+ //!
+-//! * Matter cluster fully wired (commissioning, command dispatch, outbound
+-//!   trickle + End push through `WebRTCTransportRequestor`).
+-//! * A real `str0m::Rtc` is created per controller-initiated session, seeded
+-//!   with a local host candidate, and produces a proper SDP Answer.
+-//! * Per-session ICE/DTLS pump is driven from a **single-threaded async**
+-//!   executor (`async_executor::LocalExecutor`) joined into the main
+-//!   `select` alongside Matter's transport, mDNS, responder and DM jobs.
+-//!
+-//! # Architecture (all on one thread)
+-//!
+-//! ```text
+-//!   ┌────────────────────────── run() / block_on ────────────────────────────┐
+-//!   │                                                                        │
+-//!   │   matter.run  ──┐                                                      │
+-//!   │   mdns        ──┤                                                      │
+-//!   │   responder   ──┼── select5 ──► futures_lite::future::block_on         │
+-//!   │   im.run      ──┤                                                      │
+-//!   │   drive       ──┘                                                      │
+-//!   │     │                                                                  │
+-//!   │     ▼     LocalExecutor                                                │
+-//!   │   new_session_rx ─► spawn(session_loop)  ─► poll_output /              │
+-//!   │                                             handle_input via           │
+-//!   │                                             async_io::Async<UdpSocket> │
+-//!   └────────────────────────────────────────────────────────────────────────┘
+-//! ```
+-//!
+-//! `Str0mHooks` methods (`on_offer`, `on_ice_candidates`, `on_end_session`,
+-//! …) run inline on the Matter command-dispatch task; they only mutate a
+-//! shared `RefCell<Str0mInner>` and post messages on `async_channel` queues
+-//! — never hold a borrow across an `.await`.
+-//!
+-//! ```sh
+-//! # Produce a suitable loop file from any MP4:
+-//! ffmpeg -i loop.mp4 \
+-//!   -c:v libx264 -preset veryfast -tune zerolatency \
+-//!   -profile:v baseline -level 3.1 \
+-//!   -pix_fmt yuv420p \
+-//!   -b:v 1500k -maxrate 1500k -bufsize 3000k \
+-//!   -g 60 -keyint_min 60 -sc_threshold 0 \
+-//!   -bsf:v h264_mp4toannexb \
+-//!   -an -f h264 loop_ok.h264
+-//!
+-//! # Run the example:
+ //! Pass --config with the Nxrs gateway camera deployment file.
+-//! ```
+
+ #![recursion_limit = "256"]
+
+@@ -77,7 +36,7 @@
+ use std::time::Instant;
+
+ use async_channel::{Receiver, Sender};
+-use async_executor::LocalExecutor;
++use futures_util::stream::{FuturesUnordered, StreamExt};
+ use async_io::Async;
+
+ use log::{info, warn};
+@@ -331,9 +290,8 @@
+     local_addr: SocketAddr,
+     remote_cand_rx: Receiver<Candidate>,
+     shutdown_rx: Receiver<()>,
+-    trickle_buf: Rc<RefCell<Vec<String>>>,
+-    outbound_tx: Sender<OutboundWork>,
+     pictures: Pictures,
++    joined: Sender<()>,
+ }
+
+ /// Hook-side handle to a live session.
+@@ -343,10 +301,13 @@
+     ice_mline_index: u16,
+     remote_cand_tx: Sender<Candidate>,
+     shutdown_tx: Sender<()>,
+-    /// Locally-gathered candidates awaiting transmission via
+-    /// `take_ice_candidates`. Populated by the driver, drained by the
+-    /// hook on each outbound `IceCandidates` invoke.
+-    trickle_buf: Rc<RefCell<Vec<String>>>,
++    joined: Receiver<()>,
++    candidate: RefCell<Option<String>>,
++    remote_candidates: Cell<usize>,
++    negotiation: Cell<Option<OutboundWork>>,
++    send_ice: Cell<bool>,
++    end: Cell<Option<WebRTCEndReasonEnum>>,
++    closing: Cell<bool>,
+     /// SDP Answer produced by `on_offer`, awaiting transmission via
+     /// `take_answer_sdp`. `None` once the Answer has been pushed.
+     answer_sdp: RefCell<Option<String>>,
+@@ -388,15 +349,15 @@
+     inner: RefCell<Str0mInner>,
+     new_session_tx: Sender<NewSession>,
+     new_session_rx: Receiver<NewSession>,
+-    outbound_tx: Sender<OutboundWork>,
+-    outbound_rx: Receiver<OutboundWork>,
++    signal_tx: Sender<()>,
++    signal_rx: Receiver<()>,
+     video: Video,
+ }
+
+ impl Str0mShared {
+     fn new(ice_address: Ipv4Addr, video: Video, camera: &'static CamAv, privacy: Privacy) -> Self {
+-        let (new_session_tx, new_session_rx) = async_channel::unbounded();
+-        let (outbound_tx, outbound_rx) = async_channel::unbounded();
++        let (new_session_tx, new_session_rx) = async_channel::bounded(N_SESSIONS);
++        let (signal_tx, signal_rx) = async_channel::bounded(1);
+         Self {
+             ice_address,
+             inner: RefCell::new(Str0mInner {
+@@ -405,8 +366,8 @@
+             camera, privacy,
+             new_session_tx,
+             new_session_rx,
+-            outbound_tx,
+-            outbound_rx,
++            signal_tx,
++            signal_rx,
+             video,
+         }
+     }
+@@ -414,9 +375,14 @@
+     fn streams(&self, session_id: u16, params: &OfferParams) -> Result<(StreamRefs, Pictures, Option<Audio>), WebRtcError> {
+         // This example negotiates a fresh peer per offer. Keep the previous worker
+         // and its access guard in the table until its session has ended.
+-        if self.inner.borrow().sessions.get(&session_id).is_some() {
++        let inner = self.inner.borrow();
++        if inner.sessions.get(&session_id).is_some() {
+             return Err(WebRtcError::InvalidInState);
+         }
++        if inner.sessions.len() >= N_SESSIONS {
++            return Err(WebRtcError::ResourceExhausted);
++        }
++        drop(inner);
+         if params.stream_usage != StreamUsageEnum::LiveView {
+             return Err(WebRtcError::DynamicConstraint);
+         }
+@@ -454,56 +420,73 @@
+         Ok((refs, pictures, audio))
+     }
+
+-    /// Main async driver future. Joined into the top-level `select` and
+-    /// runs a `LocalExecutor` that owns one task per active session.
+-    async fn drive(&'static self) -> Result<(), Error> {
+-        let ex: LocalExecutor<'static> = LocalExecutor::new();
+-        let accept = async {
+-            while let Ok(new) = self.new_session_rx.recv().await {
+-                let sid = new.id;
+-                info!("webrtc_camera: spawning session driver for {sid}");
+-                ex.spawn(session_loop(new)).detach();
++    fn notify_signaling(&self) {
++        let _ = self.signal_tx.try_send(());
++    }
++
++    fn end(&self, ctrl: &SessionCtrl, reason: WebRTCEndReasonEnum) {
++        if !ctrl.closing.replace(true) {
++            ctrl.end.set(Some(reason));
++            self.notify_signaling();
++        }
++    }
++
++    async fn drive(&self) -> Result<(), Error> {
++        let _cleanup = ClosePeers(self);
++        let jobs = async {
++            let mut peers = FuturesUnordered::new();
++            loop {
++                tokio::select! {
++                    new = self.new_session_rx.recv() => match new {
++                        Ok(new) => peers.push(session_loop(new)),
++                        Err(_) => return Err(ErrorCode::InvalidInState.into()),
++                    },
++                    Some((id, reason, joined)) = peers.next(), if !peers.is_empty() => {
++                        // FuturesUnordered drops the returned future while
++                        // polling it. Release the reservation only after that join.
++                        joined.close();
++                        if let Some(ctrl) = self.inner.borrow().sessions.get(&id) {
++                            self.end(ctrl, reason);
++                        }
++                    }
++                }
+             }
+         };
+         let retire_pending = async || {
+-            loop {
+-                let retired = self
+-                    .inner
+-                    .borrow()
+-                    .sessions
+-                    .entries
+-                    .iter()
+-                    .find_map(|(id, ctrl)| {
+-                        let mut pending = ctrl.pending_offer.borrow_mut();
+-                        let (_, new) = pending.as_ref()?;
+-                        let reason = if new.refs.view.retired() {
+-                            WebRTCEndReasonEnum::PrivacyMode
+-                        } else if new.pictures.retired() {
+-                            WebRTCEndReasonEnum::NoUserMedia
+-                        } else {
+-                            return None;
+-                        };
+-                        pending.take();
+-                        Some((*id, reason))
+-                    });
+-                let Some((session_id, reason)) = retired else { break };
+-                if self
+-                    .outbound_tx
+-                    .send(OutboundWork::End { session_id, reason })
+-                    .await
+-                    .is_err()
+-                {
+-                    break;
+-                }
++            for (_, ctrl) in &self.inner.borrow().sessions.entries {
++                let mut pending = ctrl.pending_offer.borrow_mut();
++                let Some((_, peer)) = pending.as_ref() else { continue };
++                let reason = if peer.refs.view.retired() {
++                    WebRTCEndReasonEnum::PrivacyMode
++                } else if peer.pictures.retired() {
++                    WebRTCEndReasonEnum::NoUserMedia
++                } else {
++                    continue;
++                };
++                pending.take();
++                self.end(ctrl, reason);
+             }
+         };
+-        let changes = futures_lite::future::or(
+-            self.privacy.observe(retire_pending),
+-            self.video.observe_source(retire_pending),
+-        );
+-        ex.run(futures_lite::future::or(accept, changes))
+-            .await;
+-        Ok(())
++        let changes = async {
++            futures_lite::future::or(
++                self.privacy.observe(retire_pending),
++                self.video.observe_source(retire_pending),
++            ).await;
++            Ok(())
++        };
++        futures_lite::future::or(jobs, changes).await
++    }
++}
++
++/// Dropping the driver first drops its polled futures, then any pending offers
++/// or handoffs it still owns.
++struct ClosePeers<'a>(&'a Str0mShared);
++
++impl Drop for ClosePeers<'_> {
++    fn drop(&mut self) {
++        self.0.new_session_rx.close();
++        while self.0.new_session_rx.try_recv().is_ok() {}
++        self.0.inner.borrow_mut().sessions.entries.clear();
+     }
+ }
+
+@@ -555,7 +538,7 @@
+ /// the `Async<UdpSocket>`, and the control receivers. Runs until
+ /// `IceConnectionState::Disconnected` is observed, a shutdown is signalled
+ /// via `EndSession`, or a fatal I/O / str0m error occurs.
+-async fn session_loop(session: NewSession) {
++async fn session_loop(session: NewSession) -> (u16, WebRTCEndReasonEnum, Sender<()>) {
+     let NewSession {
+         id,
+         local_video_mid, local_audio_mid, mut sound, mut refs,
+@@ -564,9 +547,8 @@
+         local_addr,
+         remote_cand_rx,
+         shutdown_rx,
+-        trickle_buf: _trickle_buf,
+-        outbound_tx,
+         mut pictures,
++        joined,
+     } = session;
+
+     let mut buf = vec![0u8; 2048];
+@@ -638,8 +620,26 @@
+                     t.destination,
+                     n
+                 );
+-                if let Err(e) = socket.send_to(&t.contents, t.destination).await {
++                let sent = tokio::select! {
++                    biased;
++                    _ = shutdown_rx.recv() => {
++                        end_reason = if refs.revoked.get() {
++                            WebRTCEndReasonEnum::NoUserMedia
++                        } else {
++                            WebRTCEndReasonEnum::UserHangup
++                        };
++                        break 'outer;
++                    }
++                    _ = pictures.wait_until_retired() => {
++                        end_reason = WebRTCEndReasonEnum::NoUserMedia;
++                        break 'outer;
++                    }
++                    _ = refs.view.changed() => continue,
++                    result = socket.send_to(&t.contents, t.destination) => result,
++                };
++                if let Err(e) = sent {
+                     warn!("webrtc_camera[{id}]: send_to {} failed: {e}", t.destination);
++                    break 'outer;
+                 }
+             }
+             Output::Timeout(at) => {
+@@ -806,23 +806,8 @@
+         }
+     }
+
+-    // Relinquish this peer's I/O before the provider releases its slot.
+-    drop(rtc);
+-    drop(socket);
+-    drop(pictures);
+-    drop(sound);
+-    drop(refs);
+-    // Notify the controller that we are tearing down.
+-    if let Err(e) = outbound_tx
+-        .send(OutboundWork::End {
+-            session_id: id,
+-            reason: end_reason,
+-        })
+-        .await
+-    {
+-        warn!("webrtc_camera[{id}]: outbound End enqueue failed: {e}");
+-    }
+     info!("webrtc_camera[{id}]: session driver exited ({end_reason:?})");
++    (id, end_reason, joined)
+ }
+
+ enum DriverEvent {
+@@ -1121,19 +1106,13 @@
+
+ impl WebRtcHooks for Str0mHooks {
+     fn recheck_access(&self, allowed: impl Fn(&OfferAccess) -> bool) {
+-        for (id, ctrl) in &self.shared.inner.borrow().sessions.entries {
++        for (_, ctrl) in &self.shared.inner.borrow().sessions.entries {
+             if allowed(&ctrl.access) || ctrl.revoked.replace(true) {
+                 continue;
+             }
+             if ctrl.pending_offer.borrow_mut().take().is_some() {
+-                // No worker owns this deferred offer. Its references are already released.
+-                let _ = self.shared.outbound_tx.try_send(OutboundWork::End {
+-                    session_id: *id,
+-                    reason: WebRTCEndReasonEnum::NoUserMedia,
+-                });
++                self.shared.end(ctrl, WebRTCEndReasonEnum::NoUserMedia);
+             } else {
+-                // Wake the worker even when the camera is idle. The sticky flag
+-                // also covers a queued handoff or an immediate ACL re-grant.
+                 let _ = ctrl.shutdown_tx.try_send(());
+             }
+         }
+@@ -1154,9 +1133,9 @@
+             .map(|_| changes.add_media(MediaKind::Audio, Direction::SendOnly, None, None, None));
+         let (offer, pending) = changes.apply().ok_or(WebRtcError::Failure)?;
+         let offer_sdp = offer.to_sdp_string();
+-        let (remote_cand_tx, remote_cand_rx) = async_channel::bounded(16);
++        let (remote_cand_tx, remote_cand_rx) = async_channel::bounded(MAX_CAND);
+         let (shutdown_tx, shutdown_rx) = async_channel::bounded(1);
+-        let trickle_buf = Rc::new(RefCell::new(vec![local_cand_sdp]));
++        let (joined, finished) = async_channel::bounded(1);
+         let new = NewSession {
+             id: session_id,
+             local_video_mid: Some(mid), local_audio_mid: audio_mid, sound, refs,
+@@ -1165,9 +1144,8 @@
+             local_addr,
+             remote_cand_rx,
+             shutdown_rx,
+-            trickle_buf: trickle_buf.clone(),
+-            outbound_tx: self.shared.outbound_tx.clone(),
+             pictures,
++            joined,
+         };
+         self.shared.inner.borrow_mut().sessions.insert(
+             session_id,
+@@ -1177,22 +1155,19 @@
+                 ice_mline_index: 0,
+                 remote_cand_tx,
+                 shutdown_tx,
+-                trickle_buf,
++                joined: finished,
++                candidate: RefCell::new(Some(local_cand_sdp)),
++                remote_candidates: Cell::new(0),
++                negotiation: Cell::new(Some(OutboundWork::Offer { session_id })),
++                send_ice: Cell::new(true),
++                end: Cell::new(None),
++                closing: Cell::new(false),
+                 answer_sdp: RefCell::new(None),
+                 offer_sdp: RefCell::new(Some(offer_sdp)),
+                 pending_offer: RefCell::new(Some((pending, new))),
+             },
+         );
+-        self.shared
+-            .outbound_tx
+-            .send(OutboundWork::Offer { session_id })
+-            .await
+-            .map_err(|_| WebRtcError::Failure)?;
+-        self.shared
+-            .outbound_tx
+-            .send(OutboundWork::IceCandidates { session_id })
+-            .await
+-            .map_err(|_| WebRtcError::Failure)?;
++        self.shared.notify_signaling();
+         Ok(SolicitOutcome {
+             deferred: false,
+             video_stream_id: params.video_stream_id.flatten(),
+@@ -1223,9 +1198,9 @@
+         let answer_sdp = answer.to_sdp_string();
+
+         // Plumb the session over to the driver task.
+-        let (remote_cand_tx, remote_cand_rx) = async_channel::unbounded();
++        let (remote_cand_tx, remote_cand_rx) = async_channel::bounded(MAX_CAND);
+         let (shutdown_tx, shutdown_rx) = async_channel::bounded(1);
+-        let trickle_buf = Rc::new(RefCell::new(vec![local_cand_sdp]));
++        let (joined, finished) = async_channel::bounded(1);
+
+         {
+             let mut inner = self.shared.inner.borrow_mut();
+@@ -1237,7 +1212,13 @@
+                     ice_mline_index,
+                     remote_cand_tx,
+                     shutdown_tx,
+-                    trickle_buf: trickle_buf.clone(),
++                    joined: finished,
++                    candidate: RefCell::new(Some(local_cand_sdp)),
++                    remote_candidates: Cell::new(0),
++                    negotiation: Cell::new(Some(OutboundWork::Answer { session_id })),
++                    send_ice: Cell::new(true),
++                    end: Cell::new(None),
++                    closing: Cell::new(false),
+                     answer_sdp: RefCell::new(Some(answer_sdp)),
+                     offer_sdp: RefCell::new(None),
+                     pending_offer: RefCell::new(None),
+@@ -1250,48 +1231,16 @@
+             );
+         }
+
+-        // Send the session to the driver. If this fails, the driver task
+-        // is gone — bail.
+-        self.shared
+-            .new_session_tx
+-            .send(NewSession {
+-                id: session_id,
+-                local_video_mid: None, local_audio_mid: None, sound, refs,
+-                rtc,
+-                socket,
+-                local_addr,
+-                remote_cand_rx,
+-                shutdown_rx,
+-                trickle_buf,
+-                outbound_tx: self.shared.outbound_tx.clone(),
+-                pictures,
+-            })
+-            .await
+-            .map_err(|e| {
+-                warn!("webrtc_camera: new_session enqueue failed: {e}");
+-                WebRtcError::Failure
+-            })?;
+-
+-        // Push the SDP Answer to the controller's WebRTCTransportRequestor.
+-        if let Err(e) = self
+-            .shared
+-            .outbound_tx
+-            .send(OutboundWork::Answer { session_id })
+-            .await
+-        {
+-            warn!("webrtc_camera: outbound Answer enqueue failed: {e}");
+-        }
+-
+-        // Request the outbound-trickle pump to flush our host candidate.
+-        if let Err(e) = self
+-            .shared
+-            .outbound_tx
+-            .send(OutboundWork::IceCandidates { session_id })
+-            .await
+-        {
+-            warn!("webrtc_camera: outbound IceCandidates enqueue failed: {e}");
+-        }
+-
++        let peer = NewSession {
++            id: session_id,
++            local_video_mid: None, local_audio_mid: None, sound, refs,
++            rtc, socket, local_addr, remote_cand_rx, shutdown_rx, pictures, joined,
++        };
++        if self.shared.new_session_tx.try_send(peer).is_err() {
++            self.shared.inner.borrow_mut().sessions.remove(&session_id);
++            return Err(WebRtcError::Failure);
++        }
++        self.shared.notify_signaling();
+         Ok(AnswerOutcome {
+             video_stream_id: params.video_stream_id.flatten(),
+             audio_stream_id: params.audio_stream_id.flatten(),
+@@ -1300,48 +1249,31 @@
+
+     async fn on_answer(&self, session_id: u16, sdp: &str) -> Result<(), WebRtcError> {
+         let answer = SdpAnswer::from_sdp_string(sdp).map_err(|_| WebRtcError::DynamicConstraint)?;
+-        let (pending, mut new) = {
+-            let inner = self.shared.inner.borrow();
+-            let ctrl = inner
+-                .sessions
+-                .get(&session_id)
+-                .ok_or(WebRtcError::InvalidInState)?;
+-            if ctrl
+-                .pending_offer
+-                .borrow()
+-                .as_ref()
+-                .is_some_and(|(_, new)| new.refs.view.retired() || new.pictures.retired())
+-            {
+-                return Err(WebRtcError::InvalidInState);
+-            }
+-            let pending = ctrl
+-                .pending_offer
+-                .borrow_mut()
+-                .take()
+-                .ok_or(WebRtcError::InvalidInState)?;
+-            pending
+-        };
+-        let expected = [new.local_video_mid, new.local_audio_mid];
++        let inner = self.shared.inner.borrow();
++        let ctrl = inner.sessions.get(&session_id).ok_or(WebRtcError::InvalidInState)?;
++        let mut pending = ctrl.pending_offer.borrow_mut();
++        let (_, peer) = pending.as_ref().ok_or(WebRtcError::InvalidInState)?;
++        if ctrl.closing.get() || ctrl.revoked.get() || peer.refs.view.retired() || peer.pictures.retired() {
++            return Err(WebRtcError::InvalidInState);
++        }
++        let expected = [peer.local_video_mid, peer.local_audio_mid];
+         if answer.media_lines.len() != expected.iter().flatten().count()
+-            || !answer
+-                .media_lines
+-                .iter()
+-                .zip(expected.into_iter().flatten())
+-                .all(|(m, mid)| {
+-                    m.mid() == mid && !m.disabled && m.direction() == Direction::RecvOnly
+-                })
++            || !answer.media_lines.iter().zip(expected.into_iter().flatten())
++                .all(|(m, mid)| m.mid() == mid && !m.disabled && m.direction() == Direction::RecvOnly)
+         {
+             return Err(WebRtcError::DynamicConstraint);
+         }
+-        new.rtc
+-            .sdp_api()
+-            .accept_answer(pending, answer)
+-            .map_err(|_| WebRtcError::DynamicConstraint)?;
+-        self.shared
+-            .new_session_tx
+-            .send(new)
+-            .await
+-            .map_err(|_| WebRtcError::Failure)
++        let (offer, mut peer) = pending.take().unwrap();
++        if peer.rtc.sdp_api().accept_answer(offer, answer).is_err() {
++            drop(peer);
++            self.shared.end(ctrl, WebRTCEndReasonEnum::ICEFailed);
++            return Err(WebRtcError::DynamicConstraint);
++        }
++        if self.shared.new_session_tx.try_send(peer).is_err() {
++            self.shared.end(ctrl, WebRTCEndReasonEnum::ICEFailed);
++            return Err(WebRtcError::Failure);
++        }
++        Ok(())
+     }
+
+     async fn take_offer_sdp(&self, session_id: u16, out: &mut [u8]) -> Result<usize, WebRtcError> {
+@@ -1366,71 +1298,73 @@
+         session_id: u16,
+         candidates: &TLVArray<'_, ICECandidateStruct<'_>>,
+     ) -> Result<(), WebRtcError> {
+-        // Collect parsed candidates without holding the inner borrow.
+-        let mut parsed: Vec<Candidate> = Vec::new();
+-        for cand in candidates.iter() {
+-            let cand = match cand {
+-                Ok(c) => c,
+-                Err(e) => {
+-                    warn!("webrtc_camera: malformed ICE candidate in batch: {e}");
+-                    continue;
++        let inner = self.shared.inner.borrow();
++        let ctrl = inner.sessions.get(&session_id).ok_or(WebRtcError::InvalidInState)?;
++        if ctrl.closing.get() || ctrl.revoked.get() || ctrl.joined.is_closed() {
++            return Err(WebRtcError::InvalidInState);
++        }
++        let mut parsed = Vec::new();
++        for entry in candidates.iter() {
++            let entry = entry.map_err(|_| WebRtcError::DynamicConstraint)?;
++            let sdp = entry.candidate().map_err(|_| WebRtcError::DynamicConstraint)?;
++            if sdp.len() > CAND_LEN || ctrl.remote_candidates.get() + parsed.len() >= MAX_CAND {
++                return Err(WebRtcError::ResourceExhausted);
++            }
++            parsed.push(Candidate::from_sdp_string(sdp.trim_start_matches("a="))
++                .map_err(|_| WebRtcError::DynamicConstraint)?);
++        }
++        ctrl.remote_candidates.set(ctrl.remote_candidates.get() + parsed.len());
++        for candidate in parsed {
++            ctrl.remote_cand_tx.try_send(candidate).map_err(|_| WebRtcError::InvalidInState)?;
++        }
++        Ok(())
++    }
++
++    async fn on_end_session(
++        &self, session_id: u16, reason: WebRTCEndReasonEnum,
++    ) -> Result<(), WebRtcError> {
++        let (joined, reservation) = {
++            let inner = self.shared.inner.borrow();
++            let Some(ctrl) = inner.sessions.get(&session_id) else { return Ok(()) };
++            ctrl.closing.set(true);
++            ctrl.end.set(None);
++            ctrl.pending_offer.borrow_mut().take();
++            let _ = ctrl.shutdown_tx.try_send(());
++            (ctrl.joined.clone(), ctrl.revoked.clone())
++        };
++        // Pending offers release synchronously. A running peer keeps this
++        // receiver open until the driver joins it.
++        let _ = joined.recv().await;
++        let mut inner = self.shared.inner.borrow_mut();
++        if inner.sessions.get(&session_id).is_some_and(|ctrl| Rc::ptr_eq(&ctrl.revoked, &reservation)) {
++            inner.sessions.remove(&session_id);
++            info!("webrtc_camera: session {session_id} joined ({reason:?}), active = {}", inner.sessions.len());
++        }
++        Ok(())
++    }
++
++    async fn next_outbound(&self) -> OutboundWork {
++        loop {
++            {
++                let inner = self.shared.inner.borrow();
++                let entries = &inner.sessions.entries;
++                if let Some((session_id, reason)) = entries.iter()
++                    .find_map(|(id, ctrl)| ctrl.end.take().map(|reason| (*id, reason)))
++                {
++                    return OutboundWork::End { session_id, reason };
+                 }
+-            };
+-            let sdp_line = match cand.candidate() {
+-                Ok(s) => s,
+-                Err(e) => {
+-                    warn!("webrtc_camera: ICE candidate TLV missing SDP string: {e}");
+-                    continue;
++                for (id, ctrl) in entries.iter().filter(|(_, ctrl)| !ctrl.closing.get()) {
++                    if let Some(work) = ctrl.negotiation.take() {
++                        return work;
++                    }
++                    if ctrl.send_ice.replace(false) {
++                        return OutboundWork::IceCandidates { session_id: *id };
++                    }
+                 }
+-            };
+-            let trimmed = sdp_line.trim_start_matches("a=");
+-            match Candidate::from_sdp_string(trimmed) {
+-                Ok(c) => parsed.push(c),
+-                Err(e) => warn!("webrtc_camera: Candidate::from_sdp_string failed: {e}"),
+             }
+-        }
+-
+-        let sender = {
+-            let inner = self.shared.inner.borrow();
+-            let Some(s) = inner.sessions.get(&session_id) else {
+-                warn!("webrtc_camera: remote ICE for unknown session {session_id}");
+-                return Err(WebRtcError::InvalidInState);
+-            };
+-            s.remote_cand_tx.clone()
+-        };
+-
+-        let added = parsed.len();
+-        for c in parsed {
+-            let _ = sender.send(c).await;
+-        }
+-        info!("webrtc_camera: session {session_id} trickle-ICE +{added} remote candidates");
+-        Ok(())
+-    }
+-
+-    async fn on_end_session(
+-        &self,
+-        session_id: u16,
+-        reason: WebRTCEndReasonEnum,
+-    ) -> Result<(), WebRtcError> {
+-        let ctrl = self.shared.inner.borrow_mut().sessions.remove(&session_id);
+-        if let Some(ctrl) = ctrl {
+-            let _ = ctrl.shutdown_tx.try_send(());
+-            info!(
+-                "webrtc_camera: session {session_id} ended ({reason:?}), active = {}",
+-                self.shared.inner.borrow().sessions.len()
+-            );
+-        } else {
+-            warn!("webrtc_camera: EndSession for unknown session {session_id}");
+-        }
+-        Ok(())
+-    }
+-
+-    async fn next_outbound(&self) -> OutboundWork {
+-        // Park until the driver (or `on_offer`) posts something.
+-        // If the sender half ever dropped, await forever — no-op.
+-        match self.shared.outbound_rx.recv().await {
+-            Ok(w) => w,
+-            Err(_) => core::future::pending().await,
++            if self.shared.signal_rx.recv().await.is_err() {
++                core::future::pending::<()>().await;
++            }
+         }
+     }
+
+@@ -1448,9 +1382,8 @@
+         let Some(s) = inner.sessions.get(&session_id) else {
+             return Ok(());
+         };
+-        let drained: Vec<String> = s.trickle_buf.borrow_mut().drain(..).collect();
+-        for cand in &drained {
+-            out.push(cand, s.ice_mline_index)?;
++        if let Some(candidate) = s.candidate.borrow_mut().take() {
++            out.push(&candidate, s.ice_mline_index)?;
+         }
+         Ok(())
+     }

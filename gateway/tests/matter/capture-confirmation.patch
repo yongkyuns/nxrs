@@ -1,0 +1,140 @@
+--- a/rs-matter-dm/src/clusters/app/cam_av_stream.rs
++++ b/rs-matter-dm/src/clusters/app/cam_av_stream.rs
+@@ -183,6 +183,15 @@
+         Err(ErrorCode::AttributeNotFound.into())
+     }
+
++    /// Return success only when the microphone setting has taken effect.
++    fn write_microphone(
++        &self,
++        value: bool,
++        kv: impl KvBlobStoreAccess,
++    ) -> impl Future<Output = Result<(), Error>> + MaybeSend {
++        async move { self.write_privacy(AttributeId::MicrophoneMuted, value, kv) }
++    }
++
+     /// Called when a new video stream has been validated and assigned a
+     /// stable ID. The implementation should provision encoder resources;
+     /// returning `Err` aborts the allocation (the stream is NOT added to
+@@ -238,6 +247,14 @@
+         kv: impl KvBlobStoreAccess,
+     ) -> Result<(), Error> {
+         (*self).write_privacy(id, value, kv)
++    }
++
++    fn write_microphone(
++        &self,
++        value: bool,
++        kv: impl KvBlobStoreAccess,
++    ) -> impl Future<Output = Result<(), Error>> + MaybeSend {
++        (*self).write_microphone(value, kv)
+     }
+
+     fn allocate_video(&self, stream: &VideoStream) -> impl Future<Output = Result<(), CamAvError>> {
+@@ -905,8 +922,7 @@
+     }
+
+     async fn set_microphone_muted(&self, ctx: impl WriteContext, value: bool) -> Result<(), Error> {
+-        self.hooks
+-            .write_privacy(AttributeId::MicrophoneMuted, value, ctx.kv())?;
++        self.hooks.write_microphone(value, ctx.kv()).await?;
+         self.dataver.changed();
+         ctx.notify_changed();
+         Ok(())
+--- a/examples/src/bin/webrtc_camera.rs
++++ b/examples/src/bin/webrtc_camera.rs
+@@ -83,7 +83,7 @@
+ mod ntp;
+ mod tls;
+ mod persistence;
+-use nxrs_gateway_matter::privacy::{self, LiveView, Privacy, Setting};
++use nxrs_gateway_matter::privacy::{self, LiveView, Microphone, Privacy, Setting};
+ use rs_matter::dm::clusters::app::cam_av_stream::AttributeId as CameraAttr;
+ use rs_matter::persist::{KvBlobStoreAccess, VENDOR_KEYS_START};
+
+@@ -181,7 +181,12 @@
+ const CAM_AV_NV: usize = 2;
+
+ /// Authorize audio against the live source and apply camera privacy writes.
+-struct Str0mCamHooks(Video, Privacy, nxrs_gateway_matter::snapshot::Snapshots);
++struct Str0mCamHooks(
++    Video,
++    Privacy,
++    nxrs_gateway_matter::snapshot::Snapshots,
++    Option<&'static Microphone>,
++);
+
+ impl CameraAvStreamHooks for Str0mCamHooks {
+     async fn capture_snapshot(&self, width: u16, height: u16, quality: u8)
+@@ -202,6 +207,9 @@
+     }
+
+     fn read_privacy(&self, id: CameraAttr) -> Result<bool, Error> {
++        if let (CameraAttr::MicrophoneMuted, Some(microphone)) = (id, self.3) {
++            return microphone.read(&self.1).map_err(|_| ErrorCode::Busy.into());
++        }
+         Ok(self.1.get(privacy_setting(id)?))
+     }
+
+@@ -217,6 +225,19 @@
+                     .map_err(|_| privacy::Error::Storage)
+             })
+             .map_err(|_| ErrorCode::StdIoError.into())
++    }
++
++    async fn write_microphone(&self, value: bool, kv: impl KvBlobStoreAccess) -> Result<(), Error> {
++        let Some(microphone) = self.3 else {
++            return self.write_privacy(CameraAttr::MicrophoneMuted, value, kv);
++        };
++        microphone.set(&self.1, value, |record| {
++            kv.access(|store, buf| store.store(CAMERA_PRIVACY_KEY, record, buf))
++                .map_err(|_| privacy::Error::Storage)
++        }).await.map_err(|error| match error {
++            privacy::Error::Unavailable => ErrorCode::Busy.into(),
++            _ => ErrorCode::StdIoError.into(),
++        })
+     }
+
+     fn admit_audio(&self, params: &AudioStreamParams) -> Result<(), CamAvError> {
+@@ -1574,6 +1595,7 @@
+ const TIME_REFRESH: rs_matter::utils::timers::Duration =
+     rs_matter::utils::timers::Duration::from_secs(3600);
+ static SHARED: StaticCell<Str0mShared> = StaticCell::new();
++static MICROPHONE: StaticCell<Option<Microphone>> = StaticCell::new();
+
+ // ---------------------------------------------------------------------------
+ // Main
+@@ -1733,12 +1755,15 @@
+             supported_bit_depths: &[16],
+         }),
+     };
++    let microphone = MICROPHONE
++        .init(deployment.microphone().map_err(|_| ErrorCode::Invalid)?)
++        .as_ref();
+     let cam_av = CameraAvStreamHandler::new(
+         Dataver::new_rand(&mut rand),
+         1,
+         cam_av_config,
+         CameraFeature::VIDEO.bits() | CameraFeature::AUDIO.bits() | CameraFeature::PRIVACY.bits() | CameraFeature::SNAPSHOT.bits(),
+-        Str0mCamHooks(video.clone(), privacy.clone(), snapshots),
++        Str0mCamHooks(video.clone(), privacy.clone(), snapshots, microphone),
+     );
+     // The first commissioning sees one allocated video stream. A stored empty
+     // allocation table is a valid controller choice and survives a restart.
+@@ -1765,7 +1790,6 @@
+         AUDIO_ALLOCATIONS_KEY,
+         initial_video,
+     )?);
+-    let microphone = deployment.microphone().map_err(|_| ErrorCode::Invalid)?;
+     let microphone_privacy = privacy.clone();
+     let shared = SHARED.init(Str0mShared::new(lan, video, cam_av, privacy));
+     let webrtc = WEBRTC.init(WebRtcProvHandler::new(
+@@ -1869,7 +1893,7 @@
+                 select(matter_core, time_client.run_with_ntp(TIME_REFRESH, &kv, &im, &ntp)).coalesce();
+             let media = async { reader.run().await; Err(ErrorCode::StdIoError.into()) };
+             let capture_control = async {
+-                if let Some(microphone) = &microphone {
++                if let Some(microphone) = microphone {
+                     microphone.run(&microphone_privacy, || matter.has_fabrics()).await;
+                 } else {
+                     core::future::pending::<()>().await;

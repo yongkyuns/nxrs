@@ -1,14 +1,12 @@
 //! Core-only compatibility transport for the legacy NuttX integration fixture.
 //!
-//! Production NuttX packet output uses `hal/transport/src/udp.rs`, a
-//! normal `std::net::UdpSocket` provider. This module intentionally keeps the
-//! old scalar C bridge local to the no_std fixture until that fixture itself
-//! migrates to the ordinary-std application path.
+//! The std fixture uses `std::net::UdpSocket`; this core-only fixture uses
+//! its own scalar bridge.
 
 use core::ffi::c_int;
 
 use nuttx_support::{status, OwnedFd};
-use transport::{DeviceError, PacketSink};
+use camera_test_support::packet::{DeviceError, PacketSink};
 
 extern "C" {
     fn rc_nx_udp_open(address: *const u8, port: u16) -> c_int;

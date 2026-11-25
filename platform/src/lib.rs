@@ -29,3 +29,14 @@ cfg_if::cfg_if! {
 
 #[cfg(feature = "probe")]
 pub mod probe;
+
+#[cfg(feature = "battery")]
+cfg_if::cfg_if! {
+    if #[cfg(device_binding = "battery:nuttx")] {
+        #[path = "nuttx/battery.rs"]
+        mod battery_factory;
+        pub use battery_factory::devices as battery;
+    } else {
+        pub use ::battery::construction::devices as battery;
+    }
+}

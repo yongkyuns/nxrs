@@ -16,14 +16,19 @@ fn profile_switch_refreshes_generated_sensor_bindings_in_the_same_cargo_output()
     fs::create_dir_all(sdk.join("platform/nuttx/resources")).unwrap();
     // This isolated host fixture also models a SPI endpoint. The real CoreS3
     // BSP does not register one and is independently required to reject it.
-    let mut bsp =
-        fs::read_to_string(source.join("platform/nuttx/resources/esp32s3-m5-cores3.toml")).unwrap();
-    let devkit =
-        fs::read_to_string(source.join("platform/nuttx/resources/esp32s3-devkit.toml")).unwrap();
-    bsp.push_str(&devkit[devkit.find("[resources.spi2]").unwrap()..]);
+    let resources = |name: &str| -> toml_edit::DocumentMut {
+        let input = fs::read_to_string(source.join("platform/nuttx/resources").join(name)).unwrap();
+        input.parse().unwrap()
+    };
+    let mut bsp = resources("esp32s3-m5-cores3.toml");
+    let devkit = resources("esp32s3-devkit.toml");
+    bsp["resources"]
+        .as_table_mut()
+        .unwrap()
+        .insert("spi2".into(), devkit["resources"]["spi2"].clone());
     fs::write(
         sdk.join("platform/nuttx/resources/esp32s3-m5-cores3.toml"),
-        bsp,
+        bsp.to_string(),
     )
     .unwrap();
     fs::write(
@@ -35,6 +40,7 @@ fn profile_switch_refreshes_generated_sensor_bindings_in_the_same_cargo_output()
         ("hal/imu", &["Cargo.toml"][..]),
         ("platform", &["Cargo.toml"][..]),
         ("hal/gnss", &["Cargo.toml"][..]),
+        ("driver/axp2101", &["Cargo.toml", "bindings.toml"][..]),
         ("driver/ubx", &["Cargo.toml", "bindings.toml"][..]),
         ("driver/bmi270", &["Cargo.toml", "bindings.toml"][..]),
         ("driver/lsm6dso", &["Cargo.toml", "bindings.toml"][..]),
@@ -64,7 +70,7 @@ fn profile_switch_refreshes_generated_sensor_bindings_in_the_same_cargo_output()
              nxrs-peripheral = {{ path = {:?} }}\n\
              bmi270 = {{ package = \"nxrs-bmi270\", path = {:?} }}\nlsm6dso = {{ package = \"nxrs-lsm6dso\", path = {:?} }}\nembedded-hal = '=1.0.0'\n\
              [build-dependencies]\nnxrs-build-support = {{ path = {:?} }}\n[workspace]\n",
-            source.join("shared/messaging"), source.join("hal/acquisition"), source.join("driver/i2c"), source.join("driver/gpio"), source.join("driver/spi"),
+            source.join("shared/messaging"), source.join("shared/acquisition"), source.join("driver/i2c"), source.join("driver/gpio"), source.join("driver/spi"),
             source.join("driver/peripheral"), source.join("driver/bmi270"), source.join("driver/lsm6dso"), source.join("tools/build-support")
         ),
     )

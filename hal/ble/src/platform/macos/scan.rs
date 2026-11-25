@@ -9,16 +9,12 @@ use std::{
     sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
-unsafe extern "C" {
-    fn macos_scan_authorization() -> i32;
-    fn macos_scan_context(arg: *mut c_void) -> *mut c_void;
-    fn macos_scan_manager(context: *mut c_void) -> *mut c_void;
-    fn macos_scan_status(context: *mut c_void) -> i32;
-    fn macos_scan_start(context: *mut c_void) -> bool;
-    fn macos_scan_stop(context: *mut c_void) -> bool;
-    fn macos_scan_detach(context: *mut c_void);
-    fn macos_scan_release(context: *mut c_void);
-}
+#[path = "ffi/scan.rs"]
+mod ffi;
+use self::ffi::{
+    macos_scan_authorization, macos_scan_context, macos_scan_detach, macos_scan_manager,
+    macos_scan_release, macos_scan_start, macos_scan_status, macos_scan_stop,
+};
 struct Reports {
     manager: usize,
     scanning: bool,

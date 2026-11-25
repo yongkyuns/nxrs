@@ -4,6 +4,7 @@ use std::io::{self, Read, Write};
 pub mod discovery;
 
 pub const MAGIC: &[u8; 4] = b"NXB1";
+pub const RENEW_MAGIC: &[u8; 4] = b"NXR1";
 pub const MAX_CSR: usize = 1024;
 pub const MAX_ENROLLMENT: usize = 33792;
 
@@ -174,10 +175,21 @@ impl Enrollment {
 }
 
 pub fn request(output: &mut impl Write, token: &[u8; 32], csr: &[u8]) -> io::Result<()> {
+    write_request(output, MAGIC, token, csr)
+}
+pub fn renew(output: &mut impl Write, token: &[u8; 32], csr: &[u8]) -> io::Result<()> {
+    if csr.is_empty() {
+        return Err(invalid());
+    }
+    write_request(output, RENEW_MAGIC, token, csr)
+}
+fn write_request(
+    output: &mut impl Write, magic: &[u8; 4], token: &[u8; 32], csr: &[u8],
+) -> io::Result<()> {
     if csr.len() > MAX_CSR {
         return Err(invalid());
     }
-    output.write_all(MAGIC)?;
+    output.write_all(magic)?;
     output.write_all(token)?;
     output.write_all(&(csr.len() as u16).to_be_bytes())?;
     output.write_all(csr)

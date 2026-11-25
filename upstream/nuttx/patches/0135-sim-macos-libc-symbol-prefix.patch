@@ -1,0 +1,40 @@
+Subject: [PATCH] sim: use Mach-O labels for libc builtin fallbacks
+
+Optimized third-party C code uses the NuttX header fallbacks.
+Bind their asm labels to the same libc symbols as ordinary C calls.
+
+diff --git a/include/nuttx/compiler.h b/include/nuttx/compiler.h
+--- a/include/nuttx/compiler.h
++++ b/include/nuttx/compiler.h
+@@ -104,6 +104,15 @@
+ #ifdef __GNUC__
+ 
+ /* Built-ins */
++
++/* asm labels bypass the object format's normal C symbol prefix. */
++
++#  if defined(CONFIG_ARCH_SIM) && defined(CONFIG_HOST_MACOS)
++#    define C_SYMBOL_PREFIX "_"
++#  else
++#    define C_SYMBOL_PREFIX ""
++#  endif
++
+ #  if __GNUC__ >= 4 && !defined(__ghs__)
+ #    define CONFIG_HAVE_BUILTIN_BSWAP16 1
+ #    define CONFIG_HAVE_BUILTIN_BSWAP32 1
+@@ -139,13 +148,13 @@
+ #    if !defined(__clang__)
+ #      define fortify_va_arg_pack __builtin_va_arg_pack
+ #    endif
+-#    define fortify_real(fn) __typeof__(fn) __real_##fn __asm__(#fn)
++#    define fortify_real(fn) __typeof__(fn) __real_##fn __asm__(C_SYMBOL_PREFIX #fn)
+ #    define fortify_function(fn) fortify_real(fn); \
+                                  extern __inline__ no_builtin(#fn) \
+                                  __attribute__((__always_inline__, \
+                                                 __gnu_inline__, __artificial__))
+ #  elif defined(__OPTIMIZE__) && __OPTIMIZE__ > 0 && defined(__has_builtin)
+-#    define builtin_original(fn)  __typeof__(fn)  __orig_##fn __asm__(#fn)
++#    define builtin_original(fn)  __typeof__(fn)  __orig_##fn __asm__(C_SYMBOL_PREFIX #fn)
+ #    define builtin_function(fn)  builtin_original(fn); \
+                                   extern __inline__ no_builtin(#fn) \
+                                   __attribute__((__always_inline__, \

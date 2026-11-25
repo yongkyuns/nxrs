@@ -203,7 +203,19 @@ teardown after progress dependencies are resolved. Do not hide a blocking join
 in `Drop`. A retained HAL session whose worker retains a sender cannot rely on
 automatic inbox closure to start shutdown. [Join semantics][join]
 
-## Allocation policy: std and Crossbeam use the same acceptance test
+## Memory budgets for deadline-sensitive work
+
+Reserve bounded scratch, queue and buffer storage during construction or session
+setup. The owning component supplies and reuses it through the normal API.
+Keep capacity and exhaustion behavior explicit. Reject excess work or apply
+bounded backpressure using the capability's existing policy.
+
+On fixed-priority targets, qualify steady-state code for zero calls to the
+shared heap, including frees, first-use work, error paths and native SDK calls.
+Measure setup, reconfiguration and teardown separately. Exercise the full
+supported inputs when adding a reserve. Use priority inheritance for shared
+task-context locks where supported and qualify the resulting wait times.
+
 
 Use positive-capacity bounded channels with a fixed set of participants and
 selection arms. Do not create channels/selectors/threads during normal dispatch.
@@ -311,9 +323,9 @@ handling remains integrated into the service's one selection point.
 
 The [GNSS HAL](../hal/gnss/README.md#event-driven-session) implements bounded event
 delivery through `open(sink)` and a session with explicit `request_stop()` and
-`join()`. Its worker mechanics are shared through `hal/acquisition`. The
-existing event-demo topology remains portability/stress evidence, not the
-required product decomposition.
+`join()`. `shared/acquisition` supplies worker lifetimes and readiness; GNSS
+owns queue-full handling and terminal notification. The event demo exercises
+the topology under portable and stress workloads.
 See [architecture.md](architecture.md) and [event-driven-demo.md](event-driven-demo.md).
 
 Tests must cover typed multi-source delivery, isolated capacity, important-full

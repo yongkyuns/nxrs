@@ -1,5 +1,5 @@
 //! One TLS owner; capture uses only try-lock transfers of bounded owned data.
-use crate::Error;
+use crate::{microphone::Microphone, Error};
 use camera::{Capture, Frame};
 use std::io::{self, Read};
 use std::net::{TcpListener, TcpStream};
@@ -12,11 +12,18 @@ use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 use stream_service::{HttpSession, Metadata, Options, Progress, ServerStats};
 
+/// Allow the TLS owner to service its current connection between time I/O
+/// and handshake steps. An error cancels the exchange.
+pub type RefreshStep<'a> = &'a mut dyn FnMut() -> Result<(), ::tls::Error>;
+/// Optional TLS owner storage for a pinned time channel. Absent during
+/// initial configuration; available for reuse on subsequent calls.
+pub type TimeChannel<'id, 'slot> = Option<&'slot mut Option<::tls::Connection<'id>>>;
+
 /// Product-owned, approved enrollment. Construct this on the TLS thread.
 /// `time` must be bounded and supply a currently authenticated observation,
 /// accounting for its original age; recreating a lease cannot renew stale UTC.
-/// Called at startup/admission and roughly once per second between complete
-/// media frames or during bounded firmware reception.
+/// Called at startup/admission and roughly once per second during a session.
+/// A network time source calls the supplied step between I/O and crypto steps.
 pub struct TlsIdentity<T> {
     pub identity: ::tls::Identity,
     pub policy: ::tls::CertificatePolicy,
@@ -26,8 +33,9 @@ pub struct TlsIdentity<T> {
     pub revocations: Vec<u8>,
     pub time: T,
 }
-struct Context<T> {
-    identity: ::tls::Identity,
+struct Context<'id, T> {
+    identity: &'id ::tls::Identity,
+    channel: Option<::tls::Connection<'id>>,
     time: T,
     request_timeout: Duration,
 }
@@ -52,8 +60,10 @@ struct Packet<B> {
 }
 struct State<B> {
     update: Option<crate::update::Update>,
+    microphone_origin: Option<Instant>,
     pending: Option<Packet<B>>,
     returned: Option<Packet<B>>,
+    ready_after: Option<u64>,
     clock: Option<(u64, Instant)>,
     stream: ServerStats,
     tls: TlsStats,
@@ -87,6 +97,17 @@ impl<B> Worker<B> {
             return Err(Error::Worker);
         }
         state.update = Some(update);
+        Ok(())
+    }
+    pub fn enable_microphone(&mut self, origin: Instant) -> Result<(), Error> {
+        if !audio::AVAILABLE || self.last_now.is_some() || self.stopped() {
+            return Err(Error::Tls(::tls::Error::InvalidInput));
+        }
+        let mut state = lock(&self.shared);
+        if state.microphone_origin.is_some() {
+            return Err(Error::Worker);
+        }
+        state.microphone_origin = Some(origin);
         Ok(())
     }
     pub fn stats(&self) -> (ServerStats, TlsStats) {
@@ -137,7 +158,14 @@ impl<B> Drop for Worker<B> {
     }
 }
 impl<B: AsRef<[u8]> + AsMut<[u8]>> Worker<B> {
-    pub fn spawn<T: FnMut(&::tls::Identity) -> Result<::tls::TimeLease, ::tls::Error> + 'static>(
+    pub fn spawn<
+        T: for<'id> FnMut(
+                &'id ::tls::Identity,
+                TimeChannel<'id, '_>,
+                RefreshStep<'_>,
+            ) -> Result<::tls::TimeLease, ::tls::Error>
+            + 'static,
+    >(
         listener: TcpListener,
         mut outgoing: B,
         mut handoff: B,
@@ -164,8 +192,10 @@ impl<B: AsRef<[u8]> + AsMut<[u8]>> Worker<B> {
         let shared = Arc::new(Shared {
             state: Mutex::new(State {
                 update: None,
+                microphone_origin: None,
                 pending: None,
                 returned: None,
+                ready_after: None,
                 clock: None,
                 stream: ServerStats::default(),
                 tls: TlsStats::default(),
@@ -183,7 +213,11 @@ impl<B: AsRef<[u8]> + AsMut<[u8]>> Worker<B> {
             .stack_size(resources.stack_bytes)
             .spawn(move || {
                 let context = initialize().and_then(|mut context| {
-                    let time = (context.time)(&context.identity).map_err(Error::Tls)?;
+                    let time = (context.time)(&context.identity, None, &mut || {
+                        thread::sleep(resources.poll_interval);
+                        Ok(())
+                    })
+                    .map_err(Error::Tls)?;
                     context
                         .identity
                         .configure(
@@ -199,13 +233,9 @@ impl<B: AsRef<[u8]> + AsMut<[u8]>> Worker<B> {
                         .map_err(Error::Tls)?;
                     // The SDK owns its parsed, validated enrollment. Release
                     // the input DER buffers before capture starts.
-                    Ok(Context {
-                        identity: context.identity,
-                        time: context.time,
-                        request_timeout: Duration::from_millis(options.request_timeout_ms),
-                    })
+                    Ok((context.identity, context.time))
                 });
-                let context = match context {
+                let (identity, time) = match context {
                     Ok(context) => {
                         let _ = ready.send(Ok(()));
                         context
@@ -215,7 +245,18 @@ impl<B: AsRef<[u8]> + AsMut<[u8]>> Worker<B> {
                         return;
                     }
                 };
-                run(&worker, listener, http, resources, context);
+                run(
+                    &worker,
+                    listener,
+                    http,
+                    resources,
+                    Context {
+                        identity: &identity,
+                        channel: None,
+                        time,
+                        request_timeout: Duration::from_millis(options.request_timeout_ms),
+                    },
+                );
             })
             .map_err(|_| Error::Worker)?;
         // An initializer unwind drops the sender, so startup cannot wait forever
@@ -272,7 +313,7 @@ impl<B: AsRef<[u8]> + AsMut<[u8]>> Worker<B> {
         }
         let mut progress = Progress::default();
         // No waiting or spinning behind a preempted TLS worker.
-        match self.shared.state.try_lock() {
+        let ready_after = match self.shared.state.try_lock() {
             Ok(mut state) => {
                 state.clock = Some((now, observed));
                 self.stats = (state.stream, state.tls);
@@ -280,31 +321,34 @@ impl<B: AsRef<[u8]> + AsMut<[u8]>> Worker<B> {
                 if self.free.is_none() {
                     self.free = state.returned.take();
                 }
+                state.ready_after
             }
-            Err(TryLockError::WouldBlock) => {}
+            Err(TryLockError::WouldBlock) => None,
             Err(TryLockError::Poisoned(_)) => return Err(self.fail()),
-        }
+        };
         if !online {
             return Ok(Progress::default());
         }
+        // While a JPEG is being sent, capture retains the latest frame. Wait
+        // for the writer to be ready before copying that frame into its handoff.
+        let Some(frame) = frame.filter(|f| ready_after.is_some_and(|after| f.sequence > after))
+        else {
+            return Ok(progress);
+        };
         let Some(mut packet) = self.free.take() else {
             self.skipped_busy = self.skipped_busy.saturating_add(1);
             return Ok(progress);
         };
-        packet.frame = None;
         packet.description = None;
         packet.epoch = self.epoch;
         // Copy outside the mailbox lock; the worker owns only transferred data.
-        if let Some(frame) = frame {
-            if frame.bytes.len() != frame.capture.len
-                || frame.bytes.len() > packet.bytes.as_mut().len()
-            {
-                self.free = Some(packet);
-                return Err(self.refuse(::tls::Error::Capacity));
-            }
-            packet.bytes.as_mut()[..frame.bytes.len()].copy_from_slice(frame.bytes);
-            packet.frame = Some((frame.sequence, frame.capture));
+        if frame.bytes.len() != frame.capture.len || frame.bytes.len() > packet.bytes.as_mut().len()
+        {
+            self.free = Some(packet);
+            return Err(self.refuse(::tls::Error::Capacity));
         }
+        packet.bytes.as_mut()[..frame.bytes.len()].copy_from_slice(frame.bytes);
+        packet.frame = Some((frame.sequence, frame.capture));
         if let Some(metadata) = metadata {
             if metadata.bytes.len() > packet.metadata.len() {
                 self.free = Some(packet);
@@ -324,6 +368,7 @@ impl<B: AsRef<[u8]> + AsMut<[u8]>> Worker<B> {
             }
             Err(TryLockError::WouldBlock) => {
                 self.free = Some(packet);
+                return Ok(progress);
             }
             Err(TryLockError::Poisoned(_)) => {
                 self.free = Some(packet);
@@ -374,20 +419,30 @@ fn publish<B, W: std::io::Read + std::io::Write>(
     state.stream = http.stats();
     state.stream.rejected_busy = state.stream.rejected_busy.saturating_add(counters.busy);
     state.tls = counters.tls;
+    state.ready_after = http.next_frame_after();
 }
 fn run<
     B: AsRef<[u8]> + AsMut<[u8]>,
-    T: FnMut(&::tls::Identity) -> Result<::tls::TimeLease, ::tls::Error>,
+    T: for<'id> FnMut(
+        &'id ::tls::Identity,
+        TimeChannel<'id, '_>,
+        RefreshStep<'_>,
+    ) -> Result<::tls::TimeLease, ::tls::Error>,
 >(
     shared: &Shared<B>,
     listener: TcpListener,
     mut http: HttpSession<TcpStream, B>,
     resources: TlsOptions,
-    mut context: Context<T>,
+    mut context: Context<'_, T>,
 ) {
     let mut counters = Counters::default();
+    let mut last_epoch = 0;
     while !shared.stop.load(Ordering::Acquire) {
         let epoch = shared.epoch.load(Ordering::Acquire);
+        if epoch != last_epoch {
+            context.channel = None;
+            last_epoch = epoch;
+        }
         let clock_ready = lock(shared).clock.is_some();
         if epoch & 1 != 0 && clock_ready {
             match listener.accept() {
@@ -441,19 +496,30 @@ fn run<
 #[allow(clippy::too_many_arguments)]
 fn serve<
     B: AsRef<[u8]> + AsMut<[u8]>,
-    T: FnMut(&::tls::Identity) -> Result<::tls::TimeLease, ::tls::Error>,
+    T: for<'id> FnMut(
+        &'id ::tls::Identity,
+        TimeChannel<'id, '_>,
+        RefreshStep<'_>,
+    ) -> Result<::tls::TimeLease, ::tls::Error>,
 >(
     shared: &Shared<B>,
     listener: &TcpListener,
     socket: TcpStream,
     storage: HttpSession<TcpStream, B>,
     resources: TlsOptions,
-    context: &mut Context<T>,
+    context: &mut Context<'_, T>,
     epoch: usize,
     counters: &mut Counters,
 ) -> (HttpSession<TcpStream, B>, Result<(), ::tls::Error>) {
-    let connection =
-        (context.time)(&context.identity).and_then(|time| context.identity.accept(socket, time));
+    let mut wait = || {
+        if !current(shared, epoch) {
+            return Err(::tls::Error::Io);
+        }
+        thread::park_timeout(resources.poll_interval);
+        Ok(())
+    };
+    let connection = (context.time)(context.identity, Some(&mut context.channel), &mut wait)
+        .and_then(|time| context.identity.accept(socket, time));
     let mut connection = match connection {
         Ok(v) => v,
         Err(e) => return (storage, Err(e)),
@@ -472,7 +538,10 @@ fn serve<
     counters.tls.handshakes = counters.tls.handshakes.saturating_add(1);
     // Multiplex only after exact enrolled-peer authentication. Preserve GET's
     // inspected prefix for the existing HTTP parser; no extra TLS context.
-    let update = lock(shared).update.clone();
+    let (update, microphone_origin) = {
+        let state = lock(shared);
+        (state.update.clone(), state.microphone_origin)
+    };
     let request_now = now(shared);
     let deadline = Instant::now() + context.request_timeout;
     let mut prefix = [0; 4];
@@ -515,7 +584,13 @@ fn serve<
                 return Err(io::ErrorKind::TimedOut.into());
             }
             if refreshed.elapsed() >= Duration::from_secs(1) {
-                let time = (context.time)(&context.identity)
+                let time =
+                    (context.time)(context.identity, Some(&mut context.channel), &mut || {
+                        if Instant::now() >= deadline {
+                            return Err(::tls::Error::Time);
+                        }
+                        wait()
+                    })
                     .map_err(|_| io::ErrorKind::PermissionDenied)?;
                 connection
                     .refresh_time(time)
@@ -541,75 +616,140 @@ fn serve<
         };
     }
     let mut http = storage.retire();
-    http.accept_with_prefix(connection, request_now, &prefix[..used]);
+    if microphone_origin.is_some() {
+        http.accept_with_microphone_control(connection, request_now, &prefix[..used]);
+    } else {
+        http.accept_with_prefix(connection, request_now, &prefix[..used]);
+    }
+    let mut microphone = None;
     let mut refreshed = Instant::now();
     let result = loop {
         if !current(shared, epoch) {
             break Ok(());
         }
         if refreshed.elapsed() >= Duration::from_secs(1) && http.ready_for_frame() {
-            let result = (context.time)(&context.identity)
-                .and_then(|time| http.transport_mut().unwrap().refresh_time(time));
+            let result = (context.time)(context.identity, Some(&mut context.channel), &mut || {
+                if !poll_media(
+                    shared,
+                    listener,
+                    &mut http,
+                    epoch,
+                    counters,
+                    microphone_origin,
+                    &mut microphone,
+                )? {
+                    return Err(::tls::Error::Io);
+                }
+                thread::park_timeout(resources.poll_interval);
+                Ok(())
+            })
+            .and_then(|time| {
+                http.transport_mut()
+                    .ok_or(::tls::Error::Io)?
+                    .refresh_time(time)
+            });
             if let Err(error) = result {
-                break Err(error);
+                break if current(shared, epoch) && http.transport_mut().is_some() {
+                    Err(error)
+                } else {
+                    Ok(())
+                };
             }
             refreshed = Instant::now();
-            // The callback can perform network I/O. Finish the prior JPEG
-            // first, then return the queued capture rather than sending a
-            // frame held across that exchange. The producer supplies a fresh
-            // owned handoff on the next poll.
-            let mut state = lock(shared);
-            if let Some(packet) = state.pending.take() {
-                state.returned = Some(packet);
-            }
-            drop(state);
-            thread::park_timeout(resources.poll_interval);
-            continue;
         }
-        if !current(shared, epoch) {
-            break Ok(());
-        }
-        reject_busy(listener, counters);
-        let packet = lock(shared).pending.take();
-        let input = packet.as_ref().filter(|p| p.epoch == epoch);
-        let frame = input.and_then(|p| {
-            p.frame.map(|(sequence, capture)| Frame {
-                sequence,
-                capture,
-                bytes: &p.bytes.as_ref()[..capture.len],
-            })
-        });
-        let metadata = input.and_then(|p| {
-            p.description
-                .map(|(revision, length, content_type)| Metadata {
-                    revision,
-                    content_type,
-                    bytes: &p.metadata[..length],
-                })
-        });
-        let progress = http.poll_with_metadata(now(shared), frame, metadata);
-        let mut state = lock(shared);
-        if let Some(packet) = packet {
-            state.returned = Some(packet);
-        }
-        publish(&mut state, &http, counters);
-        state.progress.active = progress.active;
-        state.progress.bytes_written = state
-            .progress
-            .bytes_written
-            .saturating_add(progress.bytes_written);
-        state.progress.frame_accepted |= progress.frame_accepted;
-        state.progress.frames_completed = state
-            .progress
-            .frames_completed
-            .saturating_add(progress.frames_completed);
-        drop(state);
-        if !progress.active {
-            break Ok(());
+        match poll_media(
+            shared,
+            listener,
+            &mut http,
+            epoch,
+            counters,
+            microphone_origin,
+            &mut microphone,
+        ) {
+            Ok(true) => {}
+            Ok(false) => break Ok(()),
+            Err(error) => break Err(error),
         }
         thread::park_timeout(resources.poll_interval);
     };
-    (http.retire(), result)
+    let storage = http.retire();
+    let retired = microphone.as_mut().map_or(Ok(()), Microphone::stop);
+    (storage, result.and(retired))
+}
+
+fn poll_media<B: AsRef<[u8]> + AsMut<[u8]>>(
+    shared: &Shared<B>,
+    listener: &TcpListener,
+    http: &mut HttpSession<::tls::Connection<'_>, B>,
+    epoch: usize,
+    counters: &mut Counters,
+    microphone_origin: Option<Instant>,
+    microphone: &mut Option<Microphone>,
+) -> Result<bool, ::tls::Error> {
+    if !current(shared, epoch) {
+        return Ok(false);
+    }
+    reject_busy(listener, counters);
+    if let Some(state) = http.microphone_change() {
+        let applied = if state.muted {
+            if let Some(mut capture) = microphone.take() {
+                capture.stop()?;
+            }
+            true
+        } else {
+            if microphone.is_none() {
+                let origin = microphone_origin.ok_or(::tls::Error::InvalidInput)?;
+                *microphone = Some(Microphone::start(origin)?);
+            }
+            microphone.as_mut().ok_or(::tls::Error::Io)?.ready()?
+        };
+        if applied && !http.confirm_microphone_state(state) {
+            return Err(::tls::Error::Io);
+        }
+    } else if http.audio_requested() {
+        microphone.as_mut().ok_or(::tls::Error::Io)?.ready()?;
+    }
+    let packet = lock(shared).pending.take();
+    let input = packet.as_ref().filter(|p| p.epoch == epoch);
+    let frame = input.and_then(|p| {
+        p.frame.map(|(sequence, capture)| Frame {
+            sequence,
+            capture,
+            bytes: &p.bytes.as_ref()[..capture.len],
+        })
+    });
+    let metadata = input.and_then(|p| {
+        p.description
+            .map(|(revision, length, content_type)| Metadata {
+                revision,
+                content_type,
+                bytes: &p.metadata[..length],
+            })
+    });
+    let audio = microphone.as_ref().and_then(Microphone::block);
+    let progress = http.poll_media(now(shared), frame, metadata, audio);
+    if progress.audio_accepted {
+        if let Some(microphone) = microphone {
+            microphone.accepted();
+        }
+    }
+    let mut state = lock(shared);
+    if let Some(packet) = packet {
+        state.returned = Some(packet);
+    }
+    publish(&mut state, http, counters);
+    state.progress.active = progress.active;
+    state.progress.bytes_written = state
+        .progress
+        .bytes_written
+        .saturating_add(progress.bytes_written);
+    state.progress.frame_accepted |= progress.frame_accepted;
+    state.progress.audio_accepted |= progress.audio_accepted;
+    state.progress.frames_completed = state
+        .progress
+        .frames_completed
+        .saturating_add(progress.frames_completed);
+    Ok(progress.active)
 }
 
 #[cfg(test)]
@@ -619,23 +759,28 @@ mod tests {
     #[test]
     fn initializer_error_or_unwind_cannot_strand_startup() {
         for unwind in [false, true] {
-            let result =
-                Worker::spawn::<fn(&::tls::Identity) -> Result<::tls::TimeLease, ::tls::Error>>(
-                    TcpListener::bind("127.0.0.1:0").unwrap(),
-                    [0; 4],
-                    [0; 4],
-                    Options::default(),
-                    TlsOptions {
-                        stack_bytes: 65536,
-                        poll_interval: Duration::from_millis(1),
-                    },
-                    move || {
-                        if unwind {
-                            panic!("initializer witness");
-                        }
-                        Err(Error::Tls(::tls::Error::Unsupported))
-                    },
-                );
+            let result = Worker::spawn::<
+                for<'id> fn(
+                    &'id ::tls::Identity,
+                    TimeChannel<'id, '_>,
+                    RefreshStep<'_>,
+                ) -> Result<::tls::TimeLease, ::tls::Error>,
+            >(
+                TcpListener::bind("127.0.0.1:0").unwrap(),
+                [0; 4],
+                [0; 4],
+                Options::default(),
+                TlsOptions {
+                    stack_bytes: 65536,
+                    poll_interval: Duration::from_millis(1),
+                },
+                move || {
+                    if unwind {
+                        panic!("initializer witness");
+                    }
+                    Err(Error::Tls(::tls::Error::Unsupported))
+                },
+            );
             assert!(matches!(
                 result,
                 Err(Error::Worker) | Err(Error::Tls(::tls::Error::Unsupported))
@@ -648,8 +793,10 @@ mod tests {
         let shared = Arc::new(Shared {
             state: Mutex::new(State::<[u8; 4]> {
                 update: None,
+                microphone_origin: None,
                 pending: None,
                 returned: None,
+                ready_after: None,
                 clock: None,
                 stream: ServerStats::default(),
                 tls: TlsStats::default(),
@@ -680,7 +827,7 @@ mod tests {
         worker.poll(11, false, None, None).unwrap();
         worker.poll(12, true, None, None).unwrap();
         assert_eq!(shared.epoch.load(Ordering::Acquire), 3);
-        assert_eq!(worker.stats().1.skipped_busy, 2);
+        assert_eq!(worker.stats().1.skipped_busy, 0);
         drop(held);
         worker.free = Some(Packet {
             bytes: [0; 4],
@@ -709,6 +856,20 @@ mod tests {
                     capture,
                     bytes: &bytes,
                 }),
+                None,
+            )
+            .unwrap();
+        assert!(shared.state.lock().unwrap().pending.is_none());
+        shared.state.lock().unwrap().ready_after = Some(0);
+        worker
+            .poll(
+                13,
+                true,
+                Some(Frame {
+                    sequence: 1,
+                    capture,
+                    bytes: &bytes,
+                }),
                 Some(Metadata {
                     revision: 7,
                     content_type: "application/test",
@@ -723,6 +884,24 @@ mod tests {
         assert_eq!(&*packet.metadata, b"data");
         assert_eq!(packet.description, Some((7, 4, "application/test")));
         assert_eq!(packet.epoch, 3);
+        {
+            let mut state = shared.state.lock().unwrap();
+            state.ready_after = Some(1);
+            state.returned = Some(packet);
+        }
+        worker
+            .poll(
+                14,
+                true,
+                Some(Frame {
+                    sequence: 1,
+                    capture,
+                    bytes: &bytes,
+                }),
+                None,
+            )
+            .unwrap();
+        assert!(shared.state.lock().unwrap().pending.is_none());
         assert!(matches!(
             worker.poll(12, true, None, None),
             Err(Error::Tls(::tls::Error::Time))
