@@ -274,6 +274,7 @@ impl<R> AsMut<R> for Driver<R> {
 }
 impl<R: Read + Write> peripheral::gnss::Receiver for Driver<R> {
     fn configure(&mut self, deadline: Instant) -> Result<(), DriverError> {
+        self.decoder.set_satellite_interval(0);
         self.saved_rate = Some(self.query_nav_pvt_uart1_rate(deadline)?);
         let current = self.query_navigation(deadline)?;
         let (measurement, cycles) = if let Some(period) = self.navigation_period_ms {
@@ -292,7 +293,7 @@ impl<R: Read + Write> peripheral::gnss::Receiver for Driver<R> {
             let key = ConfigKey::MSGOUT_NAV_SAT_UART1;
             self.saved_satellite_rate = Some(self.query_rate(key, deadline)?);
             self.set_and_verify_rate(key, rate, deadline)?;
-            self.decoder.set_satellite_age(nav_period.saturating_mul(u32::from(rate)));
+            self.decoder.set_satellite_interval(nav_period.saturating_mul(u32::from(rate)));
         }
         self.reset_decoder();
         Ok(())
@@ -328,7 +329,7 @@ impl<R: Read + Write> peripheral::gnss::Receiver for Driver<R> {
     }
     fn read_available(
         &mut self,
-        mut emit: impl FnMut(Result<Report, DriverError>),
+        mut emit: impl FnMut(Result<Report<'_>, DriverError>),
     ) -> Result<(), DriverError> {
         self.read_chunk(|event| match event {
             ubx::Event::NavPvt(result) => emit(result.map(|report| {
@@ -350,6 +351,7 @@ impl<R: Read + Write> peripheral::gnss::Receiver for Driver<R> {
                 })
             })),
             ubx::Event::Pulse(pulse) => emit(Ok(Report::Pulse(pulse))),
+            ubx::Event::Satellites(report) => emit(Ok(Report::Satellites(report))),
             ubx::Event::Invalid => emit(Err(DriverError::InvalidData)),
             _ => {}
         })

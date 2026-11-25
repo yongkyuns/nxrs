@@ -1,4 +1,4 @@
-use super::{canvas, charts, gesture, map};
+use super::{canvas, charts, gesture, map, quality};
 use crate::{
     communications::{Key, LinkStatus, Tile, View, Zoom},
     text::Text,
@@ -24,13 +24,13 @@ const MENU_HEIGHT: i32 = 40;
 const QR_TOP: u16 = 80;
 const BG: u16 = 0x0883;
 const PANEL: u16 = 0x1126;
-const GRID: u16 = 0x226b;
+pub(super) const GRID: u16 = 0x226b;
 const AXIS: u16 = 0x4350;
-const TEXT: u16 = 0xef9e;
-const MUTED: u16 = 0xa558;
+pub(super) const TEXT: u16 = 0xef9e;
+pub(super) const MUTED: u16 = 0xa558;
 const MINT: u16 = 0x57f4;
-const GOLD: u16 = 0xfda6;
-const RED: u16 = 0xfb0d;
+pub(super) const GOLD: u16 = 0xfda6;
+pub(super) const RED: u16 = 0xfb0d;
 const SIGNALS: [u16; 3] = [MINT, GOLD, 0x661f];
 
 #[derive(Default, Clone, Copy, Debug, Eq, PartialEq)]
@@ -38,8 +38,17 @@ enum Page {
     #[default]
     Onboard,
     Module,
+    Map,
     Gnss,
 }
+
+const TABS: [(Page, &[u8]); 4] = [
+    (Page::Onboard, b"IMU 1"),
+    (Page::Module, b"IMU 2"),
+    (Page::Map, b"MAP"),
+    (Page::Gnss, b"GNSS"),
+];
+const LINK_TAB: i32 = TABS.len() as i32;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Action {
@@ -55,7 +64,7 @@ struct Layout {
 
 impl Layout {
     fn tab(&self, index: i32) -> Area {
-        let width = (self.width - 38) / 4;
+        let width = (self.width - 44) / (LINK_TAB + 1);
         Area {
             x: 10 + index * (width + 6),
             y: 5,
@@ -100,7 +109,7 @@ impl Dashboard {
         snapshot: &Snapshot,
         zoom: Zoom,
     ) -> Option<(Position, f32)> {
-        if self.page != Page::Gnss || link == LinkStatus::Pairing {
+        if self.page != Page::Map || link == LinkStatus::Pairing {
             return None;
         }
         match snapshot.gnss {
@@ -136,6 +145,7 @@ pub struct Screen<D> {
     layout: Layout,
     pixels: Box<[u16]>,
     present: Option<(Page, Metric, LinkStatus, bool)>,
+    quality: Option<quality::View>,
     ui: Dashboard,
     history: History,
     map: MapView,
@@ -164,6 +174,7 @@ impl<D: Display> Screen<D> {
             layout,
             pixels: vec![BG; usize::from(size.width) * usize::from(STRIP)].into_boxed_slice(),
             present: None,
+            quality: None,
             ui: Dashboard::default(),
             history: History::new(zoom),
             map: MapView::default(),
@@ -221,11 +232,11 @@ impl<D: Display> Screen<D> {
         let (x, y) = (point.x.into(), point.y.into());
         if status == LinkStatus::Pairing {
             return layout
-                .tab(3)
+                .tab(LINK_TAB)
                 .contains(x, y)
                 .then_some(Action::CancelPairing);
         }
-        if ui.menu && layout.tab(3).contains(x, y) {
+        if ui.menu && layout.tab(LINK_TAB).contains(x, y) {
             return match status {
                 LinkStatus::Idle | LinkStatus::Paired | LinkStatus::Unavailable => {
                     Some(Action::Pair)
@@ -234,10 +245,7 @@ impl<D: Display> Screen<D> {
             };
         }
         if ui.menu {
-            for (index, tab) in [Page::Onboard, Page::Module, Page::Gnss]
-                .into_iter()
-                .enumerate()
-            {
+            for (index, (tab, _)) in TABS.into_iter().enumerate() {
                 if layout.tab(index as i32).contains(x, y) {
                     ui.page = tab;
                     ui.menu = false;
@@ -245,7 +253,7 @@ impl<D: Display> Screen<D> {
                 }
             }
         }
-        if ui.page != Page::Gnss {
+        if matches!(ui.page, Page::Onboard | Page::Module) {
             for (index, metric) in [Metric::Acceleration, Metric::Rotation]
                 .into_iter()
                 .enumerate()
@@ -271,6 +279,7 @@ impl<D: Display> Screen<D> {
         link: LinkStatus,
         snapshot: &Snapshot,
         now: Instant,
+        satellites: impl FnOnce() -> Reading<gnss::SatelliteReport>,
         exchange_tile: impl FnOnce(Option<Key>) -> Option<Tile>,
     ) -> Result<(), Error> {
         if now >= self.next_sample {
@@ -278,11 +287,12 @@ impl<D: Display> Screen<D> {
             self.next_sample = now + SAMPLE_INTERVAL;
         }
         if now >= self.next_plot {
-            let interval = if self.ui.page == Page::Gnss || link == LinkStatus::Pairing {
-                SAMPLE_INTERVAL
-            } else {
-                CHART_INTERVAL
-            };
+            let interval =
+                if matches!(self.ui.page, Page::Map | Page::Gnss) || link == LinkStatus::Pairing {
+                    SAMPLE_INTERVAL
+                } else {
+                    CHART_INTERVAL
+                };
             self.next_plot += interval;
             if self.next_plot <= now {
                 self.next_plot = now + interval;
@@ -295,7 +305,49 @@ impl<D: Display> Screen<D> {
         if let (Some(tile), Some(viewport)) = (exchange_tile(wanted), viewport) {
             self.map.accept(viewport, tile);
         }
-        self.render(link, snapshot, now, viewport)?;
+        if self.ui.page == Page::Gnss && link != LinkStatus::Pairing {
+            let view = quality::View::new(snapshot.gnss, satellites());
+            self.render_quality(link, view)?;
+        } else {
+            self.render(link, snapshot, now, viewport)?;
+        }
+        Ok(())
+    }
+
+    fn render_quality(&mut self, link: LinkStatus, view: quality::View) -> Result<(), Error> {
+        let Self {
+            display,
+            pixels,
+            layout,
+            ui,
+            present,
+            quality,
+            ..
+        } = self;
+        let key = (ui.page, ui.metric, link, ui.menu);
+        let full = *present != Some(key);
+        if !full && quality.as_ref() == Some(&view) {
+            return Ok(());
+        }
+        *present = None;
+        let top = ui.content_top();
+        let y = if full { 0 } else { top };
+        let region = Area {
+            x: 0,
+            y,
+            w: layout.width,
+            h: layout.height - y,
+        };
+        draw_strips(display, pixels, region, Some, |canvas| {
+            if full && canvas.area().y < top {
+                header(canvas, layout, ui, link);
+            }
+            if canvas.area().y + canvas.area().h > top {
+                view.paint(canvas, layout.width, layout.height, top);
+            }
+        })?;
+        *quality = Some(view);
+        *present = Some(key);
         Ok(())
     }
 
@@ -484,15 +536,8 @@ fn header(canvas: &mut Canvas<'_>, layout: &Layout, ui: &Dashboard, link: LinkSt
         LinkStatus::Pairing => unreachable!(),
         LinkStatus::Connected => (b"LINKED", MINT, false),
     };
-    chip(canvas, layout.tab(3), label, color, clickable);
-    for (index, (page, label)) in [
-        (Page::Onboard, b"IMU 1".as_slice()),
-        (Page::Module, b"IMU 2"),
-        (Page::Gnss, b"GNSS"),
-    ]
-    .into_iter()
-    .enumerate()
-    {
+    chip(canvas, layout.tab(LINK_TAB), label, color, clickable);
+    for (index, (page, label)) in TABS.into_iter().enumerate() {
         let area = layout.tab(index as i32);
         chip(
             canvas,
@@ -533,7 +578,7 @@ fn chip(canvas: &mut Canvas<'_>, area: Area, text: &[u8], color: u16, highlighte
 
 fn pairing(canvas: &mut Canvas<'_>, layout: &Layout, code: &QrCode) {
     if canvas.area().y < MENU_HEIGHT {
-        chip(canvas, layout.tab(3), b"CANCEL", TEXT, true);
+        chip(canvas, layout.tab(LINK_TAB), b"CANCEL", TEXT, true);
     }
     canvas.text(
         (layout.width - 17 * 12) / 2,
@@ -694,7 +739,7 @@ impl<'a> Body<'a> {
         map: Option<(Viewport, &'a MapView)>,
         route: &'a mut [RoutePoint; ROUTE_POINTS],
     ) -> Self {
-        if ui.page == Page::Gnss {
+        if ui.page == Page::Map {
             if let Some((viewport, map)) = map.filter(|(viewport, map)| {
                 viewport
                     .keys()
@@ -1074,7 +1119,13 @@ mod tests {
             gnss: Reading::Waiting,
         };
         screen
-            .draw(LinkStatus::Idle, &snapshot, now, |_| None)
+            .draw(
+                LinkStatus::Idle,
+                &snapshot,
+                now,
+                || Reading::Waiting,
+                |_| None,
+            )
             .unwrap();
         assert_eq!(screen.deadline(), now + CHART_INTERVAL);
         screen.display.1.clear();
@@ -1087,7 +1138,13 @@ mod tests {
         snapshot.imu[0] = Reading::Fault;
         let next = now + CHART_INTERVAL + Duration::from_millis(10);
         screen
-            .draw(LinkStatus::Idle, &snapshot, next, |_| None)
+            .draw(
+                LinkStatus::Idle,
+                &snapshot,
+                next,
+                || Reading::Waiting,
+                |_| None,
+            )
             .unwrap();
         assert_eq!(screen.deadline(), now + CHART_INTERVAL * 2);
         let writes = &screen.display.1;
@@ -1110,7 +1167,13 @@ mod tests {
         let partial = screen.display.0.clone();
         screen.present = None;
         screen
-            .draw(LinkStatus::Idle, &snapshot, next, |_| None)
+            .draw(
+                LinkStatus::Idle,
+                &snapshot,
+                next,
+                || Reading::Waiting,
+                |_| None,
+            )
             .unwrap();
         assert_eq!(screen.display.0, partial);
     }
@@ -1118,6 +1181,69 @@ mod tests {
     fn tap(screen: &mut Screen<Panel>, link: LinkStatus, point: Point) -> Option<Action> {
         assert_eq!(screen.input(link, Event::Pressed(point), false), None);
         screen.input(link, Event::Released, false)
+    }
+
+    #[test]
+    fn gnss_tab_draws_constellation_bars_without_a_fix_and_clears_expired_signals() {
+        use gnss::{Constellation, SatelliteReport, SatelliteSignal};
+
+        let mut screen = Screen::new(Panel::new(), Zoom::default()).unwrap();
+        screen.ui.menu = true;
+        let link = LinkStatus::Idle;
+        let tab = screen.layout.tab(3);
+        assert_eq!(
+            tap(
+                &mut screen,
+                link,
+                Point {
+                    x: (tab.x + 10) as u16,
+                    y: 20
+                }
+            ),
+            Some(Action::Redraw)
+        );
+        assert_eq!(screen.ui.page, Page::Gnss);
+        let now = screen.deadline();
+        let snapshot = Snapshot {
+            clock: None,
+            imu: [Reading::Waiting; 2],
+            gnss: Reading::Waiting,
+        };
+        let report = SatelliteReport::new(
+            3,
+            2,
+            Some(35),
+            3000,
+            2,
+            [
+                SatelliteSignal {
+                    constellation: Constellation::Gps,
+                    id: 3,
+                    cn0_db_hz: 45,
+                },
+                SatelliteSignal {
+                    constellation: Constellation::Galileo,
+                    id: 11,
+                    cn0_db_hz: 25,
+                },
+            ],
+        );
+        let draw = |screen: &mut Screen<Panel>, signals| {
+            screen
+                .draw(link, &snapshot, now, || signals, |_| None)
+                .unwrap();
+        };
+        draw(&mut screen, Reading::Live(report));
+        let at = |x: usize, y: usize| y * 320 + x;
+        assert_eq!(screen.display.0[at(40, 150)], MINT);
+        assert_ne!(screen.display.0[at(63, 150)], 0x661f);
+        assert_eq!(screen.display.0[at(63, 196)], 0x661f);
+        screen.display.1.clear();
+        draw(&mut screen, Reading::Live(report));
+        assert!(screen.display.1.is_empty());
+        draw(&mut screen, Reading::Stale);
+        assert_eq!(screen.display.0[at(40, 196)], BG);
+        assert_eq!(screen.display.0[at(63, 196)], BG);
     }
 
     #[test]
@@ -1139,10 +1265,14 @@ mod tests {
             gnss: Reading::Waiting,
             clock: None,
         };
-        screen.draw(link, &snapshot, start, |_| None).unwrap();
+        screen
+            .draw(link, &snapshot, start, || Reading::Waiting, |_| None)
+            .unwrap();
         sample.accel_mps2 = [7.0, 4.0, -8.0];
         snapshot.imu[0] = Reading::Live(sample);
-        screen.draw(link, &snapshot, now, |_| None).unwrap();
+        screen
+            .draw(link, &snapshot, now, || Reading::Waiting, |_| None)
+            .unwrap();
         let deadline = screen.deadline();
 
         for x in [280, 230] {
@@ -1152,7 +1282,9 @@ mod tests {
                 tap(&mut screen, link, Point { x, y: 20 }),
                 Some(Action::Redraw)
             );
-            screen.draw(link, &snapshot, now, |_| None).unwrap();
+            screen
+                .draw(link, &snapshot, now, || Reading::Waiting, |_| None)
+                .unwrap();
             assert_eq!(screen.deadline(), deadline);
 
             let (controls, body) = screen.display.1.split_at(3);
@@ -1162,7 +1294,9 @@ mod tests {
             let partial = screen.display.0.clone();
             assert_ne!(partial, before);
             screen.present = None;
-            screen.draw(link, &snapshot, now, |_| None).unwrap();
+            screen
+                .draw(link, &snapshot, now, || Reading::Waiting, |_| None)
+                .unwrap();
             assert_eq!(screen.display.0, partial);
         }
     }
@@ -1184,7 +1318,7 @@ mod tests {
         let mut screen = Screen::new(Panel::new(), Zoom::default()).unwrap();
         let pair = Point { x: 275, y: 20 };
         let module = Point { x: 115, y: 20 };
-        let gnss = Point { x: 195, y: 20 };
+        let map = Point { x: 155, y: 20 };
         let below = Point { x: 275, y: 80 };
         let gyro = Point { x: 280, y: 20 };
         assert_eq!(
@@ -1199,7 +1333,13 @@ mod tests {
             gnss: Reading::Waiting,
         };
         screen
-            .draw(LinkStatus::Idle, &snapshot, now, |_| None)
+            .draw(
+                LinkStatus::Idle,
+                &snapshot,
+                now,
+                || Reading::Waiting,
+                |_| None,
+            )
             .unwrap();
         assert!(!screen.display.0.contains(&0xffff));
         assert_eq!(screen.display.0[320 * 45 + 12], PANEL);
@@ -1209,7 +1349,13 @@ mod tests {
         );
         assert!(screen.ui.menu);
         screen
-            .draw(LinkStatus::Idle, &snapshot, now, |_| None)
+            .draw(
+                LinkStatus::Idle,
+                &snapshot,
+                now,
+                || Reading::Waiting,
+                |_| None,
+            )
             .unwrap();
         assert_eq!(screen.display.0[320 * 39], PANEL);
         assert_eq!(screen.display.0[320 * 45 + 12], BG);
@@ -1232,7 +1378,13 @@ mod tests {
             .unwrap();
         assert!(!screen.ui.menu);
         screen
-            .draw(LinkStatus::Pairing, &snapshot, now, |_| None)
+            .draw(
+                LinkStatus::Pairing,
+                &snapshot,
+                now,
+                || Reading::Waiting,
+                |_| None,
+            )
             .unwrap();
         let code =
             QrCode::encode_text(&format!("NXRS1:{}", "2A".repeat(32)), QrCodeEcc::Low).unwrap();
@@ -1270,13 +1422,19 @@ mod tests {
         );
         assert_eq!(tap(&mut screen, LinkStatus::Connected, pair), None);
         assert_eq!(
-            tap(&mut screen, LinkStatus::Connected, gnss),
+            tap(&mut screen, LinkStatus::Connected, map),
             Some(Action::Redraw)
         );
         assert!(!screen.ui.menu);
-        assert_eq!(screen.ui.page, Page::Gnss);
+        assert_eq!(screen.ui.page, Page::Map);
         screen
-            .draw(LinkStatus::Connected, &snapshot, now, |_| None)
+            .draw(
+                LinkStatus::Connected,
+                &snapshot,
+                now,
+                || Reading::Waiting,
+                |_| None,
+            )
             .unwrap();
     }
 

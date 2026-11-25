@@ -288,6 +288,14 @@ static void draw_pixels(const uint8_t *bytes, size_t size)
       tracker_frame_sequence++;
       full_repaint = g_x == 0 && g_last_column == WIDTH - 1 &&
                      (g_y == 0 || g_y == 8 || g_y == 40);
+      if (full_repaint && g_y == 0)
+        {
+          /* A complete frame replaces all indices in both palettes. */
+          g_color_count = 0;
+#ifdef TRACKER_MAP_PANEL
+          g_center_count = 0;
+#endif
+        }
     }
 
   unsigned int colors[2] = {0};

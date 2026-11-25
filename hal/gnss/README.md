@@ -16,6 +16,9 @@ The optional satellite summary contains the receiver's visible-or-tracked count,
 the count with synchronized code or carrier lock, and mean C/N₀ for tracked
 satellites with a signal reading, rounded to whole dB-Hz. `age_ms` gives the
 report's age relative to the fix epoch, up to one configured NAV-SAT interval.
+`Event::Satellites` delivers the latest report independently of fixes. It
+includes constellation, satellite ID, and C/N₀ for up to 24 strongest
+measured signals. The report's aggregate counts cover the full receiver list.
 
 The NuttX provider owns a nonblocking UART. The CoreS3 profile declares a UART
 resource and an M9 receiver. The [driver binding](../../driver/ubx/bindings.toml)

@@ -44,7 +44,7 @@ impl Receiver for Source {
     }
     fn read_available(
         &mut self,
-        mut emit: impl FnMut(Result<Report, Error>),
+        mut emit: impl FnMut(Result<Report<'_>, Error>),
     ) -> Result<(), Error> {
         if FAIL_READ.swap(false, Ordering::AcqRel) {
             return Err(Error::Io);

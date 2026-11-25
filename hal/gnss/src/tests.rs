@@ -165,7 +165,11 @@ impl Receiver<Driver<Stream>> {
     fn fixture_fix(&mut self, now_us: u64) -> Result<GnssFix, DeviceError> {
         let mut latest = Err(DeviceError::Busy);
         while !self.source.io().input.is_empty() {
-            self.read_events(now_us, |event| latest = event)?;
+            self.read_events(now_us, |event| match event {
+                Ok(Event::Fix(fix)) => latest = Ok(fix),
+                Err(error) => latest = Err(error),
+                _ => {}
+            })?;
         }
         latest
     }
@@ -200,20 +204,41 @@ fn fixes_include_quality_and_only_recent_satellite_reports() {
         ])
         .enumerate()
     {
+        block[0] = if index % 2 == 0 { 0 } else { 2 };
         block[1] = index as u8 + 1;
         block[2] = cn0;
         block[8] = quality;
     }
     stream.input.extend(frame(1, 0x35, &sat));
+    let mut receiver = Receiver::new(Driver::new(stream));
+    let mut satellite_report = None;
+    while !receiver.source.io().input.is_empty() {
+        receiver
+            .read_events(9_000, |event| match event.unwrap() {
+                Event::Satellites(report) => satellite_report = Some(report),
+                _ => panic!("expected only the satellite report"),
+            })
+            .unwrap();
+    }
+    let report = satellite_report.unwrap();
+    assert_eq!((report.visible, report.tracked, report.measured), (9, 3, 4));
+    assert_eq!(report.interval_ms, 0);
+    assert_eq!(
+        report.signals()[1],
+        SatelliteSignal {
+            constellation: Constellation::Galileo,
+            id: 2,
+            cn0_db_hz: 28,
+        }
+    );
     let mut fix = pvt(250);
     fix[23] = 2;
     fix[40..44].copy_from_slice(&2_500u32.to_le_bytes());
     fix[44..48].copy_from_slice(&4_750u32.to_le_bytes());
     fix[68..72].copy_from_slice(&250u32.to_le_bytes());
     fix[76..78].copy_from_slice(&175u16.to_le_bytes());
-    stream.input.extend(frame(1, 7, &fix));
+    receiver.source.io_mut().input.extend(frame(1, 7, &fix));
 
-    let mut receiver = Receiver::new(Driver::new(stream));
     let quality = receiver.fixture_fix(10_000).unwrap().quality.unwrap();
     assert_eq!(quality.satellites_used, 2);
     assert_eq!(quality.horizontal_accuracy_m, 2.5);
@@ -485,7 +510,10 @@ fn event_reads_deliver_every_fragmented_fix_without_coalescing() {
     let mut fixes = Vec::new();
     while !receiver.source.io().input.is_empty() {
         receiver
-            .read_events(123, |fix| fixes.push(fix.unwrap()))
+            .read_events(123, |event| match event.unwrap() {
+                Event::Fix(fix) => fixes.push(fix),
+                _ => panic!("expected a fix"),
+            })
             .unwrap();
     }
     assert_eq!(
@@ -511,5 +539,5 @@ fn corrupt_event_frame_is_reported_then_next_valid_fix_is_delivered() {
     }
     assert_eq!(events.len(), 2);
     assert_eq!(events[0], Err(DeviceError::InvalidData));
-    assert_eq!(events[1].unwrap().sequence, 1);
+    assert!(matches!(events[1], Ok(Event::Fix(fix)) if fix.sequence == 1));
 }

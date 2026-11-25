@@ -4,7 +4,7 @@ use crate::{
     DriverError, NavPvt,
 };
 use kinavis_ubx::{config, ConfigKey, Layers, Message, PollLayer};
-use peripheral::gnss::{SatelliteStatus, TimePulse};
+use peripheral::gnss::{SatelliteReport, SatelliteStatus, TimePulse};
 
 const WEEK_MS: u32 = 604_800_000;
 const DEFAULT_SATELLITE_AGE_MS: u32 = 2_000;
@@ -16,9 +16,13 @@ pub(super) const TIM_TP_RATE: ConfigKey = match ConfigKey::new(0x2091_017e) {
 
 pub(super) enum Event<'a> {
     NavPvt(Result<&'a NavPvt, DriverError>),
+    Satellites(SatelliteReport<'a>),
     Rate(ConfigKey, u8),
     Pulse(Option<TimePulse>),
-    Navigation { measurement: u16, cycles: u16 },
+    Navigation {
+        measurement: u16,
+        cycles: u16,
+    },
     Ack(bool),
     Invalid,
 }
@@ -26,7 +30,7 @@ pub(super) enum Event<'a> {
 pub(super) struct Decoder {
     parser: Framer,
     satellites: Option<(u32, SatelliteStatus)>,
-    satellite_age_ms: u32,
+    satellite_interval_ms: u32,
 }
 
 impl Default for Decoder {
@@ -34,15 +38,14 @@ impl Default for Decoder {
         Self {
             parser: Framer::default(),
             satellites: None,
-            satellite_age_ms: DEFAULT_SATELLITE_AGE_MS,
+            satellite_interval_ms: 0,
         }
     }
 }
 
 impl Decoder {
-    pub(super) fn set_satellite_age(&mut self, interval_ms: u32) {
-        // Ages repeat each receiver week. Keep matching unambiguous.
-        self.satellite_age_ms = interval_ms.min(WEEK_MS / 2 - 1);
+    pub(super) fn set_satellite_interval(&mut self, interval_ms: u32) {
+        self.satellite_interval_ms = interval_ms;
     }
 
     pub(super) fn reset(&mut self) {
@@ -56,11 +59,13 @@ impl Decoder {
         for &byte in bytes {
             let frame = match self.parser.push(byte) {
                 Some(WireEvent::Frame(frame)) => frame,
-                Some(WireEvent::Satellites(epoch, status)) if epoch < WEEK_MS => {
-                    self.satellites = Some((epoch, status));
+                Some(WireEvent::Satellites(epoch, mut report)) if epoch < WEEK_MS => {
+                    self.satellites = Some((epoch, report.status));
+                    report.interval_ms = self.satellite_interval_ms;
+                    emit(Event::Satellites(report));
                     continue;
                 }
-                Some(WireEvent::Invalid | WireEvent::Satellites(_, _)) => {
+                Some(WireEvent::Invalid | WireEvent::Satellites(..)) => {
                     emit(Event::Invalid);
                     continue;
                 }
@@ -109,12 +114,17 @@ impl Decoder {
                         && heading_accuracy < 180.0_f64.to_radians())
                     .then(|| p.heading_of_motion.degrees().to_radians() as f32);
                     let satellites = self.satellites.and_then(|(epoch, mut status)| {
+                        // Ages repeat each receiver week. Keep matching unambiguous.
+                        let limit = match self.satellite_interval_ms {
+                            0 => DEFAULT_SATELLITE_AGE_MS,
+                            interval => interval.min(WEEK_MS / 2 - 1),
+                        };
                         let age = (p.itow + WEEK_MS - epoch) % WEEK_MS;
-                        if age <= self.satellite_age_ms {
+                        if age <= limit {
                             status.age_ms = age;
                             return Some(status);
                         }
-                        if age < WEEK_MS - self.satellite_age_ms {
+                        if age < WEEK_MS - limit {
                             self.satellites = None;
                         }
                         None

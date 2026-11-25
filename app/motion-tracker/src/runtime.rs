@@ -357,9 +357,13 @@ fn track(
             if let Some(screen) = screen.as_mut().filter(|_| plot_due || redraw) {
                 let snapshot = Snapshot::from(sensors.snapshot(now));
                 screen
-                    .draw(view.link, &snapshot, now, |wanted| {
-                        communications.as_ref().and_then(|links| links.map(wanted))
-                    })
+                    .draw(
+                        view.link,
+                        &snapshot,
+                        now,
+                        || telemetry.readings.satellites(now),
+                        |wanted| communications.as_ref().and_then(|links| links.map(wanted)),
+                    )
                     .map_err(display_error)?;
                 redraw = false;
             }

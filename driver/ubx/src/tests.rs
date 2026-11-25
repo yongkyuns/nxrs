@@ -142,7 +142,7 @@ fn nav_pvt_only_exports_resolved_utc_and_preserves_negative_fraction() {
 
 #[test]
 fn fragmented_nav_pvt_reports_epoch_coordinates_speed_and_heading_quality() {
-    assert!(core::mem::size_of::<ubx::Decoder>() <= 160);
+    assert!(core::mem::size_of::<ubx::Decoder>() <= 240);
     let wire = frame(1, 7, &pvt(1000));
     for split in 0..=wire.len() {
         let mut decoder = ubx::Decoder::default();
@@ -185,8 +185,10 @@ fn satellite_framer_checks_shape_and_checksum_at_the_protocol_limit() {
     let mut payload = [0; 8 + 255 * 12];
     payload[4] = 1;
     payload[5] = 255;
-    for block in payload[8..].chunks_exact_mut(12) {
-        block[2] = 55;
+    for (id, block) in payload[8..].chunks_exact_mut(12).enumerate() {
+        block[0] = if id % 2 == 0 { 0 } else { 2 };
+        block[1] = id as u8;
+        block[2] = id as u8;
         block[8] = 4;
     }
     let valid = frame(1, 0x35, &payload);
@@ -196,19 +198,46 @@ fn satellite_framer_checks_shape_and_checksum_at_the_protocol_limit() {
     let wrong_count = frame(1, 0x35, &payload);
     let mut parser = Framer::default();
     let mut errors = 0;
-    let mut summaries = Vec::new();
+    let mut reports = 0;
     for byte in corrupt.into_iter().chain(wrong_count).chain(valid) {
         match parser.push(byte) {
             Some(Event::Invalid) => errors += 1,
-            Some(Event::Satellites(_, status)) => summaries.push(status),
+            Some(Event::Satellites(
+                _,
+                peripheral::gnss::SatelliteReport {
+                    status,
+                    measured,
+                    signals,
+                    ..
+                },
+            )) => {
+                use peripheral::gnss::Constellation;
+                reports += 1;
+                assert_eq!((status.visible, status.tracked), (255, 255));
+                assert_eq!(status.mean_cn0_db_hz, Some(128));
+                assert_eq!(measured, 254);
+                assert_eq!(signals.len(), 24);
+                let mut ids: Vec<_> = signals.iter().map(|signal| signal.id).collect();
+                ids.sort_unstable();
+                assert!(ids.into_iter().eq(231..=254));
+                for signal in signals {
+                    assert_eq!(signal.cn0_db_hz, signal.id);
+                    assert_eq!(
+                        signal.constellation,
+                        if signal.id % 2 == 0 {
+                            Constellation::Gps
+                        } else {
+                            Constellation::Galileo
+                        }
+                    );
+                }
+            }
             Some(Event::Frame(_)) => panic!("NAV-SAT must be reduced"),
             None => {}
         }
     }
     assert_eq!(errors, 2);
-    assert_eq!(summaries.len(), 1);
-    assert_eq!((summaries[0].visible, summaries[0].tracked), (255, 255));
-    assert_eq!(summaries[0].mean_cn0_db_hz, Some(55));
+    assert_eq!(reports, 1);
 }
 
 #[test]

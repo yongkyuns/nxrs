@@ -67,7 +67,7 @@ export async function probe({ commands, symbols, timeoutMs, ble, tiles }) {
     let image = '';
     let panelSequence = 0;
     let qrDecoded = false;
-    let openedGnss = false;
+    let openedMap = false;
     const touch = tiles ? new Touchscreen(machine, symbols) : null;
     async function untilPrompt(command) {
         const start = machine.cycles();
@@ -107,12 +107,12 @@ export async function probe({ commands, symbols, timeoutMs, ble, tiles }) {
                     else if (!qrDecoded) qrDecoded = await window.pairingPanel(candidate);
                     else if (tiles) {
                         const ready = await window.mapPanel(candidate, Math.floor((cycles - start) / cyclesPerMs));
-                        if (ready && !openedGnss) {
+                        if (ready && !openedMap) {
                             for (const [contact, x, y] of [
                                 [0, 160, 6], [2, 160, 65], [1, 160, 65],
-                                [0, 195, 20], [1, 195, 20],
+                                [0, 155, 20], [1, 155, 20],
                             ]) touch.enqueue({ contact, x, y });
-                            openedGnss = true;
+                            openedMap = true;
                         }
                     }
                     panelSequence = sequence;

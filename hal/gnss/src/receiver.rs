@@ -1,5 +1,8 @@
 //! Stream metadata around a normalized synchronous receiver.
-use crate::{DeviceError, FixQuality, GnssFix, SatelliteStatus};
+use crate::{
+    Constellation, DeviceError, Event, FixQuality, GnssFix, SatelliteReport, SatelliteSignal,
+    SatelliteStatus,
+};
 use peripheral::gnss::{Receiver as Protocol, Report};
 
 pub(crate) struct Receiver<R> {
@@ -25,7 +28,7 @@ impl<R: Protocol> Receiver<R> {
     pub(crate) fn read_events(
         &mut self,
         now_us: u64,
-        mut emit: impl FnMut(Result<GnssFix, DeviceError>),
+        mut emit: impl FnMut(Result<Event, DeviceError>),
     ) -> Result<(), DeviceError> {
         self.source
             .read_available(|event| {
@@ -33,6 +36,21 @@ impl<R: Protocol> Receiver<R> {
                     Ok(Report::Fix(report)) => report,
                     Ok(Report::Pulse(pulse)) => {
                         self.pulse.report(pulse, now_us);
+                        return;
+                    }
+                    Ok(Report::Satellites(report)) => {
+                        emit(Ok(Event::Satellites(SatelliteReport::new(
+                            report.status.visible,
+                            report.status.tracked,
+                            report.status.mean_cn0_db_hz,
+                            report.interval_ms,
+                            report.measured,
+                            report.signals.iter().map(|signal| SatelliteSignal {
+                                constellation: constellation(signal.constellation),
+                                id: signal.id,
+                                cn0_db_hz: signal.cn0_db_hz,
+                            }),
+                        ))));
                         return;
                     }
                     Err(error) => return emit(Err(map_error(error))),
@@ -48,7 +66,7 @@ impl<R: Protocol> Receiver<R> {
                     .filter(|time| self.last_timestamp.is_none_or(|previous| *time > previous));
                 let timestamp_us = capture.unwrap_or(now_us);
                 self.last_timestamp = Some(timestamp_us);
-                emit(Ok(GnssFix {
+                emit(Ok(Event::Fix(GnssFix {
                     sequence: self.sequence,
                     timestamp_us,
                     is_capture_time: capture.is_some(),
@@ -70,9 +88,23 @@ impl<R: Protocol> Receiver<R> {
                             age_ms: status.age_ms,
                         }),
                     }),
-                }));
+                })));
             })
             .map_err(map_error)
+    }
+}
+
+fn constellation(value: peripheral::gnss::Constellation) -> Constellation {
+    use peripheral::gnss::Constellation as Raw;
+    match value {
+        Raw::Gps => Constellation::Gps,
+        Raw::Galileo => Constellation::Galileo,
+        Raw::Beidou => Constellation::Beidou,
+        Raw::Glonass => Constellation::Glonass,
+        Raw::Sbas => Constellation::Sbas,
+        Raw::Qzss => Constellation::Qzss,
+        Raw::Navic => Constellation::Navic,
+        Raw::Other => Constellation::Other,
     }
 }
 

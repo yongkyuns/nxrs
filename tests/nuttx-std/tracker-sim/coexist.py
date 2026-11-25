@@ -519,15 +519,15 @@ class Scenario:
                 raise AssertionError(f'no BLE snapshot after {stream.sample_counts} export samples '
                                      f'at ciphertext offset {stream.offset}') from error
 
-        async def select_gnss():
+        async def select_map():
             await panel.reveal_menu()
-            await panel.tap(195, 20)
+            await panel.tap(155, 20)
 
         map_fix = tile_fixture.tile_center(18, 48.1173, -11.5166667)
         guest.moving_fix = map_fix
         while abs((await sample())['gnss']['lon_deg'] - map_fix['longitude_deg']) >= 1e-6:
             pass
-        await consume_during(select_gnss())
+        await consume_during(select_map())
         async with asyncio.timeout(30):
             while 'tile' not in (snapshot := await sample()):
                 pass

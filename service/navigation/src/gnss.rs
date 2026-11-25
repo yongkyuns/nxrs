@@ -237,6 +237,7 @@ fn run<D: Session>(
                     Submit::Disconnected => break,
                 }
             }
+            Event::Device(gnss::Event::Satellites(_)) => {}
             Event::Device(gnss::Event::InvalidFrame) => {
                 stats.errors = stats.errors.saturating_add(1);
             }

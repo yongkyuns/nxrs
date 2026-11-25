@@ -5,5 +5,6 @@ mod dashboard;
 mod font;
 mod gesture;
 mod map;
+mod quality;
 
 pub(super) use dashboard::{Action, Screen};
