@@ -1,12 +1,12 @@
 use super::{
     export::{Capture, Version, MAX_BYTES, REQUEST_LEN, REQUEST_PREFIX},
     publication::Publisher,
+    wire,
 };
 use crate::{
     map::{Key, Receiver, Response},
     text::Text,
     tracker::Snapshot,
-    wire,
 };
 use ble::{
     peripheral::{self, Link, Listener, Service},

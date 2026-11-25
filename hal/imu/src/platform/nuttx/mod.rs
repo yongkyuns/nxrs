@@ -8,7 +8,8 @@ mod device;
 mod instance;
 mod signal;
 
-pub use super::unbound::devices::secondary as unavailable_secondary;
+#[cfg(not(test))]
+pub use crate::platform::unbound::devices::secondary as unavailable_secondary;
 pub use instance::Instance;
 
 #[cfg(test)]

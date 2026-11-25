@@ -4,9 +4,11 @@ mod publication;
 mod radio;
 mod tiles;
 mod uplink;
+mod wire;
 
 pub(super) use export::Capture;
 pub(super) use uplink::{Config as CellularConfig, Endpoint};
+pub(super) use wire::write_usb;
 
 use crate::{
     map::{Key, Response, Tile},
@@ -68,7 +70,7 @@ pub(super) struct Telemetry {
 }
 
 impl Telemetry {
-    fn snapshot(&self, now: Instant) -> Snapshot {
+    pub(super) fn snapshot(&self, now: Instant) -> Snapshot {
         let mut snapshot = Snapshot::from(self.readings.snapshot(now));
         snapshot.clock = self.capture.clock();
         snapshot

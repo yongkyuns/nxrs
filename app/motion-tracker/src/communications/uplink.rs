@@ -1,6 +1,6 @@
 //! Reconnect policy for live tracker telemetry. The collector dial task owns TCP connect waits.
-use super::publication::Publisher;
-use crate::{text::Text, tracker::Snapshot, wire};
+use super::{publication::Publisher, wire};
+use crate::{text::Text, tracker::Snapshot};
 use cellular::Status;
 use std::io::{self, Read};
 use std::net::{SocketAddr, SocketAddrV4, TcpStream};

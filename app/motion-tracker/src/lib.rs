@@ -1,18 +1,15 @@
 //! Motion observations and the outputs selected by this application build.
 #![forbid(unsafe_code)]
 
-mod charts;
 mod clock;
 mod communications;
 mod health;
 mod map;
-#[path = "dashboard.rs"]
-mod mode;
 mod preferences;
+mod runtime;
 mod screen;
 mod text;
 mod tracker;
-mod wire;
 
 use preferences::Interval;
 use std::io::{self, Write};
@@ -79,10 +76,10 @@ pub fn run(args: impl Iterator<Item = String>) -> std::process::ExitCode {
     let _ = logging::install(log::LevelFilter::Info, |_, line| {
         let _ = io::stderr().lock().write_all(line.as_bytes());
     });
-    match mode::run(args) {
+    match runtime::run(args) {
         Ok(()) => std::process::ExitCode::SUCCESS,
         Err(error) => {
-            let _ = writeln!(io::stderr().lock(), "{}: {error}", mode::USAGE);
+            let _ = writeln!(io::stderr().lock(), "{}: {error}", runtime::USAGE);
             std::process::ExitCode::FAILURE
         }
     }

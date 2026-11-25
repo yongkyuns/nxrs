@@ -1,12 +1,9 @@
-use crate::{charts, communications, screen, tracker, wire, ReportOptions};
+use crate::{communications, screen, tracker, ReportOptions};
 use battery::Device as _;
-use charts::{History, SAMPLE_INTERVAL};
-use communications::{
-    Capture, CellularConfig, Communications, Endpoint, LinkStatus, Pairing, Telemetry, View,
-};
+use communications::{Capture, CellularConfig, Communications, Endpoint, Pairing, Telemetry, View};
 use messaging::bounded;
 use navigation::observations::{Observation, ObservationService};
-use screen::{Action, Dashboard, Screen};
+use screen::{Action, Screen};
 use std::io::{self, Write};
 use std::sync::{
     mpsc::{RecvTimeoutError, TrySendError},
@@ -132,14 +129,10 @@ fn track(
     mut timer: Option<&mut dyn watchdog::RuntimeWatchdog>,
 ) -> io::Result<()> {
     let interval = crate::preferences(options.reports.interval)?.duration();
-    let mut dashboard = Dashboard::default();
-    let zoom = options.zoom.unwrap_or_default();
     let mut screen = match display::open() {
-        Ok(display) => Some((
-            Screen::new(display).map_err(display_error)?,
-            History::new(zoom),
-            crate::map::View::default(),
-        )),
+        Ok(display) => {
+            Some(Screen::new(display, options.zoom.unwrap_or_default()).map_err(display_error)?)
+        }
         Err(display::Error::Unsupported) => None,
         Err(error) => return Err(display_error(error)),
     };
@@ -243,7 +236,6 @@ fn track(
     let mut reported_drops = [0; 3];
     let mut rendered = 0_u32;
     let mut next = Instant::now();
-    let mut next_plot = next;
     let mut redraw = true;
     let mut links_changed = false;
     let result = (|| {
@@ -264,22 +256,17 @@ fn track(
         loop {
             let now = Instant::now();
             let report_due = now >= next;
-            let plot_due = screen.is_some() && now >= next_plot;
+            let plot_due = screen
+                .as_ref()
+                .is_some_and(|screen| now >= screen.deadline());
             if links_changed || report_due || plot_due {
                 links_changed = false;
                 if let Some(links) = &communications {
                     let update = links.view(view);
-                    if screen.is_some() && update != view {
-                        redraw = true;
-                        if let Some(key) = update.key {
-                            if let Err(error) = dashboard.show_code(&key) {
-                                break Err(display_error(error));
-                            }
-                        } else {
-                            dashboard.hide_code();
-                            if update.link == LinkStatus::Paired {
-                                dashboard.open_menu();
-                            }
+                    if update != view {
+                        if let Some(screen) = &mut screen {
+                            screen.update_link(update).map_err(display_error)?;
+                            redraw = true;
                         }
                     }
                     view = update;
@@ -307,16 +294,9 @@ fn track(
                 }
             }
             if report_due {
-                let mut snapshot = Snapshot::from(sensors.snapshot(now));
-                snapshot.clock = telemetry.capture.clock();
+                let snapshot = telemetry.snapshot(now);
                 if let Some(serial) = &mut serial {
-                    let mut writer = serial.lock();
-                    let written = wire::frame(&snapshot)
-                        .and_then(|frame| writer.write_all(frame.bytes()))
-                        .and_then(|()| writer.flush());
-                    if let Err(error) = written {
-                        break Err(error);
-                    }
+                    communications::write_usb(&mut serial.lock(), &snapshot)?;
                 }
                 if options.reports.frames.is_some() {
                     rendered += 1;
@@ -345,49 +325,23 @@ fn track(
                 }
                 next = now + interval;
             }
-            if let Some((screen, history, map)) = screen.as_mut().filter(|_| plot_due || redraw) {
+            if let Some(screen) = screen.as_mut().filter(|_| plot_due || redraw) {
                 let snapshot = Snapshot::from(sensors.snapshot(now));
-                if plot_due {
-                    history.record(&snapshot, now);
-                    next_plot = now + SAMPLE_INTERVAL;
-                }
-                let viewport = map.select(dashboard.map_position(view.link, &snapshot, zoom));
-                if let Some(links) = &communications {
-                    if let Some(tile) =
-                        links.map(viewport.and_then(|viewport| map.wanted(viewport)))
-                    {
-                        if let Some(viewport) = viewport {
-                            map.accept(viewport, tile);
-                        }
-                    }
-                }
-                if let Err(error) = screen.render(
-                    &dashboard,
-                    view.link,
-                    &snapshot,
-                    history,
-                    now,
-                    viewport.map(|viewport| (viewport, &*map)),
-                ) {
-                    break Err(display_error(error));
-                }
+                screen
+                    .draw(view.link, &snapshot, now, |wanted| {
+                        communications.as_ref().and_then(|links| links.map(wanted))
+                    })
+                    .map_err(display_error)?;
                 redraw = false;
-                let finished = Instant::now();
-                if finished >= next_plot {
-                    // Skip the missed paint and leave time to receive sensor and touch events.
-                    next_plot = finished + SAMPLE_INTERVAL;
-                }
             }
             if report_due {
                 if let Err(error) = crate::health::progress(&mut timer) {
                     break Err(error);
                 }
             }
-            let wake = if screen.is_some() {
-                next.min(next_plot)
-            } else {
-                next
-            };
+            let wake = screen
+                .as_ref()
+                .map_or(next, |screen| next.min(screen.deadline()));
             match inbox.wait(Some(wake.saturating_duration_since(Instant::now()))) {
                 Ok(Event::LinksUpdated) => {
                     links_changed = true;
@@ -395,12 +349,9 @@ fn track(
                 }
                 Ok(Event::SensorChanged) => redraw = true,
                 Ok(Event::Touch { event, missed }) => {
-                    if missed {
-                        dashboard.cancel_touch();
-                    }
                     match screen
-                        .as_ref()
-                        .and_then(|(screen, _, _)| screen.input(&mut dashboard, view.link, event))
+                        .as_mut()
+                        .and_then(|screen| screen.input(view.link, event, missed))
                     {
                         Some(Action::Pair) => match &communications {
                             Some(links) => links.pair(Pairing::Start),
