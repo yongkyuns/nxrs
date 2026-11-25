@@ -1,13 +1,10 @@
 use super::{
     export::{Capture, Version, MAX_BYTES, REQUEST_LEN, REQUEST_PREFIX},
     publication::Publisher,
-};
-use crate::{
-    map::{Key, Receiver, Response},
-    text::Text,
-    tracker::Snapshot,
+    tiles::{Key, Receiver, Response},
     wire,
 };
+use crate::{text::Text, tracker::Snapshot};
 use ble::{
     peripheral::{self, Link, Listener, Service},
     Uuid,
@@ -136,6 +133,19 @@ impl<'a, L: Listener> Output<'a, L> {
 
     pub fn expired(&self, now: Instant) -> bool {
         now >= self.expires
+    }
+
+    pub fn active(&self) -> bool {
+        self.connection.is_some()
+    }
+
+    pub fn next_service(&self, active_at: Instant) -> Instant {
+        let wake = if self.active() {
+            active_at
+        } else {
+            self.listener.idle_retry_at().unwrap_or(self.expires)
+        };
+        wake.min(self.expires)
     }
 
     pub fn take_ready(&self) -> bool {

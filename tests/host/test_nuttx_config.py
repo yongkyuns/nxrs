@@ -14,7 +14,7 @@ ADAPTER = ROOT / "tools/build/nuttx/kconfig.py"
 
 
 class NativeModelTest(unittest.TestCase):
-    def resolve(self, seed, requests, cli=()):
+    def resolve(self, seed, requests, cli=(), fragment_order=None):
         with tempfile.TemporaryDirectory() as name:
             stage = Path(name)
             shutil.copyfile(FIXTURE, stage / "Kconfig")
@@ -22,7 +22,8 @@ class NativeModelTest(unittest.TestCase):
             (stage / "requests.json").write_text(json.dumps({
                 "catalog": True,
                 "requests": {name: [{"value": value, "source": "fixture:1",
-                                    "command_line": name in cli}]
+                                    "command_line": name in cli,
+                                    "fragment_order": (fragment_order or {}).get(name, 1)}]
                              for name, value in requests.items()},
             }))
             subprocess.run([sys.executable, ADAPTER], cwd=stage, check=True, capture_output=True,
@@ -71,12 +72,15 @@ class NativeModelTest(unittest.TestCase):
         self.assertIn("being y-selected", problems)
         self.assertIn("active range 1–4", problems)
 
-    def test_cli_can_replace_a_fragment_choice_and_same_layer_conflicts_fail(self):
+    def test_later_layers_can_replace_a_choice_and_same_layer_conflicts_fail(self):
         seed = "CONFIG_GATE=y\nCONFIG_LOCAL=y\nCONFIG_SERIAL=y\n"
-        report, _ = self.resolve(seed, {"LOCAL": "y", "SERIAL": "y"}, cli=("SERIAL",))
-        self.assertEqual(report["symbols"]["LOCAL"]["choice"]["selected"], "SERIAL")
-        self.assertFalse(report["problems"])
-        report, _ = self.resolve(seed, {"LOCAL": "y", "SERIAL": "y"})
+        requests = {"LOCAL": "y", "SERIAL": "y"}
+        for layer in ({"cli": ("SERIAL",)}, {"fragment_order": {"SERIAL": 2}}):
+            with self.subTest(layer=layer):
+                report, _ = self.resolve(seed, requests, **layer)
+                self.assertEqual(report["symbols"]["LOCAL"]["choice"]["selected"], "SERIAL")
+                self.assertFalse(report["problems"])
+        report, _ = self.resolve(seed, requests)
         self.assertTrue(any("CONFIG_LOCAL requested" in problem for problem in report["problems"]))
 
     def test_prompt_only_conditions_have_navigable_prerequisites(self):

@@ -130,13 +130,20 @@ def sources(symbols, property_name):
     return reverse
 
 
+def request_order(request):
+    return request.get("command_line", False), request.get("fragment_order", 0)
+
+
 def check_requests(model, requests):
     problems = []
-    promoted_choices = {
-        symbol.choice for name, history in requests.items()
-        if (symbol := model.syms.get(name)) and symbol.choice
-        and history[-1].get("command_line") and history[-1]["value"] == "y"
-    }
+    choice_orders = {}
+    for name, history in requests.items():
+        symbol = model.syms.get(name)
+        request = history[-1]
+        if symbol and symbol.choice and request["value"] == "y":
+            order = request_order(request)
+            choice_orders[symbol.choice] = max(choice_orders.get(symbol.choice, order), order)
+
     for name, history in requests.items():
         symbol = model.syms.get(name)
         for index, request in enumerate(history):
@@ -146,9 +153,9 @@ def check_requests(model, requests):
                 error = "unknown symbol"
             elif decode(symbol, value) is None:
                 error = f"invalid {kc.TYPE_TO_STR[symbol.type]} value"
-            elif (not request.get("command_line") and value == "y"
-                  and symbol.choice in promoted_choices):
-                # CLI assignment replaces the fragment selection of this choice.
+            elif (value == "y" and symbol.choice in choice_orders
+                  and request_order(request) < choice_orders[symbol.choice]):
+                # A higher-priority assignment selects this choice's member.
                 continue
             elif index == len(history) - 1:
                 current = symbol.str_value

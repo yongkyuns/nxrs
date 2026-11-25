@@ -372,6 +372,36 @@ impl Tools {
             .collect())
     }
 }
+
+fn build_flag(settings: &Value, key: &str, default: bool) -> Result<bool> {
+    match settings.get(key) {
+        None => Ok(default),
+        Some(value) => value
+            .as_bool()
+            .ok_or_else(|| format!("build.{key} must be boolean")),
+    }
+}
+
+fn panic_policy(settings: &Value, options: &Options) -> Result<(bool, bool)> {
+    let trace = build_flag(settings, "trace-only-backtrace", true)?;
+    // Existing trace-only selections keep reporting panic messages unless
+    // they explicitly requested immediate abort.
+    let trace_requested = options.trace || settings.get("trace-only-backtrace").is_some();
+    let immediate = build_flag(
+        settings,
+        "panic-immediate-abort",
+        options.immediate || (trace && !trace_requested),
+    )?;
+    if immediate && !trace {
+        return Err("immediate abort requires trace-only backtrace".into());
+    }
+    Ok(if options.panic_diagnostics {
+        (false, false)
+    } else {
+        (trace, immediate)
+    })
+}
+
 fn stage_sources(root: &Path, out: &Path) -> Result<()> {
     let nuttx = out.join("nuttx");
     let apps = out.join("apps");
@@ -527,18 +557,8 @@ fn build_or_prepare(
     {
         return Err("invalid platform build settings".into());
     }
-    let flag = |key: &str, default| match settings.get(key) {
-        None => Ok(default),
-        Some(v) => v
-            .as_bool()
-            .ok_or_else(|| format!("build.{key} must be boolean")),
-    };
-    let size = flag("size-optimized", options.size)?;
-    let trace = flag("trace-only-backtrace", options.trace)?;
-    let immediate = flag("panic-immediate-abort", options.immediate)?;
-    if immediate && !trace {
-        return Err("immediate abort requires trace-only backtrace".into());
-    }
+    let size = build_flag(settings, "size-optimized", options.size)?;
+    let (trace, immediate) = panic_policy(settings, options)?;
     let abi = match settings.get("abi-profile") {
         Some(value) => value.as_str().ok_or("build.abi-profile must be a string")?,
         None => options.abi.as_deref().unwrap_or("active"),
@@ -1644,6 +1664,45 @@ pub fn copy_hal_cache(cache: &Path, destination: &Path, revision: &str) -> Resul
 mod tests {
     use super::*;
     use crate::nuttx_config::{configure, line, validate_overrides};
+
+    #[test]
+    fn panic_policy_defaults_to_lean_and_honors_diagnostic_overrides() {
+        let defaults = Options::default();
+        assert_eq!(panic_policy(&Value::Null, &defaults).unwrap(), (true, true));
+        let trace = Options {
+            trace: true,
+            ..Options::default()
+        };
+        assert_eq!(panic_policy(&Value::Null, &trace).unwrap(), (true, false));
+        let abort = Options {
+            trace: true,
+            immediate: true,
+            ..Options::default()
+        };
+        assert_eq!(panic_policy(&Value::Null, &abort).unwrap(), (true, true));
+        assert_eq!(
+            panic_policy(&json!({"trace-only-backtrace": true}), &defaults).unwrap(),
+            (true, false)
+        );
+        assert_eq!(
+            panic_policy(&json!({"panic-immediate-abort": false}), &defaults).unwrap(),
+            (true, false)
+        );
+        let diagnostics = Options {
+            panic_diagnostics: true,
+            ..Options::default()
+        };
+        assert_eq!(
+            panic_policy(&json!({"panic-immediate-abort": true}), &diagnostics).unwrap(),
+            (false, false)
+        );
+        assert!(panic_policy(
+            &json!({"trace-only-backtrace": false, "panic-immediate-abort": true}),
+            &defaults,
+        )
+        .is_err());
+    }
+
     #[test]
     fn minimal_application_does_not_require_runtime_calls() {
         let symbols = "00000000 T main\n         U puts\n";

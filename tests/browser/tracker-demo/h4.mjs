@@ -4,6 +4,7 @@ export const le = value => [value & 255, value >>> 8];
 const same = (a, b) => a.length === b.length && a.every((value, i) => value === b[i]);
 const trackerUuid = [0x00, 0x34, 0x3f, 0x2d, 0x57, 0xc4, 0x4f, 0xbe,
                      0xb7, 0x49, 0x55, 0xa9, 0x6e, 0xde, 0xb1, 0x3c];
+const exportUuid = [0x20, ...trackerUuid.slice(1)];
 const handle = 1;
 const attCid = 4;
 const maxH4Buffer = 8192;
@@ -23,7 +24,10 @@ function hasTrackerService(data) {
         if (!size || offset + size >= data.length) break;
         if (data[offset + 1] === 6 || data[offset + 1] === 7) {
             for (let start = offset + 2; start + 16 <= offset + size + 1; start += 16) {
-                if (same(data.slice(start, start + 16), trackerUuid)) return true;
+                const uuid = data.slice(start, start + 16);
+                // The notification service is advertised when present. The
+                // dashboard read service is still discoverable after connect.
+                if (same(uuid, trackerUuid) || same(uuid, exportUuid)) return true;
             }
         }
         offset += size + 1;
@@ -73,7 +77,8 @@ export class H4Controller {
     }
 
     sendAtt(pdu) {
-        if (!this.#connected || pdu.length > 23) throw new Error('ATT link or MTU unavailable');
+        if (!this.#connected) throw new Error('BLE disconnected');
+        if (pdu.length > 23) throw new Error('ATT MTU unavailable');
         this.#queue([2, ...le(handle | 0x2000), ...le(pdu.length + 4),
                      ...le(pdu.length), ...le(attCid), ...pdu]);
     }

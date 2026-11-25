@@ -700,6 +700,9 @@ dependencies = [
 [[package]]
 name = "nxrs-allocation-probe"
 version = "0.1.0"
+dependencies = [
+ "nxrs-acquisition",
+]
 
 [[package]]
 name = "nxrs-ao-stress"
@@ -1399,7 +1402,7 @@ dependencies = [
  "log",
  "nxrs-composition",
  "nxrs-log-router",
- "nxrs-motion-tracker",
+ "nxrs-messaging",
  "nxrs-navigation-services",
 ]
 

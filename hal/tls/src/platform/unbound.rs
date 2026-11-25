@@ -1,5 +1,6 @@
 //! Admission without a selected backend: public contracts remain usable, but
 //! no SDK, entropy source or connection can be acquired.
+pub(crate) use crate::stream::shutdown_tcp as retire_tcp;
 use crate::{Certificates, Error, Stream, TimeLease};
 use std::io::{self, Read, Write};
 use std::marker::PhantomData;
@@ -17,6 +18,9 @@ pub fn open() -> Result<Identity, Error> {
     Err(Error::Unsupported)
 }
 impl Identity {
+    /// A profile without a TLS provider cannot open pinned client sessions.
+    pub const SUPPORTS_PINNED_CLIENT: bool = false;
+
     pub fn request(&self, _: &str, output: &mut [u8]) -> Result<usize, Error> {
         output.fill(0);
         Err(Error::Unsupported)

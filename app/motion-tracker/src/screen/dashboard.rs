@@ -1,17 +1,14 @@
-mod canvas;
-mod font;
-mod gesture;
-
+use super::{canvas, charts, gesture, map};
 use crate::{
-    charts::{History, Metric, RoutePoint, ROUTE_POINTS},
-    communications::LinkStatus,
-    map::{Position, View as MapView, Viewport, Zoom},
+    communications::{Key, LinkStatus, Tile, View, Zoom},
     text::Text,
     tracker::{Reading, Snapshot},
 };
 use canvas::{Area, Canvas};
+use charts::{History, Metric, RoutePoint, ROUTE_POINTS, SAMPLE_INTERVAL};
 use display::{Display, Error, Rect, Size};
 use gesture::{Contact, Gesture};
+use map::{Position, View as MapView, Viewport};
 use qrcodegen::{QrCode, QrCodeEcc};
 use std::{fmt::Write, time::Instant};
 
@@ -81,7 +78,7 @@ impl Layout {
 }
 
 #[derive(Default)]
-pub struct Dashboard {
+struct Dashboard {
     page: Page,
     metric: Metric,
     code: Option<QrCode>,
@@ -90,7 +87,7 @@ pub struct Dashboard {
 }
 
 impl Dashboard {
-    pub fn map_position(
+    fn map_position(
         &self,
         link: LinkStatus,
         snapshot: &Snapshot,
@@ -114,15 +111,7 @@ impl Dashboard {
         }
     }
 
-    pub fn cancel_touch(&mut self) {
-        self.contact = None;
-    }
-
-    pub fn open_menu(&mut self) {
-        self.menu = true;
-    }
-
-    pub fn show_code(&mut self, key: &[u8; 32]) -> Result<(), Error> {
+    fn show_code(&mut self, key: &[u8; 32]) -> Result<(), Error> {
         let mut code = String::with_capacity(70);
         code.push_str("NXRS1:");
         for byte in key {
@@ -133,10 +122,6 @@ impl Dashboard {
         self.menu = false;
         Ok(())
     }
-
-    pub fn hide_code(&mut self) {
-        self.code = None;
-    }
 }
 
 pub struct Screen<D> {
@@ -144,10 +129,15 @@ pub struct Screen<D> {
     layout: Layout,
     pixels: Box<[u16]>,
     present: Option<(Page, Metric, LinkStatus, bool)>,
+    ui: Dashboard,
+    history: History,
+    map: MapView,
+    zoom: Zoom,
+    next_plot: Instant,
 }
 
 impl<D: Display> Screen<D> {
-    pub fn new(display: D) -> Result<Self, Error> {
+    pub fn new(display: D, zoom: Zoom) -> Result<Self, Error> {
         let size = display.size();
         if size.width < 272 || size.height < 220 {
             return Err(Error::InvalidRegion);
@@ -160,17 +150,38 @@ impl<D: Display> Screen<D> {
             },
             pixels: vec![BG; usize::from(size.width) * usize::from(STRIP)].into_boxed_slice(),
             present: None,
+            ui: Dashboard::default(),
+            history: History::new(zoom),
+            map: MapView::default(),
+            zoom,
+            next_plot: Instant::now(),
         })
     }
 
+    pub fn update_link(&mut self, view: View) -> Result<(), Error> {
+        if let Some(key) = view.key {
+            self.ui.show_code(&key)?;
+        } else {
+            self.ui.code = None;
+            if view.link == LinkStatus::Paired {
+                self.ui.menu = true;
+            }
+        }
+        Ok(())
+    }
+
     pub fn input(
-        &self,
-        ui: &mut Dashboard,
+        &mut self,
         status: LinkStatus,
         event: touch::Event,
+        missed: bool,
     ) -> Option<Action> {
+        let ui = &mut self.ui;
+        if missed {
+            ui.contact = None;
+        }
         match gesture::recognize(&mut ui.contact, event)? {
-            Gesture::Tap(point) => self.tap(ui, status, point),
+            Gesture::Tap(point) => Self::tap(&self.layout, ui, status, point),
             Gesture::Down if !ui.menu && status != LinkStatus::Pairing => {
                 ui.menu = true;
                 Some(Action::Redraw)
@@ -183,16 +194,20 @@ impl<D: Display> Screen<D> {
         }
     }
 
-    fn tap(&self, ui: &mut Dashboard, status: LinkStatus, point: touch::Point) -> Option<Action> {
+    fn tap(
+        layout: &Layout,
+        ui: &mut Dashboard,
+        status: LinkStatus,
+        point: touch::Point,
+    ) -> Option<Action> {
         let (x, y) = (point.x.into(), point.y.into());
         if status == LinkStatus::Pairing {
-            return self
-                .layout
+            return layout
                 .tab(3)
                 .contains(x, y)
                 .then_some(Action::CancelPairing);
         }
-        if ui.menu && self.layout.tab(3).contains(x, y) {
+        if ui.menu && layout.tab(3).contains(x, y) {
             return match status {
                 LinkStatus::Idle | LinkStatus::Paired | LinkStatus::Unavailable => {
                     Some(Action::Pair)
@@ -205,7 +220,7 @@ impl<D: Display> Screen<D> {
                 .into_iter()
                 .enumerate()
             {
-                if self.layout.tab(index as i32).contains(x, y) {
+                if layout.tab(index as i32).contains(x, y) {
                     ui.page = tab;
                     ui.menu = false;
                     return Some(Action::Redraw);
@@ -217,10 +232,7 @@ impl<D: Display> Screen<D> {
                 .into_iter()
                 .enumerate()
             {
-                if self
-                    .layout
-                    .metric(index as i32, ui.content_top())
-                    .contains(x, y)
+                if layout.metric(index as i32, ui.content_top()).contains(x, y)
                     && ui.metric != metric
                 {
                     ui.metric = metric;
@@ -232,16 +244,46 @@ impl<D: Display> Screen<D> {
         std::mem::take(&mut ui.menu).then_some(Action::Redraw)
     }
 
-    /// Flush small strips to bound each synchronous display transaction.
-    pub fn render(
+    pub fn deadline(&self) -> Instant {
+        self.next_plot
+    }
+
+    pub fn draw(
         &mut self,
-        ui: &Dashboard,
         link: LinkStatus,
         snapshot: &Snapshot,
-        history: &History,
         now: Instant,
-        map: Option<(Viewport, &MapView)>,
+        exchange_tile: impl FnOnce(Option<Key>) -> Option<Tile>,
     ) -> Result<(), Error> {
+        if now >= self.next_plot {
+            self.history.record(snapshot, now);
+            self.next_plot = now + SAMPLE_INTERVAL;
+        }
+        let viewport = self
+            .map
+            .select(self.ui.map_position(link, snapshot, self.zoom));
+        let wanted = viewport.and_then(|viewport| self.map.wanted(viewport));
+        if let (Some(tile), Some(viewport)) = (exchange_tile(wanted), viewport) {
+            self.map.accept(viewport, tile);
+        }
+        self.render(link, snapshot, now, viewport)?;
+        let finished = Instant::now();
+        if finished >= self.next_plot {
+            // Skip the missed paint and leave time for input.
+            self.next_plot = finished + SAMPLE_INTERVAL;
+        }
+        Ok(())
+    }
+
+    /// Flush small strips to bound each synchronous display transaction.
+    fn render(
+        &mut self,
+        link: LinkStatus,
+        snapshot: &Snapshot,
+        now: Instant,
+        viewport: Option<Viewport>,
+    ) -> Result<(), Error> {
+        let ui = &self.ui;
         let key = (ui.page, ui.metric, link, ui.menu);
         let full = self.present != Some(key);
         if !full && link == LinkStatus::Pairing {
@@ -255,10 +297,10 @@ impl<D: Display> Screen<D> {
         let body = Body::new(
             ui,
             snapshot,
-            history,
+            &self.history,
             now,
             layout.plot(content_top.into()),
-            map,
+            viewport.map(|viewport| (viewport, &self.map)),
             &mut route,
         );
         for y in (top..size.height).step_by(usize::from(STRIP)) {
@@ -798,83 +840,77 @@ mod tests {
         }
     }
 
-    fn tap(
-        screen: &Screen<Panel>,
-        ui: &mut Dashboard,
-        link: LinkStatus,
-        point: Point,
-    ) -> Option<Action> {
-        assert_eq!(screen.input(ui, link, Event::Pressed(point)), None);
-        screen.input(ui, link, Event::Released)
+    fn tap(screen: &mut Screen<Panel>, link: LinkStatus, point: Point) -> Option<Action> {
+        assert_eq!(screen.input(link, Event::Pressed(point), false), None);
+        screen.input(link, Event::Released, false)
     }
 
     fn swipe(
-        screen: &Screen<Panel>,
-        ui: &mut Dashboard,
+        screen: &mut Screen<Panel>,
         link: LinkStatus,
         from: Point,
         to: Point,
     ) -> Option<Action> {
-        assert_eq!(screen.input(ui, link, Event::Pressed(from)), None);
-        let action = screen.input(ui, link, Event::Moved(to));
-        assert_eq!(screen.input(ui, link, Event::Released), None);
+        assert_eq!(screen.input(link, Event::Pressed(from), false), None);
+        let action = screen.input(link, Event::Moved(to), false);
+        assert_eq!(screen.input(link, Event::Released, false), None);
         action
     }
 
     #[test]
     fn a_swipe_reveals_the_menu_and_pairing_returns_to_the_graph() {
-        let mut screen = Screen::new(Panel(vec![BG; 320 * 240])).unwrap();
-        let mut ui = Dashboard::default();
+        let mut screen = Screen::new(Panel(vec![BG; 320 * 240]), Zoom::default()).unwrap();
         let pair = Point { x: 275, y: 20 };
         let module = Point { x: 115, y: 20 };
         let gnss = Point { x: 195, y: 20 };
         let below = Point { x: 275, y: 80 };
         let gyro = Point { x: 280, y: 20 };
         assert_eq!(
-            tap(&screen, &mut ui, LinkStatus::Idle, pair),
+            tap(&mut screen, LinkStatus::Idle, pair),
             Some(Action::Redraw)
         );
-        assert_eq!(ui.metric, Metric::Rotation);
+        assert_eq!(screen.ui.metric, Metric::Rotation);
         let now = Instant::now();
         let snapshot = Snapshot {
             clock: None,
             imu: [Reading::Waiting; 2],
             gnss: Reading::Waiting,
         };
-        let history = History::new(Zoom::default());
         screen
-            .render(&ui, LinkStatus::Idle, &snapshot, &history, now, None)
+            .draw(LinkStatus::Idle, &snapshot, now, |_| None)
             .unwrap();
         assert!(!screen.display.0.contains(&0xffff));
         assert_eq!(screen.display.0[320 * 45 + 12], PANEL);
         assert_eq!(
-            swipe(&screen, &mut ui, LinkStatus::Idle, pair, below),
+            swipe(&mut screen, LinkStatus::Idle, pair, below),
             Some(Action::Redraw)
         );
-        assert!(ui.menu);
+        assert!(screen.ui.menu);
         screen
-            .render(&ui, LinkStatus::Idle, &snapshot, &history, now, None)
+            .draw(LinkStatus::Idle, &snapshot, now, |_| None)
             .unwrap();
         assert_eq!(screen.display.0[320 * 39], PANEL);
         assert_eq!(screen.display.0[320 * 45 + 12], BG);
         assert_eq!(
-            tap(&screen, &mut ui, LinkStatus::Idle, module),
+            tap(&mut screen, LinkStatus::Idle, module),
             Some(Action::Redraw)
         );
-        assert_eq!(ui.page, Page::Module);
-        assert!(!ui.menu);
+        assert_eq!(screen.ui.page, Page::Module);
+        assert!(!screen.ui.menu);
         assert_eq!(
-            swipe(&screen, &mut ui, LinkStatus::Idle, pair, below),
+            swipe(&mut screen, LinkStatus::Idle, pair, below),
             Some(Action::Redraw)
         );
-        assert_eq!(
-            tap(&screen, &mut ui, LinkStatus::Idle, pair),
-            Some(Action::Pair)
-        );
-        ui.show_code(&[42; 32]).unwrap();
-        assert!(!ui.menu);
+        assert_eq!(tap(&mut screen, LinkStatus::Idle, pair), Some(Action::Pair));
         screen
-            .render(&ui, LinkStatus::Pairing, &snapshot, &history, now, None)
+            .update_link(View {
+                link: LinkStatus::Pairing,
+                key: Some([42; 32]),
+            })
+            .unwrap();
+        assert!(!screen.ui.menu);
+        screen
+            .draw(LinkStatus::Pairing, &snapshot, now, |_| None)
             .unwrap();
         let code =
             QrCode::encode_text(&format!("NXRS1:{}", "2A".repeat(32)), QrCodeEcc::Low).unwrap();
@@ -893,56 +929,56 @@ mod tests {
                 );
             }
         }
+        assert_eq!(swipe(&mut screen, LinkStatus::Pairing, pair, below), None);
+        assert_eq!(tap(&mut screen, LinkStatus::Pairing, module), None);
         assert_eq!(
-            swipe(&screen, &mut ui, LinkStatus::Pairing, pair, below),
-            None
-        );
-        assert_eq!(tap(&screen, &mut ui, LinkStatus::Pairing, module), None);
-        assert_eq!(
-            tap(&screen, &mut ui, LinkStatus::Pairing, pair),
+            tap(&mut screen, LinkStatus::Pairing, pair),
             Some(Action::CancelPairing)
         );
-        ui.hide_code();
-        assert_eq!(tap(&screen, &mut ui, LinkStatus::Connected, gyro), None);
-        assert_eq!(
-            swipe(&screen, &mut ui, LinkStatus::Connected, pair, below),
-            Some(Action::Redraw)
-        );
-        assert_eq!(tap(&screen, &mut ui, LinkStatus::Connected, pair), None);
-        assert_eq!(
-            tap(&screen, &mut ui, LinkStatus::Connected, gnss),
-            Some(Action::Redraw)
-        );
-        assert!(!ui.menu);
-        assert_eq!(ui.page, Page::Gnss);
         screen
-            .render(&ui, LinkStatus::Connected, &snapshot, &history, now, None)
+            .update_link(View {
+                link: LinkStatus::Connected,
+                key: None,
+            })
+            .unwrap();
+        assert_eq!(tap(&mut screen, LinkStatus::Connected, gyro), None);
+        assert_eq!(
+            swipe(&mut screen, LinkStatus::Connected, pair, below),
+            Some(Action::Redraw)
+        );
+        assert_eq!(tap(&mut screen, LinkStatus::Connected, pair), None);
+        assert_eq!(
+            tap(&mut screen, LinkStatus::Connected, gnss),
+            Some(Action::Redraw)
+        );
+        assert!(!screen.ui.menu);
+        assert_eq!(screen.ui.page, Page::Gnss);
+        screen
+            .draw(LinkStatus::Connected, &snapshot, now, |_| None)
             .unwrap();
     }
 
     #[test]
     fn upward_swipe_dismisses_and_interrupted_contacts_cannot_activate_pairing() {
-        let screen = Screen::new(Panel(vec![BG; 320 * 240])).unwrap();
-        let mut ui = Dashboard::default();
+        let mut screen = Screen::new(Panel(vec![BG; 320 * 240]), Zoom::default()).unwrap();
         let status = LinkStatus::Idle;
         let pair = Point { x: 275, y: 20 };
         let below = Point { x: 275, y: 80 };
         assert_eq!(
-            swipe(&screen, &mut ui, status, pair, Point { x: 200, y: 28 }),
+            swipe(&mut screen, status, pair, Point { x: 200, y: 28 }),
             None
         );
         assert_eq!(
-            swipe(&screen, &mut ui, status, pair, below),
+            swipe(&mut screen, status, pair, below),
             Some(Action::Redraw)
         );
-        assert_eq!(screen.input(&mut ui, status, Event::Pressed(pair)), None);
-        ui.cancel_touch();
-        assert_eq!(screen.input(&mut ui, status, Event::Released), None);
-        assert!(ui.menu);
+        assert_eq!(screen.input(status, Event::Pressed(pair), false), None);
+        assert_eq!(screen.input(status, Event::Released, true), None);
+        assert!(screen.ui.menu);
         assert_eq!(
-            swipe(&screen, &mut ui, status, below, pair),
+            swipe(&mut screen, status, below, pair),
             Some(Action::Redraw)
         );
-        assert!(!ui.menu);
+        assert!(!screen.ui.menu);
     }
 }

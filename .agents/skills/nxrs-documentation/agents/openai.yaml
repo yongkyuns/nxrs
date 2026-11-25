@@ -1,0 +1,4 @@
+interface:
+  display_name: "NXRS Documentation"
+  short_description: "Write natural NXRS docs and polish documentation UI"
+  default_prompt: "Use $nxrs-documentation to improve NXRS documentation and its website, grounding examples in current source and verifying the reader experience."

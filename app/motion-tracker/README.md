@@ -1,17 +1,23 @@
 # Motion tracker
 
-## Headless portability
+## Device composition
 
-The headless build uses the profile's primary IMU and emits version 2 JSON.
-The desktop smoke test builds and runs the application with one mock IMU.
-The NuttX QEMU profile runs the same headless application with a modeled
-BMI270 on I²C. Both checks require fresh IMU telemetry and a clean exit.
+Motion Tracker requires a primary IMU and GNSS. Profiles select the devices
+and HAL providers. The same entry point runs without a display, touch input
+or a secondary IMU when those capabilities are unavailable. The desktop
+smoke test exercises the tracker with mock sensors and no display.
 
 ```sh
 python3 tests/native/motion_tracker.py
 ```
 
-[Headless NuttX build and verification](../../tests/nuttx-std/tracker-sim/README.md#headless-one-imu-tracker)
+[One-IMU NuttX acquisition fixture](../../tests/nuttx-std/tracker-sim/README.md#headless-one-imu-tracker)
+
+The runtime composes acquisition, screen and communications. The `screen`
+module owns gestures, the pairing view, chart history and map presentation,
+including projection, viewport selection and the display tile cache. The
+`communications` module owns BLE and collector delivery, tile requests and
+reply decoding, and the snapshot format used by BLE, TLS and USB diagnostics.
 
 ## Dashboard
 
@@ -296,8 +302,12 @@ missing source and sequence.
 
 BLE and cellular share the telemetry stream publisher. Each connection keeps
 one frame in progress and coalesces waiting snapshots to the latest value.
-The communications worker posts link changes to the dashboard inbox. Pairing,
-wire encoding and transport-specific connection policy stay with the tracker.
+Sensor workers update shared latest readings through the observation service.
+The dashboard and communications worker read them on independent deadlines.
+During full-rate export, the sensor workers also admit ordered samples to the
+bounded capture queue. The communications worker encodes each batch after
+dequeueing and posts link changes to the dashboard inbox. The dashboard keeps
+one strip buffer and runs at the profile's background priority on NuttX.
 
 ## Stamp CatM cellular
 
@@ -327,9 +337,10 @@ and provision its fingerprint through a trusted channel. The pin authenticates t
 Device authentication at the collector would require a separate enrollment
 mechanism. Use `--cellular-apn YOUR_APN` on its own to bring up PPP for diagnostics.
 
-A lost PPP session is torn down before redial. A lost collector connection
-reconnects over the existing link when possible. Retry delays increase from one
-to at most 30 seconds. The tracker keeps the latest snapshot and one record
+A lost PPP session is torn down and redialed by the cellular HAL, which wakes
+communications when link state changes. The tracker reconnects a lost collector
+session over the existing link when possible. Retry delays increase from one to
+at most 30 seconds. The tracker keeps the latest snapshot and one record
 in flight. Samples superseded during an outage are skipped. BLE and cellular
 share one TLS owner task while acquisition and the dashboard continue independently.
 The Stamp profile uses bounded NuttX TCP write buffering. The unbuffered sender
