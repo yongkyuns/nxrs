@@ -323,3 +323,23 @@ alternating-pixel witness before changes; the SDK texture path is not qualified.
 Run the shared core/native suites and `clients/tests/multicamera_reference.py` with
 the relevant native runner. Report actual rendered FPS separately from codec and
 source FPS, and label emulator/simulator results separately from physical devices.
+
+# Repository skills
+
+Use the matching repository skill for substantial work; load only the workflow
+needed for the task. These skills supplement this operating contract and the
+existing architecture documents.
+
+| Task | Skill |
+| --- | --- |
+| Design or review service ownership and firmware footprint | [nxrs-service-boundaries](.agents/skills/nxrs-service-boundaries/SKILL.md) |
+| Reproduce a bug or performance regression | [nxrs-debug](.agents/skills/nxrs-debug/SKILL.md) |
+| Review a change against its requirements and repository rules | [nxrs-change-review](.agents/skills/nxrs-change-review/SKILL.md) |
+| Compare interfaces or record a consequential design decision | [nxrs-design](.agents/skills/nxrs-design/SKILL.md) |
+| Improve the development workflow after an observed problem | [nxrs-retro](.agents/skills/nxrs-retro/SKILL.md) |
+| Write documentation or improve the documentation website | [nxrs-documentation](.agents/skills/nxrs-documentation/SKILL.md) |
+
+Keep durable project facts in their existing source documents and link to them
+from skills. Choose routine implementation details within the authorized scope;
+ask when an unresolved requirement or consequential tradeoff needs the user's
+decision. See [skill attribution](.agents/skills/ATTRIBUTION.md) for upstream sources.

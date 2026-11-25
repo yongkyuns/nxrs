@@ -1,0 +1,4 @@
+interface:
+  display_name: "NXRS Debugging"
+  short_description: "Reproduce and resolve NXRS failures with clear evidence"
+  default_prompt: "Use $nxrs-debug to reproduce this NXRS failure, isolate its cause, and verify a focused fix."
