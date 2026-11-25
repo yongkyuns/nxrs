@@ -197,6 +197,10 @@ class RamUart:
         assert write < RAM_UART_SIZE and read < RAM_UART_SIZE, (write, read)
         return write, read
 
+    async def describe_rings(self):
+        tx, rx = await self.offsets(self.tx), await self.offsets(self.rx)
+        return f'RAM UART offsets (write, read): guest TX {tx}, guest RX {rx}'
+
     async def serve(self, receive):
         while True:
             write, read = await self.offsets(self.tx)
