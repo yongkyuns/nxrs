@@ -206,6 +206,10 @@ class SourceAndOutputTests(unittest.TestCase):
         return subprocess.check_output(["git", *args], cwd=self.root, text=True,
                                        stderr=subprocess.STDOUT)
 
+    def test_child_cargo_uses_the_installed_host_toolchain(self):
+        with mock.patch.dict(os.environ, {"RUSTUP_TOOLCHAIN": "nightly"}, clear=True):
+            self.assertEqual(RUNNER.environment()["RUSTUP_TOOLCHAIN"], "1.90.0")
+
     def test_source_requires_exact_revision_and_clean_inputs(self):
         source = RUNNER.checked_source(self.root, self.revision, ("input.txt",))
         self.assertEqual(source["tree"], self.git("rev-parse", "HEAD^{tree}").strip())

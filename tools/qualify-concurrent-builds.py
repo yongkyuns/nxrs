@@ -115,6 +115,9 @@ def environment() -> dict[str, str]:
     for name in CLEAR_ENVIRONMENT:
         result.pop(name, None)
     result.update(JOBS)
+    # Cargo catalogue discovery runs before the target SDK is configured.
+    # Select the installed host toolchain without concurrent component installs.
+    result["RUSTUP_TOOLCHAIN"] = "1.90.0"
     return result
 
 
