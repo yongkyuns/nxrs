@@ -1,5 +1,6 @@
 //! Admission without a selected backend: public contracts remain usable, but
 //! no SDK, entropy source or connection can be acquired.
+pub(crate) use crate::stream::shutdown_tcp as retire_tcp;
 use crate::{Certificates, Error, Stream, TimeLease};
 use std::io::{self, Read, Write};
 use std::marker::PhantomData;
