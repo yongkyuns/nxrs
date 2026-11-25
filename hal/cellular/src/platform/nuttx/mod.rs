@@ -32,6 +32,9 @@ enum Lease {
     Faulted,
 }
 
+/// Whether this build can establish a cellular link.
+pub const LINK_AVAILABLE: bool = true;
+
 pub fn connect(apn: &str) -> Result<impl Session, Error> {
     start(apn, None)
 }

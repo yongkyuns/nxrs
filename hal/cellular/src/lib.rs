@@ -4,7 +4,7 @@
 use std::{fmt, net::Ipv4Addr};
 
 mod platform;
-pub use platform::{connect, connect_managed};
+pub use platform::{connect, connect_managed, LINK_AVAILABLE};
 
 #[cfg(test)]
 mod test_support;

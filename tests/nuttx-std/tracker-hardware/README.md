@@ -84,14 +84,14 @@ On the CoreS3 USB console
 run this command with the carrier APN, reachable IPv4 endpoint, and pin.
 
 ```text
-motion_tracker --ble --interval-ms 500 --stream-usb --cellular-apn APN --collector IPV4:PORT --collector-pin SHA256
+motion_tracker --ble --interval-ms 500 --stream-usb --cellular-apn APN --collector IPV4:PORT --collector-pin SHA256 --cellular-report-secs 1
 ```
 
 Once the collector receives data and USB shows two live IMUs, open the Mac BLE
 probe and use a local photo of the pairing QR code or omit `--qr-image` for a
 hidden prompt. Keep the QR photo and any raw console logs local. USB frames can
-contain location. The probe and collector logs retain only timing and IMU
-sequence metadata from telemetry.
+contain location. The BLE probe retains only IMU sequence and timing metadata.
+The collector logs the IMU 1 reception time when both IMUs report live.
 
 ```bash
 python "$BENCH/bench.py" ble --seconds 300 --qr-image /path/to/local-qr.jpg | tee target/ble-1.jsonl
@@ -117,8 +117,8 @@ python "$BENCH/bench.py" report --ble target/ble-1.jsonl --collector target/coll
 Pass requires the console to confirm PPP loss and recovery. The report
 requires one authenticated BLE session, advancing readings from both IMUs,
 at least four BLE frames in each phase, and a maximum host receive gap of
-2.5 seconds. A new TLS session must deliver an IMU sample generated after
-restoration while BLE is still active. Record the recovery time and fault
+2.5 seconds. A new TLS session must deliver a summary with a fresh IMU 1 timestamp
+after restoration while BLE is still active. Record the recovery time and fault
 method. Repeat for three independent runs with fresh captures.
 
 If cellular data goes silent and NuttX still reports PPP online, record it as

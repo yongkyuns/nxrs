@@ -151,7 +151,9 @@ contract, so gateway ingest can read it with the camera-side server disabled.
 and drives polling. Home-cam composes those APIs with streaming and detection.
 Motion Tracker's `communications` module owns the BLE and cellular sessions and
 their common bounded publisher. The cellular HAL owns PPP redial and publishes
-link changes. Communications owns collector TCP/TLS recovery. Navigation
+link changes. Communications owns collector TCP/TLS recovery and the product's
+cellular summary budget. Full-rate export stays on BLE. Map tiles use BLE or an
+unmetered IP relay on a build without cellular. Navigation
 publishes measurements and terminal faults to shared observation readers.
 Motion Tracker's single entry point requires a primary IMU and GNSS. The
 selected profile supplies processing capabilities and any optional display,

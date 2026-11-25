@@ -21,24 +21,25 @@ import threading
 import time
 
 from run import ADDRESS, Stamp, frame, listener, parser, run
-import tile_fixture
-from sensors import NeoM9n, check_live, check_progress
+from sensors import NeoM9n, check_fix, check_live
 
 COLLECTOR = '192.0.2.3'
 MAC = bytes.fromhex('525400000002')
 ROUTER_MAC = bytes.fromhex('5255c0000203')
 REPORT_INTERVAL_MS = 200
+CELLULAR_INTERVAL_S = 1
+CELLULAR_FRAME_BYTES = 288
+SENSOR_STATES = {'live', 'waiting', 'stale', 'fault'}
 
 
 class Collector(socketserver.ThreadingTCPServer):
     daemon_threads = True
 
-    def __init__(self, context, close_first, idle_timeout, tile):
+    def __init__(self, context, close_first, idle_timeout):
         super().__init__(('127.0.0.1', 0), Receive)
         self.context = context
         self.close_first = close_first
         self.idle_timeout = idle_timeout
-        self.tile = tile
         self.events = queue.Queue()
         self.connections = 0
         self.lock = threading.Lock()
@@ -56,17 +57,21 @@ class Receive(socketserver.BaseRequestHandler):
                 secure.settimeout(self.server.idle_timeout)
                 self.server.events.put((connection, 'secure', None))
                 with secure.makefile('rb') as stream:
-                    if self.server.tile:
-                        request = stream.read(tile_fixture.REQUEST.size)
-                        assert request[:4] == tile_fixture.MAGIC
-                        self.server.events.put((connection, 'tile', tile_fixture.REQUEST.unpack(request)[1:]))
-                        packet = request + b'\0' + tile_fixture.pack(tile_fixture.solid(0x001f))
-                        for offset in range(0, len(packet), 512):
-                            secure.sendall(packet[offset:offset + 512])
-                        return
                     for raw in iter(stream.readline, b''):
-                        assert len(raw) <= 768 and raw.endswith(b'\n'), raw
+                        assert len(raw) <= CELLULAR_FRAME_BYTES and raw.endswith(b'\n'), raw
                         sample = json.loads(raw)
+                        assert set(sample) == {'v', 'kind', 'imu', 'imu1_received_ms', 'gnss'}, sample
+                        assert sample['v'] == 1 and sample['kind'] == 'summary', sample
+                        assert len(sample['imu']) == 2 and set(sample['imu']) <= SENSOR_STATES, sample
+                        state = sample['gnss']['state']
+                        assert state in SENSOR_STATES
+                        keys = {'state', 'seq', 'received_ms', 'lat_deg', 'lon_deg', 'speed_mps', 'utc_ms'}
+                        assert set(sample['gnss']) == (keys if state == 'live' else {'state'}), sample
+                        stamp = sample['imu1_received_ms']
+                        if sample['imu'][0] == 'live':
+                            assert type(stamp) is int and stamp >= 0, sample
+                        else:
+                            assert stamp is None, sample
                         self.server.events.put((connection, 'frame', (raw, sample)))
                         # First collector connection closes after its first usable fix.
                         if self.server.close_first and connection == 1 and is_live(sample):
@@ -77,7 +82,7 @@ class Receive(socketserver.BaseRequestHandler):
 
 
 @contextmanager
-def collector(directory, *, close_first=True, idle_timeout=3, tile=False):
+def collector(directory, *, close_first=True, idle_timeout=3):
     key = directory / 'key.pem'
     certificate = directory / 'cert.pem'
     subprocess.run([
@@ -88,7 +93,7 @@ def collector(directory, *, close_first=True, idle_timeout=3, tile=False):
     context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
     context.minimum_version = ssl.TLSVersion.TLSv1_3
     context.load_cert_chain(certificate, key)
-    with Collector(context, close_first, idle_timeout, tile) as server:
+    with Collector(context, close_first, idle_timeout) as server:
         task = threading.Thread(target=server.serve_forever, kwargs={'poll_interval': 0.05})
         task.start()
         try:
@@ -187,7 +192,7 @@ class TcpStamp(Stamp):
 
 
 def is_live(sample):
-    return sample['gnss']['state'] == 'live' and all(imu['state'] == 'live' for imu in sample['imu'])
+    return sample['gnss']['state'] == 'live' and sample['imu'] == ['live', 'live']
 
 
 def imu_time(sample):
@@ -200,7 +205,10 @@ def check_offline(samples, start, end, recovered):
     assert len(offline) >= 5, f'only {len(offline)} USB reports while PPP was down'
     for sample in offline:
         check_live(sample)
-    check_progress([offline[0], offline[-1], recovered])
+    assert imu_time(offline[0]) < imu_time(offline[-1]) < recovered['imu1_received_ms']
+    assert offline[0]['gnss']['seq'] < offline[-1]['gnss']['seq'] < recovered['gnss']['seq']
+    for start, end in zip(offline[0]['imu'], offline[-1]['imu']):
+        assert start['seq'] < end['seq']
     return offline
 
 
@@ -255,7 +263,8 @@ def qualify(process, modem, gnss_wire, transcript, log, ethernet, server, pin, r
             if not started and b'nsh> ' in transcript:
                 send(f'motion_tracker --frames {frame_count} --interval-ms {REPORT_INTERVAL_MS} --stream-usb '
                      f'--cellular-apn nxrs.test '
-                     f'--collector {COLLECTOR}:{stamp.port} --collector-pin {pin}')
+                     f'--collector {COLLECTOR}:{stamp.port} --collector-pin {pin} '
+                     f'--cellular-report-secs {CELLULAR_INTERVAL_S}')
                 started = True
             if not reached_shell and b'nsh> ' in transcript[transcript.find(b'nsh> ') + 5:]:
                 reached_shell = True
@@ -281,8 +290,8 @@ def qualify(process, modem, gnss_wire, transcript, log, ethernet, server, pin, r
                 assert not reject, 'a wrong pin let telemetry reach the collector'
                 _, sample = value
                 if is_live(sample):
-                    check_live(sample)
-                    records.append(sample)
+                    check_fix(sample)
+                    records.append((connection, sample))
                     if connection in (3, 4):
                         last_recovered[connection] = sample
                     if not any(previous == connection for previous, _ in received):
@@ -322,10 +331,14 @@ def qualify(process, modem, gnss_wire, transcript, log, ethernet, server, pin, r
         # Both outputs sample the same acquisition clock on their own deadlines.
         usb_samples = [json.loads(raw) for raw in usb]
         usb_times = [imu_time(sample) for sample in usb_samples]
-        upload_times = [imu_time(sample) for sample in records]
+        upload_times = [sample['imu1_received_ms'] for _, sample in records]
+        for (left, _), (right, _), start, end in zip(records, records[1:], upload_times, upload_times[1:]):
+            if left == right:
+                # The acquisition clock can lag the report start by one FIFO drain.
+                assert end - start >= CELLULAR_INTERVAL_S * 1000 - 100, (start, end)
         assert usb_times == sorted(usb_times) and upload_times == sorted(upload_times)
         assert usb_times[0] <= upload_times[0] <= upload_times[-1] <= usb_times[-1] + REPORT_INTERVAL_MS
-        positions = [bisect_left(usb_times, imu_time(sample)) for _, sample in received]
+        positions = [bisect_left(usb_times, sample['imu1_received_ms']) for _, sample in received]
         assert positions == sorted(set(positions)), positions
         assert offline_from is not None and redial_at_usb is not None
         assert dropped_at_usb <= offline_from and positions[2] >= redial_at_usb, positions

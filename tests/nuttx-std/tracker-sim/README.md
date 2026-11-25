@@ -176,8 +176,9 @@ PPP, then drops all PPP traffic on the open UART after recovery. The cellular
 HAL sends an LCP Echo-Request every five seconds and reports link loss after
 three unanswered probes. The runner measures detection in guest time and
 recovery to the first fresh TLS upload in host time. USB and the collector
-take independent snapshots, so the checks align them by acquisition time
-and require both IMUs and GNSS to advance through both outages. A fresh boot
+take independent snapshots, so the checks align them by acquisition time.
+USB verifies advancing readings from both IMUs and GNSS through both outages.
+The collector verifies fresh, bounded summaries at the one-second test cadence. A fresh boot
 with a wrong pin must upload zero records. LCP echoes check the PPP peer.
 The [physical bench](../tracker-hardware/README.md) measures carrier
 connectivity beyond the modem.
@@ -260,12 +261,12 @@ zero records during the hold. With bounded TCP writes enabled, three
 wall-clock boots each delivered BLE records during the hold. The longest
 receiver gap was 1.55 seconds and TLS telemetry resumed after release.
 
-Run the same combined fixture with `--tiles` to test map failover.
-The phone rejects the first tile request, then a local pinned TLS relay
-returns a synthetic tile over PPP. The phone supplies the neighboring
-tile over the same notification session while both IMUs and GNSS
-export samples. The test checks the panel on both sides of the boundary
-and requires consecutive sample sequences throughout the transfers.
+Run the same combined fixture with `--tiles` to test map delivery while
+PPP is online. It verifies the cellular-capable profile refuses direct IP
+map configuration and the PPP listener receives no map traffic. The BLE
+client supplies both tiles during full-rate export. The test checks the
+panel on both sides of the boundary and requires consecutive sample
+sequences throughout the transfers.
 
 ## Replay an iPhone recording
 

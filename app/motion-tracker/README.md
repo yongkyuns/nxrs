@@ -83,13 +83,13 @@ returns it over the existing authenticated BLE/TLS connection. The iPhone
 can use Wi-Fi or mobile data. Older companion clients can continue to read
 telemetry from the tracker.
 
-### Direct Wi-Fi or cellular
+### Direct Wi-Fi
 
-For operation without a phone, run the IPv4 relay inside your private
-network. The tracker uses normal IP routing, so the same endpoint works
-over an already connected Wi-Fi interface or Stamp PPP. The CoreS3
-dual-IMU profile currently leaves onboard Wi-Fi disabled. Its Stamp
-profile provides the direct bearer.
+For operation without a phone, run the pinned IPv4 relay on a private,
+unmetered Wi-Fi network. The tracker uses the OS default route. A
+cellular-capable profile rejects direct relay configuration because that
+route could use PPP. The stock CoreS3 profile leaves Wi-Fi disabled. Use
+the paired phone for maps on the Stamp profile.
 
 ```sh
 python3 -m pip install 'Pillow>=10,<14' 'requests-cache>=1.2,<2'
@@ -100,10 +100,9 @@ openssl x509 -in cert.pem -outform DER | openssl dgst -sha256
 Use a named-curve P-256 certificate and provision the fingerprint
 independently. Limit access to trusted devices at the network boundary.
 Tile requests authenticate the relay by pin and carry no client credentials.
-On the Stamp profile, use the relay with or without a telemetry collector.
 
 ```text
-motion_tracker --cellular-apn YOUR_APN --map-relay IPV4:8444 --map-pin SHA256
+motion_tracker --map-relay IPV4:8444 --map-pin SHA256
 ```
 
 When the phone is paired and connected, the tracker tries it first. It
@@ -330,18 +329,28 @@ SHA-256 fingerprint of its DER-encoded leaf certificate as 64 hex digits.
 motion_tracker --cellular-apn YOUR_APN --collector IPV4:PORT --collector-pin SHA256
 ```
 
-The tracker sends v1 NDJSON over a one-way TLS 1.3 stream after authenticating
-the pinned collector certificate. The collector reads newline-delimited records
-without sending application data back. Use a named-curve P-256 certificate
-and provision its fingerprint through a trusted channel. The pin authenticates the collector.
-Device authentication at the collector would require a separate enrollment
-mechanism. Use `--cellular-apn YOUR_APN` on its own to bring up PPP for diagnostics.
+The collector receives v1 NDJSON records with `"kind":"summary"`. Each record
+carries two IMU health strings in `imu`, `imu1_received_ms` when live, and the
+latest GNSS fix or its health state. Raw IMU samples stay on the local USB and
+BLE paths. Map tiles travel over BLE or the unmetered Wi-Fi relay.
+
+By default the tracker starts at most one upload per minute, with a
+288-byte limit per record including the newline. That caps summary payload
+at about 0.42 MB per day during continuous operation. Carrier usage also
+includes TLS, TCP and PPP traffic. Set `--cellular-report-secs 1..86400` to
+change this interval independently of the dashboard and BLE cadence.
+Reconnects preserve the rate limit and never replay a backlog.
+
+The TLS 1.3 stream is one-way. Use a named-curve P-256 collector certificate
+and provision its fingerprint through a trusted channel. The pin authenticates
+the collector. Device authentication at the collector requires separate
+enrollment. Use `--cellular-apn YOUR_APN` on its own to bring up PPP for diagnostics.
 
 A lost PPP session is torn down and redialed by the cellular HAL, which wakes
 communications when link state changes. The tracker reconnects a lost collector
 session over the existing link when possible. Retry delays increase from one to
-at most 30 seconds. The tracker keeps the latest snapshot and one record
-in flight. Samples superseded during an outage are skipped. BLE and cellular
+at most 30 seconds. The tracker samples current readings when a report is due
+and keeps one record in flight. BLE and cellular
 share one TLS owner task while acquisition and the dashboard continue independently.
 The Stamp profile uses bounded NuttX TCP write buffering. The unbuffered sender
 waits for acknowledgments even on a nonblocking socket, which can delay BLE

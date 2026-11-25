@@ -1,5 +1,8 @@
 use crate::{Error, Session, Status};
 
+/// Whether this build can establish a cellular link.
+pub const LINK_AVAILABLE: bool = false;
+
 pub fn connect(_: &str) -> Result<impl Session, Error> {
     struct Unavailable;
     impl Session for Unavailable {

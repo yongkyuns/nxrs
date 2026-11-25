@@ -12,6 +12,8 @@ use std::{
     time::{Duration, Instant},
 };
 
+pub const DIRECT_RELAY_AVAILABLE: bool = !cellular::LINK_AVAILABLE;
+
 const BLE_DEADLINE: Duration = Duration::from_secs(25);
 const IP_DEADLINE: Duration = Duration::from_secs(12);
 const RETRY: Duration = Duration::from_secs(30);
@@ -76,7 +78,7 @@ impl<'a> Tiles<'a> {
         phone: Option<Response>,
         now: Instant,
     ) -> Option<Response> {
-        if !matches!(self.active, Some(Transfer::Relay(_, Relay::Dial))) {
+        if DIRECT_RELAY_AVAILABLE && !matches!(self.active, Some(Transfer::Relay(_, Relay::Dial))) {
             if let Some(dial) = &mut self.dial {
                 if !matches!(dial.poll(), Ok(None)) {
                     self.dial = None;
@@ -97,13 +99,15 @@ impl<'a> Tiles<'a> {
                 _ if !phone_live || now >= *deadline => Err(io::ErrorKind::TimedOut.into()),
                 _ => return None,
             },
-            Some(Transfer::Relay(deadline, relay)) if now < *deadline => relay.poll(
-                key,
-                self.relay.unwrap(),
-                &mut self.dial,
-                &mut self.receiver,
-                identity,
-            ),
+            Some(Transfer::Relay(deadline, relay)) if DIRECT_RELAY_AVAILABLE && now < *deadline => {
+                relay.poll(
+                    key,
+                    self.relay.unwrap(),
+                    &mut self.dial,
+                    &mut self.receiver,
+                    identity,
+                )
+            }
             Some(Transfer::Relay(..)) => Err(io::ErrorKind::TimedOut.into()),
             None => {
                 if now < self.next || now < self.throttle {
@@ -112,7 +116,10 @@ impl<'a> Tiles<'a> {
                 if phone_live && !self.try_ip {
                     self.throttle = now + REQUEST_INTERVAL;
                     self.active = Some(Transfer::Phone(now + BLE_DEADLINE));
-                } else if let Some(endpoint) = self.relay.filter(|_| self.dial.is_none()) {
+                } else if let Some(endpoint) = self
+                    .relay
+                    .filter(|_| DIRECT_RELAY_AVAILABLE && self.dial.is_none())
+                {
                     if let Ok(dial) = Dial::start(endpoint) {
                         self.throttle = now + REQUEST_INTERVAL;
                         self.dial = Some(dial);

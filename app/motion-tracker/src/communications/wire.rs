@@ -7,7 +7,7 @@ use crate::{
 use std::fmt::{self, Write};
 use std::io;
 
-fn utc_json(out: &mut impl Write, utc_ms: Option<i64>) -> fmt::Result {
+fn utc_json(out: &mut dyn Write, utc_ms: Option<i64>) -> fmt::Result {
     match utc_ms {
         Some(utc_ms) => write!(out, ",\"utc_ms\":{utc_ms}"),
         None => out.write_str(",\"utc_ms\":null"),
@@ -34,7 +34,7 @@ fn imu_json(
 }
 
 fn gnss_json(
-    out: &mut impl Write,
+    out: &mut dyn Write,
     reading: Reading<gnss::GnssFix>,
     utc_ms: Option<i64>,
 ) -> fmt::Result {
@@ -106,6 +106,32 @@ fn build(
     Ok(frame)
 }
 
+pub const CELLULAR_FRAME_BYTES: usize = 288;
+
+pub fn cellular_frame(snapshot: &Snapshot) -> io::Result<Text<CELLULAR_FRAME_BYTES>> {
+    let [first, second] = snapshot.imu.each_ref().map(reading_status);
+    let utc = match snapshot.gnss {
+        Reading::Live(fix) => snapshot
+            .clock
+            .and_then(|anchor| anchor.utc_ms(fix.timestamp_ms)),
+        _ => None,
+    };
+    let mut frame = Text::new();
+    write!(
+        frame,
+        "{{\"v\":1,\"kind\":\"summary\",\"imu\":[\"{first}\",\"{second}\"],\"imu1_received_ms\":"
+    )
+    .and_then(|()| match snapshot.imu[0] {
+        Reading::Live(sample) => write!(frame, "{}", sample.timestamp_ms),
+        _ => frame.write_str("null"),
+    })
+    .and_then(|()| frame.write_str(",\"gnss\":"))
+    .and_then(|()| gnss_json(&mut frame, snapshot.gnss, utc))
+    .and_then(|()| frame.write_str("}\n"))
+    .map_err(|_| io::ErrorKind::InvalidData)?;
+    Ok(frame)
+}
+
 pub fn frame(snapshot: &Snapshot) -> io::Result<Text<768>> {
     ble_frame(snapshot, None)
 }
@@ -130,6 +156,40 @@ pub fn write_usb(output: &mut impl io::Write, snapshot: &Snapshot) -> io::Result
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cellular_summary_is_bounded_and_contains_no_raw_imu_data() {
+        let sample = Snapshot {
+            imu: [
+                Reading::Live(imu::ImuSample {
+                    sequence: u64::MAX,
+                    timestamp_ms: u64::MAX,
+                    sample_interval_us: 10_000,
+                    accel_mps2: [1.0; 3],
+                    gyro_rps: [2.0; 3],
+                }),
+                Reading::Fault,
+            ],
+            gnss: Reading::Live(gnss::GnssFix {
+                sequence: u64::MAX,
+                timestamp_ms: i64::MAX as u64,
+                receiver_utc_ms: None,
+                latitude_deg: -90.0,
+                longitude_deg: -180.0,
+                speed_mps: f32::MAX,
+                course_rad: None,
+            }),
+            clock: crate::clock::ClockAnchor::new(i64::MAX as u64, -1),
+        };
+        let frame = cellular_frame(&sample).unwrap();
+        let line = std::str::from_utf8(frame.bytes()).unwrap();
+        assert!(line.starts_with("{\"v\":1,\"kind\":\"summary\",\"imu\":[\"live\",\"fault\"],"));
+        assert!(line.contains("\"imu1_received_ms\":18446744073709551615"));
+        assert!(line.contains("\"utc_ms\":-1"));
+        assert!(!line.contains("accel_mps2"));
+        assert!(!line.contains("gyro_rps"));
+        assert!(line.ends_with("}}\n"));
+    }
 
     #[test]
     fn wire_preserves_sensor_order_and_omits_unavailable_coordinates() {

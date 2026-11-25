@@ -54,7 +54,49 @@ impl Endpoint {
 
 pub struct Config {
     pub apn: String,
-    pub collector: Option<Endpoint>,
+    pub collector: Option<Collector>,
+}
+
+#[derive(Clone, Copy)]
+pub struct Collector {
+    pub endpoint: Endpoint,
+    pub interval: Duration,
+}
+
+pub struct Reports {
+    interval: Duration,
+    next: Instant,
+    publication: Publisher<Snapshot, Text<{ wire::CELLULAR_FRAME_BYTES }>>,
+}
+
+impl Reports {
+    pub fn new(interval: Duration, now: Instant) -> Self {
+        Self {
+            interval,
+            next: now,
+            publication: Publisher::default(),
+        }
+    }
+
+    pub fn reset_stream(&mut self) {
+        self.publication.reset_stream();
+    }
+
+    fn service(
+        &mut self,
+        output: &mut impl io::Write,
+        now: Instant,
+        snapshot: impl FnOnce() -> Snapshot,
+    ) -> io::Result<bool> {
+        if !self.publication.in_flight() && now >= self.next {
+            // A failed or partial attempt spends this interval too. Replacing
+            // the TLS stream does not refresh the allowance.
+            self.next = now + self.interval;
+            self.publication.offer(snapshot());
+        }
+        self.publication
+            .service(output, now, now + CONNECT_TIMEOUT, wire::cellular_frame)
+    }
 }
 
 struct Signals {
@@ -132,7 +174,7 @@ impl Modem {
                     thread::Builder::new()
                         .name("tracker-collector".into())
                         .stack_size(4 * 1024)
-                        .spawn(move || dial(collector, &control))
+                        .spawn(move || dial(collector.endpoint, &control))
                 })
                 .transpose()?
         } else {
@@ -271,8 +313,8 @@ impl<'a> Upload<'a> {
 
     pub fn service(
         &mut self,
-        publication: &mut Publisher<Snapshot, Text<768>>,
-        now: Instant,
+        reports: &mut Reports,
+        snapshot: impl FnOnce(Instant) -> Snapshot,
     ) -> io::Result<bool> {
         if !self.ready {
             if !self
@@ -285,7 +327,7 @@ impl<'a> Upload<'a> {
             self.ready = true;
             log::info!("motion-tracker collector TLS online");
         }
-        if !publication.in_flight() {
+        if !reports.publication.in_flight() {
             // Detect a closed peer even with no sample waiting. Finish any
             // pending write before invoking another TLS operation.
             match self.connection.read(&mut [0]) {
@@ -295,11 +337,50 @@ impl<'a> Upload<'a> {
                 Err(error) => return Err(error),
             }
         }
-        publication.service(
-            &mut self.connection,
-            now,
-            now + CONNECT_TIMEOUT,
-            wire::frame,
-        )
+        let now = Instant::now();
+        reports.service(&mut self.connection, now, || snapshot(now))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::tracker::Reading;
+
+    #[test]
+    fn report_budget_survives_an_interrupted_stream_and_skips_missed_intervals() {
+        let now = Instant::now();
+        let interval = Duration::from_secs(60);
+        let mut reports = Reports::new(interval, now);
+        let sample = || Snapshot {
+            imu: [Reading::Waiting; 2],
+            gnss: Reading::Waiting,
+            clock: None,
+        };
+        assert_eq!(
+            reports
+                .service(&mut &mut [][..], now, sample)
+                .unwrap_err()
+                .kind(),
+            io::ErrorKind::WriteZero
+        );
+        reports.reset_stream();
+        let mut output = Vec::new();
+        assert!(!reports
+            .service(
+                &mut output,
+                now + Duration::from_secs(59),
+                || unreachable!()
+            )
+            .unwrap());
+        let later = now + 3 * interval;
+        assert!(reports.service(&mut output, later, sample).unwrap());
+        assert!(!reports
+            .service(&mut output, later, || unreachable!())
+            .unwrap());
+        assert_eq!(output.iter().filter(|&&byte| byte == b'\n').count(), 1);
+        assert!(reports
+            .service(&mut output, later + interval, sample)
+            .unwrap());
     }
 }

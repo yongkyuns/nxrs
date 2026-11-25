@@ -15,8 +15,8 @@ from bumble.gatt import GATT_CLIENT_CHARACTERISTIC_CONFIGURATION_DESCRIPTOR
 
 from dashboard import SecureStream, Stream, connect, pump, run, wait_until, connect_map_export, luminance
 import tile_fixture
-from sensors import check_live
-from upload import COLLECTOR, TcpStamp, collector, is_live, network
+from sensors import check_fix, check_live
+from upload import CELLULAR_INTERVAL_S, COLLECTOR, TcpStamp, collector, is_live, network
 
 sys.path.append(str(Path(__file__).resolve().parents[2] / 'host'))
 from test_nuttx_memory import parse_meminfo, validate_heap_cycles
@@ -308,7 +308,7 @@ class Scenario:
             elif event == 'closed':
                 self.collector_closures.append((number, value))
             elif event == 'frame' and is_live(value[1]):
-                check_live(value[1])
+                check_fix(value[1])
                 self.collector_samples[number] = value[1]
         return connection in self.tls_connections and connection in self.collector_samples
 
@@ -317,7 +317,7 @@ class Scenario:
         await panel.query(f'writel {panel_work:#x} 0x7d0')
         busy_before = await panel.word('tracker_panel_busy_rows')
 
-        before = self.collector_samples[1]['imu'][0]['seq']
+        before = self.collector_samples[1]['imu1_received_ms']
         previous = None
         for minimum in (100 * seconds, 200):
             if previous is not None:
@@ -339,7 +339,7 @@ class Scenario:
                   flush=True)
             previous = latest
         assert guest.gnss.navigation == (500, 1)
-        assert self.collector_live(1) and self.collector_samples[1]['imu'][0]['seq'] > before
+        assert self.collector_live(1) and self.collector_samples[1]['imu1_received_ms'] > before
         assert self.tls_connections == {1} and not self.collector_closures
         assert await panel.word('tracker_panel_busy_rows') > busy_before
         await panel.query(f'writel {panel_work:#x} 0')
@@ -450,9 +450,9 @@ class Scenario:
             assert wire_bytes < 0.65 * fixed_bytes, (wire_bytes, fixed_bytes)
             usb_tick = guest.samples[-1]['imu'][0]['received_ms']
             assert usb_tick - latest[0][1] < 800, (usb_tick, latest[0][1])
-            for snapshot in (guest.samples[-1], self.collector_samples[1]):
-                for reading in [*snapshot['imu'], snapshot['gnss']]:
-                    assert reading['utc_ms'] - reading['received_ms'] == clock_offset
+            snapshot = guest.samples[-1]
+            for reading in [*snapshot['imu'], snapshot['gnss'], self.collector_samples[1]['gnss']]:
+                assert reading['utc_ms'] - reading['received_ms'] == clock_offset
             print('PASS: the 4.8–5.5 kB/s BLE limit retained all samples, with one UTC mapping on BLE, USB and TLS',
                   flush=True)
             print(f'PASS: compact export used {wire_bytes} payload bytes versus {fixed_bytes} fixed bytes',
@@ -476,12 +476,12 @@ class Scenario:
             return guest.samples[-1]['imu'][0].get('received_ms', 0)
 
         assert self.collector_live(1)
-        before = self.collector_samples[1]['imu'][0]['seq']
+        before = self.collector_samples[1]['imu1_received_ms']
         start = source_time()
         guest.controller.hold_acl_credits()
         try:
             await wait_until(lambda: source_time() - start >= 1_800, 'ACL credit hold')
-            assert self.collector_live(1) and self.collector_samples[1]['imu'][0]['seq'] > before, (
+            assert self.collector_live(1) and self.collector_samples[1]['imu1_received_ms'] > before, (
                 'cellular upload made no progress during the BLE credit hold')
         finally:
             withheld = guest.controller.release_acl_credits(individual)
@@ -491,11 +491,15 @@ class Scenario:
 
     async def exercise_tiles(self, guest, panel, phone, args):
         await guest.wait_text(b'nsh>')
+        offset = len(guest.buffer)
+        guest.command(f'motion_tracker --map-relay {COLLECTOR}:{self.stamp.port} --map-pin {self.pin}')
+        await guest.wait_text(b'direct map relay is unavailable with cellular', offset)
+        await guest.wait_text(b'nsh>', offset)
         await start_stack_monitor(guest)
         offset = len(guest.buffer)
         guest.command(
             f'motion_tracker --frames {FRAMES} --interval-ms {INTERVAL_MS} --stream-usb --ble '
-            f'--cellular-apn nxrs.test --map-relay {COLLECTOR}:{self.stamp.port} --map-pin {self.pin}')
+            '--cellular-apn nxrs.test')
         key = await panel.pairing_key()
         await guest.wait_text(b"cellular Online", offset)
         connection, stream = await asyncio.wait_for(connect_map_export(phone, key), 8)
@@ -529,19 +533,7 @@ class Scenario:
                 pass
             zoom, x, y = snapshot['tile']
             assert zoom == 18, snapshot['tile']
-            assert self.server.events.empty(), 'IP fetched before the phone reported failure'
-            stream.tls.write(tile_fixture.REQUEST.pack(tile_fixture.MAGIC, zoom, x, y) + bytes([1]))
-            await stream.poll()
-            requests = []
-            while not requests:
-                followup = await sample()
-                check_live(followup, **map_fix)
-                assert followup['imu'][0]['seq'] > snapshot['imu'][0]['seq']
-                while not self.server.events.empty():
-                    _, event, value = self.server.events.get_nowait()
-                    if event == 'tile':
-                        requests.append(value)
-            assert requests == [(zoom, x, y)], requests
+            await stream.send_tile(zoom, x, y)
             try:
                 await consume_during(panel.wait_pixel(90, 50, 0x001f, timeout=15))
             except ExceptionGroup:
@@ -592,7 +584,8 @@ class Scenario:
             assert min(stream.sample_counts[:2]) >= 200 and stream.sample_counts[2] >= 4
             rates = stream.export_rates()
             assert all(92 <= rate <= 108 for rate in rates[:2]) and 1.8 <= rates[2] <= 2.2, rates
-        print(f'PASS: map replies over PPP and BLE, tile crossing, export {stream.sample_counts} '
+        assert self.server.connections == 0, 'tile traffic went to the PPP listener'
+        print(f'PASS: BLE map replies with PPP online, tile crossing, export {stream.sample_counts} '
               f'at {[round(rate, 2) for rate in rates]} Hz without gaps', flush=True)
         await connection.disconnect()
         await guest.wait_text(b'nsh>', offset + 8, args.timeout)
@@ -611,7 +604,8 @@ class Scenario:
         guest.command(
             f'motion_tracker --frames {frames} '
             f'--interval-ms {INTERVAL_MS} --stream-usb --ble '
-            f'--cellular-apn nxrs.test --collector {COLLECTOR}:{stamp.port} --collector-pin {self.pin}')
+            f'--cellular-apn nxrs.test --collector {COLLECTOR}:{stamp.port} --collector-pin {self.pin} '
+            f'--cellular-report-secs {CELLULAR_INTERVAL_S}')
         key = await panel.pairing_key()
         await wait_until(lambda: self.collector_live(1), 'initial cellular TLS telemetry', 12)
         if args.export:
@@ -674,7 +668,7 @@ class Scenario:
             await sample()
             assert len(timestamps) - releasing < 15, 'collector TLS did not recover after redial'
         assert stamp.dials >= 4 and stamp.ipcp and stamp.data_mode
-        assert self.collector_samples[2]['imu'][0]['received_ms'] > floor
+        assert self.collector_samples[2]['imu1_received_ms'] > floor
         await guest.wait_text(b'collector TLS online', outage_offset)
         recovered = len(timestamps)
         stamp.begin_hold()
@@ -701,7 +695,7 @@ class Scenario:
             await sample()
         assert not disconnected.is_set(), 'BLE link did not survive PPP reconnect'
         assert self.collector_live(2)
-        assert self.collector_samples[2]['imu'][0]['received_ms'] > hold.result()
+        assert self.collector_samples[2]['imu1_received_ms'] > hold.result()
         assert stamp.retransmissions > 0, 'NuttX did not retry the held TLS data'
         retry_interval = stamp.released_at - stamp.held_at
         during_retry = sum(stamp.held_at < arrival < stamp.released_at for arrival in arrivals)
@@ -766,7 +760,7 @@ def main():
     args.log.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix='nxrs-coexist-', dir='/tmp') as folder:
         directory = Path(folder)
-        with collector(directory, close_first=False, idle_timeout=15, tile=args.tiles) as (server, pin), network(
+        with collector(directory, close_first=False, idle_timeout=15) as (server, pin), network(
                 directory, args.network_qemu, server.server_address[1]) as ethernet, args.log.open('wb') as log:
             scenario = Scenario(server, pin, ethernet)
             test = scenario.exercise_tiles if args.tiles else scenario.exercise

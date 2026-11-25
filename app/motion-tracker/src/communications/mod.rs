@@ -7,13 +7,12 @@ mod uplink;
 mod wire;
 
 pub(super) use export::Capture;
-pub(super) use tiles::{Key, Tile, Zoom, SIDE};
-pub(super) use uplink::{Config as CellularConfig, Endpoint};
+pub(super) use tiles::{Key, Tile, Zoom, DIRECT_RELAY_AVAILABLE, SIDE};
+pub(super) use uplink::{Collector, Config as CellularConfig, Endpoint};
 pub(super) use wire::write_usb;
 
 use crate::tracker::Snapshot;
 use navigation::observations::SharedObservations;
-use publication::Publisher;
 use std::cell::OnceCell;
 use std::io;
 use std::sync::{Arc, Mutex};
@@ -212,7 +211,7 @@ fn run(
 fn serve(
     shared: &Mutex<Shared>,
     pair: bool,
-    modem: Option<(&uplink::Modem, Option<Endpoint>)>,
+    modem: Option<(&uplink::Modem, Option<uplink::Collector>)>,
     tile_relay: Option<Endpoint>,
     telemetry: &Telemetry,
     notify: &mut impl FnMut(),
@@ -226,10 +225,17 @@ fn serve(
     let mut retry_pending = false;
     let mut link_generation = 0;
     let mut pairing_failed = false;
-    let mut publication = Publisher::default();
     let mut command = pair.then_some(Pairing::Start);
     let mut next_report = Instant::now();
-    let cellular = modem.and_then(|(modem, endpoint)| endpoint.map(|endpoint| (endpoint, modem)));
+    let mut cellular = modem.and_then(|(modem, collector)| {
+        collector.map(|collector| {
+            (
+                collector.endpoint,
+                modem,
+                uplink::Reports::new(collector.interval, Instant::now()),
+            )
+        })
+    });
     let mut cellular_status = None;
 
     loop {
@@ -273,7 +279,7 @@ fn serve(
                 },
             }
         }
-        let reporting = radio.as_ref().is_some_and(radio::Output::live) || cellular.is_some();
+        let reporting = radio.as_ref().is_some_and(radio::Output::live);
         let fault = telemetry.capture.take_sensor_failed();
         let sample = (reporting && (fault || now >= next_report)).then(|| {
             next_report = now + telemetry.interval;
@@ -315,29 +321,26 @@ fn serve(
         if view != previous {
             notify();
         }
-        if let Some((collector, modem)) = cellular {
-            if let Some(sample) = sample {
-                publication.offer(sample);
-            }
+        if let Some((collector, modem, reports)) = &mut cellular {
             let (generation, socket) = modem.receive();
             if generation != link_generation {
                 link_generation = generation;
                 upload = None;
-                publication.reset_stream();
+                reports.reset_stream();
                 retry = uplink::Retry::new();
                 retry_pending = false;
             }
             let progress = if let Some(socket) = socket {
                 tls_identity(&identity)
-                    .and_then(|identity| uplink::Upload::open(identity, socket, collector))
+                    .and_then(|identity| uplink::Upload::open(identity, socket, *collector))
                     .map(|connection| {
                         upload = Some(connection);
-                        publication.reset_stream();
+                        reports.reset_stream();
                         false
                     })
             } else {
                 upload.as_mut().map_or(Ok(false), |connection| {
-                    connection.service(&mut publication, now)
+                    connection.service(reports, |now| telemetry.snapshot(now))
                 })
             };
             match progress {
@@ -346,7 +349,7 @@ fn serve(
                 Err(error) => {
                     log::warn!("motion-tracker collector retry: {error}");
                     upload = None;
-                    publication.reset_stream();
+                    reports.reset_stream();
                     retry.later();
                     retry_pending = true;
                 }
