@@ -17,6 +17,9 @@ thread_local! { static STATE: RefCell<State> = RefCell::new(State::default()); }
 mod ffi {
     use super::*;
     use std::io;
+    pub fn irq_timestamp(_: i32) -> io::Result<Option<(usize, u64)>> {
+        Ok(None)
+    }
     pub fn irq_check(_: i32) -> io::Result<()> {
         STATE.with_borrow(|s| {
             if s.wrong_type {
@@ -60,6 +63,7 @@ fn embedded_hal_reads_propagate_level_and_io_failure() {
     let mut pin =
         Interrupt::open_rising("/dev/null", || panic!("unexpected cleanup fault")).unwrap();
     assert!(pin.file().metadata().is_ok());
+    assert_eq!(pin.take_timestamp(), Ok(None));
     assert!(pin.is_low().unwrap());
     STATE.with_borrow_mut(|s| s.high = true);
     assert!(pin.is_high().unwrap());

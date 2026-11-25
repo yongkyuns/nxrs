@@ -12,6 +12,8 @@ use embedded_hal::{delay::DelayNs, i2c::I2c, spi::SpiDevice};
 
 const CONFIG_CHUNK: usize = 30;
 const FRAME_BYTES: u16 = 12;
+const SENSOR_TIME_MASK: u32 = (1 << 24) - 1;
+const SENSOR_TICKS_PER_SECOND: u32 = 25_600;
 // One complete frame is enough to raise a FIFO watermark interrupt.
 const WATERMARK_BYTES: u16 = FRAME_BYTES;
 pub type Bmi270<B, D> = Device<I2cBus<B>, D>;
@@ -22,6 +24,7 @@ pub struct Device<T, D> {
     delay: D,
     config: Config,
     reference_enabled: bool,
+    last_sample: Option<(u32, u64)>,
 }
 
 /// Sensor-specific acquisition settings. Defaults preserve the established HAL behavior.
@@ -196,6 +199,7 @@ impl<T: Registers, D: DelayNs> Device<T, D> {
             delay,
             config,
             reference_enabled: false,
+            last_sample: None,
         };
         sensor.initialize()?;
         Ok(sensor)
@@ -351,24 +355,82 @@ impl<T: Registers, D: DelayNs> Device<T, D> {
         reference_stopped
     }
 
+    fn sensor_ticks(&mut self) -> Result<u32, Error> {
+        let mut bytes = [0; 4];
+        self.io.read(0x18, &mut bytes[..3])?;
+        Ok(u32::from_le_bytes(bytes))
+    }
+
+    /// Take a FIFO length snapshot within one sampling slot (datasheet §4.6.15).
+    /// An update during the snapshot makes the newest frame's slot ambiguous.
+    fn timed_length(
+        &mut self,
+        ticks_per_sample: u32,
+        now_us: &mut impl FnMut() -> u64,
+    ) -> Result<(usize, u32, u64, u64), Error> {
+        for _ in 0..3 {
+            let before = self.sensor_ticks()?;
+            let status = self.io.read_reg(0x1d)?;
+            if status & 1 != 0 {
+                return Err(Error::Overflow);
+            }
+            if status & 4 != 0 {
+                return Err(Error::Bus);
+            }
+            let mut length = [0; 2];
+            self.io.read(0x24, &mut length)?;
+            let start_us = now_us();
+            let after = self.sensor_ticks()?;
+            let end_us = now_us();
+            if before / ticks_per_sample != after / ticks_per_sample {
+                continue;
+            }
+            return Ok((
+                usize::from(u16::from_le_bytes(length)),
+                after,
+                start_us,
+                end_us,
+            ));
+        }
+        Err(Error::Timeout)
+    }
+
     /// Drain after an IRQ or ODR-derived wake. FIFO contents alone admit samples.
-    pub fn drain(&mut self, mut emit: impl FnMut(Sample) -> bool) -> Result<Option<usize>, Error> {
-        let mut status = [0];
-        self.io.read(0x1d, &mut status)?;
-        if status[0] & 1 != 0 {
-            return Err(Error::Overflow);
-        }
-        if status[0] & 4 != 0 {
-            return Err(Error::Bus);
-        }
-        let mut length = [0; 2];
-        self.io.read(0x24, &mut length)?;
-        let count = usize::from(u16::from_le_bytes(length));
+    pub fn drain(
+        &mut self,
+        mut now_us: impl FnMut() -> u64,
+        mut emit: impl FnMut(Sample) -> bool,
+    ) -> Result<Option<usize>, Error> {
+        let period_ticks = SENSOR_TICKS_PER_SECOND * 1_000 / self.config.rate.milli_hz();
+        let (count, observed_ticks, start_us, end_us) =
+            self.timed_length(period_ticks, &mut now_us)?;
         // Headerless frames contain gyro XYZ followed by accel XYZ (12 bytes).
         // Equal ODR, no auxiliary data/tags/time, and no downsampling are required.
         if count > 2048 || count % 12 != 0 {
             return Err(Error::InvalidData);
         }
+        if count == 0 {
+            return Ok(Some(0));
+        }
+        // At 25.6 kHz, 16 ticks equal 625 nominal microseconds.
+        let age_ticks = observed_ticks % period_ticks + (count / 12 - 1) as u32 * period_ticks;
+        let period_us = u64::from(period_ticks * 625 / 16);
+        let age_us = u64::from(age_ticks * 625 / 16);
+        let mut sample_ticks = observed_ticks.wrapping_sub(age_ticks) & SENSOR_TIME_MASK;
+        let earliest_us = start_us.saturating_sub(age_us);
+        let latest_us = end_us.checked_sub(age_us).ok_or(Error::InvalidData)?;
+        let mut capture_us = if let Some((last_ticks, last_us)) = self.last_sample {
+            let earliest_us = earliest_us.max(last_us.saturating_add(1));
+            let expected_ticks = (last_ticks + period_ticks) & SENSOR_TIME_MASK;
+            if sample_ticks != expected_ticks || earliest_us > latest_us {
+                return Err(Error::InvalidData);
+            }
+            // Retain the established sample phase while the new clock
+            // observation supports it. Correct drift at the bracket edges.
+            (last_us + period_us).clamp(earliest_us, latest_us)
+        } else {
+            earliest_us.midpoint(latest_us)
+        };
         let mut remaining = count;
         let mut bytes = [0; 60];
         let [accel, gyro] = self.config.counts_scale();
@@ -377,12 +439,16 @@ impl<T: Registers, D: DelayNs> Device<T, D> {
             self.io.read(0x26, &mut bytes[..n])?;
             for frame in bytes[..n].chunks_exact(12) {
                 let axis = |i| f32::from(i16::from_le_bytes([frame[i], frame[i + 1]]));
+                self.last_sample = Some((sample_ticks, capture_us));
                 if !emit(Sample {
+                    capture_us: Some(capture_us),
                     accel_mps2: [axis(6) * accel, axis(8) * accel, axis(10) * accel],
                     gyro_rps: [axis(0) * gyro, axis(2) * gyro, axis(4) * gyro],
                 }) {
                     return Ok(None);
                 }
+                sample_ticks = (sample_ticks + period_ticks) & SENSOR_TIME_MASK;
+                capture_us += period_us;
             }
             remaining -= n;
         }
@@ -417,12 +483,14 @@ mod tests {
         mismatch_read: Option<(u8, u8)>,
         startup_reads: usize,
         ready_after: usize,
+        clock_after_length: Option<u32>,
     }
     impl Bus {
         fn new() -> Self {
             let mut registers = [0; 128];
             registers[0] = 0x24;
             registers[0x21] = 1;
+            registers[0x1a] = 0x10;
             Self {
                 registers,
                 fifo: Vec::new(),
@@ -431,7 +499,12 @@ mod tests {
                 mismatch_read: None,
                 startup_reads: 0,
                 ready_after: 3,
+                clock_after_length: None,
             }
+        }
+
+        fn set_sensor_ticks(&mut self, ticks: u32) {
+            self.registers[0x18..=0x1a].copy_from_slice(&ticks.to_le_bytes()[..3]);
         }
     }
     impl ErrorType for Bus {
@@ -465,9 +538,15 @@ mod tests {
                             0x80
                         };
                     }
-                    0x24 => bytes.copy_from_slice(
-                        &(self.fifo.len() as u16 - self.cursor as u16).to_le_bytes(),
-                    ),
+                    0x24 => {
+                        bytes.copy_from_slice(
+                            &(self.fifo.len() as u16 - self.cursor as u16).to_le_bytes(),
+                        );
+                        if let Some(ticks) = self.clock_after_length.take() {
+                            self.set_sensor_ticks(ticks);
+                            self.fifo.extend_from_slice(&[0; 12]);
+                        }
+                    }
                     0x26 => {
                         if self.fail_data {
                             return Err(ErrorKind::Other);
@@ -573,7 +652,7 @@ mod tests {
         }
         let mut sample = None;
         assert_eq!(
-            sensor.read_available(|value| {
+            sensor.read_available(|| 1_000_000, |value| {
                 sample = Some(value);
                 true
             }),
@@ -607,11 +686,12 @@ mod tests {
     #[test]
     fn each_available_frame_is_delivered_without_waiting_for_a_batch() {
         let mut sensor = Bmi270::<_, Delay>::open(Bus::new(), 0x68, Delay::new()).unwrap();
-        for _ in 1..=3 {
+        for frame in 1..=3 {
+            sensor.io.bus.set_sensor_ticks(frame * 256);
             sensor.io.bus.fifo.extend_from_slice(&[0; 12]);
             let mut samples = Vec::new();
             assert_eq!(
-                sensor.drain(|sample| {
+                sensor.drain(|| 1_000_000 + u64::from(frame) * 10_000, |sample| {
                     samples.push(sample);
                     true
                 }),
@@ -622,7 +702,7 @@ mod tests {
                 (samples[0].accel_mps2, samples[0].gyro_rps),
                 ([0.0; 3], [0.0; 3])
             );
-            assert_eq!(sensor.drain(|_| panic!("duplicate sample")), Ok(Some(0)));
+            assert_eq!(sensor.drain(|| 1_000_000, |_| panic!("duplicate sample")), Ok(Some(0)));
         }
     }
     #[test]
@@ -635,42 +715,77 @@ mod tests {
         }
         let mut samples = Vec::new();
         assert_eq!(
-            sensor.drain(|sample| {
+            sensor.drain(|| 1_000_000, |sample| {
                 samples.push(sample);
                 true
             }),
             Ok(Some(7))
         );
         assert_eq!(samples.len(), 7);
+        let times: Vec<_> = samples
+            .iter()
+            .map(|sample| sample.capture_us.unwrap())
+            .collect();
+        assert_eq!(
+            times,
+            [940_000, 950_000, 960_000, 970_000, 980_000, 990_000, 1_000_000],
+        );
         for sample in &samples {
             assert!((sample.accel_mps2[0] - 9.80665).abs() < 1e-5);
             assert!((sample.accel_mps2[1] + 9.80665).abs() < 1e-5);
             assert!((sample.gyro_rps[2] - 17.453293).abs() < 1e-5);
         }
-        assert_eq!(sensor.drain(|_| panic!("replayed FIFO")), Ok(Some(0)));
+        assert_eq!(sensor.drain(|| 1_000_000, |_| panic!("replayed FIFO")), Ok(Some(0)));
+    }
+    #[test]
+    fn sensor_time_retries_a_length_read_at_wrap_and_rejects_reused_slots() {
+        let mut sensor = Bmi270::<_, Delay>::open(Bus::new(), 0x68, Delay::new()).unwrap();
+        let mut times = Vec::new();
+        let mut emit = |sample: Sample| {
+            times.push(sample.capture_us.unwrap());
+            true
+        };
+        sensor.io.bus.set_sensor_ticks(0xff_fe80);
+        sensor.io.bus.fifo.extend_from_slice(&[0; 12]);
+        assert_eq!(sensor.drain(|| 50_000, &mut emit), Ok(Some(1)));
+        sensor.io.bus.set_sensor_ticks(0xff_ff80);
+        sensor.io.bus.fifo.extend_from_slice(&[0; 12]);
+        sensor.io.bus.clock_after_length = Some(0x10);
+        let mut clock = [65_500, 65_550, 65_600, 65_680].into_iter();
+        assert_eq!(sensor.drain(|| clock.next().unwrap(), &mut emit), Ok(Some(2)));
+        sensor.io.bus.set_sensor_ticks(0x120);
+        sensor.io.bus.fifo.extend_from_slice(&[0; 12]);
+        let mut clock = [76_775, 76_825].into_iter();
+        assert_eq!(sensor.drain(|| clock.next().unwrap(), &mut emit), Ok(Some(1)));
+        assert_eq!(times, [45_000, 55_000, 65_000, 75_525]);
+        sensor.io.bus.fifo.extend_from_slice(&[0; 12]);
+        assert_eq!(
+            sensor.drain(|| 1_000_000, |_| panic!("reused capture timestamp")),
+            Err(Error::InvalidData)
+        );
     }
     #[test]
     fn overflow_partial_frames_io_and_closed_consumers_are_explicit() {
         let mut sensor = Bmi270::<_, Delay>::open(Bus::new(), 0x68, Delay::new()).unwrap();
         sensor.io.bus.registers[0x1d] = 1;
         assert_eq!(
-            sensor.read_available(|_| true),
+            sensor.read_available(|| 1_000_000, |_| true),
             Err(peripheral::imu::Error::Overflow)
         );
         sensor.io.bus.registers[0x1d] = 0;
         sensor.io.bus.fifo.push(0);
         assert_eq!(
-            sensor.read_available(|_| true),
+            sensor.read_available(|| 1_000_000, |_| true),
             Err(peripheral::imu::Error::InvalidData)
         );
         sensor.io.bus.fifo.resize(24, 0);
         sensor.io.bus.fail_data = true;
         assert_eq!(
-            sensor.read_available(|_| true),
+            sensor.read_available(|| 1_000_000, |_| true),
             Err(peripheral::imu::Error::Io)
         );
         sensor.io.bus.fail_data = false;
-        assert_eq!(sensor.read_available(|_| false), Ok(None));
+        assert_eq!(sensor.read_available(|| 1_000_000, |_| false), Ok(None));
     }
     include!("spi_tests.rs");
 }

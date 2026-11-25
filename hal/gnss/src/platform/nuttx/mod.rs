@@ -7,6 +7,7 @@ use crate::{receiver::Receiver, DeviceError, Event, Session};
 use acquisition::nuttx as events;
 use acquisition::readiness;
 use core::sync::atomic::{AtomicU8, Ordering};
+use pps_line::PpsLine;
 use peripheral::gnss::Receiver as Protocol;
 use std::sync::Mutex;
 use std::{
@@ -17,6 +18,7 @@ use std::{
 #[cfg(not(test))]
 #[allow(unsafe_code)]
 mod ffi;
+mod pps_line;
 
 const TRANSACTION_BUDGET: std::time::Duration = std::time::Duration::from_secs(1);
 fn deadline() -> std::time::Instant {
@@ -74,6 +76,7 @@ impl Write for Serial {
 }
 struct Active<R: Protocol + AsRef<Serial> + AsMut<Serial>> {
     receiver: Receiver<R>,
+    pps: Option<PpsLine>,
     cleaned: bool,
 }
 impl<R: Protocol + AsRef<Serial> + AsMut<Serial>> Active<R> {
@@ -82,6 +85,9 @@ impl<R: Protocol + AsRef<Serial> + AsMut<Serial>> Active<R> {
             return Ok(());
         }
         self.cleaned = true;
+        let pps = self.pps.as_mut().map_or(Ok(()), |line| {
+            line.unregister().map_err(|_| DeviceError::Io)
+        });
         let receiver = self
             .receiver
             .source
@@ -96,7 +102,7 @@ impl<R: Protocol + AsRef<Serial> + AsMut<Serial>> Active<R> {
                 .state
                 .store(2, Ordering::Release);
         }
-        receiver.and(port)
+        pps.and(receiver).and(port)
     }
 }
 impl<R: Protocol + AsRef<Serial> + AsMut<Serial>> Drop for Active<R> {
@@ -108,6 +114,7 @@ fn acquire<R: Protocol + AsRef<Serial> + AsMut<Serial>>(
     state: &'static AtomicU8,
     path: &str,
     baud: u32,
+    pps_path: Option<&str>,
     construct: fn(Serial) -> R,
 ) -> Result<Active<R>, DeviceError> {
     state
@@ -120,6 +127,14 @@ fn acquire<R: Protocol + AsRef<Serial> + AsMut<Serial>>(
             }
         })?;
     let guard = UseGuard(state);
+    let mut pps = pps_path
+        .map(|path| {
+            PpsLine::open_rising_with_context(path, state, |state| {
+                state.store(2, Ordering::Release)
+            })
+            .map_err(|_| DeviceError::Io)
+        })
+        .transpose()?;
     let file = OpenOptions::new()
         .read(true)
         .write(true)
@@ -139,14 +154,24 @@ fn acquire<R: Protocol + AsRef<Serial> + AsMut<Serial>>(
         port,
         _guard: guard,
     });
-    if let Err(error) = source.configure(deadline()) {
+    let configured = source.configure(deadline()).and_then(|()| {
+        if pps.is_some() {
+            source.enable_time_pulse(deadline())?;
+        }
+        Ok(())
+    });
+    if let Err(error) = configured {
         if source.restore(deadline()).is_err() {
             state.store(2, Ordering::Release);
+        }
+        if let Some(line) = &mut pps {
+            let _ = line.unregister();
         }
         return Err(crate::receiver::map_error(error));
     }
     Ok(Active {
         receiver: Receiver::new(source),
+        pps,
         cleaned: false,
     })
 }
@@ -155,6 +180,7 @@ fn acquire<R: Protocol + AsRef<Serial> + AsMut<Serial>>(
 pub struct Instance<R: Protocol + AsRef<Serial> + AsMut<Serial> + Send + 'static> {
     id: &'static str,
     path: &'static str,
+    pps_path: Option<&'static str>,
     baud: u32,
     stack_bytes: usize,
     state: AtomicU8,
@@ -172,12 +198,18 @@ impl<R: Protocol + AsRef<Serial> + AsMut<Serial> + Send + 'static> Instance<R> {
         Self {
             id,
             path,
+            pps_path: None,
             baud,
             stack_bytes,
             state: AtomicU8::new(0),
             storage: Mutex::new(None),
             construct,
         }
+    }
+    #[cfg(feature = "pps")]
+    pub const fn with_pps(mut self, path: &'static str) -> Self {
+        self.pps_path = Some(path);
+        self
     }
 }
 struct Retained<R: Protocol + AsRef<Serial> + AsMut<Serial> + Send + 'static>(&'static Instance<R>);
@@ -202,7 +234,13 @@ impl<R: Protocol + AsRef<Serial> + AsMut<Serial> + Send + 'static> crate::Device
         &'static self,
         sink: S,
     ) -> Result<impl Session + Send + 'static, DeviceError> {
-        let device = acquire(&self.state, self.path, self.baud, self.construct)?;
+        let device = acquire(
+            &self.state,
+            self.path,
+            self.baud,
+            self.pps_path,
+            self.construct,
+        )?;
         *self.storage.lock().map_err(|_| {
             self.state.store(2, Ordering::Release);
             DeviceError::Io
@@ -226,7 +264,14 @@ impl<R: Protocol + AsRef<Serial> + AsMut<Serial> + Send + 'static> crate::Device
                         break;
                     }
                     let mut connected = true;
-                    let now = acquisition::monotonic_ms();
+                    if let Some(line) = &device.pps {
+                        if let Some((sequence, time)) =
+                            line.take_timestamp().map_err(|_| DeviceError::Io)?
+                        {
+                            device.receiver.observe_edge(sequence, time);
+                        }
+                    }
+                    let now = acquisition::monotonic_us();
                     device.receiver.read_events(now, |fix| {
                         if connected {
                             connected = match fix {

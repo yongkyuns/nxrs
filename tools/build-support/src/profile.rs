@@ -353,12 +353,16 @@ impl Profile {
                 if let Some(composition::Wake::Interrupt { resource }) = &device.wake {
                     used.push(resource);
                 }
+                used.extend(device.pps.as_deref());
                 for id in used {
                     let resource = graph
                         .resources
                         .get(id)
                         .ok_or_else(|| format!("device references unknown resource {id}"))?;
-                    if let Some(feature) = resources.get(resource.kind()) {
+                    if let Some(feature) = resources
+                        .get(&format!("{capability}/{}", resource.kind()))
+                        .or_else(|| resources.get(resource.kind()))
+                    {
                         features.insert(feature.clone());
                     }
                 }
@@ -1564,6 +1568,27 @@ mod tests {
         .unwrap();
         let error = profile.load_catalogs(&temp.0).unwrap_err();
         assert!(error.contains("contained relative path"));
+    }
+
+    #[test]
+    fn only_the_pps_profile_enables_the_gnss_gpio_feature() {
+        let uart = Profile::resolve(&root(), "m5stack-cores3-gnss").unwrap();
+        assert_eq!(uart.driver_features("gnss").unwrap(), BTreeSet::from(["ubx".into()]));
+
+        let pps = Profile::resolve(&root(), "m5stack-cores3-dual-imu").unwrap();
+        assert_eq!(
+            pps.driver_features("gnss").unwrap(),
+            BTreeSet::from(["gnss-pps".into(), "ubx".into()])
+        );
+        assert!(!pps.driver_features("imu").unwrap().contains("gnss-pps"));
+        let generated = crate::configuration::render_instances(
+            &pps.composition().unwrap().unwrap(),
+            pps.catalogs(),
+            "gnss",
+            16_384,
+        )
+        .unwrap();
+        assert!(generated.contains("pps = \"/dev/gpio10\""));
     }
 
     #[test]

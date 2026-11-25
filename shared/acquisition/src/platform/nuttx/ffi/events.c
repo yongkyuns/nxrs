@@ -4,6 +4,16 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <errno.h>
+#include <stddef.h>
+#include <time.h>
+
+/* The Rust binding calls clock_gettime directly using this native layout. */
+_Static_assert(CLOCK_MONOTONIC == 1, "CLOCK_MONOTONIC ABI");
+_Static_assert(sizeof(time_t) == 8 &&
+               offsetof(struct timespec, tv_nsec) == 8 &&
+               sizeof(((struct timespec *)0)->tv_nsec) == sizeof(long),
+               "timespec ABI");
+
 int acquisition_event_pipe(int descriptors[2])
 {
   return pipe2(descriptors, O_NONBLOCK | O_CLOEXEC);

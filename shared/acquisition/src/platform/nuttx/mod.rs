@@ -4,4 +4,4 @@
 //! both are reported. Callers own retry/deadline policy; errors remain explicit.
 #[allow(unsafe_code)]
 mod ffi;
-pub use ffi::{pipe, poll, tick, wait, Readiness};
+pub use ffi::{monotonic_us, pipe, poll, tick, wait, Readiness};

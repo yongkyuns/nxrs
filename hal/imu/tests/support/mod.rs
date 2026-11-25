@@ -45,6 +45,7 @@ impl Fake {
         regs[0] = 0x24;
         regs[0x03] = 0xc0;
         regs[0x21] = 1;
+        regs[0x1a] = 0x10;
         regs[0x0f] = 0x6c;
         Self {
             regs,
@@ -71,6 +72,9 @@ static FAKE: Mutex<Fake> = Mutex::new(Fake::new());
 
 pub(super) mod ffi {
     use super::*;
+    pub(crate) fn irq_timestamp(_: i32) -> io::Result<Option<(usize, u64)>> {
+        Ok(None)
+    }
     thread_local! { pub static FAIL_PIPE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) }; }
     pub(crate) fn pipe() -> io::Result<(File, File)> {
         if FAIL_PIPE.with(|fail| fail.replace(false)) {
@@ -629,6 +633,10 @@ fn hal_adds_stream_metadata_and_preserves_device_overflow() {
         reset();
         let device =
             acquire_bmi270(binding(file.path(), Some(file.path())), default_config()).unwrap();
+        if !overflow {
+            // All three sensor slots must fall after the host clock origin.
+            std::thread::sleep(std::time::Duration::from_millis(25));
+        }
         {
             let mut fake = FAKE.lock().unwrap();
             fake.regs[0x1d] = u8::from(overflow);
@@ -657,9 +665,11 @@ fn hal_adds_stream_metadata_and_preserves_device_overflow() {
         } else {
             result.unwrap();
             assert_eq!(samples.len(), 3);
+            let newest = samples[2].timestamp_us;
             for (i, sample) in samples.iter().enumerate() {
                 assert_eq!(sample.sequence, i as u64 + 1);
-                assert_eq!(sample.timestamp_ms, samples[0].timestamp_ms);
+                assert!(sample.is_capture_time);
+                assert_eq!(sample.timestamp_us, newest - (2 - i as u64) * 10_000);
                 assert_eq!(sample.sample_interval_us, 10_000);
                 assert!((sample.accel_mps2[0] - 9.80665).abs() < 1e-5);
                 assert!((sample.gyro_rps[2] - 17.453293).abs() < 1e-5);

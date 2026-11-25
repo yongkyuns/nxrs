@@ -2,9 +2,10 @@
 #include <nuttx/config.h>
 #include <errno.h>
 #include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
 #ifdef CONFIG_DEV_GPIO
 #include <nuttx/ioexpander/gpio.h>
-#include <stdint.h>
 #include <sys/ioctl.h>
 int gpio_resource_irq_check(int fd)
 {
@@ -35,7 +36,23 @@ int gpio_resource_irq_read(int fd)
   if (ioctl(fd, GPIOC_READ, (unsigned long)(uintptr_t)&value) < 0) return -1;
   return value ? 1 : 0;
 }
+#endif
+
+int gpio_resource_irq_timestamp(int fd, uint64_t *time_us, size_t *sequence)
+{
+#ifdef CONFIG_DEV_GPIO_EDGE_TIMESTAMP
+  struct gpio_edge_s edge;
+  if (ioctl(fd, GPIOC_EDGE_TIME, (unsigned long)(uintptr_t)&edge) < 0)
+    return errno == EAGAIN ? 0 : -1;
+  *time_us = (uint64_t)edge.time.tv_sec * 1000000 + edge.time.tv_nsec / 1000;
+  *sequence = edge.sequence;
+  return 1;
 #else
+  (void)fd; (void)time_us; (void)sequence; errno = ENOTSUP; return -1;
+#endif
+}
+
+#ifndef CONFIG_DEV_GPIO
 /* The package can be linked by mock-only products without the GPIO ABI. */
 int gpio_check_pin(int fd, bool output)
 { (void)fd; (void)output; errno = ENOTSUP; return -1; }

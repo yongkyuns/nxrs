@@ -9,13 +9,14 @@ name = "composition"
 
 [package.metadata.nxrs]
 device-capabilities = ["imu", "gnss", "battery"]
-resource-features = { i2c = "i2c", spi = "spi" }
+resource-features = { i2c = "i2c", spi = "spi", "gnss/gpio-interrupt" = "gnss-pps" }
 
 [features]
 imu = ["dep:nxrs-imu", "dep:nxrs-acquisition", "dep:nxrs-peripheral", "dep:embedded-hal"]
 i2c = ["dep:nxrs-i2c"]
 spi = ["dep:nxrs-spi"]
 gnss = ["dep:nxrs-gnss"]
+gnss-pps = ["nxrs-gnss?/pps"]
 battery = ["dep:nxrs-battery"]
 probe = ["imu", "dep:nxrs-messaging", "nxrs-imu/probe"]
 

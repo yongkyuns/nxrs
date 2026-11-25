@@ -9,6 +9,8 @@ mod fixtures;
 mod platform;
 #[cfg(any(test, platform = "nuttx"))]
 mod receiver;
+#[cfg(any(test, platform = "nuttx"))]
+mod pps;
 #[cfg(any(test, platform = "mock", platform = "nuttx", platform = "simulation"))]
 mod session;
 /// Construction is reserved for platform catalogues and qualification.

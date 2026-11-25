@@ -21,13 +21,29 @@ pub struct Measurement {
     pub course_rad: Option<f32>,
 }
 
+/// Time of week of the next pulse. The receiver can use either time grid.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TimePulse {
+    Gps(u32),
+    Utc(u32),
+}
+
+pub enum Report {
+    Fix(Measurement),
+    /// None invalidates the timing association, for example on loss of lock.
+    Pulse(Option<TimePulse>),
+}
+
 /// Bounded, synchronous operations on an already opened byte stream.
 /// Failed configuration must retain enough state for `restore` to roll back.
 pub trait Receiver {
     fn configure(&mut self, deadline: Instant) -> Result<(), Error>;
+    fn enable_time_pulse(&mut self, _: Instant) -> Result<(), Error> {
+        Err(Error::InvalidData)
+    }
     fn restore(&mut self, deadline: Instant) -> Result<(), Error>;
     /// Read at most one bounded chunk. Invalid frames are recoverable events;
     /// transport failures terminate the call. NoFix is not a corrupt frame.
-    fn read_available(&mut self, emit: impl FnMut(Result<Measurement, Error>))
+    fn read_available(&mut self, emit: impl FnMut(Result<Report, Error>))
         -> Result<(), Error>;
 }

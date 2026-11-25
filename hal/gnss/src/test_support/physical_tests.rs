@@ -1,7 +1,7 @@
 //! Production static ownership with fake task-context UART/protocol operations.
 use super::physical::{Instance, Serial};
 use crate::{Device, DeviceError, Session};
-use peripheral::gnss::{Error, Measurement, Receiver};
+use peripheral::gnss::{Error, Measurement, Receiver, Report};
 use std::{
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -44,20 +44,20 @@ impl Receiver for Source {
     }
     fn read_available(
         &mut self,
-        mut emit: impl FnMut(Result<Measurement, Error>),
+        mut emit: impl FnMut(Result<Report, Error>),
     ) -> Result<(), Error> {
         if FAIL_READ.swap(false, Ordering::AcqRel) {
             return Err(Error::Io);
         }
         self.epoch += 1;
-        emit(Ok(Measurement {
+        emit(Ok(Report::Fix(Measurement {
             epoch_ms: self.epoch,
             receiver_utc_ms: None,
             latitude_deg: 1.0,
             longitude_deg: 2.0,
             speed_mps: 0.0,
             course_rad: None,
-        }));
+        })));
         Ok(())
     }
 }

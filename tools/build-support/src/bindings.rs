@@ -268,7 +268,22 @@ impl Package {
             .transpose()?
             .unwrap_or_default();
         for (kind, feature) in &resources {
-            if !["i2c", "spi", "uart", "gpio-interrupt"].contains(&kind.as_str()) {
+            let resource = if let Some((capability, resource)) = kind.split_once('/') {
+                let capabilities = manifest.pointer("/package/metadata/nxrs/device-capabilities")
+                    .and_then(Value::as_array);
+                if !capabilities.is_some_and(|capabilities| {
+                    capabilities.iter().any(|entry| entry.as_str() == Some(capability))
+                }) {
+                    return Err(format!(
+                        "{} resource-features: undeclared device capability {capability}",
+                        self.name
+                    ));
+                }
+                resource
+            } else {
+                kind
+            };
+            if !["i2c", "spi", "uart", "gpio-interrupt"].contains(&resource) {
                 return Err(format!(
                     "{} resource-features: unsupported resource kind {kind}",
                     self.name

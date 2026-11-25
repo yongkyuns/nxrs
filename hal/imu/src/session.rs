@@ -122,7 +122,8 @@ mod tests {
                 |_, emit| {
                     emit(crate::Event::Sample(crate::ImuSample {
                         sequence: 0,
-                        timestamp_ms: 0,
+                        timestamp_us: 0,
+                        is_capture_time: false,
                         sample_interval_us: 10_000,
                         accel_mps2: [0.0; 3],
                         gyro_rps: [0.0; 3],

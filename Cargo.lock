@@ -976,6 +976,7 @@ dependencies = [
  "cfg-if",
  "nxrs-acquisition",
  "nxrs-build-support",
+ "nxrs-gpio",
  "nxrs-messaging",
  "nxrs-peripheral",
  "nxrs-simulation",

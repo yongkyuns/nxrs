@@ -68,7 +68,7 @@ fn spi_selects_after_reset_uploads_exact_image_and_preserves_fifo_results() {
     }
     let mut sample = None;
     assert_eq!(
-        sensor.read_available(|value| {
+        sensor.read_available(|| 1_000_000, |value| {
             sample = Some(value);
             true
         }),
@@ -78,19 +78,20 @@ fn spi_selects_after_reset_uploads_exact_image_and_preserves_fifo_results() {
     assert!((sample.accel_mps2[0] - 9.80665).abs() < 1e-5);
     assert!((sample.gyro_rps[2] - 17.453293).abs() < 1e-5);
     assert_eq!(
-        sensor.read_available(|_| panic!("replayed FIFO")),
+        sensor.read_available(|| 1_000_000, |_| panic!("replayed FIFO")),
         Ok(Some(0))
     );
     sensor.io.0.bus.registers[0x1d] = 1;
     assert_eq!(
-        sensor.read_available(|_| true),
+        sensor.read_available(|| 1_000_000, |_| true),
         Err(peripheral::imu::Error::Overflow)
     );
     sensor.io.0.bus.registers[0x1d] = 0;
+    sensor.io.0.bus.set_sensor_ticks(0x10_0100);
     sensor.io.0.bus.fifo.extend_from_slice(&[0; 12]);
     sensor.io.0.bus.fail_data = true;
     assert_eq!(
-        sensor.read_available(|_| true),
+        sensor.read_available(|| 1_010_000, |_| true),
         Err(peripheral::imu::Error::Io)
     );
     sensor.stop().unwrap();

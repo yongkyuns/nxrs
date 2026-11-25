@@ -290,7 +290,7 @@ fn malformed_or_unrequested_configuration_values_are_not_accepted() {
         let mut decoder = ubx::Decoder::default();
         let mut accepted = false;
         decoder.consume(&frame(6, 0x8b, &payload), |e| {
-            accepted |= matches!(e, ubx::Event::Rate(_))
+            accepted |= matches!(e, ubx::Event::Rate(..))
         });
         assert!(!accepted);
     }

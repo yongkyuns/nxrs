@@ -38,9 +38,10 @@ impl<T: Registers, D: DelayNs> imu::Imu for Device<T, D> {
 
     fn read_available(
         &mut self,
+        now_us: impl FnMut() -> u64,
         emit: impl FnMut(imu::Measurement) -> bool,
     ) -> Result<Option<usize>, imu::Error> {
-        self.drain(emit).map_err(Into::into)
+        self.drain(now_us, emit).map_err(Into::into)
     }
 
     fn stop(&mut self) -> Result<(), imu::Error> {

@@ -82,8 +82,13 @@ pub(crate) fn render_instances(
         let period = device
             .navigation_period_ms
             .map_or(String::new(), |period| format!(", {period}"));
+        let pps = match device.pps.as_ref().map(|resource| &graph.resources[resource]) {
+            Some(Resource::GpioInterrupt { device, .. }) => format!(", pps = {device:?}"),
+            Some(_) => return Err("PPS requires a GPIO interrupt resource".into()),
+            None => String::new(),
+        };
         source.push_str(&format!(
-            "declare_device!({name}, {id:?}, {driver_type}, {arguments}, {stack}, {reference}{period});\n"
+            "declare_device!({name}, {id:?}, {driver_type}, {arguments}, {stack}, {reference}{period}{pps});\n"
         ));
         instances.insert(id, name);
     }

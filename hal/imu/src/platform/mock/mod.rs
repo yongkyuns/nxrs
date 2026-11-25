@@ -16,12 +16,13 @@ struct SyntheticImu {
 }
 
 impl SyntheticImu {
-    fn sample(&mut self, now_ms: u64) -> ImuSample {
+    fn sample(&mut self, now_us: u64) -> ImuSample {
         self.sequence = self.sequence.saturating_add(1);
         let gyro_z = if self.sequence % 80 < 40 { 0.04 } else { -0.02 };
         ImuSample {
             sequence: self.sequence,
-            timestamp_ms: now_ms,
+            timestamp_us: now_us,
+            is_capture_time: false,
             sample_interval_us: INTERVAL_US,
             accel_mps2: [0.10, 0.0, 9.81],
             gyro_rps: [0.0, 0.0, gyro_z],

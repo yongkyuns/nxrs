@@ -147,7 +147,8 @@ impl gnss_hal::Session for IdleGnss {
 fn imu_sample(key: EventKey, observation: ImuObservation) -> imu_hal::ImuSample {
     imu_hal::ImuSample {
         sequence: key.sequence.saturating_add(1),
-        timestamp_ms: key.time_us / 1_000,
+        timestamp_us: key.time_us,
+        is_capture_time: true,
         sample_interval_us: DEFAULT_IMU_PERIOD_US as u32,
         accel_mps2: observation
             .accel_ug
@@ -161,7 +162,8 @@ fn imu_sample(key: EventKey, observation: ImuObservation) -> imu_hal::ImuSample 
 fn gnss_fix(key: EventKey, observation: GnssObservation) -> gnss_hal::GnssFix {
     gnss_hal::GnssFix {
         sequence: key.sequence.saturating_add(1),
-        timestamp_ms: key.time_us / 1_000,
+        timestamp_us: key.time_us,
+        is_capture_time: true,
         receiver_utc_ms: None,
         latitude_deg: f64::from(observation.latitude_e7) / 10_000_000.0,
         longitude_deg: f64::from(observation.longitude_e7) / 10_000_000.0,

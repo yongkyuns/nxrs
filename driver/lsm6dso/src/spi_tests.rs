@@ -33,7 +33,7 @@ fn spi_preserves_tagged_fifo_units_overflow_and_shutdown_errors() {
     sensor.io.0 .0.push(2, 0, [8192, 0, 0]);
     let mut sample = None;
     assert_eq!(
-        sensor.read_available(|value| {
+        sensor.read_available(|| 0, |value| {
             sample = Some(value);
             true
         }),
@@ -43,12 +43,12 @@ fn spi_preserves_tagged_fifo_units_overflow_and_shutdown_errors() {
     assert!((sample.accel_mps2[0] - 9.80665 * 0.999424).abs() < 0.001);
     assert!((sample.gyro_rps[0] - 16384.0 * 0.070_f32.to_radians()).abs() < 0.001);
     assert_eq!(
-        sensor.read_available(|_| panic!("replayed FIFO")),
+        sensor.read_available(|| 0, |_| panic!("replayed FIFO")),
         Ok(Some(0))
     );
     sensor.io.0 .0.status_flags = 0x40;
     assert_eq!(
-        sensor.read_available(|_| true),
+        sensor.read_available(|| 0, |_| true),
         Err(peripheral::imu::Error::Overflow)
     );
     sensor.io.0 .0.failed_write = Some(CTRL1_XL);

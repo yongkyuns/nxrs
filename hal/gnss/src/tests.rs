@@ -138,10 +138,10 @@ impl Write for Stream {
 }
 impl Receiver<Driver<Stream>> {
     // Collect the finite scripted input through the production event-read path.
-    fn fixture_fix(&mut self, now_ms: u64) -> Result<GnssFix, DeviceError> {
+    fn fixture_fix(&mut self, now_us: u64) -> Result<GnssFix, DeviceError> {
         let mut latest = Err(DeviceError::Busy);
         while !self.source.io().input.is_empty() {
-            self.read_events(now_ms, |event| latest = event)?;
+            self.read_events(now_us, |event| latest = event)?;
         }
         latest
     }
@@ -151,11 +151,71 @@ fn receiver_with(payload: &[u8]) -> Receiver<Driver<Stream>> {
     stream.input.extend(frame(1, 7, payload));
     Receiver::new(Driver::new(stream))
 }
+
+fn report_pulse(receiver: &mut Receiver<Driver<Stream>>, epoch: u32, flags: u8, now: u64) {
+    let mut pulse = [0; 16];
+    pulse[..4].copy_from_slice(&epoch.to_le_bytes());
+    pulse[14] = flags;
+    receiver.source.io_mut().input.extend(frame(0x0d, 1, &pulse));
+    while !receiver.source.io().input.is_empty() {
+        receiver.read_events(now, |_| panic!("pulse is not a fix")).unwrap();
+    }
+}
+
+#[test]
+fn pps_recovers_the_device_time_of_fixes_across_week_rollover() {
+    let mut receiver = Receiver::new(Driver::new(Stream::default()));
+    report_pulse(&mut receiver, 604_799_000, 0x10, 9_700_000);
+    receiver.observe_edge(1, 10_000_000);
+    report_pulse(&mut receiver, 0, 0x10, 10_700_000);
+    receiver.observe_edge(2, 11_000_000);
+
+    for (epoch, received, expected) in [(0, 11_052_000, 11_000_000), (500, 11_537_000, 11_500_000)] {
+        receiver.source.io_mut().input.extend(frame(1, 7, &pvt(epoch)));
+        let fix = receiver.fixture_fix(received).unwrap();
+        assert_eq!(fix.timestamp_us, expected);
+        assert!(fix.is_capture_time);
+    }
+    receiver.source.io_mut().input.extend(frame(1, 7, &pvt(250)));
+    assert!(!receiver.fixture_fix(11_920_000).unwrap().is_capture_time);
+
+    report_pulse(&mut receiver, 1_000, 0x10, 11_700_000);
+    receiver.observe_edge(4, 12_000_000); // a lost GPIO edge invalidates the pair
+    receiver.source.io_mut().input.extend(frame(1, 7, &pvt(1_000)));
+    let fix = receiver.fixture_fix(12_050_000).unwrap();
+    assert_eq!(fix.timestamp_us, 12_050_000);
+    assert!(!fix.is_capture_time);
+
+    report_pulse(&mut receiver, 2_000, 0x20, 12_700_000);
+    receiver.observe_edge(5, 13_000_000);
+    receiver.source.io_mut().input.extend(frame(1, 7, &pvt(2_000)));
+    assert!(!receiver.fixture_fix(13_050_000).unwrap().is_capture_time);
+}
+
+#[test]
+fn pps_uses_resolved_utc_with_the_m9_pulse_flags() {
+    let mut receiver = Receiver::new(Driver::new(Stream::default()));
+    report_pulse(&mut receiver, 0, 0x17, 9_700_000);
+    receiver.observe_edge(1, 10_000_000);
+    report_pulse(&mut receiver, 1_000, 0x17, 10_700_000);
+    receiver.observe_edge(2, 11_000_000);
+
+    let mut payload = pvt(19_400);
+    payload[4..6].copy_from_slice(&2024_u16.to_le_bytes());
+    payload[6..12].copy_from_slice(&[1, 7, 0, 0, 1, 7]); // Sunday 00:00:01 UTC
+    payload[16..20].copy_from_slice(&400_000_000_i32.to_le_bytes());
+    receiver.source.io_mut().input.extend(frame(1, 7, &payload));
+    let fix = receiver.fixture_fix(11_445_000).unwrap();
+    assert_eq!(fix.timestamp_us, 11_400_000);
+    assert!(fix.is_capture_time);
+}
+
 #[test]
 fn fragmented_nav_pvt_normalizes_units_and_never_replays_an_epoch() {
     let mut receiver = receiver_with(&pvt(1000));
     let fix = receiver.fixture_fix(123).unwrap();
-    assert_eq!((fix.sequence, fix.timestamp_ms), (1, 123));
+    assert_eq!((fix.sequence, fix.timestamp_us), (1, 123));
+    assert!(!fix.is_capture_time);
     assert!((fix.latitude_deg - 48.1173).abs() < 1e-7);
     assert!((fix.longitude_deg + 11.5166667).abs() < 1e-7);
     assert!((fix.speed_mps - 5.144).abs() < 1e-6);
@@ -305,7 +365,7 @@ fn event_reads_deliver_every_fragmented_fix_without_coalescing() {
         fixes.iter().map(|fix| fix.sequence).collect::<Vec<_>>(),
         [1, 2, 3]
     );
-    assert!(fixes.iter().all(|fix| fix.timestamp_ms == 123));
+    assert!(fixes.iter().all(|fix| fix.timestamp_us == 123));
     receiver
         .read_events(124, |_| panic!("replayed fix"))
         .unwrap();

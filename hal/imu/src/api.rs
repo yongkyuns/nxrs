@@ -54,9 +54,10 @@ impl From<peripheral::imu::Error> for DeviceError {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ImuSample {
     pub sequence: u64,
-    /// Monotonic host reception time on the acquisition clock. Samples drained
-    /// together may share a timestamp.
-    pub timestamp_ms: u64,
+    /// Microseconds on the shared monotonic device clock.
+    pub timestamp_us: u64,
+    /// True for an estimated capture time. Otherwise the timestamp is reception time.
+    pub is_capture_time: bool,
     /// Nominal hardware sampling interval, independent of delivery batching.
     pub sample_interval_us: u32,
     pub accel_mps2: [f32; 3],

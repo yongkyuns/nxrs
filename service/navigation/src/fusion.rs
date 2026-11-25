@@ -247,23 +247,31 @@ fn run(service: FusionService, stopping: &AtomicBool) -> FusionStats {
 #[derive(Default)]
 struct FusionCore {
     state: NavState,
-    last_imu_sequence: Option<u64>,
+    last_imu: Option<(u64, Option<u64>)>,
     origin: Option<(f64, f64)>,
 }
 
 impl FusionCore {
     fn on_imu(&mut self, sample: ImuSample) -> NavState {
-        if let Some(last) = self.last_imu_sequence {
-            if sample.sequence == last.saturating_add(1) {
-                let dt = sample.sample_interval_us as f32 / 1_000_000.0;
+        let capture_us = sample.is_capture_time.then_some(sample.timestamp_us);
+        if let Some((last, last_us)) = self.last_imu {
+            let elapsed_us = match (last_us, capture_us) {
+                (Some(last), Some(now)) if now > last => Some(now - last),
+                (None, None) => Some(u64::from(sample.sample_interval_us)),
+                _ => None,
+            };
+            if let Some(elapsed_us) =
+                elapsed_us.filter(|_| Some(sample.sequence) == last.checked_add(1))
+            {
+                let dt = elapsed_us as f32 / 1_000_000.0;
                 self.state.heading_rad += sample.gyro_rps[2] * dt;
                 self.state.speed_mps = (self.state.speed_mps + sample.accel_mps2[0] * dt).max(0.0);
             } else {
                 self.state.imu_discontinuities = self.state.imu_discontinuities.saturating_add(1);
             }
         }
-        self.last_imu_sequence = Some(sample.sequence);
-        self.state.timestamp_ms = sample.timestamp_ms;
+        self.last_imu = Some((sample.sequence, capture_us));
+        self.state.timestamp_ms = sample.timestamp_us / 1_000;
         self.state.imu_sequence = sample.sequence;
         self.state
     }
@@ -277,7 +285,7 @@ impl FusionCore {
         let north = (fix.latitude_deg - latitude).to_radians() * radius;
         let delta_lon = (fix.longitude_deg - longitude + 180.0).rem_euclid(360.0) - 180.0;
         let east = delta_lon.to_radians() * radius * latitude.to_radians().cos();
-        self.state.timestamp_ms = fix.timestamp_ms;
+        self.state.timestamp_ms = fix.timestamp_us / 1_000;
         self.state.north_m = north as f32;
         self.state.east_m = east as f32;
         self.state.speed_mps = fix.speed_mps;
@@ -297,7 +305,8 @@ mod tests {
         let mut core = FusionCore::default();
         let mut fix = GnssFix {
             sequence: 1,
-            timestamp_ms: 0,
+            timestamp_us: 0,
+            is_capture_time: false,
             receiver_utc_ms: None,
             latitude_deg: 45.0,
             longitude_deg: 179.999,
@@ -320,11 +329,32 @@ mod tests {
 mod fifo_timing_tests {
     use super::*;
     #[test]
+    fn consecutive_samples_use_capture_time_and_reject_a_repeated_capture() {
+        let mut core = FusionCore::default();
+        let mut sample = ImuSample {
+            sequence: 1,
+            timestamp_us: 30_000,
+            is_capture_time: true,
+            sample_interval_us: 10_000,
+            accel_mps2: [0.0; 3],
+            gyro_rps: [0.0, 0.0, 1.0],
+        };
+        core.on_imu(sample);
+        sample.sequence += 1;
+        sample.timestamp_us += 12_000;
+        assert!((core.on_imu(sample).heading_rad - 0.012).abs() < 1e-6);
+        sample.sequence += 1;
+        assert_eq!(core.on_imu(sample).imu_discontinuities, 1);
+        assert!((core.state.heading_rad - 0.012).abs() < 1e-6);
+    }
+
+    #[test]
     fn batched_samples_use_cadence_but_gaps_never_extrapolate_unobserved_motion() {
         let mut core = FusionCore::default();
         let sample = ImuSample {
             sequence: 1,
-            timestamp_ms: 123,
+            timestamp_us: 123_000,
+            is_capture_time: false,
             sample_interval_us: 10_000,
             accel_mps2: [0.0; 3],
             gyro_rps: [0.0, 0.0, 1.0],
@@ -354,7 +384,8 @@ mod lifecycle_tests {
             assert_eq!(
                 inputs.imu.submit(ImuSample {
                     sequence,
-                    timestamp_ms: 0,
+                    timestamp_us: 0,
+                    is_capture_time: false,
                     sample_interval_us: 10_000,
                     accel_mps2: [0.0; 3],
                     gyro_rps: [0.0; 3],
@@ -372,7 +403,8 @@ mod lifecycle_tests {
         let deadline = std::time::Instant::now() + Duration::from_secs(1);
         let sample = ImuSample {
             sequence: 1,
-            timestamp_ms: 0,
+            timestamp_us: 0,
+            is_capture_time: false,
             sample_interval_us: 10_000,
             accel_mps2: [0.0; 3],
             gyro_rps: [0.0; 3],

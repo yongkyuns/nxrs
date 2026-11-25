@@ -1,0 +1,242 @@
+--- a/drivers/ioexpander/Kconfig
++++ b/drivers/ioexpander/Kconfig
+@@ -644,6 +644,10 @@
+ 		contributes whatever only it can say, such as which pad carries
+ 		the line.
+ 
++config DEV_GPIO_EDGE_TIMESTAMP
++	bool "Retain a monotonic timestamp for GPIO interrupt edges"
++	default n
++
+ config DEV_GPIO_NPOLLWAITERS
+ 	int "Max number of polls"
+ 	default 1
+--- a/include/nuttx/ioexpander/gpio.h
++++ b/include/nuttx/ioexpander/gpio.h
+@@ -28,6 +28,9 @@
+  ****************************************************************************/
+ 
+ #include <nuttx/config.h>
++#ifdef CONFIG_DEV_GPIO_EDGE_TIMESTAMP
++#  include <time.h>
++#endif
+ 
+ #include <sys/types.h>
+ #include <stdint.h>
+@@ -90,6 +93,7 @@
+ #define GPIOC_SETPINTYPE  _GPIOC(6)
+ #define GPIOC_SETDEBOUNCE _GPIOC(7)
+ #define GPIOC_IRQ_SETMASK _GPIOC(8)
++#define GPIOC_EDGE_TIME   _GPIOC(9)
+ 
+ /****************************************************************************
+  * Public Types
+@@ -186,6 +190,18 @@
+ 
+ /* Pin interface definition.  Must lie in writable memory. */
+ 
++#ifdef CONFIG_DEV_GPIO_EDGE_TIMESTAMP
++/* GPIOC_EDGE_TIME returns and acknowledges the latest edge for this file.
++ * It returns -EAGAIN when no edge is pending. Sequence gaps mean overwritten
++ * edges. The timestamp uses CLOCK_MONOTONIC.
++ */
++struct gpio_edge_s
++{
++  struct timespec time;
++  uintptr_t sequence;
++};
++#endif
++
+ struct gpio_dev_s
+ {
+   /* Information provided from the lower half driver to the upper half
+@@ -201,6 +217,9 @@
+   /* Number of times interrupt occurred */
+ 
+   uintptr_t int_count;
++#ifdef CONFIG_DEV_GPIO_EDGE_TIMESTAMP
++  struct timespec int_time;
++#endif
+ 
+   /* Writable storage used by the upper half driver */
+ 
+--- a/drivers/ioexpander/gpio.c
++++ b/drivers/ioexpander/gpio.c
+@@ -25,6 +25,9 @@
+  ****************************************************************************/
+ 
+ #include <nuttx/config.h>
++#ifdef CONFIG_DEV_GPIO_EDGE_TIMESTAMP
++#  include <nuttx/clock.h>
++#endif
+ 
+ #include <sys/types.h>
+ #include <inttypes.h>
+@@ -526,7 +529,14 @@
+ 
+   DEBUGASSERT(dev != NULL);
+ 
++#ifdef CONFIG_DEV_GPIO_EDGE_TIMESTAMP
++  irqstate_t flags = enter_critical_section();
++  clock_systime_timespec(&dev->int_time);
+   dev->int_count++;
++  leave_critical_section(flags);
++#else
++  dev->int_count++;
++#endif
+ 
+ #if CONFIG_DEV_GPIO_NPOLLWAITERS > 0
+   poll_notify(dev->fds, CONFIG_DEV_GPIO_NPOLLWAITERS, POLLIN);
+@@ -1035,6 +1045,33 @@
+           break;
+         }
+ 
++#ifdef CONFIG_DEV_GPIO_EDGE_TIMESTAMP
++      case GPIOC_EDGE_TIME:
++        {
++          FAR struct gpio_edge_s *out = (FAR struct gpio_edge_s *)arg;
++          struct gpio_edge_s edge;
++
++          if (out == NULL)
++            {
++              return -EINVAL;
++            }
++
++          flags = enter_critical_section();
++          edge.sequence = dev->int_count;
++          if (edge.sequence == (uintptr_t)filep->f_priv)
++            {
++              leave_critical_section(flags);
++              return -EAGAIN;
++            }
++
++          edge.time = dev->int_time;
++          filep->f_priv = (FAR void *)edge.sequence;
++          leave_critical_section(flags);
++          *out = edge;
++        }
++        break;
++#endif
++
+       /* Unrecognized command */
+ 
+       default:
+--- a/arch/xtensa/src/common/espressif/esp_gpio.h
++++ b/arch/xtensa/src/common/espressif/esp_gpio.h
+@@ -320,6 +320,7 @@
+  ****************************************************************************/
+ 
+ #ifdef CONFIG_ESPRESSIF_GPIO_IRQ
++int esp_gpio_isr(int id, void (*handler)(void *), void *arg);
+ int esp_gpio_irq(int id, xcpt_t irqhandler, void *arg);
+ #endif
+ 
+--- a/arch/xtensa/src/common/espressif/esp_gpio.c
++++ b/arch/xtensa/src/common/espressif/esp_gpio.c
+@@ -414,6 +414,14 @@
+  ****************************************************************************/
+ 
+ #ifdef CONFIG_ESPRESSIF_GPIO_IRQ
++/* Register the board's static callback without allocating an IRQ adapter. */
++int esp_gpio_isr(int id, void (*handler)(void *), void *arg)
++{
++  esp_err_t ret = handler ? gpio_isr_handler_add(id, handler, arg) :
++                            gpio_isr_handler_remove(id);
++  return ret == ESP_OK ? OK : -ERROR;
++}
++
+ int esp_gpio_irq(int id, xcpt_t irqhandler, void *arg)
+ {
+   int ret;
+--- a/boards/xtensa/esp32s3/esp32s3-m5-cores3/Kconfig
++++ b/boards/xtensa/esp32s3/esp32s3-m5-cores3/Kconfig
+@@ -1,4 +1,10 @@
+ # CoreS3 resources are configured by the ESP32-S3 UART/I2C Kconfig.
++
++config ESP32S3_M5_CORES3_GPIO10_IRQ
++	bool "Register GPIO10 as a rising edge input"
++	depends on DEV_GPIO && ESPRESSIF_GPIO_IRQ && BOARD_LATE_INITIALIZE
++	---help---
++		Register M-Bus pin 2 as /dev/gpio10.
+ 
+ config ESP32S3_M5_CORES3_LCD
+ 	bool "Register the built-in CoreS3 SPI LCD endpoint"
+--- a/boards/xtensa/esp32s3/esp32s3-m5-cores3/src/esp32s3_boot.c
++++ b/boards/xtensa/esp32s3/esp32s3-m5-cores3/src/esp32s3_boot.c
+@@ -7,6 +7,10 @@
+ #include <nuttx/fs/fs.h>
+ #include <syslog.h>
+ #include "esp32s3_i2c.h"
++#ifdef CONFIG_ESP32S3_M5_CORES3_GPIO10_IRQ
++#  include <nuttx/ioexpander/gpio.h>
++#  include "espressif/esp_gpio.h"
++#endif
+ #ifdef CONFIG_WATCHDOG
+ #  include "esp32s3_board_wdt.h"
+ #endif
+@@ -22,10 +26,65 @@
+ #ifdef CONFIG_ESPRESSIF_BLE
+ int esp32s3_ble_initialize(void);
+ #endif
++#ifdef CONFIG_ESP32S3_M5_CORES3_GPIO10_IRQ
++static pin_interrupt_t g_gpio10_callback;
++
++static void gpio10_interrupt(void *arg)
++{
++  g_gpio10_callback(arg, 10);
++}
++
++static int gpio10_read(struct gpio_dev_s *dev, bool *value)
++{
++  *value = esp_gpioread(10);
++  return 0;
++}
++
++static int gpio10_attach(struct gpio_dev_s *dev, pin_interrupt_t callback)
++{
++  if (callback != NULL)
++    {
++      g_gpio10_callback = callback;
++    }
++
++  return esp_gpio_isr(10, callback ? gpio10_interrupt : NULL, dev);
++}
++
++static int gpio10_enable(struct gpio_dev_s *dev, bool enable)
++{
++  return enable ? esp_gpioirqenable(10) : esp_gpioirqdisable(10);
++}
++
++static const struct gpio_operations_s g_gpio10_ops =
++{
++  .go_read = gpio10_read,
++  .go_attach = gpio10_attach,
++  .go_enable = gpio10_enable,
++};
++
++static struct gpio_dev_s g_gpio10 =
++{
++  .gp_pintype = GPIO_INTERRUPT_RISING_PIN,
++  .gp_ops = &g_gpio10_ops,
++};
++#endif
++
+ void esp32s3_board_initialize(void) {}
+ #ifdef CONFIG_BOARD_LATE_INITIALIZE
+ void board_late_initialize(void)
+ {
++#ifdef CONFIG_ESP32S3_M5_CORES3_GPIO10_IRQ
++  int gpio10 = esp_configgpio(10, INPUT_FUNCTION_2 | PULLDOWN | RISING);
++  if (gpio10 >= 0)
++    {
++      gpio10 = gpio_pin_register(&g_gpio10, 10);
++    }
++
++  if (gpio10 < 0)
++    {
++      syslog(LOG_ERR, "CoreS3 GPIO10 registration failed: %d\n", gpio10);
++    }
++#endif
+ #ifdef CONFIG_WATCHDOG
+   int watchdog = board_wdt_init();
+   if (watchdog < 0)

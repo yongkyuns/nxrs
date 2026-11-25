@@ -61,6 +61,11 @@ impl<F> Interrupt<F> {
         ffi::irq_read(self.file.as_raw_fd()).map_err(|_| Error::Io)
     }
 
+    /// Acknowledge and return the latest pending edge (sequence, boot microseconds).
+    pub fn take_timestamp(&self) -> Result<Option<(usize, u64)>, Error> {
+        ffi::irq_timestamp(self.file.as_raw_fd()).map_err(|_| Error::Io)
+    }
+
     /// Attempt unregister exactly once. Repeating a failed unregister could
     /// corrupt NuttX's registration count; the cleanup hook retains the fault.
     pub fn unregister(&mut self) -> Result<(), Error> {

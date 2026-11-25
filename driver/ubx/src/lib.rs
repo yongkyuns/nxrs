@@ -3,6 +3,8 @@
 
 mod ubx;
 
+use kinavis_ubx::ConfigKey;
+use peripheral::gnss::{Measurement, Report};
 use std::{
     io::{ErrorKind, Read, Write},
     time::{Duration, Instant},
@@ -33,6 +35,7 @@ pub struct Driver<R> {
     io: R,
     decoder: ubx::Decoder,
     saved_rate: Option<u8>,
+    saved_pulse_rate: Option<u8>,
     navigation_period_ms: Option<u16>,
     saved_navigation: Option<(u16, u16)>,
 }
@@ -43,6 +46,7 @@ impl<R: Read + Write> Driver<R> {
             io,
             decoder: ubx::Decoder::default(),
             saved_rate: None,
+            saved_pulse_rate: None,
             navigation_period_ms: None,
             saved_navigation: None,
         }
@@ -96,15 +100,19 @@ impl<R: Read + Write> Driver<R> {
         &mut self,
         mut emit: impl FnMut(Result<NavPvt, DriverError>),
     ) -> Result<(), DriverError> {
+        self.read_chunk(|event| match event {
+            ubx::Event::NavPvt(report) => emit(report),
+            ubx::Event::Invalid => emit(Err(DriverError::InvalidData)),
+            _ => {}
+        })
+    }
+
+    fn read_chunk(&mut self, emit: impl FnMut(ubx::Event)) -> Result<(), DriverError> {
         let mut bytes = [0; 128];
         match self.io.read(&mut bytes) {
             Ok(0) => Err(DriverError::Io),
             Ok(n) => {
-                self.decoder.consume(&bytes[..n], |event| match event {
-                    ubx::Event::NavPvt(report) => emit(report),
-                    ubx::Event::Invalid => emit(Err(DriverError::InvalidData)),
-                    _ => {}
-                });
+                self.decoder.consume(&bytes[..n], emit);
                 Ok(())
             }
             Err(e) if matches!(e.kind(), ErrorKind::WouldBlock | ErrorKind::Interrupted) => Ok(()),
@@ -114,9 +122,13 @@ impl<R: Read + Write> Driver<R> {
 
     /// Query the RAM value of `CFG-MSGOUT-NAV-PVT-UART1`.
     pub fn query_nav_pvt_uart1_rate(&mut self, deadline: Instant) -> Result<u8, DriverError> {
-        self.send(&ubx::get_rate(), deadline)?;
+        self.query_rate(ConfigKey::MSGOUT_NAV_PVT_UART1, deadline)
+    }
+
+    fn query_rate(&mut self, key: ConfigKey, deadline: Instant) -> Result<u8, DriverError> {
+        self.send(&ubx::get_rate(key), deadline)?;
         self.wait(deadline, |event| match event {
-            ubx::Event::Rate(rate) => Some(Ok(rate)),
+            ubx::Event::Rate(actual, rate) if actual == key => Some(Ok(rate)),
             _ => None,
         })
     }
@@ -127,7 +139,11 @@ impl<R: Read + Write> Driver<R> {
         rate: u8,
         deadline: Instant,
     ) -> Result<(), DriverError> {
-        self.send(&ubx::set_rate(rate), deadline)?;
+        self.set_rate(ConfigKey::MSGOUT_NAV_PVT_UART1, rate, deadline)
+    }
+
+    fn set_rate(&mut self, key: ConfigKey, rate: u8, deadline: Instant) -> Result<(), DriverError> {
+        self.send(&ubx::set_rate(key, rate), deadline)?;
         self.wait(deadline, |event| match event {
             ubx::Event::Ack(true) => Some(Ok(())),
             _ => None,
@@ -140,8 +156,14 @@ impl<R: Read + Write> Driver<R> {
         rate: u8,
         deadline: Instant,
     ) -> Result<(), DriverError> {
-        self.set_nav_pvt_uart1_rate(rate, deadline)?;
-        if self.query_nav_pvt_uart1_rate(deadline)? != rate {
+        self.set_and_verify_rate(ConfigKey::MSGOUT_NAV_PVT_UART1, rate, deadline)
+    }
+
+    fn set_and_verify_rate(
+        &mut self, key: ConfigKey, rate: u8, deadline: Instant,
+    ) -> Result<(), DriverError> {
+        self.set_rate(key, rate, deadline)?;
+        if self.query_rate(key, deadline)? != rate {
             return Err(DriverError::InvalidData);
         }
         Ok(())
@@ -229,7 +251,18 @@ impl<R: Read + Write> peripheral::gnss::Receiver for Driver<R> {
         self.reset_decoder();
         Ok(())
     }
+    fn enable_time_pulse(&mut self, deadline: Instant) -> Result<(), DriverError> {
+        self.saved_pulse_rate = Some(self.query_rate(ubx::TIM_TP_RATE, deadline)?);
+        self.set_and_verify_rate(ubx::TIM_TP_RATE, 1, deadline)?;
+        self.reset_decoder();
+        Ok(())
+    }
     fn restore(&mut self, deadline: Instant) -> Result<(), DriverError> {
+        let pulse = self.saved_pulse_rate.map_or(Ok(()), |rate| {
+            self.set_and_verify_rate(ubx::TIM_TP_RATE, rate, deadline)?;
+            self.saved_pulse_rate = None;
+            Ok(())
+        });
         let rate = self.saved_rate.map_or(Ok(()), |rate| {
             self.set_and_verify_nav_pvt_uart1_rate(rate, deadline)?;
             self.saved_rate = None;
@@ -240,21 +273,24 @@ impl<R: Read + Write> peripheral::gnss::Receiver for Driver<R> {
             self.saved_navigation = None;
             Ok(())
         });
-        rate.and(navigation)
+        pulse.and(rate).and(navigation)
     }
     fn read_available(
         &mut self,
-        mut emit: impl FnMut(Result<peripheral::gnss::Measurement, DriverError>),
+        mut emit: impl FnMut(Result<Report, DriverError>),
     ) -> Result<(), DriverError> {
-        self.poll(|event| {
-            emit(event.map(|report| peripheral::gnss::Measurement {
+        self.read_chunk(|event| match event {
+            ubx::Event::NavPvt(result) => emit(result.map(|report| Report::Fix(Measurement {
                 epoch_ms: u64::from(report.itow_ms),
                 receiver_utc_ms: report.receiver_utc_ms,
                 latitude_deg: report.latitude_deg,
                 longitude_deg: report.longitude_deg,
                 speed_mps: report.speed_mps,
                 course_rad: report.heading_rad,
-            }))
+            }))),
+            ubx::Event::Pulse(pulse) => emit(Ok(Report::Pulse(pulse))),
+            ubx::Event::Invalid => emit(Err(DriverError::InvalidData)),
+            _ => {}
         })
     }
 }

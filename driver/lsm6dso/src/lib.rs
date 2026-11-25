@@ -714,7 +714,7 @@ mod tests {
         sensor.io.bus.push(2, 3, [0; 3]);
         let mut calls = 0;
         assert_eq!(
-            sensor.read_available(|_| {
+            sensor.read_available(|| 0, |_| {
                 calls += 1;
                 false
             }),
@@ -723,7 +723,7 @@ mod tests {
         assert_eq!(calls, 1);
         sensor.io.bus.status_flags = 0x40;
         assert_eq!(
-            sensor.read_available(|_| panic!("overflow sample")),
+            sensor.read_available(|| 0, |_| panic!("overflow sample")),
             Err(peripheral::imu::Error::Overflow)
         );
     }
@@ -756,7 +756,7 @@ mod tests {
                 let mut sensor = Lsm6dso::open_configured(bus, 0x6a, Delay, config).unwrap();
                 let mut sample = None;
                 assert_eq!(
-                    sensor.read_available(|value| {
+                    sensor.read_available(|| 0, |value| {
                         sample = Some(value);
                         true
                     }),

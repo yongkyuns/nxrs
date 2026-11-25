@@ -5,6 +5,19 @@ pin-namespace = "esp32s3-gpio"
 [kconfig]
 ARCH_BOARD_ESP32S3_M5_CORES3 = "y"
 
+[resources.gpio10]
+kind = "gpio-interrupt"
+device = "/dev/gpio10"
+properties = { trigger = "rising" }
+reserved-pins = [10]
+[resources.gpio10.kconfig]
+DEV_GPIO = "y"
+DEV_GPIO_EDGE_TIMESTAMP = "y"
+ESPRESSIF_GPIO_IRQ = "y"
+ESP32S3_M5_CORES3_GPIO10_IRQ = "y"
+ESP32S3_SYSTIMER_CLOCK = "y"
+BOARD_LATE_INITIALIZE = "y"
+
 [resources.i2c0]
 kind = "i2c"
 device = "/dev/i2c0"

@@ -82,7 +82,8 @@ impl crate::Device for SelectedDevice {
                 };
                 if !emit(Event::Sample(ImuSample {
                     sequence: event.key.sequence.saturating_add(1),
-                    timestamp_ms: event.key.time_us / 1_000,
+                    timestamp_us: event.key.time_us,
+                    is_capture_time: true,
                     sample_interval_us: INTERVAL_US,
                     accel_mps2: sample
                         .accel_ug
