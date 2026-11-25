@@ -5,6 +5,8 @@ with a soldered Stamp and a live carrier. The host tests exercise the bench
 logic. The [simulator test](../tracker-sim/README.md) covers BLE and PPP in NuttX
 with an emulated modem and peer.
 
+The [CoreS3 tracing guide](tracing.md) covers opt-in scheduler and interrupt traces.
+
 ## Setup
 
 - Use the CoreS3, M135 and S003 Stamp CatM with an active LTE-M MicroSIM and
