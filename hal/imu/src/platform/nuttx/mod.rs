@@ -8,7 +8,7 @@ mod device;
 mod instance;
 mod signal;
 
-#[cfg(not(test))]
+#[cfg_attr(test, allow(unused_imports))]
 pub use crate::platform::unbound::devices::secondary as unavailable_secondary;
 pub use instance::Instance;
 
