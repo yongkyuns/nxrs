@@ -146,9 +146,9 @@ The application's firmware metadata table owns entry facts: binary, command,
 priority and stack size. Optional `required-capabilities` metadata supplies early
 admission checks; Cargo dependencies select components. App/service source and
 manifests stay platform-free. Application-entry metadata under
-`package.metadata.nxrs` accepts `firmware`, `required-capabilities`,
-`capability-features`, and the boolean `qualification-only` fixture marker. Build
-planning and deployment preflight reject unknown fields, so misspelled metadata cannot
+`package.metadata.nxrs` accepts `firmware`, `required-capabilities`, and the boolean
+`qualification-only` fixture marker. Build planning and deployment preflight both
+validate this parent table and reject unknown fields, so misspelled metadata cannot
 silently select firmware defaults or skip capability admission. Other tools' metadata stays
 independent. Declarative platform profiles select hardware
 resources, capabilities, execution/model budgets and OS build settings. HAL
@@ -231,9 +231,13 @@ reference keeps that location unless the child replaces it. If there is no
 reference, the review shows the new fragment and reference in the selected
 profile. The fragment stores explicit assignments such as
 `CONFIG_DEBUG_ASSERTIONS=y` or `# CONFIG_DEBUG_ASSERTIONS is not set`.
-Legacy `[kconfig]` settings supply defaults. The fragment overrides defaults
-and ordinary CLI requests override the fragment. Mandatory settings and
-BSP resources retain their ownership.
+Legacy `[kconfig]` settings supply defaults. The profile's fragment overrides
+those defaults. Pass `--overlay path/to/extra.conf` or include a `.conf` path in
+a profile's `overlays` list to apply additional NuttX settings. Declared fragments
+apply in inheritance order, followed by command-line overlays in argument
+order. Direct `--kconfig-*` requests apply last. Mandatory settings and BSP
+resources retain their ownership. The editor saves native changes in the
+profile's authored fragment.
 
 Save & sync prepares native headers and Rust inputs without compiling the
 firmware. It refreshes a Zed context already bound to the selected output.
@@ -242,6 +246,17 @@ in preparation and cache identity. Generated `resolved.config` and native
 headers are outputs, not configuration sources.
 
 ## Native qualification settings
+
+NuttX uses a size-optimized Rust standard library and immediate panic abort by
+default. Use `cargo nxrs build --panic-diagnostics ...` for formatted panic
+reports and full backtrace support. An explicit trace-only setting retains
+panic reports unless immediate abort is also selected. When backtraces are
+enabled, trace-only reports show raw addresses. The effective settings are
+recorded in the build provenance.
+
+The ESP32-S3 RAM controls and CoreS3 sensor build check linked flash, unpadded
+image size, and static RAM in CI. Heap use and worker stacks are measured at
+runtime.
 
 NuttX builds accept repeated `--kconfig-enable SYMBOL`,
 `--kconfig-disable SYMBOL`, and `--kconfig-set NAME=VALUE` arguments. Use native
@@ -279,13 +294,6 @@ detector model is added through the app's enabled direct detector dependency; th
 model is not forwarded through services or selected in an app manifest. An
 external transitive-only detector cannot be given a feature by Cargo and fails
 with a direct-dependency diagnostic.
-
-Apps can declare optional integrations in `package.metadata.nxrs.capability-features`.
-Each entry names a declared Cargo feature, its enabling app feature (`when`),
-and the required profile capabilities (`requires`). The builder checks the
-base Cargo graph and enables the integration when both conditions hold. It
-rejects integrations enabled explicitly without their required capabilities.
-The resolved receipt records the features selected by the profile.
 
 Dry runs reject backend-incompatible switches before any build starts. Their
 `dependency_resolution` is `pending`, with null `model_features` and `driver_features`.

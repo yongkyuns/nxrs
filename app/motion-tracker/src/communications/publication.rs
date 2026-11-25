@@ -207,11 +207,9 @@ mod tests {
         let encode = |sample: &&'static [u8]| Ok(*sample);
 
         publisher.offer(b"abc" as &[u8]);
-        assert!(
-            !publisher
-                .service(&mut stalled, now, deadline, encode)
-                .unwrap()
-        );
+        assert!(!publisher
+            .service(&mut stalled, now, deadline, encode)
+            .unwrap());
         publisher.offer(b"xy");
         let later = deadline + Duration::from_secs(1);
         assert_eq!(
@@ -223,11 +221,9 @@ mod tests {
         );
         publisher.reset_stream();
         let mut replacement = Peer::default();
-        assert!(
-            publisher
-                .service(&mut replacement, deadline, later, encode)
-                .unwrap()
-        );
+        assert!(publisher
+            .service(&mut replacement, deadline, later, encode)
+            .unwrap());
         assert_eq!(stalled.received, b"ab");
         assert_eq!(replacement.received, b"xy");
     }

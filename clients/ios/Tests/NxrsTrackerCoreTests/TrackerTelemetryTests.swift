@@ -2,7 +2,7 @@ import CoreGraphics
 import ImageIO
 import Foundation
 import XCTest
-@testable import NxrsMonitorCore
+@testable import NxrsTrackerCore
 
 final class TrackerTelemetryTests: XCTestCase {
     func testSplitFramesPreserveIndependentSensorsAndRejectUnknownVersions() throws {

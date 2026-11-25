@@ -1,6 +1,6 @@
 mod ipv4cp;
 mod lcp;
-mod option_fsm;
+pub(crate) mod option_fsm;
 mod pap;
 
 use self::ipv4cp::IPv4CP;

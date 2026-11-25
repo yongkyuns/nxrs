@@ -13,6 +13,7 @@ import termios
 import time
 import tty
 
+import replay
 from sensors import NeoM9n, check_fix, check_imus, check_live, check_progress, check_stale
 
 
@@ -82,14 +83,36 @@ class Guest:
             end = self.pending.index(b'\n')
             line = bytes(self.pending[:end])
             del self.pending[:end + 1]
-            if match := re.search(rb'/dev/ttySIM0 connected to pseudotty: (\S+)$', line):
-                path = match[1]
-                assert re.fullmatch(rb'/dev/(?:pts/\d+|ttys[0-9a-z]+)', path), path
-                assert self.receiver is None, 'GNSS UART reopened during one tracker run'
-                self.uart = Pty(os.fsdecode(path))
-                self.receiver = NeoM9n(self.uart)
-            if (start := line.find(b'{"v":1,')) >= 0:
-                self.record(json.loads(line[start:]))
+            self.on_line(line)
+
+    def on_line(self, line):
+        if match := re.search(rb'/dev/ttySIM0 connected to pseudotty: (\S+)$', line):
+            path = match[1]
+            assert re.fullmatch(rb'/dev/(?:pts/\d+|ttys[0-9a-z]+)', path), path
+            assert self.receiver is None, 'GNSS UART reopened during one tracker run'
+            self.uart = Pty(os.fsdecode(path))
+            self.receiver = NeoM9n(self.uart)
+        if (start := line.find(b'{"v":1,')) >= 0:
+            self.record(json.loads(line[start:]))
+
+    def pump(self, timeout):
+        console = self.process.stdout.fileno()
+        uart = self.uart.fd if self.uart else None
+        fds = [console] if uart is None else [console, uart]
+        ready, _, _ = select.select(fds, [], [], timeout)
+        if console in ready:
+            self.read_console()
+        if uart in ready:
+            try:
+                packet = os.read(uart, 4096)
+            except OSError as error:
+                if error.errno != errno.EIO:
+                    raise
+                packet = b''
+            if packet:
+                self.receiver.receive(packet)
+            else:
+                self.close_uart()
 
     def until(self, marker, offset, timeout=10):
         deadline = time.monotonic() + timeout
@@ -97,23 +120,7 @@ class Guest:
             remaining = deadline - time.monotonic()
             if remaining <= 0 or len(self.console) > 1024 * 1024:
                 raise TimeoutError(f'NuttX sim did not produce {marker!r}')
-            console = self.process.stdout.fileno()
-            uart = self.uart.fd if self.uart else None
-            fds = [console] if uart is None else [console, uart]
-            ready, _, _ = select.select(fds, [], [], remaining)
-            if console in ready:
-                self.read_console()
-            if uart in ready:
-                try:
-                    packet = os.read(uart, 4096)
-                except OSError as error:
-                    if error.errno != errno.EIO:
-                        raise
-                    packet = b''
-                if packet:
-                    self.receiver.receive(packet)
-                else:
-                    self.close_uart()
+            self.pump(remaining)
 
     def command(self, command):
         offset = len(self.console)
@@ -151,20 +158,102 @@ class Guest:
         return self.console[start:result]
 
 
-def run(image, log):
+class ReplayGuest(Guest):
+    def __init__(self, process, log, fixture, recording):
+        super().__init__(process, log, fixture)
+        self.fixture = fixture
+        self.recording = recording
+        self.epoch = None
+        self.imu_totals = {}
+
+    def record(self, sample):
+        # The original USB reports remain in the console log.
+        pass
+
+    def on_line(self, line):
+        if line.endswith(b'TRACKER_REPLAY_START'):
+            assert self.epoch is None, 'replay started twice'
+            self.epoch = time.monotonic()
+        if match := re.search(rb'TRACKER_REPLAY_IMU_DONE ([01]) (\d+)$', line):
+            source = ('imu_secondary', 'imu_primary')[int(match[1])]
+            self.imu_totals[source] = int(match[2])
+        if b'panicked at' in line or b'Assertion failed' in line or b'tracker simulator initialization failed' in line:
+            raise RuntimeError(line.decode(errors='replace'))
+        super().on_line(line)
+
+    def play(self):
+        self.until(b'nsh> ', self.command(b'set TRACKER_SIM_CASE replay'))
+        self.command(b'motion_tracker --interval-ms 100 --stream-usb')
+        deadline = time.monotonic() + 10
+        ready = self.fixture / 'replay-ready'
+        while self.epoch is None:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError('the simulated IMUs and GNSS never became ready for replay')
+            self.pump(remaining)
+            if self.receiver and self.receiver.rate == 1 and not ready.exists():
+                ready.touch()
+
+        origin = self.recording.origin_ms
+        end = self.epoch + self.recording.duration_ms / 1000
+        remaining_fixes = replay.fixes(self.fixture / replay.SOURCES['gnss'])
+        next_fix = next(remaining_fixes, None)
+        sent = 0
+        try:
+            while True:
+                now = time.monotonic()
+                while next_fix is not None:
+                    stamp, latitude, longitude, speed, utc = next_fix
+                    elapsed = stamp - origin
+                    next_deadline = self.epoch + elapsed / 1000
+                    if now < next_deadline:
+                        break
+                    if self.uart is None or self.receiver.rate != 1:
+                        raise RuntimeError('the GNSS receiver stopped during replay')
+                    self.uart.sendall(self.receiver.fix_packet(
+                        (elapsed + 1000) % 604_800_000, longitude, speed, latitude, utc=utc, replay=True))
+                    sent += 1
+                    next_fix = next(remaining_fixes, None)
+                if next_fix is None and len(self.imu_totals) == 2 and now >= end + 0.2:
+                    break
+                if now >= end + 5:
+                    raise TimeoutError('the simulated IMUs did not drain the recording')
+                wake = next_deadline if next_fix is not None else end + (5 if now >= end + 0.2 else 0.2)
+                self.pump(max(0, wake - now))
+                if len(self.console) > 8192:
+                    del self.console[:-4096]
+        finally:
+            remaining_fixes.close()
+        counts = {**self.imu_totals, 'gnss': sent}
+        if counts != self.recording.counts:
+            raise RuntimeError(f'replay count mismatch {counts}, expected {self.recording.counts}')
+        print(f'Replayed {counts["imu_primary"]} primary IMU samples, '
+              f'{counts["imu_secondary"]} secondary IMU samples, and {sent} GNSS fixes.')
+
+
+def run(image, log, recording=None):
     # The guest sees only this temporary directory through its fixture mount.
     with (
         tempfile.TemporaryDirectory(prefix='nxrs-tracker-') as fixture,
         subprocess.Popen([str(image.resolve())], cwd=fixture, stdin=subprocess.PIPE,
                          stdout=subprocess.PIPE, stderr=subprocess.STDOUT) as process,
     ):
-        guest = Guest(process, log, Path(fixture))
+        fixture = Path(fixture)
+        guest = Guest(process, log, fixture)
         try:
+            if recording is not None:
+                staged = replay.stage(recording, fixture)
+                if not staged.complete:
+                    print('Replaying an incomplete recording with its original gaps.', flush=True)
+                guest = ReplayGuest(process, log, fixture, staged)
             guest.until(b'nsh> ', 0)
             guest.until(b'nsh> ', guest.command(b'mount -t hostfs -o fs=. /tracker-fixture'))
             status = guest.command(b'echo fixture-mount:$?')
             guest.until(b'nsh> ', status)
             assert b'fixture-mount:0\n' in guest.console[status:], guest.console[status:]
+            if recording is not None:
+                guest.play()
+                return
             for scenario in (b'', b'imu', b'paint', b''):
                 transcript = guest.tracker(scenario, 12 if not scenario else 9,
                                            pause_fixes=not scenario, status=int(scenario == b'imu'))
@@ -221,11 +310,19 @@ def run(image, log):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('image', type=Path)
+    parser.add_argument('--replay', type=Path, help='replay a Motion Tracker NDJSON recording')
     parser.add_argument('--log', type=Path, default=Path('target/nuttx-sim-tracker/console.log'))
     args = parser.parse_args()
+    for source in (args.image, args.replay):
+        if source is None:
+            continue
+        if not source.is_file():
+            parser.error(f'input file does not exist: {source}')
+        if args.log.exists() and args.log.samefile(source):
+            parser.error(f'--log refers to an input file: {source}')
     args.log.parent.mkdir(parents=True, exist_ok=True)
     with args.log.open('wb') as log:
-        run(args.image, log)
+        run(args.image, log, args.replay)
 
 
 if __name__ == '__main__':

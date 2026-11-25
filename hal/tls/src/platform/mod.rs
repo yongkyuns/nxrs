@@ -21,4 +21,5 @@ cfg_if::cfg_if! {
     }
 }
 
+pub(crate) use selected::retire_tcp;
 pub use selected::{open, Connection, Identity};

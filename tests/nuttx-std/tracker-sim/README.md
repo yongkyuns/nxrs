@@ -74,13 +74,13 @@ RUNSTALL patch before the UART receive-timeout patch was added.
 
 ## Headless one-IMU tracker
 
-Use the production app with its dashboard feature disabled. The qualification
-profile registers one modeled BMI270 on NuttX's I²C driver and exposes NSH over
-UART0. The headless JSON stream is version 2 with one IMU entry. The verifier
-checks live readings, a successful exit, and reacquisition in the same boot.
+The acquisition fixture registers one modeled BMI270 on NuttX's I²C driver
+and exposes NSH over UART0. It exercises the same observation service used in
+the tracker. The verifier checks live readings, a clean exit and reacquisition
+in the same boot.
 
 ```sh
-cargo nxrs build --app motion-tracker --no-default-features \
+cargo nxrs build --manifest-path tests/nuttx-std/tracker-sim/logging/Cargo.toml \
   --profile esp32s3-qemu-tracker-headless \
   --target-c-source tests/nuttx-std/tracker-sim/devices.c \
   --target-c-source tests/nuttx-std/tracker-sim/native_init.c \
@@ -168,19 +168,23 @@ cargo nxrs build --app motion-tracker --profile esp32s3-qemu-tracker-upload \
   --out target/tracker-upload-sim
 python3 tests/nuttx-std/tracker-sim/upload.py \
   target/tracker-upload-sim/nuttx/nuttx.merged.bin \
-  --qemu /path/to/patched/qemu-system-xtensa --network-qemu qemu-system-xtensa
+  --qemu /path/to/patched/qemu-system-xtensa --network-qemu qemu-system-xtensa --wall-clock
 ```
 
-The first dial is rejected. The runner then closes the collector socket and
-terminates PPP. It checks that both IMUs and GNSS keep producing fresh USB
-reports between the PPP termination acknowledgement and modem redial. The
-collector compares the capped reports’ GNSS fixes and IMU health with the USB
-snapshots. It verifies the configured cadence and fresh data after reconnect. A
-fresh boot with a wrong pin exercises repeated TLS attempts and requires zero
-uploaded records.
+The runner rejects the first dial, closes the collector socket, terminates
+PPP, then drops all PPP traffic on the open UART after recovery. The cellular
+HAL sends an LCP Echo-Request every five seconds and reports link loss after
+three unanswered probes. The runner measures detection in guest time and
+recovery to the first fresh TLS upload in host time. USB and the collector
+take independent snapshots, so the checks align them by acquisition time.
+USB verifies advancing readings from both IMUs and GNSS through both outages.
+The collector verifies fresh, bounded summaries at the one-second test cadence. A fresh boot
+with a wrong pin must upload zero records. LCP echoes check the PPP peer.
+The [physical bench](../tracker-hardware/README.md) measures carrier
+connectivity beyond the modem.
 
 The **ESP32-S3 QEMU** CI workflow builds the patched emulator with
-`tools/build-tracker-qemu.sh` and runs both scenarios with `--wall-clock`.
+`tools/build-tracker-qemu.sh` and runs the same command with `--wall-clock`.
 
 ## BLE telemetry during PPP loss and reconnect
 
@@ -214,13 +218,10 @@ check. Accelerated timings include the effect of QEMU's virtual clock on the
 host-driven BLE controller.
 
 The ESP32-S3 QEMU workflow runs `--export` against the notification service.
-The wall-clock run first stalls display SPI and the optional USB report sink
-separately. Fresh BLE snapshots and cellular summaries must continue while
-each sink remains blocked. The run also adds CPU work to display SPI
-transfers during full-rate export. It paces the BLE ciphertext at 5.5 kB/s,
-with a 4.8 kB/s interval matching the slower physical link trace. It withholds
-three bursts of controller transmit credits and injects notification and
-acknowledgment loss.
+It adds CPU work to display SPI transfers while both IMUs, GNSS and cellular
+TLS stay active. It paces the BLE ciphertext at 5.5 kB/s, with a 4.8 kB/s
+interval matching the slower physical link trace. It withholds three bursts of
+controller transmit credits and injects notification and acknowledgment loss.
 During the 4.8 kB/s interval, it drops ten isolated notifications spaced by
 5,500 new ciphertext bytes. Each drop consumes its scheduled link time and
 controller completions still arrive. This covers a replay loop that can stall
@@ -260,10 +261,42 @@ zero records during the hold. With bounded TCP writes enabled, three
 wall-clock boots each delivered BLE records during the hold. The longest
 receiver gap was 1.55 seconds and TLS telemetry resumed after release.
 
-Run the same combined fixture with `--tiles` to check metered routing. The
-Stamp build rejects a direct map relay before dialing. Once PPP is online,
-a phone tile failure leaves only capped summaries on PPP. The phone supplies
-the next map tiles over the notification session. The test checks the display
-on both sides of a tile boundary and requires consecutive BLE sample sequences. The coexistence fixture uses two
-1 KiB erase blocks for its RAM-backed settings store. This exercises NVS
-without reserving the physical board’s flash partition in guest RAM.
+Run the same combined fixture with `--tiles` to test map delivery while
+PPP is online. It verifies the cellular-capable profile refuses direct IP
+map configuration and the PPP listener receives no map traffic. The BLE
+client supplies both tiles during full-rate export. The test checks the
+panel on both sides of the boundary and requires consecutive sample
+sequences throughout the transfers.
+
+## Replay an iPhone recording
+
+Share an NDJSON file from **Motion Tracker → Recordings**, then build the
+native simulator and pass the file to its runner.
+
+```sh
+cargo nxrs build --app motion-tracker --profile nuttx-sim-tracker \
+  --target-c-source tests/nuttx-std/tracker-sim/devices.c \
+  --target-c-source tests/nuttx-std/tracker-sim/native_init.c \
+  --out target/nuttx-sim-tracker
+python3 tests/nuttx-std/tracker-sim/native.py target/nuttx-sim-tracker/nuttx/nuttx \
+  --replay /path/to/recording.ndjson --log target/nuttx-sim-tracker/replay.log
+```
+
+The runner validates the archive and stages it in a temporary fixture mount.
+It starts playback when both BMI270 models are configured and the UART peer
+has acknowledged GNSS configuration. IMU FIFO frames and GNSS fixes follow
+the shared tracker reception timeline at 1× speed, including FIFO batches and
+gaps. The console log contains the tracker’s normal USB reports. The runner
+checks that both modeled FIFOs drained their recorded counts and that the UART
+peer sent all fixes.
+
+The archive begins with a version-1 `nxrs-motion-tracker` header and ends with
+an explicit completion record. Sample rows preserve original sequences and
+optional UTC. The native drivers assign new sequences and reception timestamps
+during playback. IMU values are quantized to the profile’s BMI270 range.
+The GNSS peer reconstructs position, speed and available UTC through UBX.
+Samples with repeated timestamps retain their source order and share a due time.
+
+The fixture accepts finalized recordings marked incomplete and preserves their
+missing intervals. It rejects empty archives and requires a valid footer.
+NuttX scheduling and device-read timing still affect when tasks observe samples.

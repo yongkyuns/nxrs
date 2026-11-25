@@ -1,30 +1,29 @@
 //! Route one visible tile request over the paired phone or a pinned IP relay.
+mod wire;
+
+use wire::REQUEST_BYTES;
+pub use wire::{Key, Receiver, Response, Tile, Zoom, SIDE};
+
 use super::Endpoint;
-use crate::map::{Key, Response};
-#[cfg(feature = "wifi-map")]
-use crate::map::{REQUEST_BYTES, Receiver};
-#[cfg(feature = "wifi-map")]
-use connectivity::Dial;
 use std::{
-    io,
+    io::{self, Write},
+    net::{SocketAddr, TcpStream},
+    thread::{self, JoinHandle},
     time::{Duration, Instant},
 };
-#[cfg(feature = "wifi-map")]
-use std::{io::Write, thread};
+
+pub const DIRECT_RELAY_AVAILABLE: bool = !cellular::LINK_AVAILABLE;
 
 const BLE_DEADLINE: Duration = Duration::from_secs(25);
-#[cfg(feature = "wifi-map")]
 const IP_DEADLINE: Duration = Duration::from_secs(12);
 const RETRY: Duration = Duration::from_secs(30);
 const REQUEST_INTERVAL: Duration = Duration::from_secs(5);
 
 pub struct Tiles<'a> {
     relay: Option<Endpoint>,
-    #[cfg(feature = "wifi-map")]
     dial: Option<Dial>,
     key: Option<Key>,
     active: Option<Transfer<'a>>,
-    #[cfg(feature = "wifi-map")]
     receiver: Receiver,
     next: Instant,
     throttle: Instant,
@@ -33,21 +32,16 @@ pub struct Tiles<'a> {
 
 enum Transfer<'a> {
     Phone(Instant),
-    #[cfg(feature = "wifi-map")]
     Relay(Instant, Relay<'a>),
-    #[cfg(not(feature = "wifi-map"))]
-    _IpUnavailable(std::marker::PhantomData<&'a ()>),
 }
 
 impl<'a> Tiles<'a> {
     pub fn new(relay: Option<Endpoint>, now: Instant) -> Self {
         Self {
             relay,
-            #[cfg(feature = "wifi-map")]
             dial: None,
             key: None,
             active: None,
-            #[cfg(feature = "wifi-map")]
             receiver: Receiver::default(),
             next: now,
             throttle: now,
@@ -59,16 +53,12 @@ impl<'a> Tiles<'a> {
         if key != self.key {
             self.key = key;
             self.active = None;
-            #[cfg(feature = "wifi-map")]
-            {
-                self.receiver = Receiver::default();
-            }
+            self.receiver = Receiver::default();
             self.try_ip = false;
             self.next = now;
         }
     }
 
-    #[cfg(feature = "ble-link")]
     pub fn phone_request(&self) -> Option<Key> {
         if matches!(self.active, Some(Transfer::Phone(_))) {
             self.key
@@ -83,13 +73,12 @@ impl<'a> Tiles<'a> {
 
     pub fn service(
         &mut self,
-        #[cfg(feature = "wifi-map")] identity: impl FnOnce() -> io::Result<&'a tls::Identity>,
+        identity: impl FnOnce() -> io::Result<&'a tls::Identity>,
         phone_live: bool,
         phone: Option<Response>,
         now: Instant,
     ) -> Option<Response> {
-        #[cfg(feature = "wifi-map")]
-        if !matches!(self.active, Some(Transfer::Relay(_, Relay::Dial))) {
+        if DIRECT_RELAY_AVAILABLE && !matches!(self.active, Some(Transfer::Relay(_, Relay::Dial))) {
             if let Some(dial) = &mut self.dial {
                 if !matches!(dial.poll(), Ok(None)) {
                     self.dial = None;
@@ -97,7 +86,7 @@ impl<'a> Tiles<'a> {
             }
         }
         let key = self.key?;
-        let result: io::Result<Option<Response>> = match self.active.as_mut() {
+        let result = match self.active.as_mut() {
             Some(Transfer::Phone(deadline)) => match phone {
                 Some(Response::Tile(tile)) if tile.key == key => {
                     self.active = None;
@@ -110,18 +99,16 @@ impl<'a> Tiles<'a> {
                 _ if !phone_live || now >= *deadline => Err(io::ErrorKind::TimedOut.into()),
                 _ => return None,
             },
-            #[cfg(feature = "wifi-map")]
-            Some(Transfer::Relay(deadline, relay)) if now < *deadline => relay.poll(
-                key,
-                self.relay.unwrap(),
-                &mut self.dial,
-                &mut self.receiver,
-                identity,
-            ),
-            #[cfg(feature = "wifi-map")]
+            Some(Transfer::Relay(deadline, relay)) if DIRECT_RELAY_AVAILABLE && now < *deadline => {
+                relay.poll(
+                    key,
+                    self.relay.unwrap(),
+                    &mut self.dial,
+                    &mut self.receiver,
+                    identity,
+                )
+            }
             Some(Transfer::Relay(..)) => Err(io::ErrorKind::TimedOut.into()),
-            #[cfg(not(feature = "wifi-map"))]
-            Some(Transfer::_IpUnavailable(_)) => return None,
             None => {
                 if now < self.next || now < self.throttle {
                     return None;
@@ -129,14 +116,11 @@ impl<'a> Tiles<'a> {
                 if phone_live && !self.try_ip {
                     self.throttle = now + REQUEST_INTERVAL;
                     self.active = Some(Transfer::Phone(now + BLE_DEADLINE));
-                    return None;
-                }
-                #[cfg(feature = "wifi-map")]
-                if let Some(endpoint) = self.relay.filter(|_| self.dial.is_none()) {
-                    let worker = thread::Builder::new()
-                        .name("tracker-tile-dial".into())
-                        .stack_size(8 * 1024);
-                    if let Ok(dial) = Dial::start(worker, endpoint, Duration::from_secs(3)) {
+                } else if let Some(endpoint) = self
+                    .relay
+                    .filter(|_| DIRECT_RELAY_AVAILABLE && self.dial.is_none())
+                {
+                    if let Ok(dial) = Dial::start(endpoint) {
                         self.throttle = now + REQUEST_INTERVAL;
                         self.dial = Some(dial);
                         self.active = Some(Transfer::Relay(now + IP_DEADLINE, Relay::Dial));
@@ -147,7 +131,6 @@ impl<'a> Tiles<'a> {
                 return None;
             }
         };
-        #[cfg(feature = "wifi-map")]
         if let Err(error) = &result {
             if matches!(self.active, Some(Transfer::Relay(..))) {
                 eprintln!("motion-tracker map relay: {error}");
@@ -164,10 +147,7 @@ impl<'a> Tiles<'a> {
                 self.try_ip =
                     matches!(self.active, Some(Transfer::Phone(_))) && self.relay.is_some();
                 self.active = None;
-                #[cfg(feature = "wifi-map")]
-                {
-                    self.receiver = Receiver::default();
-                }
+                self.receiver = Receiver::default();
                 self.next = if self.try_ip { now } else { now + RETRY };
                 None
             }
@@ -175,7 +155,53 @@ impl<'a> Tiles<'a> {
     }
 }
 
-#[cfg(feature = "wifi-map")]
+// A kernel TCP connect may wait for SYN retransmission. Keep it off the BLE,
+// collector and display loops. During normal operation joins occur after the
+// attempt finishes, including when the viewport has changed.
+struct Dial(Option<JoinHandle<io::Result<TcpStream>>>);
+
+impl Dial {
+    fn start(endpoint: Endpoint) -> io::Result<Self> {
+        if !tls::Identity::SUPPORTS_PINNED_CLIENT {
+            return Err(io::Error::new(
+                io::ErrorKind::Unsupported,
+                "map relay TLS is unavailable",
+            ));
+        }
+        thread::Builder::new()
+            .name("tracker-tile-dial".into())
+            .stack_size(8 * 1024)
+            .spawn(move || {
+                TcpStream::connect_timeout(
+                    &SocketAddr::V4(endpoint.address),
+                    Duration::from_secs(3),
+                )
+            })
+            .map(|thread| Self(Some(thread)))
+    }
+
+    fn poll(&mut self) -> io::Result<Option<TcpStream>> {
+        if self.0.as_ref().is_some_and(|task| task.is_finished()) {
+            self.0
+                .take()
+                .unwrap()
+                .join()
+                .map_err(|_| io::Error::other("tile dial panicked"))?
+                .map(Some)
+        } else {
+            Ok(None)
+        }
+    }
+}
+
+impl Drop for Dial {
+    fn drop(&mut self) {
+        if let Some(task) = self.0.take() {
+            let _ = task.join();
+        }
+    }
+}
+
 enum Relay<'a> {
     Dial,
     Request {
@@ -186,7 +212,6 @@ enum Relay<'a> {
     },
 }
 
-#[cfg(feature = "wifi-map")]
 impl<'a> Relay<'a> {
     fn poll(
         &mut self,
@@ -200,8 +225,8 @@ impl<'a> Relay<'a> {
             Self::Dial => {
                 if let Some(socket) = dial.as_mut().unwrap().poll()? {
                     *dial = None;
-                    let connection = endpoint
-                        .secure(identity()?, socket, IP_DEADLINE)
+                    let connection = identity()?
+                        .connect_pinned(socket, endpoint.pin, IP_DEADLINE)
                         .map_err(|_| io::ErrorKind::PermissionDenied)?;
                     *self = Self::Request {
                         connection,

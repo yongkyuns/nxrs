@@ -8,8 +8,8 @@ publish = false
 log = "0.4"
 nxrs-navigation-services = { path = "../../../../service/navigation", features = ["probe"] }
 nxrs-composition = { path = "../../../../platform", features = ["imu"] }
+nxrs-messaging = { path = "../../../../shared/messaging" }
 nxrs-log-router = { path = "../../../../service/logging" }
-nxrs-motion-tracker = { path = "../../../../app/motion-tracker", default-features = false }
 
 [package.metadata.nxrs]
 qualification-only = true

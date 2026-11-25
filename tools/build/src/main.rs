@@ -66,7 +66,7 @@ Selection:
   --bin <bin>                Select a binary target in that manifest
   --platform <platform>     Select a platform family and its default profile
   --profile <profile>       Select a specific product or qualification profile
-  --overlay <path>          Apply an ordered peripheral overlay; repeat as needed
+  --overlay <path>          Apply a device overlay or NuttX .conf; repeat as needed
   --out <path>              Choose the build directory to prepare on Save & sync
   --features <features>     Enable Cargo features; repeat as needed
   --no-default-features     Disable the application's default Cargo features
@@ -100,7 +100,7 @@ Selection:
   --bin <bin>                 Select a binary target
   --platform <platform>       Select a platform family and its default profile
   --profile <profile>         Select a product or qualification profile
-  --overlay <path>            Apply an ordered overlay; repeat as needed
+  --overlay <path>            Apply a device overlay or NuttX .conf; repeat as needed
   --features <features>       Enable Cargo features, separated by commas or spaces;
                               repeat as needed; --feature is an alias
   --no-default-features       Disable the application's default Cargo features
@@ -119,7 +119,8 @@ NuttX qualification:
   --kconfig-set NAME=VALUE    Set a literal Kconfig value; repeat as needed
   --abi-profile <profile>     Select active or minimal ABI checks
   --size-optimized            Enable size qualification settings
-  --trace-only-backtrace      Use trace-only backtraces
+  --panic-diagnostics        Enable formatted panic reports and full backtraces
+  --trace-only-backtrace      Retain panic reporting with trace-only backtraces
   --panic-immediate-abort     Abort immediately; requires --trace-only-backtrace
   --app-package <package>     Check the selected package name
   --command <command>         Override the firmware command name
@@ -228,6 +229,7 @@ fn project_command(root: &Path, args: &[String], operation: Operation<'_>) -> Re
             "--size-optimized" => options.size = true,
             "--trace-only-backtrace" => options.trace = true,
             "--panic-immediate-abort" => options.immediate = true,
+            "--panic-diagnostics" => options.panic_diagnostics = true,
             "--app" => app = Some(args.next().ok_or("missing --app")?.clone()),
             "--manifest-path" | "--app-manifest" => {
                 manifest = Some(PathBuf::from(args.next().ok_or("missing manifest path")?))

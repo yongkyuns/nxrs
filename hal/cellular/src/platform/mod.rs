@@ -8,4 +8,4 @@ cfg_if::cfg_if! {
     }
 }
 
-pub use selected::connect;
+pub use selected::{connect, connect_managed, LINK_AVAILABLE};

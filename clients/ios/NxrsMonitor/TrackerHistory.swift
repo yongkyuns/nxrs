@@ -1,5 +1,5 @@
 import Foundation
-import NxrsMonitorCore
+import NxrsTrackerCore
 
 struct TrackerHistory: Sendable {
     struct Motion: Identifiable, Sendable {

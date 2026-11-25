@@ -18,6 +18,7 @@ import time
 UUID = "3cb1de6e-a955-49b7-be4f-c4572d3f"
 SERVICE, INGRESS, EGRESS = (UUID + suffix for suffix in ("3400", "3401", "3402"))
 FRAME_LIMIT = 768
+SUMMARY_LIMIT = 288
 
 
 def event(kind, **fields):
@@ -42,20 +43,18 @@ def reading(raw):
     return imus
 
 
-def summary_reading(raw):
-    if not raw.endswith(b"\n") or len(raw) > 256:
+def summary_time(raw):
+    if not raw.endswith(b"\n") or len(raw) > SUMMARY_LIMIT:
         raise ValueError("invalid cellular summary length")
     frame = json.loads(raw)
-    if frame["v"] != 1 or frame["kind"] != "summary" or set(frame) != {"v", "kind", "imu", "gnss"}:
-        raise ValueError("expected Tracker v1 cellular summary")
-    imu = frame["imu"]
-    if len(imu) != 2 or any(state not in ("waiting", "stale", "live", "fault") for state in imu):
-        raise ValueError("invalid summary IMU states")
-    fix = frame["gnss"]
-    fix_ms = fix["received_ms"] if fix["state"] == "live" else None
-    if fix_ms is not None and (type(fix_ms) is not int or fix_ms < 0):
-        raise ValueError("invalid summary GNSS timestamp")
-    return imu == ["live", "live"], fix_ms
+    if frame["v"] != 1 or frame["kind"] != "summary" or len(frame["imu"]) != 2:
+        raise ValueError("expected a Tracker v1 cellular summary")
+    stamp = frame["imu1_received_ms"]
+    if frame["imu"] != ["live", "live"]:
+        return None
+    if type(stamp) is not int or stamp < 0:
+        raise ValueError("invalid tracker summary timestamp")
+    return stamp
 
 
 async def collect(address, port):
@@ -66,8 +65,7 @@ async def collect(address, port):
         event("tls_connected", session=session)
         try:
             while raw := await asyncio.wait_for(reader.readline(), 180):
-                sensors_live, fix_ms = summary_reading(raw)
-                event("upload", session=session, sensors_live=sensors_live, fix_ms=fix_ms)
+                event("upload", session=session, received_ms=summary_time(raw))
         except (KeyError, OSError, TimeoutError, TypeError, ValueError) as err:
             event("tls_error", session=session, reason=type(err).__name__)
         finally:
@@ -217,17 +215,17 @@ def summarize(ble, uploads, loss_ms, restored_ms):
         raise ValueError(f"BLE readings by phase {count}, max host gap {max_gap:.3f}s")
     before = max((
         entry["session"] for entry in uploads
-        if entry["sensors_live"] and entry["fix_ms"] is not None and entry["fix_ms"] <= loss_ms
+        if entry["received_ms"] is not None and entry["received_ms"] <= loss_ms
     ), default=0)
     last_ble_ms = samples[-1]["imu"][0][1]
     resumed = next((
         entry for entry in uploads
-        if entry["sensors_live"] and entry["fix_ms"] is not None and restored_ms < entry["fix_ms"] <= last_ble_ms
+        if entry["received_ms"] is not None and restored_ms < entry["received_ms"] <= last_ble_ms
         and entry["session"] > before
     ), None)
     if not before or resumed is None:
         raise ValueError("expected a new TLS session with fresh telemetry while BLE is active")
-    delay = (resumed["fix_ms"] - restored_ms) / 1000
+    delay = (resumed["received_ms"] - restored_ms) / 1000
     return count, max_gap, resumed["session"], delay
 
 

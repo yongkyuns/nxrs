@@ -2,7 +2,7 @@
 import Combine
 import Foundation
 import Network
-import NxrsMonitorCore
+import NxrsTrackerCore
 
 struct TrackerNotificationStream {
     // The tracker holds at most 2 KiB of unacknowledged ciphertext.
@@ -65,6 +65,10 @@ struct TrackerNotificationStream {
     }
 }
 
+enum TrackerRecordingState: Sendable {
+    case idle, recording, saving, saved(TrackerRecording.Saved), empty, failed
+}
+
 struct TrackerPresentation: Sendable {
     var status = "Disconnected"
     var reading: TrackerTelemetry?
@@ -72,6 +76,7 @@ struct TrackerPresentation: Sendable {
     var history = TrackerHistory()
     var exporting = false
     var interruptions = 0
+    var recording: TrackerRecordingState = .idle
 }
 
 @MainActor final class TrackerBluetooth: ObservableObject {
@@ -86,6 +91,10 @@ struct TrackerPresentation: Sendable {
     var history: TrackerHistory { presentation.history }
     var exporting: Bool { presentation.exporting }
     var interruptions: Int { presentation.interruptions }
+    var recording: TrackerRecordingState { presentation.recording }
+
+    func startRecording() { connection.dispatch { $0.startRecording() } }
+    func stopRecording() { connection.dispatch { $0.finishRecording(.stopped) } }
 
     func start(key: String) {
         connection.dispatch { $0.start(key: key) }
@@ -183,6 +192,8 @@ final class TrackerConnection: NSObject, @unchecked Sendable {
     private var retries = 0
     private var frames = TrackerExportFrames()
     private var capture = TrackerHistory()
+    private var recording: TrackerRecording?
+    private var recordingPaused = false
     private var lastPlot: ContinuousClock.Instant?
     private var notifying = false
     private var requestedExport = false
@@ -256,9 +267,44 @@ final class TrackerConnection: NSObject, @unchecked Sendable {
         central.connect(peer)
     }
 
-    func stop(_ message: String = "Disconnected", keepExport: Bool = false) {
+    func startRecording() {
+        guard presentation.active, presentation.exporting, recording == nil else { return }
+        do {
+            recording = TrackerRecording(directory: try TrackerRecording.directory()) { [weak self] result in
+                self?.dispatch { connection in
+                    connection.recording = nil
+                    connection.recordingPaused = false
+                    switch result {
+                    case let .success(archive): connection.presentation.recording = .saved(archive)
+                    case .failure(let error as TrackerRecording.WriteError) where error == .noSamples:
+                        connection.presentation.recording = .empty
+                    case .failure: connection.presentation.recording = .failed
+                    }
+                }
+            }
+            presentation.recording = .recording
+        } catch {
+            presentation.recording = .failed
+        }
+    }
+
+    func finishRecording(_ reason: TrackerRecording.End) {
+        guard let recording else { return }
+        presentation.recording = .saving
+        recording.finish(reason)
+    }
+
+    private func interruptRecording(_ reason: TrackerRecording.Interruption) {
+        guard let recording, !recordingPaused else { return }
+        recordingPaused = true
+        recording.interrupt(reason)
+    }
+
+    func stop(_ message: String = "Disconnected", keepExport: Bool = false,
+              recordingEnd: TrackerRecording.End = .disconnected) {
         let accepted = keepExport ? capture : nil
         let exporting = presentation.exporting
+        finishRecording(recordingEnd)
         presentation.active = false
         pairingKey = nil
         pairedTracker = nil
@@ -280,6 +326,7 @@ final class TrackerConnection: NSObject, @unchecked Sendable {
             retries = 0
             connect()
         } else {
+            interruptRecording(.backgrounded)
             retireConnection()
             presentation.status = "Paused"
         }
@@ -291,6 +338,7 @@ final class TrackerConnection: NSObject, @unchecked Sendable {
             return
         }
         presentation.interruptions += 1
+        interruptRecording(.reconnecting)
         retireConnection()
         presentation.status = "Reconnecting to tracker"
         let delay = 1 << retries
@@ -504,6 +552,13 @@ final class TrackerConnection: NSObject, @unchecked Sendable {
         }
         if !measurements.isEmpty {
             lastExportData = now
+            if let recording {
+                if recordingPaused {
+                    recordingPaused = false
+                    recording.resume()
+                }
+                recording.append(measurements)
+            }
             for item in measurements { capture.append(item) }
             capture.trim()
             if lastPlot.map({ $0.duration(to: now) >= .milliseconds(100) }) ?? true {
@@ -512,7 +567,7 @@ final class TrackerConnection: NSObject, @unchecked Sendable {
             }
         }
         if let terminal {
-            stop(terminal, keepExport: true)
+            stop(terminal, keepExport: true, recordingEnd: .invalidStream)
             return false
         }
         if let newest {

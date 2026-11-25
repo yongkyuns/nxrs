@@ -1,57 +1,28 @@
 //! One task steps both TLS sessions under the SDK's single identity lease.
-mod config;
-#[cfg(feature = "ble-link")]
 mod export;
-#[cfg(feature = "ble-link")]
+mod publication;
 mod radio;
-#[cfg(any(feature = "ble-link", feature = "wifi-map"))]
 mod tiles;
+mod uplink;
+mod wire;
 
-pub(super) use config::CellularConfig;
-pub(super) use connectivity::Endpoint;
-#[cfg(feature = "ble-link")]
 pub(super) use export::Capture;
+pub(super) use tiles::{Key, Tile, Zoom, DIRECT_RELAY_AVAILABLE, SIDE};
+pub(super) use uplink::{Collector, Config as CellularConfig, Endpoint};
+pub(super) use wire::write_usb;
 
-#[cfg(any(feature = "ble-link", feature = "wifi-map"))]
-use crate::map::Response;
-use crate::{
-    map::{Key, Tile},
-    telemetry::Telemetry,
-};
+use crate::tracker::Snapshot;
+use navigation::observations::SharedObservations;
+use std::cell::OnceCell;
 use std::io;
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
-#[cfg(any(
-    feature = "ble-link",
-    feature = "cellular-uplink",
-    feature = "wifi-map"
-))]
-use std::{cell::OnceCell, time::Instant};
+use std::time::{Duration, Instant};
+use tiles::Response;
 
-#[cfg(any(feature = "ble-link", feature = "wifi-map"))]
-const ACTIVE_POLL: std::time::Duration = std::time::Duration::from_millis(15);
-pub const BLE_AVAILABLE: bool = cfg!(feature = "ble-link");
-pub const CELLULAR_AVAILABLE: bool = cfg!(feature = "cellular-uplink");
-pub const DIRECT_MAP_AVAILABLE: bool = cfg!(feature = "wifi-map") && !CELLULAR_AVAILABLE;
-
-pub fn validate(pair: bool, cellular: bool, direct_map: bool) -> io::Result<()> {
-    let unsupported = |message| io::Error::new(io::ErrorKind::Unsupported, message);
-    if pair && !BLE_AVAILABLE {
-        return Err(unsupported("BLE is unavailable in this build"));
-    }
-    if cellular && !CELLULAR_AVAILABLE {
-        return Err(unsupported("cellular is unavailable in this build"));
-    }
-    if direct_map && !DIRECT_MAP_AVAILABLE {
-        return Err(unsupported(
-            "direct map relay requires a Wi-Fi build without cellular",
-        ));
-    }
-    Ok(())
-}
+const ACTIVE_POLL: Duration = Duration::from_millis(15);
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-#[cfg_attr(not(feature = "ble-link"), allow(dead_code))]
 pub enum LinkStatus {
     Idle,
     Pairing,
@@ -75,12 +46,6 @@ impl Default for View {
     }
 }
 
-#[allow(dead_code, reason = "each link build emits only its supported updates")]
-pub(super) enum Update {
-    Links,
-    Report,
-}
-
 pub enum Pairing {
     Start,
     Cancel,
@@ -95,6 +60,21 @@ struct Shared {
     tile: Option<Tile>,
 }
 
+#[derive(Clone)]
+pub(super) struct Telemetry {
+    pub readings: SharedObservations<2>,
+    pub capture: Arc<Capture>,
+    pub interval: Duration,
+}
+
+impl Telemetry {
+    pub(super) fn snapshot(&self, now: Instant) -> Snapshot {
+        let mut snapshot = Snapshot::from(self.readings.snapshot(now));
+        snapshot.clock = self.capture.clock();
+        snapshot
+    }
+}
+
 pub struct Communications {
     shared: Arc<Mutex<Shared>>,
     task: Option<JoinHandle<io::Result<()>>>,
@@ -105,30 +85,29 @@ impl Communications {
         pair: bool,
         cellular: Option<CellularConfig>,
         tile_relay: Option<Endpoint>,
-        telemetry: &mut Option<Telemetry>,
-        notify: impl FnMut(Update) + Send + 'static,
+        telemetry: Telemetry,
+        mut notify: impl FnMut() + Send + 'static,
     ) -> io::Result<Self> {
-        validate(pair, cellular.is_some(), tile_relay.is_some())?;
         let shared = Arc::new(Mutex::new(Shared::default()));
         let incoming = shared.clone();
-        // Keep a startup slot so a failed spawn can return acquisition to the dashboard.
-        let startup = Arc::new(Mutex::new(telemetry.take()));
-        let handoff = startup.clone();
         let task = thread::Builder::new()
             .name("tracker-links".into())
             .stack_size(23 * 1024)
             .spawn(move || {
-                let telemetry = handoff
-                    .lock()
-                    .unwrap()
-                    .take()
-                    .expect("local telemetry owner");
-                drop(handoff);
-                run(&incoming, pair, cellular, tile_relay, telemetry, notify)
-            })
-            .map_err(|error| {
-                *telemetry = startup.lock().unwrap().take();
-                error
+                let result = run(
+                    &incoming,
+                    pair,
+                    cellular,
+                    tile_relay,
+                    telemetry,
+                    &mut notify,
+                );
+                if let Err(error) = &result {
+                    incoming.lock().unwrap().view = unavailable();
+                    notify();
+                    log::error!("motion-tracker communications stopped: {error}");
+                }
+                result
             })?;
         Ok(Self {
             shared,
@@ -142,6 +121,9 @@ impl Communications {
     }
 
     pub fn view(&self, previous: View) -> View {
+        if self.task.as_ref().is_some_and(JoinHandle::is_finished) {
+            return unavailable();
+        }
         self.shared
             .try_lock()
             .map_or(previous, |shared| shared.view)
@@ -160,10 +142,6 @@ impl Communications {
         tile
     }
 
-    pub fn is_finished(&self) -> bool {
-        self.task.as_ref().is_some_and(JoinHandle::is_finished)
-    }
-
     pub fn stop(&mut self) -> io::Result<()> {
         if let Some(task) = self.task.take() {
             self.shared.lock().unwrap().stopping = true;
@@ -176,17 +154,19 @@ impl Communications {
     }
 }
 
+fn unavailable() -> View {
+    View {
+        link: LinkStatus::Unavailable,
+        key: None,
+    }
+}
+
 impl Drop for Communications {
     fn drop(&mut self) {
         let _ = self.stop();
     }
 }
 
-#[cfg(any(
-    feature = "ble-link",
-    feature = "cellular-uplink",
-    feature = "wifi-map"
-))]
 fn tls_identity(slot: &OnceCell<tls::Identity>) -> io::Result<&tls::Identity> {
     if slot.get().is_none() {
         let identity = tls::open().map_err(|error| io::Error::other(format!("TLS: {error:?}")))?;
@@ -195,72 +175,68 @@ fn tls_identity(slot: &OnceCell<tls::Identity>) -> io::Result<&tls::Identity> {
     Ok(slot.get().unwrap())
 }
 
-#[cfg(not(any(
-    feature = "ble-link",
-    feature = "cellular-uplink",
-    feature = "wifi-map"
-)))]
-fn run(
-    _: &Mutex<Shared>,
-    _: bool,
-    _: Option<CellularConfig>,
-    _: Option<Endpoint>,
-    mut telemetry: Telemetry,
-    _: impl FnMut(Update),
-) -> io::Result<()> {
-    telemetry.stop().and(Err(io::ErrorKind::Unsupported.into()))
-}
-
-#[cfg(any(
-    feature = "ble-link",
-    feature = "cellular-uplink",
-    feature = "wifi-map"
-))]
 fn run(
     shared: &Mutex<Shared>,
     pair: bool,
     cellular: Option<CellularConfig>,
     tile_relay: Option<Endpoint>,
-    mut telemetry: Telemetry,
-    mut notify: impl FnMut(Update),
+    telemetry: Telemetry,
+    notify: &mut impl FnMut(),
 ) -> io::Result<()> {
-    #[cfg(feature = "ble-link")]
-    let capture = telemetry.capture();
-    #[cfg(feature = "ble-link")]
-    capture.register_owner();
-    #[cfg(not(feature = "ble-link"))]
-    let _ = pair;
-    #[cfg(not(feature = "cellular-uplink"))]
-    let _ = cellular;
-    #[cfg(not(any(feature = "ble-link", feature = "wifi-map")))]
-    let _ = tile_relay;
+    // Pairing from the display can spawn this worker after the display has
+    // taken its fixed background priority.
+    match execution::configure_current(execution::Priority::Normal) {
+        Ok(()) | Err(execution::Error::Unsupported) => {}
+        Err(error) => {
+            return Err(io::Error::other(format!(
+                "tracker links priority: {error:?}"
+            )))
+        }
+    }
+    telemetry.capture.register_owner();
+    let collector = cellular.as_ref().and_then(|config| config.collector);
+    let mut modem = cellular.map(uplink::Modem::start).transpose()?;
+    serve(
+        shared,
+        pair,
+        modem.as_ref().map(|modem| (modem, collector)),
+        tile_relay,
+        &telemetry,
+        notify,
+    );
+    // Both transports and their shared TLS identity have left scope.
+    modem.as_mut().map_or(Ok(()), uplink::Modem::stop)
+}
+
+fn serve(
+    shared: &Mutex<Shared>,
+    pair: bool,
+    modem: Option<(&uplink::Modem, Option<uplink::Collector>)>,
+    tile_relay: Option<Endpoint>,
+    telemetry: &Telemetry,
+    notify: &mut impl FnMut(),
+) {
     let identity = OnceCell::new();
-    #[cfg(feature = "cellular-uplink")]
-    let mut uplink = {
-        use connectivity::cellular::{Budget, Destination, Uplink};
-        cellular
-            .map(|config| {
-                let budget = Budget::new(config.interval, crate::wire::cellular::MAX_BYTES)?;
-                let destination = config
-                    .collector
-                    .map(|endpoint| Destination { endpoint, budget });
-                let worker = thread::Builder::new()
-                    .name("tracker-modem".into())
-                    .stack_size(4 * 1024);
-                Uplink::start(worker, destination, move || cellular::connect(&config.apn))
-            })
-            .transpose()?
-    };
-    #[cfg(feature = "ble-link")]
     let mut radio: Option<radio::Output<'_, _>> = None;
-    #[cfg(any(feature = "ble-link", feature = "wifi-map"))]
     let mut tiles = tiles::Tiles::new(tile_relay, Instant::now());
-    #[cfg(feature = "ble-link")]
     let mut next_radio = Instant::now();
-    #[cfg(feature = "ble-link")]
+    let mut upload = None;
+    let mut retry = uplink::Retry::new();
+    let mut retry_pending = false;
+    let mut link_generation = 0;
     let mut pairing_failed = false;
-    #[cfg(feature = "ble-link")]
     let mut command = pair.then_some(Pairing::Start);
+    let mut next_report = Instant::now();
+    let mut cellular = modem.and_then(|(modem, collector)| {
+        collector.map(|collector| {
+            (
+                collector.endpoint,
+                modem,
+                uplink::Reports::new(collector.interval, Instant::now()),
+            )
+        })
+    });
+    let mut cellular_status = None;
 
     loop {
         let (pair, tile) = {
@@ -271,32 +247,28 @@ fn run(
             let tile = inbox
                 .tile_request
                 .filter(|key| inbox.tile.as_ref().is_none_or(|tile| tile.key != *key));
-            (inbox.pairing.take(), tile)
+            (inbox.pairing.take().or(command.take()), tile)
         };
         let now = Instant::now();
-        let (sample, report_ready) = telemetry.step(now);
-        if report_ready {
-            notify(Update::Report);
+        if let Some((modem, _)) = modem {
+            let status = modem.status();
+            if cellular_status != Some(status) {
+                log::info!("motion-tracker cellular {status:?}");
+                cellular_status = Some(status);
+            }
         }
-        #[cfg(not(feature = "ble-link"))]
-        let _ = pair;
-        #[cfg(not(any(feature = "ble-link", feature = "wifi-map")))]
-        let _ = tile;
-        #[cfg(not(any(feature = "ble-link", feature = "cellular-uplink")))]
-        let _ = sample;
-        #[cfg(feature = "ble-link")]
         if radio.as_ref().is_some_and(|output| output.expired(now)) {
             radio = None;
         }
-        #[cfg(feature = "ble-link")]
-        if let Some(pair) = pair.or(command.take()) {
+        if let Some(pair) = pair {
             pairing_failed = false;
+            next_radio = now;
             match pair {
                 Pairing::Cancel => radio = None,
                 Pairing::Start => match radio.as_mut() {
                     Some(output) => output.show_pairing_code(),
                     None => match tls_identity(&identity)
-                        .and_then(|identity| radio::pair(identity, &capture))
+                        .and_then(|identity| radio::pair(identity, &telemetry.capture))
                     {
                         Ok(output) => radio = Some(output),
                         Err(error) => {
@@ -307,64 +279,87 @@ fn run(
                 },
             }
         }
-        #[cfg(any(feature = "ble-link", feature = "wifi-map"))]
+        let reporting = radio.as_ref().is_some_and(radio::Output::live);
+        let fault = telemetry.capture.take_sensor_failed();
+        let sample = (reporting && (fault || now >= next_report)).then(|| {
+            next_report = now + telemetry.interval;
+            telemetry.snapshot(now)
+        });
         tiles.select(tile, now);
-        #[cfg(all(feature = "wifi-map", not(feature = "ble-link")))]
-        let (view, phone_tile) = (View::default(), None);
-        #[cfg(feature = "ble-link")]
-        let (view, phone_tile) = {
-            let mut phone_tile = None;
-            let view = match radio.as_mut() {
-                Some(output) => {
-                    let samples_ready = capture.take_ready();
-                    if output.take_ready() || samples_ready || now >= next_radio {
-                        phone_tile = output.service(now, tiles.phone_request());
-                        next_radio = now + ACTIVE_POLL;
+        let mut phone_tile = None;
+        let view = match radio.as_mut() {
+            Some(output) => {
+                let samples_ready = telemetry.capture.take_ready();
+                if output.take_ready() || samples_ready || now >= next_radio {
+                    phone_tile = output.service(now, tiles.phone_request());
+                    next_radio = output.next_service(now + ACTIVE_POLL);
+                }
+                if let Some(snapshot) = &sample {
+                    output.offer(snapshot, now, tiles.phone_request());
+                }
+                if output.live() {
+                    View {
+                        link: LinkStatus::Connected,
+                        key: None,
                     }
-                    if let Some(snapshot) = &sample {
-                        output.offer(snapshot, now, tiles.phone_request());
+                } else if output.paired() {
+                    View {
+                        link: LinkStatus::Paired,
+                        key: None,
                     }
-                    if output.live() {
-                        View {
-                            link: LinkStatus::Connected,
-                            key: None,
-                        }
-                    } else if output.paired() {
-                        View {
-                            link: LinkStatus::Paired,
-                            key: None,
-                        }
-                    } else {
-                        View {
-                            link: LinkStatus::Pairing,
-                            key: Some(*output.key()),
-                        }
+                } else {
+                    View {
+                        link: LinkStatus::Pairing,
+                        key: Some(*output.key()),
                     }
                 }
-                None if pairing_failed => View {
-                    link: LinkStatus::Unavailable,
-                    key: None,
-                },
-                None => View::default(),
-            };
-            let previous = std::mem::replace(&mut shared.lock().unwrap().view, view);
-            if view != previous {
-                notify(Update::Links);
             }
-            (view, phone_tile)
+            None if pairing_failed => unavailable(),
+            None => View::default(),
         };
-        #[cfg(feature = "cellular-uplink")]
-        if let Some(uplink) = &mut uplink {
-            uplink.service(
-                sample.map(Into::into),
-                now,
-                || tls_identity(&identity),
-                crate::wire::cellular::frame,
-            );
+        let previous = std::mem::replace(&mut shared.lock().unwrap().view, view);
+        if view != previous {
+            notify();
         }
-        #[cfg(any(feature = "ble-link", feature = "wifi-map"))]
+        if let Some((collector, modem, reports)) = &mut cellular {
+            let (generation, socket) = modem.receive();
+            if generation != link_generation {
+                link_generation = generation;
+                upload = None;
+                reports.reset_stream();
+                retry = uplink::Retry::new();
+                retry_pending = false;
+            }
+            let progress = if let Some(socket) = socket {
+                tls_identity(&identity)
+                    .and_then(|identity| uplink::Upload::open(identity, socket, *collector))
+                    .map(|connection| {
+                        upload = Some(connection);
+                        reports.reset_stream();
+                        false
+                    })
+            } else {
+                upload.as_mut().map_or(Ok(false), |connection| {
+                    connection.service(reports, |now| telemetry.snapshot(now))
+                })
+            };
+            match progress {
+                Ok(true) => retry = uplink::Retry::new(),
+                Ok(false) => {}
+                Err(error) => {
+                    log::warn!("motion-tracker collector retry: {error}");
+                    upload = None;
+                    reports.reset_stream();
+                    retry.later();
+                    retry_pending = true;
+                }
+            }
+            if retry_pending && now >= retry.next {
+                modem.request_socket(generation);
+                retry_pending = false;
+            }
+        }
         if let Some(Response::Tile(tile)) = tiles.service(
-            #[cfg(feature = "wifi-map")]
             || tls_identity(&identity),
             view.link == LinkStatus::Connected,
             phone_tile,
@@ -374,36 +369,26 @@ fn run(
             if inbox.tile_request == Some(tile.key) {
                 inbox.tile = Some(tile);
                 drop(inbox);
-                notify(Update::Links);
+                notify();
             }
         }
-        let now = Instant::now();
-        let wait = telemetry.deadline().saturating_duration_since(now);
-        #[cfg(feature = "ble-link")]
-        let wait = if radio.is_some() {
-            wait.min(ACTIVE_POLL)
-        } else {
-            wait
-        };
-        #[cfg(any(feature = "ble-link", feature = "wifi-map"))]
-        let wait = if tiles.busy() {
-            wait.min(ACTIVE_POLL)
-        } else {
-            wait
-        };
-        #[cfg(feature = "cellular-uplink")]
-        let wait = uplink
-            .as_ref()
-            .and_then(|uplink| uplink.wake_in(now))
-            .map_or(wait, |link_wait| wait.min(link_wait));
-        thread::park_timeout(wait);
+        let mut wake = reporting.then_some(next_report);
+        let active_radio = radio.as_ref().is_some_and(radio::Output::active);
+        if radio.is_some() && !active_radio {
+            wake = Some(wake.map_or(next_radio, |deadline| deadline.min(next_radio)));
+        }
+        if active_radio || upload.is_some() || tiles.busy() {
+            let poll = Instant::now() + ACTIVE_POLL;
+            wake = Some(wake.map_or(poll, |deadline| deadline.min(poll)));
+        }
+        if retry_pending {
+            wake = Some(wake.map_or(retry.next, |deadline| deadline.min(retry.next)));
+        }
+        match wake {
+            Some(deadline) => {
+                thread::park_timeout(deadline.saturating_duration_since(Instant::now()))
+            }
+            None => thread::park(),
+        }
     }
-    #[cfg(feature = "ble-link")]
-    drop(radio);
-    let sensors = telemetry.stop();
-    #[cfg(feature = "cellular-uplink")]
-    if let Some(uplink) = uplink {
-        return sensors.and(uplink.stop());
-    }
-    sensors
 }

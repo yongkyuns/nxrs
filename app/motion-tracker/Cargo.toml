@@ -4,12 +4,7 @@ version.workspace = true
 edition.workspace = true
 
 [package.metadata.nxrs]
-required-capabilities = ["imu"]
-
-[package.metadata.nxrs.capability-features]
-ble-link = { when = "dashboard", requires = ["ble", "tls"] }
-cellular-uplink = { when = "dashboard", requires = ["cellular", "tls"] }
-wifi-map = { when = "dashboard", requires = ["wifi", "tls"] }
+required-capabilities = ["imu", "gnss"]
 
 [package.metadata.nxrs.firmware]
 bin = "motion-tracker"
@@ -21,34 +16,22 @@ stack-size = 14848
 name = "motion-tracker"
 path = "src/main.rs"
 
-[features]
-default = ["dashboard"]
-dashboard = [
-    "nxrs-composition/gnss", "nxrs-composition/battery",
-    "dep:nxrs-battery", "dep:nxrs-display", "dep:nxrs-touch", "dep:nxrs-gnss",
-    "dep:nxrs-execution", "dep:nxrs-connectivity",
-]
-ble-link = ["dashboard", "dep:nxrs-ble", "dep:nxrs-tls", "nxrs-connectivity/ble", "dep:qrcodegen"]
-cellular-uplink = ["dashboard", "dep:nxrs-cellular", "dep:nxrs-tls", "nxrs-connectivity/cellular"]
-wifi-map = ["dashboard", "dep:nxrs-tls", "nxrs-connectivity/pinned-tls"]
-
 [dependencies]
 log = "0.4"
-nxrs-connectivity = { path = "../../service/connectivity", optional = true }
 nxrs-log-router = { path = "../../service/logging" }
-nxrs-composition = { path = "../../platform", features = ["imu"] }
-nxrs-battery = { path = "../../hal/battery", optional = true }
-nxrs-display = { path = "../../hal/display", optional = true }
-nxrs-touch = { path = "../../hal/touch", optional = true }
-nxrs-gnss = { path = "../../hal/gnss", optional = true }
+nxrs-composition = { path = "../../platform", features = ["imu", "gnss", "battery"] }
+nxrs-battery = { path = "../../hal/battery" }
+nxrs-display = { path = "../../hal/display" }
+nxrs-touch = { path = "../../hal/touch" }
+nxrs-gnss = { path = "../../hal/gnss" }
 nxrs-imu = { path = "../../hal/imu" }
 nxrs-boot = { path = "../../hal/boot" }
 nxrs-watchdog = { path = "../../hal/watchdog" }
 nxrs-messaging = { path = "../../shared/messaging", features = ["channels"] }
 nxrs-navigation-services = { path = "../../service/navigation" }
 nxrs-settings = { path = "../../hal/settings" }
-nxrs-cellular = { path = "../../hal/cellular", optional = true }
-nxrs-ble = { path = "../../hal/ble", features = ["peripheral"], optional = true }
-nxrs-execution = { path = "../../hal/execution", optional = true }
-nxrs-tls = { path = "../../hal/tls", optional = true }
-qrcodegen = { version = "1.8", optional = true }
+nxrs-cellular = { path = "../../hal/cellular" }
+nxrs-ble = { path = "../../hal/ble", features = ["peripheral"] }
+nxrs-execution = { path = "../../hal/execution" }
+nxrs-tls = { path = "../../hal/tls", features = ["pairing"] }
+qrcodegen = "1.8"

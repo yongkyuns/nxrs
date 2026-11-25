@@ -103,8 +103,12 @@ jobs:
             --target-c-source tests/nuttx-std/tracker-sim/devices.c \
             --target-c-source tests/nuttx-std/tracker-sim/native_init.c \
             --out target/nuttx-sim-tracker
-      - name: Exercise tracker sensor failure and display stall recovery
-        run: python tests/nuttx-std/tracker-sim/native.py target/nuttx-sim-tracker/nuttx/nuttx
+      - name: Exercise tracker failure recovery and recorded sensor replay
+        env:
+          NXRS_TRACKER_REPLAY_IMAGE: target/nuttx-sim-tracker/nuttx/nuttx
+        run: |
+          python tests/nuttx-std/tracker-sim/native.py "$NXRS_TRACKER_REPLAY_IMAGE"
+          python tests/nuttx-std/tracker-sim/test_replay.py
       - name: Retain the tracker ABI report and console
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

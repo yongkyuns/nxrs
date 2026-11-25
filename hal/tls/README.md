@@ -66,7 +66,10 @@ It never reads ambient UTC. Refresh before expiry; closed connections stay close
 TLS uses P-256/ECDHE, SHA-256 and AES-128-GCM; tickets, early data and renegotiation
 are disabled. A write retry must present the same pending bytes. Each SDK call
 admits at most eight socket callbacks and 8 KiB; plaintext records are at most
-4 KiB. The handshake has a five-second admission deadline. Native cryptography
+4 KiB. Established TLS record I/O automatically reuses 8,384 bytes of scratch
+reserved by the SDK owner. Oversized record allocations fail within that
+budget. Handshakes, certificate setup and renewal retain the ordinary allocator.
+The handshake has a five-second admission deadline. Native cryptography
 and entropy reads are synchronous: qualify their execution latency or isolate
 them from capture before product admission. Drop aborts without waiting on peers.
 
@@ -137,8 +140,10 @@ key from the guarded SDK source and convey it via a physically trusted path.
 This isolated mode has a one-hour connection limit and no forward secrecy.
 Enrolled and pinned connections keep their own peer authorization policy.
 `Stream` adapts reliable, nonblocking transports without exposing native BIO
-callbacks. Its TCP implementation retains the existing socket behavior. The
-PSK witness exercises matching and wrong keys over bounded 20-byte fragments.
+callbacks. TLS releases its owned transport on close or failure. On NuttX,
+TCP closes the socket directly so the kernel can reclaim queued writes when
+the link goes down. Other platforms keep the standard socket shutdown path.
+The PSK witness exercises matching and wrong keys over bounded 20-byte fragments.
 
 On the ESP32-S3, a Bluetooth-only profile can use the guarded random device
 with the Bluetooth PHY active. A Wi-Fi-enabled profile retains Wi-Fi-specific

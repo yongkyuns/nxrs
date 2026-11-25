@@ -77,10 +77,17 @@ independently verified before installation and after restoration.
 The single-core, signed `home-cam` startup profile on WROOM adopted and
 disarmed its inherited RTC watchdog and remained at commissioning for
 190 seconds, past the 180-second budget. A signed trial confirmed after
-delivering video over mutual TLS. A trial that stalled at commissioning
-triggered the RTC watchdog and reverted to the signed baseline. See the
-[firmware update qualification](../../../docs/firmware-updates.md)
-for the reset-cause evidence.
+delivering video over mutual TLS. The gateway decoded 111 frames in the
+first 12-second sample and another 99 after the watchdog deadline. Primary
+flash readback matched the trial image and verified its confirmation flag.
+
+Stalled trials reverted to the signed baseline and reached commissioning
+249.5 s and 145.3 s after initial boot with watchdog budgets of 180 s and
+70 s, respectively. Those USB-observed times include reboot and commissioning.
+A follow-up with USB serial closed attributed the reset to the RTC watchdog.
+See the [firmware update qualification](../../../docs/firmware-updates.md)
+for the reset-cause evidence. The original 16 MiB flash was restored and
+verified after each run.
 
 In the earlier Pico 2 W campaign, RTC, watchdog and flash passed. Intentional
 watchdog expiry reported `MainWatchdog` after reboot. The ADC returned a sample

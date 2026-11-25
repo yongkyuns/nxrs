@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Run the full tracker against an independent local TLS collector over PPP."""
+from bisect import bisect_left
 from contextlib import contextmanager
 import hashlib
 import json
@@ -20,11 +21,15 @@ import threading
 import time
 
 from run import ADDRESS, Stamp, frame, listener, parser, run
-from sensors import NeoM9n, check_fix, check_live, check_progress
+from sensors import NeoM9n, check_fix, check_live
 
 COLLECTOR = '192.0.2.3'
 MAC = bytes.fromhex('525400000002')
 ROUTER_MAC = bytes.fromhex('5255c0000203')
+REPORT_INTERVAL_MS = 200
+CELLULAR_INTERVAL_S = 1
+CELLULAR_FRAME_BYTES = 288
+SENSOR_STATES = {'live', 'waiting', 'stale', 'fault'}
 
 
 class Collector(socketserver.ThreadingTCPServer):
@@ -52,15 +57,26 @@ class Receive(socketserver.BaseRequestHandler):
                 secure.settimeout(self.server.idle_timeout)
                 self.server.events.put((connection, 'secure', None))
                 with secure.makefile('rb') as stream:
-                    for raw in iter(lambda: stream.readline(257), b''):
-                        sample = summary(raw)
+                    for raw in iter(stream.readline, b''):
+                        assert len(raw) <= CELLULAR_FRAME_BYTES and raw.endswith(b'\n'), raw
+                        sample = json.loads(raw)
+                        assert set(sample) == {'v', 'kind', 'imu', 'imu1_received_ms', 'gnss'}, sample
+                        assert sample['v'] == 1 and sample['kind'] == 'summary', sample
+                        assert len(sample['imu']) == 2 and set(sample['imu']) <= SENSOR_STATES, sample
+                        state = sample['gnss']['state']
+                        assert state in SENSOR_STATES
+                        keys = {'state', 'seq', 'received_ms', 'lat_deg', 'lon_deg', 'speed_mps', 'utc_ms'}
+                        assert set(sample['gnss']) == (keys if state == 'live' else {'state'}), sample
+                        stamp = sample['imu1_received_ms']
+                        if sample['imu'][0] == 'live':
+                            assert type(stamp) is int and stamp >= 0, sample
+                        else:
+                            assert stamp is None, sample
                         self.server.events.put((connection, 'frame', (raw, sample)))
                         # First collector connection closes after its first usable fix.
                         if self.server.close_first and connection == 1 and is_live(sample):
                             secure.shutdown(socket.SHUT_RDWR)
                             return
-        except (AssertionError, ValueError) as error:
-            self.server.events.put((connection, 'invalid', str(error)))
         except (ssl.SSLError, OSError) as error:
             self.server.events.put((connection, 'closed', str(error)))
 
@@ -126,11 +142,25 @@ class TcpStamp(Stamp):
         self.ethernet = ethernet
         self.port = port
         self.lost_dial = None
+        self.silent_dial = None
+        self.unanswered_echoes = []
         self.packets = bytearray()
 
     def terminate_link(self):
         super().terminate_link()
         self.lost_dial = self.dials
+
+    def silence_link(self):
+        assert self.data_mode and self.silent_dial is None
+        self.silent_dial = self.lost_dial = self.dials
+
+    def packet(self, packet):
+        # Drop every data-mode frame on this dial. The UART still accepts the
+        # guard sequence and answers AT commands after leaving data mode.
+        if self.dials != self.silent_dial:
+            super().packet(packet)
+        elif packet[2:5] == b'\xc0\x21\x09':
+            self.unanswered_echoes.append(packet[5])
 
     def send_ethernet(self, packet):
         self.ethernet.sendall(struct.pack('!I', len(packet)) + packet)
@@ -161,23 +191,25 @@ class TcpStamp(Stamp):
                                    + MAC + ADDRESS + source + packet[28:32])
 
 
-def summary(raw):
-    assert len(raw) <= 256 and raw.endswith(b'\n'), raw
-    sample = json.loads(raw)
-    assert set(sample) == {'v', 'kind', 'imu', 'gnss'}, sample
-    assert sample['v'] == 1 and sample['kind'] == 'summary', sample
-    assert len(sample['imu']) == 2, sample
-    assert all(state in ('waiting', 'live', 'stale', 'fault') for state in sample['imu']), sample
-    fix = sample['gnss']
-    fields = {'state'}
-    if fix['state'] == 'live':
-        fields |= {'seq', 'received_ms', 'utc_ms', 'lat_deg', 'lon_deg', 'speed_mps'}
-    assert set(fix) == fields, sample
-    return sample
-
-
 def is_live(sample):
     return sample['gnss']['state'] == 'live' and sample['imu'] == ['live', 'live']
+
+
+def imu_time(sample):
+    return sample['imu'][0].get('received_ms', 0)
+
+
+def check_offline(samples, start, end, recovered):
+    # The model sends a new GNSS fix every four USB reports.
+    offline = samples[start:end]
+    assert len(offline) >= 5, f'only {len(offline)} USB reports while PPP was down'
+    for sample in offline:
+        check_live(sample)
+    assert imu_time(offline[0]) < imu_time(offline[-1]) < recovered['imu1_received_ms']
+    assert offline[0]['gnss']['seq'] < offline[-1]['gnss']['seq'] < recovered['gnss']['seq']
+    for start, end in zip(offline[0]['imu'], offline[-1]['imu']):
+        assert start['seq'] < end['seq']
+    return offline
 
 
 def qualify(process, modem, gnss_wire, transcript, log, ethernet, server, pin, reject, timeout):
@@ -195,7 +227,11 @@ def qualify(process, modem, gnss_wire, transcript, log, ethernet, server, pin, r
     dropped_at_usb = None
     offline_from = None
     redial_at_usb = None
-    last_recovered = None
+    last_recovered = {}
+    silent_at = None
+    detected_at_usb = None
+    recovered_at = None
+    frame_count = 160 if reject else 300
     started_at = time.monotonic()
     for wire in (modem, gnss_wire):
         wire.settimeout(1)
@@ -220,10 +256,15 @@ def qualify(process, modem, gnss_wire, transcript, log, ethernet, server, pin, r
                 if line.startswith(b'{"v":1,'):
                     usb.append(bytes(line) + b'\n')
                     if gnss.rate == 1 and len(usb) % 4 == 1:
-                        gnss_wire.sendall(gnss.fix_packet(len(usb) * 200))
+                        gnss_wire.sendall(gnss.fix_packet(len(usb) * REPORT_INTERVAL_MS))
+                elif line.endswith(b'cellular Retrying(LinkLost)') and silent_at is not None:
+                    assert detected_at_usb is None, 'unexpected additional PPP link loss'
+                    detected_at_usb = len(usb)
             if not started and b'nsh> ' in transcript:
-                send(f'motion_tracker --frames 160 --stream-usb --cellular-apn nxrs.test '
-                     f'--collector {COLLECTOR}:{stamp.port} --collector-pin {pin} --cellular-report-secs 1')
+                send(f'motion_tracker --frames {frame_count} --interval-ms {REPORT_INTERVAL_MS} --stream-usb '
+                     f'--cellular-apn nxrs.test '
+                     f'--collector {COLLECTOR}:{stamp.port} --collector-pin {pin} '
+                     f'--cellular-report-secs {CELLULAR_INTERVAL_S}')
                 started = True
             if not reached_shell and b'nsh> ' in transcript[transcript.find(b'nsh> ') + 5:]:
                 reached_shell = True
@@ -245,16 +286,14 @@ def qualify(process, modem, gnss_wire, transcript, log, ethernet, server, pin, r
                 secure_connections.add(connection)
             elif event == 'closed':
                 collector_closures.append((connection, value))
-            elif event == 'invalid':
-                raise AssertionError(f'invalid cellular payload: {value}')
             elif event == 'frame':
                 assert not reject, 'a wrong pin let telemetry reach the collector'
                 _, sample = value
-                records.append(sample)
                 if is_live(sample):
                     check_fix(sample)
-                    if connection == 3:
-                        last_recovered = sample
+                    records.append((connection, sample))
+                    if connection in (3, 4):
+                        last_recovered[connection] = sample
                     if not any(previous == connection for previous, _ in received):
                         received.append((connection, sample))
                         if connection == 2:
@@ -264,13 +303,22 @@ def qualify(process, modem, gnss_wire, transcript, log, ethernet, server, pin, r
                         elif connection == 3:
                             assert stamp.dials == 3 and stamp.terminate_ack, stamp.negotiation
                             assert dropped_at_usb is not None and len(usb) > dropped_at_usb + 2
+                        elif connection == 4:
+                            assert stamp.dials == 4 and detected_at_usb is not None, stamp.commands
+                            recovered_at = time.monotonic()
+                    if connection == 3 and silent_at is None:
+                        assert redial_at_usb is not None
+                        last_offline = json.loads(usb[redial_at_usb - 1])
+                        if sample['gnss']['seq'] > last_offline['gnss']['seq']:
+                            stamp.silence_link()
+                            silent_at = (time.monotonic(), len(usb))
         if re.search(rb'^NXRS_STATUS_\d+\n', transcript, re.M):
             break
 
     assert b'\nNXRS_STATUS_0\n' in transcript, transcript[-2000:]
     assert not re.search(rb'PANIC|panicked at|Assertion failed', transcript), transcript[-2000:]
-    assert len(usb) == 160 and gnss.writes == [1, 7], (len(usb), gnss.writes)
-    assert transcript.count(b"cellular Failed(Rejected)") == 1
+    assert len(usb) == frame_count and gnss.writes == [1, 7], (len(usb), gnss.writes)
+    assert transcript.count(b"cellular Retrying(Rejected)") == 1
     check_live(json.loads(usb[-1]))
     if reject:
         assert len(secure_connections) >= 2, secure_connections
@@ -279,41 +327,47 @@ def qualify(process, modem, gnss_wire, transcript, log, ethernet, server, pin, r
         assert stamp.dials == 2, stamp.commands
         print('PASS: wrong pin rejected across concurrent sensor updates and repeated TLS attempts')
     else:
-        assert [connection for connection, _ in received] == [1, 2, 3], (received, secure_connections, collector_closures)
-        snapshots = [json.loads(raw) for raw in usb]
-        def matches(sample, snapshot):
-            return (sample['gnss'] == snapshot['gnss']
-                    and sample['imu'] == [imu['state'] for imu in snapshot['imu']])
-        assert all(any(matches(sample, snapshot) for snapshot in snapshots) for sample in records)
-        positions = [next(i for i, snapshot in enumerate(snapshots) if matches(sample, snapshot))
-                     for _, sample in received]
-        assert positions[0] < positions[1] < positions[2], positions
+        assert [connection for connection, _ in received] == [1, 2, 3, 4], (received, secure_connections, collector_closures)
+        # Both outputs sample the same acquisition clock on their own deadlines.
+        usb_samples = [json.loads(raw) for raw in usb]
+        usb_times = [imu_time(sample) for sample in usb_samples]
+        upload_times = [sample['imu1_received_ms'] for _, sample in records]
+        for (left, _), (right, _), start, end in zip(records, records[1:], upload_times, upload_times[1:]):
+            if left == right:
+                # The acquisition clock can lag the report start by one FIFO drain.
+                assert end - start >= CELLULAR_INTERVAL_S * 1000 - 100, (start, end)
+        assert usb_times == sorted(usb_times) and upload_times == sorted(upload_times)
+        assert usb_times[0] <= upload_times[0] <= upload_times[-1] <= usb_times[-1] + REPORT_INTERVAL_MS
+        positions = [bisect_left(usb_times, sample['imu1_received_ms']) for _, sample in received]
+        assert positions == sorted(set(positions)), positions
         assert offline_from is not None and redial_at_usb is not None
-        assert dropped_at_usb <= offline_from and received[2][1]['gnss']['received_ms'] >= snapshots[redial_at_usb - 4]['gnss']['received_ms'], positions
-        offline = [json.loads(raw) for raw in usb[offline_from:redial_at_usb]]
-        # The model sends a GNSS fix every four reports. Observe at least one
-        # new fix, with both IMUs live, while the modem is still offline.
-        assert len(offline) >= 5, f'only {len(offline)} USB reports while PPP was down'
-        for sample in offline:
-            check_live(sample)
-        # TLS can recover before the next 800 ms GNSS fix. The first upload
-        # above proves post-redial delivery, and later uploads prove progression.
-        assert last_recovered is not None
-        check_progress([offline[0], offline[-1]])
-        assert last_recovered['gnss']['seq'] > offline[-1]['gnss']['seq']
-        # At 200 ms per console report, the one-second cellular cadence permits
-        # at most one summary per five reports, with slack at the boundaries.
-        assert 3 <= len(records) <= len(usb) // 5 + 1, len(records)
-        assert transcript.count(b'collector TLS online') == 3
+        assert dropped_at_usb <= offline_from and positions[2] >= redial_at_usb, positions
+        offline = check_offline(usb_samples, offline_from, redial_at_usb, last_recovered[3])
+        assert silent_at is not None and detected_at_usb is not None and recovered_at is not None
+        started_at_host, start = silent_at
+        # The collector's live sample triggered silence. Its USB timestamp
+        # match can arrive on a later console report.
+        assert start < detected_at_usb <= positions[3], (start, detected_at_usb, positions)
+        assert len(stamp.unanswered_echoes) == len(set(stamp.unanswered_echoes)) == 3, stamp.unanswered_echoes
+        assert stamp.echo_replies > 0, 'recovered PPP did not answer any echo requests'
+        silent = check_offline(usb_samples, start - 1, detected_at_usb, last_recovered[4])
+        elapsed_ms = silent[-1]['imu'][0]['received_ms'] - silent[0]['imu'][0]['received_ms']
+        # Three five-second reply windows, plus time until the first probe.
+        # Allow for observing the fault between successive USB reports.
+        assert 14_000 <= elapsed_ms <= 22_000, f'silent PPP detection took {elapsed_ms} ms'
+        assert transcript.count(b'cellular Retrying(LinkLost)') == 2
+        assert transcript.count(b'motion-tracker collector TLS online') == 4
         print(f'PASS: {len(offline)} live USB reports while PPP was down, with advancing IMU and GNSS samples')
-        print(f'PASS: bounded TLS 1.3 summaries matched console sensor states and fixes {positions} before and after collector/PPP loss '
+        print(f'PASS: {len(silent)} live USB reports during silent PPP loss, detected in '
+              f'{elapsed_ms / 1000:.2f} s guest time, TLS resumed after {recovered_at - started_at_host:.2f} s host time')
+        print(f'PASS: TLS 1.3 uploads aligned with USB acquisition times at reports {positions} before and after collector/PPP loss '
               f'({time.monotonic() - started_at:.2f} s host time)')
 
 
 def main():
     cli = parser(__doc__)
     cli.add_argument('--network-qemu', default='qemu-system-xtensa', help='host QEMU with user networking')
-    cli.add_argument('--timeout', type=float, default=90, help='host seconds allowed per boot')
+    cli.add_argument('--timeout', type=float, default=120, help='host seconds allowed per boot')
     cli.set_defaults(shift=5, log=Path('target/tracker-sim/upload.log'))
     args = cli.parse_args()
     if args.wall_clock:

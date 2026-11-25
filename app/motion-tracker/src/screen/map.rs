@@ -1,61 +1,7 @@
-//! A north-up Web Mercator tile for the currently visible GNSS fix.
-#[cfg(any(test, feature = "ble-link", feature = "wifi-map"))]
-mod transfer;
-#[cfg(any(test, feature = "wifi-map"))]
-pub use transfer::REQUEST_BYTES;
-#[cfg(any(test, feature = "ble-link", feature = "wifi-map"))]
-pub use transfer::{Receiver, Response};
+//! North-up map projection, viewport, and display tile cache.
+use crate::communications::{Key, Tile, Zoom, SIDE};
 
-pub const SIDE: usize = 170;
 const VIEWPORT_TILES: usize = 4;
-const ROW_BYTES: usize = SIDE / 2;
-#[cfg(any(test, feature = "ble-link", feature = "wifi-map"))]
-const PIXEL_BYTES: usize = ROW_BYTES * SIDE;
-const BLOCK_BYTES: usize = 1024;
-#[cfg(any(test, feature = "ble-link", feature = "wifi-map"))]
-const BLOCKS: usize = PIXEL_BYTES.div_ceil(BLOCK_BYTES);
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Zoom(u8);
-
-impl Zoom {
-    pub fn new(level: u8) -> Option<Self> {
-        (15..=18).contains(&level).then_some(Self(level))
-    }
-
-    pub fn level(self) -> u8 {
-        self.0
-    }
-
-    fn tiles(self) -> u32 {
-        1 << self.level()
-    }
-}
-
-impl Default for Zoom {
-    fn default() -> Self {
-        Self(18)
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Key {
-    pub zoom: Zoom,
-    pub x: u32,
-    pub y: u32,
-}
-
-#[cfg(any(test, feature = "wifi-map"))]
-impl Key {
-    pub fn request(self) -> [u8; REQUEST_BYTES] {
-        let mut request = [0; REQUEST_BYTES];
-        request[..4].copy_from_slice(transfer::MAGIC);
-        request[4] = self.zoom.level();
-        request[5..9].copy_from_slice(&self.x.to_be_bytes());
-        request[9..13].copy_from_slice(&self.y.to_be_bytes());
-        request
-    }
-}
 
 #[derive(Clone, Copy)]
 pub struct Position {
@@ -251,83 +197,9 @@ impl View {
     }
 }
 
-pub struct Tile {
-    pub key: Key,
-    pub palette: [u16; 16],
-    pixels: Pixels,
-}
-
-impl Tile {
-    pub fn row(&self, row: usize, colors: &mut [u8; SIDE]) {
-        self.pixels.row(row, colors);
-    }
-}
-
-// Keep validated scanlines in their wire encoding. Small blocks avoid
-// requiring a contiguous tile allocation during BLE export and PPP.
-struct Pixels {
-    blocks: Vec<Vec<u8>>,
-    row_ends: Vec<u16>,
-}
-
-impl Pixels {
-    #[cfg(any(test, feature = "ble-link", feature = "wifi-map"))]
-    fn allocate() -> Result<Self, std::collections::TryReserveError> {
-        let mut blocks = Vec::new();
-        let mut row_ends = Vec::new();
-        blocks.try_reserve_exact(BLOCKS)?;
-        row_ends.try_reserve_exact(SIDE)?;
-        Ok(Self { blocks, row_ends })
-    }
-
-    #[cfg(any(test, feature = "ble-link", feature = "wifi-map"))]
-    fn push(&mut self, mut bytes: &[u8]) -> Result<(), std::collections::TryReserveError> {
-        let mut offset = usize::from(self.row_ends.last().copied().unwrap_or(0));
-        while !bytes.is_empty() {
-            if offset % BLOCK_BYTES == 0 {
-                let mut block = Vec::new();
-                block.try_reserve_exact((PIXEL_BYTES - offset).min(BLOCK_BYTES))?;
-                self.blocks.push(block);
-            }
-            let length = bytes.len().min(BLOCK_BYTES - offset % BLOCK_BYTES);
-            self.blocks
-                .last_mut()
-                .unwrap()
-                .extend_from_slice(&bytes[..length]);
-            offset += length;
-            bytes = &bytes[length..];
-        }
-        self.row_ends.push(offset as u16);
-        Ok(())
-    }
-
-    fn row(&self, y: usize, colors: &mut [u8; SIDE]) {
-        let start = y
-            .checked_sub(1)
-            .map_or(0, |index| usize::from(self.row_ends[index]));
-        let end = usize::from(self.row_ends[y]);
-        let bytes =
-            (start..end).map(|offset| self.blocks[offset / BLOCK_BYTES][offset % BLOCK_BYTES]);
-        if end - start == ROW_BYTES {
-            for (pair, byte) in colors.chunks_exact_mut(2).zip(bytes) {
-                pair.copy_from_slice(&[byte >> 4, byte & 0x0f]);
-            }
-        } else {
-            let mut offset = 0;
-            for run in bytes {
-                let next = offset + usize::from(run >> 4) + 1;
-                colors[offset..next].fill(run & 0x0f);
-                offset = next;
-            }
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use super::transfer::PALETTE_BYTES;
     use super::*;
-    use std::io;
 
     fn tile_key(x: u32, y: u32) -> Key {
         Key {
@@ -335,26 +207,6 @@ mod tests {
             x,
             y,
         }
-    }
-
-    #[test]
-    fn rows_preserve_palette_indexes_in_both_encodings() {
-        let mut pixels = Pixels::allocate().unwrap();
-        let mut literal = [0x12; ROW_BYTES];
-        literal[0] = 0x34;
-        pixels.push(&literal).unwrap();
-        let repeated = [0xab; ROW_BYTES];
-        let mut flat = [0xfa; 11];
-        flat[10] = 0x9a;
-        pixels.push(&flat).unwrap();
-        pixels.push(&repeated).unwrap();
-        let mut row = [0; SIDE];
-        pixels.row(0, &mut row);
-        assert_eq!(&row[..6], &[3, 4, 1, 2, 1, 2]);
-        pixels.row(1, &mut row);
-        assert_eq!(row, [10; SIDE]);
-        pixels.row(2, &mut row);
-        assert_eq!(&row[..6], &[10, 11, 10, 11, 10, 11]);
     }
 
     #[test]
@@ -371,28 +223,14 @@ mod tests {
         let first = map.select(Some((point(west, 0.5), 0.0))).unwrap();
         assert_eq!(first.keys(), [Some(west), None, None, None]);
         assert_eq!(map.wanted(first), Some(west));
-        map.accept(
-            first,
-            Tile {
-                key: west,
-                palette: [0; 16],
-                pixels: Pixels::allocate().unwrap(),
-            },
-        );
+        map.accept(first, Tile::blank_for_test(west));
 
         let parked = map.select(Some((point(west, 0.5), 0.1))).unwrap();
         assert_eq!(map.wanted(parked), None);
         let closing = map.select(Some((point(west, 0.90), 5.0))).unwrap();
         assert_eq!(map.wanted(closing), Some(east));
         assert!((closing.origin(east)[0] - 0.6).abs() < 0.0001);
-        map.accept(
-            closing,
-            Tile {
-                key: east,
-                palette: [0; 16],
-                pixels: Pixels::allocate().unwrap(),
-            },
-        );
+        map.accept(closing, Tile::blank_for_test(east));
 
         let crossed = map.select(Some((point(east, 0.1), 5.0))).unwrap();
         assert_eq!(crossed.keys(), [Some(east), Some(west), None, None]);
@@ -419,14 +257,7 @@ mod tests {
         assert_eq!(viewport.origin(expected[3]), [0.75, -0.75]);
         for key in expected {
             assert_eq!(map.wanted(viewport), Some(key));
-            map.accept(
-                viewport,
-                Tile {
-                    key,
-                    palette: [0; 16],
-                    pixels: Pixels::allocate().unwrap(),
-                },
-            );
+            map.accept(viewport, Tile::blank_for_test(key));
         }
         assert_eq!(map.wanted(viewport), None);
         assert!(expected.into_iter().all(|key| map.tile(key).is_some()));
@@ -443,14 +274,7 @@ mod tests {
         };
         let mut map = View::default();
         let first = map.select(Some((point(old, 0.7), 0.0))).unwrap();
-        map.accept(
-            first,
-            Tile {
-                key: old,
-                palette: [0; 16],
-                pixels: Pixels::allocate().unwrap(),
-            },
-        );
+        map.accept(first, Tile::blank_for_test(old));
         let closing = map.select(Some((point(old, 0.8), 3.0))).unwrap();
         assert_eq!(map.wanted(closing), Some(new));
         let crossed = map.select(Some((point(new, 0.05), 3.0))).unwrap();
@@ -484,101 +308,5 @@ mod tests {
         assert_eq!(edge.key.adjacent(0, -1).unwrap().x, 262143);
         assert!(Position::project(90.0, 0.0, wide).is_none());
         assert!(Position::project(0.0, f64::NAN, wide).is_none());
-    }
-
-    #[test]
-    fn fragmented_wire_only_publishes_complete_tiles_and_checks_keys() {
-        let key = Key {
-            zoom: Zoom::new(18).unwrap(),
-            x: 0x0002_fffe,
-            y: 0x0003_ffff,
-        };
-        assert_eq!(&key.request(), b"NXM5\x12\0\x02\xff\xfe\0\x03\xff\xff");
-        let mut receiver = Receiver::default();
-        let mut frame = key.request().to_vec();
-        frame.push(0);
-        frame.extend([0xab; PALETTE_BYTES]);
-        frame.extend([ROW_BYTES as u8; SIDE]);
-        frame.extend(vec![0xab; PIXEL_BYTES]);
-        for part in frame[..frame.len() - 1].chunks(17) {
-            let mut data = part;
-            while !data.is_empty() {
-                assert!(receiver.poll(&mut data, Some(key)).unwrap().is_none());
-            }
-        }
-        let Some(Response::Tile(tile)) = receiver
-            .poll(&mut &frame[frame.len() - 1..], Some(key))
-            .unwrap()
-        else {
-            panic!("expected a complete response");
-        };
-        assert_eq!(tile.key, key);
-        assert_eq!(tile.palette, [0xabab; 16]);
-        let mut row = [0; SIDE];
-        for y in 0..SIDE {
-            tile.row(y, &mut row);
-            assert!(row.chunks_exact(2).all(|pair| pair == [10, 11]));
-        }
-        let mut unavailable = key.request().to_vec();
-        unavailable.push(1);
-        assert!(matches!(
-            receiver.poll(&mut unavailable.as_slice(), Some(key)).unwrap(),
-            Some(Response::Unavailable(received)) if received == key
-        ));
-        unavailable[10] = 4;
-        assert!(
-            receiver
-                .poll(&mut unavailable.as_slice(), Some(key))
-                .is_err()
-        );
-    }
-    #[test]
-    fn rejects_scanlines_with_invalid_lengths_or_pixel_counts() {
-        let key = tile_key(1, 2);
-        let mut frame = key.request().to_vec();
-        frame.push(0);
-        frame.extend([0; PALETTE_BYTES]);
-        for length in [0, ROW_BYTES as u8 + 1, 1] {
-            let mut packet = frame.clone();
-            packet.extend([length; SIDE]);
-            packet.extend([0xfa; SIDE]);
-            let mut data = packet.as_slice();
-            let mut receiver = Receiver::default();
-            assert!(receiver.poll(&mut data, Some(key)).unwrap().is_none());
-            let result = receiver.poll(&mut data, Some(key));
-            let invalid = if length == 1 {
-                assert!(result.unwrap().is_none());
-                receiver.poll(&mut data, Some(key))
-            } else {
-                result
-            };
-            assert!(matches!(invalid, Err(error) if error.kind() == io::ErrorKind::InvalidData));
-        }
-    }
-
-    #[test]
-    fn abandoning_a_partial_tile_releases_it_and_preserves_stream_framing() {
-        let old = tile_key(1, 2);
-        let new = tile_key(3, 4);
-        let mut receiver = Receiver::default();
-        let mut frame = old.request().to_vec();
-        frame.push(0);
-        frame.extend([0; PALETTE_BYTES]);
-        frame.extend([ROW_BYTES as u8; SIDE]);
-        frame.extend(vec![0; PIXEL_BYTES]);
-        frame.extend(new.request());
-        frame.push(1);
-        let mut data = frame.as_slice();
-        assert!(receiver.poll(&mut data, Some(old)).unwrap().is_none());
-        assert!(receiver.retains_pixels());
-        receiver.retain(Some(new));
-        assert!(!receiver.retains_pixels());
-        let response = loop {
-            if let Some(response) = receiver.poll(&mut data, Some(new)).unwrap() {
-                break response;
-            }
-        };
-        assert!(matches!(response, Response::Unavailable(key) if key == new));
-        assert!(data.is_empty());
     }
 }

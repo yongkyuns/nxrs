@@ -88,7 +88,7 @@ jobs:
             --linked-flash 470016 --image 540672 --static-ram 61440 | tee -a "$GITHUB_STEP_SUMMARY"
           python3 -m rtos_harness.footprint_budget target/tracker-upload-sim \
             --linked-flash 786432 --image 835584 --static-ram 104448 | tee -a "$GITHUB_STEP_SUMMARY"
-      - name: Verify live sensor reports and TLS recovery after PPP loss
+      - name: Verify live reports and TLS recovery after explicit and silent PPP loss
         run: |
           python3 tests/nuttx-std/tracker-sim/upload.py \
             target/tracker-upload-sim/nuttx/nuttx.merged.bin \
@@ -104,7 +104,7 @@ jobs:
             --target-c-source tests/nuttx-std/tracker-sim/dashboard_init.c \
             --out target/tracker-coexist-sim 2>&1 | tee target/tracker-coexist-build.log
           source target/qemu-tools/environment.sh
-          # The coexistence build includes BLE tiles and the metered PPP uploader.
+          # The coexistence build includes BLE map rendering and cellular summaries.
           PYTHONPATH=tests python3 -m rtos_harness.footprint_budget target/tracker-coexist-sim \
             --linked-flash 737280 --image 786432 --static-ram 151552 | tee -a "$GITHUB_STEP_SUMMARY"
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5

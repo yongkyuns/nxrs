@@ -61,8 +61,11 @@ preserves existing qualification gates while replacing obsolete emitter checks.
 ## Applications
 
 Each production firmware image selects exactly one app. An app owns an ordinary
-handwritten Rust main(), product-level service composition, workflows, lifecycle
-and policy.
+handwritten Rust `main()`. It constructs capabilities and services, connects
+their typed endpoints, coordinates startup and shutdown, and owns product-specific
+workflows and policy. At runtime, connected capabilities exchange data, status
+and requests directly. The app handles events when it owns the decision or is a
+consumer, such as rendering a product screen.
 
 An application may also expose a reusable composition library, such as
 `app/home-cam`; the selected firmware binary owns the final `main()`.
@@ -106,8 +109,11 @@ macro or service-graph configuration language.
 ## Services
 
 A service owns reusable system behavior with a distinct lifecycle or protocol,
-such as alert policy or multipart streaming. It can run synchronously or own a
-bounded inbox and a thread when independent progress is required.
+such as alert policy or multipart streaming. Keep its state, lifecycle and
+policy together. Expose the smallest typed API that callers need to configure it,
+connect its inputs and outputs, and manage its lifetime. Prefer synchronous
+execution when the caller can provide progress. An independently scheduled
+service owns its wait and bounded event admission.
 
 The HAL owns the full device lifecycle. Its implementation can wait on
 readiness, run an acquisition loop, apply resource-level retry policy and
@@ -143,23 +149,17 @@ contract, so gateway ingest can read it with the camera-side server disabled.
 `camera::capture::Session` owns frame validation, fixed history and stop.
 `wifi::Reconnector` owns station retry and rejoin; its caller supplies credentials
 and drives polling. Home-cam composes those APIs with streaming and detection.
-
-The [connectivity service](../service/connectivity) owns the bounded publisher,
-BLE/TLS stream adaptation, pinned TCP/TLS connections, and cellular reconnect and
-upload budgets. The caller supplies the cellular HAL session factory, TLS
-identity, and payload encoding. The service uses the caller’s wait loop and
-isolates blocking dials from active data transfers.
-
-Motion Tracker composes these APIs with its pairing UI, map tile requests, and
-telemetry protocol. Its profile selects the transports. BLE carries full-rate
-export and phone-relayed tiles. Direct tile relays require Wi-Fi with cellular
-excluded, and the cellular collector receives rate-limited summaries. Navigation
-supplies observation and fusion behavior. The tracker's communications worker
-drives its telemetry deadlines alongside the links. The dashboard reads bounded
-snapshots for rendering and optional USB output. A tracker with no configured
-links drives the same telemetry module from the dashboard loop. Ordinary IP
-data paths use `std::net`. The camera qualification’s recording and
-packet-summary adapters live with that fixture.
+Motion Tracker's `communications` module owns the BLE and cellular sessions and
+their common bounded publisher. The cellular HAL owns PPP redial and publishes
+link changes. Communications owns collector TCP/TLS recovery and the product's
+cellular summary budget. Full-rate export stays on BLE. Map tiles use BLE or an
+unmetered IP relay on a build without cellular. Navigation
+publishes measurements and terminal faults to shared observation readers.
+Motion Tracker's single entry point requires a primary IMU and GNSS. The
+selected profile supplies processing capabilities and any optional display,
+touch or secondary IMU. The camera qualification's
+recording and packet-summary adapters live with that fixture. Network data paths
+use `std::net`.
 
 Keep OS adapters in their owning capability HAL, and keep adapters used only
 for qualification under `tests/`. Reserve the root `platform/` tree for profiles,
@@ -167,6 +167,14 @@ BSP inputs and device composition. The architecture audit rejects dependencies
 from platform packages to services, including optional and target-specific
 edges. Service diagnostics use the existing `probe` feature when the normal
 product path has no diagnostic consumer.
+
+Use the fewest threads needed to meet blocking, timing and isolation requirements.
+Reuse existing execution owners when they can meet those requirements. A worker
+needs an independent progress requirement, such as a blocking device or network
+wait that would stall another owner. Fix blocking, contention and overload in the
+work or handoff that causes them. Ad hoc priority changes to compensate for those
+problems are prohibited. Set priorities only as part of an explicit scheduling
+policy and qualify it under load on the target.
 
 New workers, queues, retained frames, stack reservations and allocations need
 a concrete execution or ownership reason and a bounded budget. Compare
@@ -227,9 +235,11 @@ reproduction steps, sample accuracy, physical FPS and remaining limitations.
 
 ## Event-driven service communication
 
-The section below documents the existing event-demo topology. Messages cross
-meaningful ownership boundaries; the demo does not prescribe an active queue
-between every processing stage. The
+Connect producers directly to the typed input of each intended consumer. The
+composition root injects a sender or a narrow sink, so the producer can publish
+without depending on a peer's private state or knowing its concrete implementation.
+Use bounded task-context delivery with explicit overload and terminal-state
+semantics. Keep synchronous processing inside its execution owner. The
 [communication guide](concurrency-event-communication.md) defines provider
 acquisition, admission and lifecycle requirements, including separate queues
 where an owner needs independent capacity for different event classes.
@@ -375,6 +385,19 @@ Not every module is an active entity. Processing stages that share one ownership
 and execution context should use ordinary Rust function calls rather than
 channels. Message passing is for crossing an independently scheduled ownership
 boundary, not for turning every type into an actor.
+
+### Shared memory for bulk data
+
+Use typed events by default. When large frames or buffers make event transfer or
+copying expensive, first consider handing off ownership of a bounded buffer.
+Use shared memory where a measured or clear resource constraint warrants it.
+Define capacity, write ownership, reader lifetime and replacement policy. Use a
+qualified mutex or another suitable synchronization primitive, publish complete
+state before sending a small event or wake signal, and keep rendering, I/O and
+other long work outside the critical section. Time-sensitive paths need bounded
+contention and must avoid spinning behind a preempted owner. A display can
+coalesce updates and draw the latest published frame. A consumer that needs every
+sample defines its own bounded delivery and loss contract.
 
 ## HAL: one crate per capability
 
@@ -600,8 +623,18 @@ Configuration chooses:
 The product platform owns HAL bindings, execution target/board, and
 target-specific configuration. Firmware builds select it through the frontend's
 `--platform` or `--profile` argument; host/test Cargo invocations use
-`NXRS_PLATFORM`. Cargo features select optional software and driver code, not
-per-HAL operating-system providers.
+`NXRS_PLATFORM`. Declare required capabilities so the build rejects profiles
+that omit them. Use the same app entry point across profiles. Activate optional
+hardware-backed behavior when the portable capability API reports support.
+Handle an unbound or unsupported capability through that API and surface actual
+initialization failures according to product policy.
+
+Cargo manifests declare dependencies. Profiles select hardware, providers and
+hardware-dependent build inputs. Keep Cargo features to a minimum. Use additive
+features for independently useful formats, algorithms, driver implementations
+or diagnostics within their owning crate. Derive product-controlled
+implementation features from the profile. App features must never select
+hardware or product build dependencies.
 
 Handwritten Rust chooses service topology.
 

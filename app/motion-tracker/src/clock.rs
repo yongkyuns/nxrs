@@ -18,39 +18,6 @@ impl ClockAnchor {
         if monotonic_ms < self.since_ms {
             return None;
         }
-        self.offset_ms
-            .checked_add(i64::try_from(monotonic_ms).ok()?)
-    }
-}
-
-pub(crate) fn observe(
-    slot: &std::sync::OnceLock<ClockAnchor>,
-    sample: navigation::observations::Measurement,
-) {
-    if let navigation::observations::Measurement::Gnss(fix) = sample {
-        if let Some(anchor) = fix
-            .receiver_utc_ms
-            .and_then(|utc| ClockAnchor::new(fix.timestamp_ms, utc))
-        {
-            let _ = slot.set(anchor);
-        }
-    }
-}
-
-#[cfg(not(feature = "ble-link"))]
-pub(crate) struct Capture(std::sync::OnceLock<ClockAnchor>);
-
-#[cfg(not(feature = "ble-link"))]
-impl Capture {
-    pub fn new() -> Self {
-        Self(std::sync::OnceLock::new())
-    }
-
-    pub fn clock(&self) -> Option<ClockAnchor> {
-        self.0.get().copied()
-    }
-
-    pub fn record(&self, sample: navigation::observations::Measurement) {
-        observe(&self.0, sample);
+        self.offset_ms.checked_add(i64::try_from(monotonic_ms).ok()?)
     }
 }

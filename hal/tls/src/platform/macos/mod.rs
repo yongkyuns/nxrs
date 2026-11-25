@@ -1,5 +1,6 @@
 #![allow(unsafe_code)]
 use crate::sdk::{Entropy, EntropyUnavailable};
+pub(crate) use crate::stream::shutdown_tcp as retire_tcp;
 mod ffi;
 use self::ffi::getentropy;
 pub(crate) struct Source;

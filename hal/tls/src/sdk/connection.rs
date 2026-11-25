@@ -422,14 +422,20 @@ impl Enrollment {
 }
 
 struct Socket<T> {
-    stream: RefCell<T>,
+    stream: RefCell<Option<T>>,
     until: Cell<Instant>,
     last: Cell<Instant>,
     calls: Cell<u8>,
     bytes: Cell<usize>,
     fault: Cell<bool>,
 }
-impl<T> Socket<T> {
+impl<T: Stream> Socket<T> {
+    fn retire(&mut self) {
+        if let Some(stream) = self.stream.get_mut().take() {
+            stream.retire();
+        }
+    }
+
     fn budget(&self, size: usize) -> Option<usize> {
         let now = Instant::now();
         if now >= self.until.get() || now < self.last.get() {
@@ -459,6 +465,10 @@ unsafe extern "C" fn send<T: Stream>(context: *mut c_void, input: *const u8, siz
         socket.fault.set(true);
         return unsafe { tls_io_failure() };
     };
+    let Some(stream) = stream.as_mut() else {
+        socket.fault.set(true);
+        return unsafe { tls_io_failure() };
+    };
     match stream.write(unsafe { std::slice::from_raw_parts(input, size) }) {
         Ok(n) if n > 0 && n <= size => {
             socket.bytes.set(socket.bytes.get() - n);
@@ -483,6 +493,10 @@ unsafe extern "C" fn recv<T: Stream>(context: *mut c_void, output: *mut u8, size
         return unsafe { tls_want_read() };
     };
     let Ok(mut stream) = socket.stream.try_borrow_mut() else {
+        socket.fault.set(true);
+        return unsafe { tls_io_failure() };
+    };
+    let Some(stream) = stream.as_mut() else {
         socket.fault.set(true);
         return unsafe { tls_io_failure() };
     };
@@ -716,7 +730,7 @@ impl Identity {
         let handshake = HANDSHAKE;
         stream.prepare().map_err(|_| Error::Io)?;
         let socket = try_boxed(Socket {
-            stream: RefCell::new(stream),
+            stream: RefCell::new(Some(stream)),
             until: Cell::new(until.min(now + handshake)),
             last: Cell::new(now),
             calls: Cell::new(0),
@@ -763,7 +777,7 @@ impl<T: Stream> Connection<'_, T> {
         self.closed = true;
         self.pending.fill(0);
         self.pending_size = 0;
-        self.socket.stream.get_mut().abort();
+        self.socket.retire();
         error
     }
     fn epoch(&mut self) -> Result<i64, Error> {
@@ -785,7 +799,10 @@ impl<T: Stream> Connection<'_, T> {
         }
         Ok(upper)
     }
-    fn operation(&mut self, action: impl FnOnce(*mut c_void) -> c_int) -> Result<c_int, Error> {
+    // Each transport shares the SDK deadline and record-workspace path across
+    // handshake, read, write and close.
+    #[inline(never)]
+    fn operation(&mut self, action: &mut dyn FnMut(*mut c_void) -> c_int) -> Result<c_int, Error> {
         let epoch = self.epoch()?;
         self.socket.calls.set(8);
         self.socket.bytes.set(8192);
@@ -794,8 +811,16 @@ impl<T: Stream> Connection<'_, T> {
         } else {
             self.until.min(self.handshake_until)
         });
-        let result =
-            timed(self.identity, epoch, || action(self.ssl.pointer())).map_err(|e| self.fail(e))?;
+        let record = self
+            .ready
+            .then(|| self.identity.record.enter())
+            .transpose()
+            .map_err(|e| self.fail(e))?;
+        let result = timed(self.identity, epoch, || action(self.ssl.pointer()));
+        if let Some(record) = record {
+            record.finish().map_err(|e| self.fail(e))?;
+        }
+        let result = result.map_err(|e| self.fail(e))?;
         self.epoch()?;
         if self.socket.fault.get() {
             return Err(self.fail(Error::Io));
@@ -809,7 +834,7 @@ impl<T: Stream> Connection<'_, T> {
             return Ok(true);
         }
         if unsafe { tls_handshake_over(self.ssl.pointer()) } == 0 {
-            let status = self.operation(|p| unsafe { mbedtls_ssl_handshake_step(p) })?;
+            let status = self.operation(&mut |p| unsafe { mbedtls_ssl_handshake_step(p) })?;
             if status == unsafe { tls_want_read() } || status == unsafe { tls_want_write() } {
                 return Ok(false);
             }
@@ -883,12 +908,12 @@ impl<T: Stream> Connection<'_, T> {
         if self.pending_size != 0 {
             return Err(self.fail(Error::InvalidInput));
         }
-        let status = self.operation(|p| unsafe { mbedtls_ssl_close_notify(p) })?;
+        let status = self.operation(&mut |p| unsafe { mbedtls_ssl_close_notify(p) })?;
         if status == unsafe { tls_want_read() } || status == unsafe { tls_want_write() } {
             return Ok(false);
         }
         self.closed = true;
-        self.socket.stream.get_mut().abort();
+        self.socket.retire();
         if status == 0 {
             Ok(true)
         } else {
@@ -920,14 +945,15 @@ impl<T: Stream> Read for Connection<'_, T> {
         if !self.poll().map_err(io_error)? {
             return Err(io::ErrorKind::WouldBlock.into());
         }
-        let status =
-            match self.operation(|p| unsafe { mbedtls_ssl_read(p, output.as_mut_ptr(), size) }) {
-                Ok(status) => status,
-                Err(error) => {
-                    output[..size].fill(0);
-                    return Err(io_error(error));
-                }
-            };
+        let status = match self
+            .operation(&mut |p| unsafe { mbedtls_ssl_read(p, output.as_mut_ptr(), size) })
+        {
+            Ok(status) => status,
+            Err(error) => {
+                output[..size].fill(0);
+                return Err(io_error(error));
+            }
+        };
         let result = self.io_status(status);
         if result.is_err() {
             output[..size].fill(0);
@@ -953,7 +979,7 @@ impl<T: Stream> Write for Connection<'_, T> {
         let pointer = self.pending.as_ptr();
         let size = self.pending_size;
         let status = self
-            .operation(|p| unsafe { mbedtls_ssl_write(p, pointer, size) })
+            .operation(&mut |p| unsafe { mbedtls_ssl_write(p, pointer, size) })
             .map_err(io_error)?;
         let result = self.io_status(status);
         if let Ok(n) = result {
@@ -969,7 +995,12 @@ impl<T: Stream> Write for Connection<'_, T> {
     fn flush(&mut self) -> io::Result<()> {
         self.epoch().map_err(io_error)?;
         if self.pending_size == 0 {
-            self.socket.stream.get_mut().flush()
+            self.socket
+                .stream
+                .get_mut()
+                .as_mut()
+                .ok_or(io::ErrorKind::NotConnected)?
+                .flush()
         } else {
             Err(io::ErrorKind::WouldBlock.into())
         }
@@ -982,7 +1013,7 @@ impl<T: Stream> Drop for Connection<'_, T> {
         unsafe {
             mbedtls_ssl_set_bio(self.ssl.pointer(), ptr::null_mut(), None, None, None);
         }
-        self.socket.stream.get_mut().abort();
+        self.socket.retire();
         self.pending.fill(0);
     }
 }

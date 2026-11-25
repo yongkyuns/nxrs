@@ -1,9 +1,9 @@
 //! Build admission and evidence for an application descriptor and resolved profile.
 use crate::{
+    profile::{manifest, Profile, CAPABILITIES},
     Result,
-    profile::{CAPABILITIES, Profile, manifest},
 };
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use std::path::Path;
 
 /// Validate application metadata before optional fields can silently fall back.
@@ -15,7 +15,7 @@ pub(crate) fn validate_metadata(app: &Value) -> Result<()> {
         if let Some(key) = fields.keys().find(|key| {
             !matches!(
                 key.as_str(),
-                "firmware" | "required-capabilities" | "qualification-only" | "capability-features"
+                "firmware" | "required-capabilities" | "qualification-only"
             )
         }) {
             return Err(format!(
@@ -29,54 +29,7 @@ pub(crate) fn validate_metadata(app: &Value) -> Result<()> {
             return Err("package.metadata.nxrs.qualification-only must be a boolean".into());
         }
     }
-    capability_features(app)?;
     Ok(())
-}
-
-pub(crate) struct CapabilityFeature<'a> {
-    pub feature: &'a str,
-    pub when: &'a str,
-    pub requires: Vec<&'a str>,
-}
-
-pub(crate) fn capability_features(app: &Value) -> Result<Vec<CapabilityFeature<'_>>> {
-    let Some(table) = app.pointer("/package/metadata/nxrs/capability-features") else {
-        return Ok(Vec::new());
-    };
-    table
-        .as_object()
-        .ok_or("capability-features must be a table")?
-        .iter()
-        .map(|(feature, entry)| {
-            let valid_feature = |name: &str| app["features"].get(name).is_some_and(Value::is_array);
-            let invalid = || format!("invalid capability-features entry for {feature}");
-            let when = entry["when"]
-                .as_str()
-                .filter(|when| {
-                    valid_feature(when) && *when != feature && table.get(*when).is_none()
-                })
-                .ok_or_else(invalid)?;
-            let requires = entry["requires"]
-                .as_array()
-                .filter(|items| !items.is_empty())
-                .ok_or_else(invalid)?
-                .iter()
-                .map(|item| {
-                    item.as_str()
-                        .filter(|name| CAPABILITIES.contains(name))
-                        .ok_or_else(invalid)
-                })
-                .collect::<Result<Vec<_>>>()?;
-            if !valid_feature(feature) || entry.as_object().is_none_or(|entry| entry.len() != 2) {
-                return Err(invalid());
-            }
-            Ok(CapabilityFeature {
-                feature,
-                when,
-                requires,
-            })
-        })
-        .collect()
 }
 
 pub fn validate(root: &Path, path: &Path, profile: &Profile, os: &str) -> Result<Value> {

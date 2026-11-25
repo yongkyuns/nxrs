@@ -1,0 +1,4 @@
+interface:
+  display_name: "NXRS Workflow Retrospective"
+  short_description: "Turn observed NXRS friction into focused improvements"
+  default_prompt: "Use $nxrs-retro to examine this NXRS session and improve the tools or guidance behind its observed friction."

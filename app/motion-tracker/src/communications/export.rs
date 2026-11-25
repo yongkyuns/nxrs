@@ -58,6 +58,7 @@ pub struct Capture {
     // acquisition task paused during encoding cannot enqueue into it.
     epoch: AtomicUsize,
     ready: AtomicBool,
+    sensor_failed: AtomicBool,
     samples: Mutex<Samples>,
     scales: [Option<[u32; 2]>; 2],
     clock: OnceLock<ClockAnchor>,
@@ -65,10 +66,69 @@ pub struct Capture {
 
 #[derive(Default)]
 struct Samples {
-    queue: VecDeque<[u8; IMU_BYTES]>,
-    first_missing: Option<[u8; 5]>,
+    queue: VecDeque<Sample>,
+    first_missing: Option<(Source, u32)>,
     high_water: usize,
     owner: Option<Thread>,
+}
+
+#[derive(Clone, Copy)]
+enum Source {
+    Imu(u8),
+    Gnss,
+}
+
+impl Source {
+    fn tag(self) -> u8 {
+        match self {
+            Self::Imu(index) => 1 + index,
+            Self::Gnss => 3,
+        }
+    }
+}
+
+/// The export queue retains only the scalar fields its consumer needs.
+/// Float bits have native byte order here and are serialized by the owner.
+#[derive(Clone, Copy)]
+struct Sample {
+    time: u64,
+    sequence: u32,
+    source: Source,
+    values: [u32; 6],
+}
+
+impl From<Measurement> for Sample {
+    fn from(sample: Measurement) -> Self {
+        match sample {
+            Measurement::Imu(index, sample) => {
+                let [ax, ay, az] = sample.accel_mps2.map(f32::to_bits);
+                let [gx, gy, gz] = sample.gyro_rps.map(f32::to_bits);
+                Self {
+                    time: sample.timestamp_ms,
+                    sequence: sample.sequence as u32,
+                    source: Source::Imu(index as u8),
+                    values: [ax, ay, az, gx, gy, gz],
+                }
+            }
+            Measurement::Gnss(fix) => {
+                let lat = fix.latitude_deg.to_bits();
+                let lon = fix.longitude_deg.to_bits();
+                Self {
+                    time: fix.timestamp_ms,
+                    sequence: fix.sequence as u32,
+                    source: Source::Gnss,
+                    values: [
+                        lat as u32,
+                        (lat >> 32) as u32,
+                        lon as u32,
+                        (lon >> 32) as u32,
+                        fix.speed_mps.to_bits(),
+                        0,
+                    ],
+                }
+            }
+        }
+    }
 }
 
 impl Capture {
@@ -93,6 +153,18 @@ impl Capture {
 
     pub fn take_ready(&self) -> bool {
         self.ready.swap(false, Ordering::AcqRel)
+    }
+
+    pub fn sensor_failed(&self) {
+        self.sensor_failed.store(true, Ordering::Release);
+        let owner = self.samples.lock().unwrap().owner.clone();
+        if let Some(owner) = owner {
+            owner.unpark();
+        }
+    }
+
+    pub fn take_sensor_failed(&self) -> bool {
+        self.sensor_failed.swap(false, Ordering::AcqRel)
     }
 
     pub fn enable(&self) -> io::Result<()> {
@@ -125,15 +197,22 @@ impl Capture {
     }
 
     pub fn record(&self, sample: Measurement) {
-        crate::clock::observe(&self.clock, sample);
+        if let Measurement::Gnss(fix) = sample {
+            if let Some(anchor) = fix
+                .receiver_utc_ms
+                .and_then(|utc| ClockAnchor::new(fix.timestamp_ms, utc))
+            {
+                let _ = self.clock.set(anchor);
+            }
+        }
         let epoch = self.epoch.load(Ordering::Acquire);
         if epoch & 1 == 0 {
             return;
         }
-        self.enqueue(epoch, encode(sample));
+        self.enqueue(epoch, sample.into());
     }
 
-    fn enqueue(&self, epoch: usize, bytes: [u8; IMU_BYTES]) {
+    fn enqueue(&self, epoch: usize, sample: Sample) {
         // This runs in the acquisition task. The consumer holds the lock
         // only for a bounded copy, with no encoding or transport I/O.
         let owner = {
@@ -142,10 +221,10 @@ impl Capture {
                 return;
             }
             if samples.queue.len() == QUEUE {
-                samples.first_missing = Some(bytes[..5].try_into().unwrap());
+                samples.first_missing = Some((sample.source, sample.sequence));
                 self.epoch.store(epoch.wrapping_add(1), Ordering::Release);
             } else {
-                samples.queue.push_back(bytes);
+                samples.queue.push_back(sample);
                 let depth = samples.queue.len();
                 samples.high_water = samples.high_water.max(depth);
                 if depth != BATCH {
@@ -161,7 +240,7 @@ impl Capture {
     }
 
     pub fn take(&self, output: &mut [u8; MAX_BYTES], due: bool, version: Version) -> Option<Batch> {
-        let mut records = [[0; IMU_BYTES]; BATCH];
+        let mut records = [None; BATCH];
         let count = {
             let mut samples = self.samples.lock().unwrap();
             let count = samples.queue.len().min(BATCH);
@@ -171,11 +250,12 @@ impl Capture {
                 return None;
             }
             if count == 0 {
-                let missing = samples.first_missing?;
+                let (source, sequence) = samples.first_missing?;
                 let len = match version {
                     Version::Fixed => 4,
                     Version::Compact | Version::Timed => {
-                        output[4..9].copy_from_slice(&missing);
+                        output[4] = source.tag();
+                        output[5..9].copy_from_slice(&sequence.to_le_bytes());
                         9
                     }
                 };
@@ -186,7 +266,7 @@ impl Capture {
                 });
             }
             for (record, sample) in records.iter_mut().zip(samples.queue.drain(..count)) {
-                *record = sample;
+                *record = Some(sample);
             }
             count
         };
@@ -203,12 +283,12 @@ impl Capture {
             );
             end += 8;
         }
-        for sample in &records[..count] {
-            let kind = sample[0];
+        for sample in records[..count].iter().flatten() {
+            let kind = sample.source.tag();
             let index = usize::from(kind - 1);
             let len = if kind == 3 { GNSS_BYTES } else { IMU_BYTES };
-            let sequence = u32::from_le_bytes(sample[1..5].try_into().unwrap());
-            let time = u64::from_le_bytes(sample[5..RECORD_HEADER].try_into().unwrap());
+            let sequence = sample.sequence;
+            let time = sample.time;
             let last = &mut previous[index];
             let delta = last
                 .filter(|(seq, _)| {
@@ -218,7 +298,11 @@ impl Capture {
                 .and_then(|elapsed| u8::try_from(elapsed).ok());
             *last = Some((sequence, time));
 
-            let payload = &sample[RECORD_HEADER..len];
+            let mut payload = [0; IMU_BYTES - RECORD_HEADER];
+            for (bytes, value) in payload.chunks_exact_mut(4).zip(sample.values) {
+                bytes.copy_from_slice(&value.to_le_bytes());
+            }
+            let payload = &payload[..len - RECORD_HEADER];
             let mut tag = kind;
             if timed && clock.is_some_and(|anchor| time < anchor.since_ms) {
                 tag |= NO_UTC;
@@ -236,10 +320,12 @@ impl Capture {
                 output[end + 1] = delta;
                 end += 2;
             } else {
-                let header_len = if timed { RECORD_HEADER } else { 9 };
                 output[end] = tag;
-                output[end + 1..end + header_len].copy_from_slice(&sample[1..header_len]);
-                end += header_len;
+                output[end + 1..end + 5].copy_from_slice(&sequence.to_le_bytes());
+                let time_bytes = if timed { 8 } else { 4 };
+                output[end + 5..end + 5 + time_bytes]
+                    .copy_from_slice(&time.to_le_bytes()[..time_bytes]);
+                end += 5 + time_bytes;
             }
             let payload = counts.as_ref().map_or(payload, |bytes| bytes.as_slice());
             output[end..end + payload.len()].copy_from_slice(payload);
@@ -273,33 +359,6 @@ fn encode_counts(payload: &[u8], scale: [u32; 2]) -> Option<[u8; 12]> {
 fn header(output: &mut [u8; MAX_BYTES], version: Version, len: usize) {
     output[..2].copy_from_slice(&[0xa5, version as u8]);
     output[2..4].copy_from_slice(&((len - 4) as u16).to_le_bytes());
-}
-
-fn encode(sample: Measurement) -> [u8; IMU_BYTES] {
-    let mut output = [0; IMU_BYTES];
-    let (tag, sequence, time) = match sample {
-        Measurement::Imu(index, sample) => (1 + index as u8, sample.sequence, sample.timestamp_ms),
-        Measurement::Gnss(fix) => (3, fix.sequence, fix.timestamp_ms),
-    };
-    output[0] = tag;
-    output[1..5].copy_from_slice(&(sequence as u32).to_le_bytes());
-    output[5..RECORD_HEADER].copy_from_slice(&time.to_le_bytes());
-    match sample {
-        Measurement::Imu(_, sample) => {
-            for (field, value) in output[RECORD_HEADER..IMU_BYTES]
-                .chunks_exact_mut(4)
-                .zip(sample.accel_mps2.into_iter().chain(sample.gyro_rps))
-            {
-                field.copy_from_slice(&value.to_le_bytes());
-            }
-        }
-        Measurement::Gnss(fix) => {
-            output[13..21].copy_from_slice(&fix.latitude_deg.to_le_bytes());
-            output[21..29].copy_from_slice(&fix.longitude_deg.to_le_bytes());
-            output[29..33].copy_from_slice(&fix.speed_mps.to_le_bytes());
-        }
-    }
-    output
 }
 
 #[cfg(test)]
@@ -389,7 +448,7 @@ mod tests {
         assert_eq!(capture.samples.lock().unwrap().queue.capacity(), 0);
 
         capture.enable().unwrap();
-        capture.enqueue(old_epoch, encode(fix(2)));
+        capture.enqueue(old_epoch, fix(2).into());
         capture.record(fix(3));
         let mut bytes = [0; MAX_BYTES];
         let batch = capture.take(&mut bytes, true, Version::Fixed).unwrap();
@@ -404,16 +463,21 @@ mod tests {
         capture.enable().unwrap();
         let first = u64::from(u32::MAX);
         let imu = |sequence, time| {
-            Measurement::Imu(0, imu::ImuSample {
-                sequence,
-                timestamp_ms: time,
-                sample_interval_us: 10_000,
-                accel_mps2: [-4096.0, 0.0, 4095.875],
-                gyro_rps: [-0.25, 1.0, 8191.75],
-            })
+            Measurement::Imu(
+                0,
+                imu::ImuSample {
+                    sequence,
+                    timestamp_ms: time,
+                    sample_interval_us: 10_000,
+                    accel_mps2: [-4096.0, 0.0, 4095.875],
+                    gyro_rps: [-0.25, 1.0, 8191.75],
+                },
+            )
         };
         capture.record(imu(1, first));
-        let Measurement::Gnss(mut fix) = fix(1) else { unreachable!() };
+        let Measurement::Gnss(mut fix) = fix(1) else {
+            unreachable!()
+        };
         fix.timestamp_ms = first + 3;
         fix.receiver_utc_ms = Some(1_767_225_600_000);
         capture.record(Measurement::Gnss(fix));
@@ -426,12 +490,18 @@ mod tests {
         assert_eq!(bytes[4..12], expected_offset.to_le_bytes());
         assert_eq!(bytes[12], 1 | COUNTS | NO_UTC);
         assert_eq!(bytes[17..25], first.to_le_bytes());
-        assert_eq!(bytes[25..37], [0, 128, 0, 0, 255, 127, 255, 255, 4, 0, 255, 127]);
+        assert_eq!(
+            bytes[25..37],
+            [0, 128, 0, 0, 255, 127, 255, 255, 4, 0, 255, 127]
+        );
         assert_eq!(bytes[37], 3);
         assert_eq!(bytes[42..50], (first + 3).to_le_bytes());
         assert_eq!(bytes[70..72], [1 | COUNTS | DELTA, 9]);
         assert_eq!(capture.clock().unwrap().utc_ms(first), None);
-        assert_eq!(capture.clock().unwrap().utc_ms(first + 9), Some(1_767_225_600_006));
+        assert_eq!(
+            capture.clock().unwrap().utc_ms(first + 9),
+            Some(1_767_225_600_006)
+        );
     }
 
     #[test]
@@ -442,7 +512,10 @@ mod tests {
             let value = f32::from(i16::MIN) * f32::from_bits(scale[axis / 3]);
             slot.copy_from_slice(&value.to_le_bytes());
         }
-        assert_eq!(encode_counts(&payload, scale), Some([0, 128].repeat(6).try_into().unwrap()));
+        assert_eq!(
+            encode_counts(&payload, scale),
+            Some([0, 128].repeat(6).try_into().unwrap())
+        );
         payload[..4].copy_from_slice(&0.1_f32.to_le_bytes());
         assert_eq!(encode_counts(&payload, scale), None);
     }

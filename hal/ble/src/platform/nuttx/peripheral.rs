@@ -394,6 +394,13 @@ impl Listener for Peripheral {
         READY.swap(false, Ordering::AcqRel)
     }
 
+    fn idle_retry_at(&self) -> Option<Instant> {
+        let stamp = STAMP.load(Ordering::Acquire);
+        let restarting = stamp & CONNECTED == 0 && stamp != self.advertised;
+        (restarting || stamp & (CONNECTED | RETIRED) == (CONNECTED | RETIRED))
+            .then_some(self.retry_advertise)
+    }
+
     fn service(&mut self) -> io::Result<()> {
         let stamp = STAMP.load(Ordering::Acquire);
         // Let accept() retire a failed link even if its notification

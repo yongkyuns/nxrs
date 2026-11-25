@@ -1,17 +1,23 @@
 # Motion tracker
 
-## Headless portability
+## Device composition
 
-The headless build uses the profile's primary IMU and emits version 2 JSON.
-The desktop smoke test builds and runs the application with one mock IMU.
-The NuttX QEMU profile runs the same headless application with a modeled
-BMI270 on I²C. Both checks require fresh IMU telemetry and a clean exit.
+Motion Tracker requires a primary IMU and GNSS. Profiles select the devices
+and HAL providers. The same entry point runs without a display, touch input
+or a secondary IMU when those capabilities are unavailable. The desktop
+smoke test exercises the tracker with mock sensors and no display.
 
 ```sh
 python3 tests/native/motion_tracker.py
 ```
 
-[Headless NuttX build and verification](../../tests/nuttx-std/tracker-sim/README.md#headless-one-imu-tracker)
+[One-IMU NuttX acquisition fixture](../../tests/nuttx-std/tracker-sim/README.md#headless-one-imu-tracker)
+
+The runtime composes acquisition, screen and communications. The `screen`
+module owns gestures, the pairing view, chart history and map presentation,
+including projection, viewport selection and the display tile cache. The
+`communications` module owns BLE and collector delivery, tile requests and
+reply decoding, and the snapshot format used by BLE, TLS and USB diagnostics.
 
 ## Dashboard
 
@@ -26,8 +32,9 @@ north-up grid with a distance scale, current coordinates and ground speed.
 Loss of fix breaks the trail. This view works without internet access.
 The GNSS view overlays a street map when a tile is available.
 
-The tracker samples the latest observations on separate display and report
-deadlines. Full-rate BLE export receives each observation before coalescing.
+The dashboard samples the latest observation from each sensor when it redraws
+or publishes telemetry. Touch events and sensor faults have their own inbox.
+The BLE export receives the full stream before the dashboard downsamples it.
 The tracker expires IMU readings after 500 ms and GNSS fixes after three
 seconds.
 
@@ -76,13 +83,13 @@ returns it over the existing authenticated BLE/TLS connection. The iPhone
 can use Wi-Fi or mobile data. Older companion clients can continue to read
 telemetry from the tracker.
 
-### Wi-Fi relay
+### Direct Wi-Fi
 
-A Wi-Fi profile with TLS and without cellular can fetch tiles from a local
-IPv4 relay. The tracker tries the paired phone first, then the relay if the
-phone is absent, reports an error, or misses the 25-second tile deadline.
-Configure the relay on the tracker’s Wi-Fi network. The current CoreS3
-dual-IMU profile uses the phone and leaves onboard Wi-Fi disabled.
+For operation without a phone, run the pinned IPv4 relay on a private,
+unmetered Wi-Fi network. The tracker uses the OS default route. A
+cellular-capable profile rejects direct relay configuration because that
+route could use PPP. The stock CoreS3 profile leaves Wi-Fi disabled. Use
+the paired phone for maps on the Stamp profile.
 
 ```sh
 python3 -m pip install 'Pillow>=10,<14' 'requests-cache>=1.2,<2'
@@ -91,16 +98,16 @@ openssl x509 -in cert.pem -outform DER | openssl dgst -sha256
 ```
 
 Use a named-curve P-256 certificate and provision the fingerprint
-independently. Tile requests authenticate the relay by pin. Limit relay
-access to trusted devices at the network boundary.
+independently. Limit access to trusted devices at the network boundary.
+Tile requests authenticate the relay by pin and carry no client credentials.
 
 ```text
 motion_tracker --map-relay IPV4:8444 --map-pin SHA256
 ```
 
-Stamp-capable builds reject direct relay settings because a default-route
-connection can use PPP. They can show maps through the paired phone and use
-the offline route plot whenever the phone cannot deliver a tile.
+When the phone is paired and connected, the tracker tries it first. It
+uses the configured IP relay if the phone is absent, reports a fetch error,
+or runs past the 25-second tile deadline.
 
 ### Tile protocol
 
@@ -292,15 +299,14 @@ timestamp layouts. Version 1 uses full float records and an empty overflow
 payload. Version 2 also accepts delta headers and identifies the first
 missing source and sequence.
 
-BLE and cellular use the [connectivity service](../../service/connectivity) for
-secure transport and bounded publication. Each connection keeps one frame in
-progress and coalesces waiting data to the latest value. The tracker owns the
-pairing UI, map requests, and wire encoding. When a link is configured, the
-communications worker owns the telemetry deadlines and dispatches reports
-directly. The dashboard handles touch, renders the latest view, and writes
-optional USB reports from one replaceable slot. Slow rendering or USB writes
-can skip intermediate local reports while network publication continues. With
-no link configured, the dashboard drives the same telemetry module locally.
+BLE and cellular share the telemetry stream publisher. Each connection keeps
+one frame in progress and coalesces waiting snapshots to the latest value.
+Sensor workers update shared latest readings through the observation service.
+The dashboard and communications worker read them on independent deadlines.
+During full-rate export, the sensor workers also admit ordered samples to the
+bounded capture queue. The communications worker encodes each batch after
+dequeueing and posts link changes to the dashboard inbox. The dashboard keeps
+one strip buffer and runs at the profile's background priority on NuttX.
 
 ## Stamp CatM cellular
 
@@ -323,26 +329,28 @@ SHA-256 fingerprint of its DER-encoded leaf certificate as 64 hex digits.
 motion_tracker --cellular-apn YOUR_APN --collector IPV4:PORT --collector-pin SHA256
 ```
 
-The tracker sends one v1 NDJSON summary per minute by default over pinned TLS
-1.3. Each record carries `kind: "summary"`, the two IMU health states, and
-the latest GNSS state and live fix. Full-rate samples and map tiles stay off
-PPP. The collector reads summaries without sending application data back.
+The collector receives v1 NDJSON records with `"kind":"summary"`. Each record
+carries two IMU health strings in `imu`, `imu1_received_ms` when live, and the
+latest GNSS fix or its health state. Raw IMU samples stay on the local USB and
+BLE paths. Map tiles travel over BLE or the unmetered Wi-Fi relay.
 
-Set `--cellular-report-secs` to change the minimum interval (1–86400 seconds).
-The connectivity service caps each report at 256 bytes. An attempted report
-uses one interval even if the connection drops mid-write. The default permits at
-most 0.37 MB per 24 hours of continuous runtime before TCP, TLS and PPP
-overhead. The rate limit applies across reconnects within the same app run.
+By default the tracker starts at most one upload per minute, with a
+288-byte limit per record including the newline. That caps summary payload
+at about 0.42 MB per day during continuous operation. Carrier usage also
+includes TLS, TCP and PPP traffic. Set `--cellular-report-secs 1..86400` to
+change this interval independently of the dashboard and BLE cadence.
+Reconnects preserve the rate limit and never replay a backlog.
 
-Use a named-curve P-256 certificate
-and provision its fingerprint through a trusted channel. The pin authenticates the collector.
-Device authentication at the collector would require a separate enrollment
-mechanism. Use `--cellular-apn YOUR_APN` on its own to bring up PPP for diagnostics.
+The TLS 1.3 stream is one-way. Use a named-curve P-256 collector certificate
+and provision its fingerprint through a trusted channel. The pin authenticates
+the collector. Device authentication at the collector requires separate
+enrollment. Use `--cellular-apn YOUR_APN` on its own to bring up PPP for diagnostics.
 
-A lost PPP session is torn down before redial. A lost collector connection
-reconnects over the existing link when possible. Retry delays increase from one
-to at most 30 seconds. The tracker keeps the latest summary and one record
-in flight, so an outage cannot accumulate a backlog. BLE and cellular
+A lost PPP session is torn down and redialed by the cellular HAL, which wakes
+communications when link state changes. The tracker reconnects a lost collector
+session over the existing link when possible. Retry delays increase from one to
+at most 30 seconds. The tracker samples current readings when a report is due
+and keeps one record in flight. BLE and cellular
 share one TLS owner task while acquisition and the dashboard continue independently.
 The Stamp profile uses bounded NuttX TCP write buffering. The unbuffered sender
 waits for acknowledgments even on a nonblocking socket, which can delay BLE
@@ -360,3 +368,18 @@ exercises the full tracker and a local collector over PPP. The
 [CoreS3 and Stamp test](../../tests/nuttx-std/tracker-hardware/README.md)
 checks BLE delivery and TLS recovery on a real carrier. That test has not yet
 been run on hardware.
+
+## Record sensor data on iPhone
+
+Connect from Motion Tracker and wait for **Sensor export**. Tap **Record Sensor
+Data**, then **Stop Recording** and **Share Last Recording**. Use **Browse
+Recordings** to share previous files. Recordings can contain precise location
+and stay in the tracker’s local app storage until shared.
+
+The tracker Swift module writes decoded full-rate measurements as versioned
+NDJSON. Each sample carries its stream identity, tracker reception time,
+sequence and sensor values. UTC is included when available. Sequence gaps and
+connection interruptions are recorded explicitly. An interrupted recording can
+resume on the same tracker clock and is marked incomplete when saved.
+
+[Replay the file through the NuttX IMU and GNSS device models](../../tests/nuttx-std/tracker-sim/README.md#replay-an-iphone-recording).
