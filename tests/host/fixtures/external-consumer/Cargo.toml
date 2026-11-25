@@ -17,9 +17,9 @@ ble = ["dep:bluetooth"]
 radios = ["wifi", "ble"]
 
 [dependencies]
+nxrs-composition = { path = "deps/platform", features = ["imu", "gnss"] }
 frames = { package = "nxrs-camera", path = "deps/hal/camera", features = ["replay"] }
 archive = { package = "nxrs-storage", path = "deps/hal/storage", features = ["recording"] }
-packets = { package = "nxrs-transport", path = "deps/hal/transport", features = ["udp"] }
 motion = { package = "nxrs-imu", path = "deps/hal/imu" }
 position = { package = "nxrs-gnss", path = "deps/hal/gnss" }
 wireless = { package = "nxrs-wifi", path = "deps/hal/wifi", optional = true }

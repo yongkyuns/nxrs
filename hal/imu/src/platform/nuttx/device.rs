@@ -1,111 +1,117 @@
-//! Physical device ownership. Construction and cleanup stay in task context.
-use super::{i2c::Bus, irq::Irq, signal::Signal, trace::Trace, OWNED};
-use crate::{sensors::Sensor, AppliedConfig, Config, DeviceError, Event};
+//! Resource opening, acquisition and lifetime of a normalized IMU.
+use super::device_state::{DeviceState, DeviceUseGuard};
+use super::{gpio_resource, signal::Signal};
+use crate::{AppliedConfig, Config, DeviceError, Event, ImuSample};
+use acquisition::probe::Trace;
 use core::sync::atomic::{AtomicBool, Ordering};
-use embedded_hal::delay::DelayNs;
+use peripheral::imu::{Buffering, Error, Imu};
 use std::{
     fs::File,
-    time::{Duration, Instant},
+    time::Duration,
 };
 
-pub(super) struct Binding<'a> {
-    pub(super) path: &'a str,
-    pub(super) address: u8,
-    pub(super) frequency: u32,
-    pub(super) irq_path: Option<&'a str>,
-}
+pub(super) type Irq = gpio_resource::Interrupt<&'static DeviceState>;
 
-struct Lease;
-
-impl Lease {
-    fn take() -> Result<Self, DeviceError> {
-        OWNED
-            .compare_exchange(0, 1, Ordering::AcqRel, Ordering::Acquire)
-            .map_err(|state| {
-                if state == 1 {
-                    DeviceError::Busy
-                } else {
-                    DeviceError::Io
-                }
-            })?;
-        Ok(Self)
+pub(super) fn gpio_error(error: gpio_resource::Error) -> DeviceError {
+    match error {
+        gpio_resource::Error::Unsupported => DeviceError::Unsupported,
+        gpio_resource::Error::Io => DeviceError::Io,
     }
 }
 
-impl Drop for Lease {
-    fn drop(&mut self) {
-        let _ = OWNED.compare_exchange(1, 0, Ordering::AcqRel, Ordering::Acquire);
-    }
+pub(super) fn open_irq(path: &str, state: &'static DeviceState) -> Result<Irq, DeviceError> {
+    gpio_resource::Interrupt::open_rising_with_context(path, state, |state| state.mark_faulted())
+        .map_err(gpio_error)
 }
 
-pub(super) struct Delay;
-
-impl DelayNs for Delay {
-    fn delay_ns(&mut self, ns: u32) {
-        std::thread::sleep(Duration::from_nanos(u64::from(ns)));
-    }
-}
-
-pub(super) struct Device<S: Sensor<Bus, Delay>> {
+pub(super) struct Device<S: Imu> {
     sensor: S,
+    applied: AppliedConfig,
     signal: Signal,
     trace: Trace,
     cleaned: bool,
-    _lease: Lease,
+    use_guard: DeviceUseGuard,
 }
 
-impl<S: Sensor<Bus, Delay>> Device<S> {
-    pub(super) fn acquire(
-        binding: Binding<'_>,
+/// The current acquisition loop requires FIFO retention. Latest-value sensors
+/// need their own explicit loss/readiness policy before this HAL admits them.
+pub(super) fn resolve<S: Imu>(config: Config) -> Result<(S::Settings, AppliedConfig), DeviceError> {
+    if S::BUFFERING != Buffering::Fifo {
+        return Err(DeviceError::Unsupported);
+    }
+    S::resolve(config).map_err(Into::into)
+}
+
+impl<S: Imu> Device<S> {
+    /// Validate, reserve and open resources before initializing the sensor.
+    pub(super) fn open<R>(
         config: Config,
+        irq_path: Option<&str>,
         trace: Trace,
+        state: &'static DeviceState,
+        open: impl FnOnce() -> Result<R, DeviceError>,
+        initialize: impl FnOnce(R, S::Settings) -> Result<S, Error>,
     ) -> Result<Self, DeviceError> {
-        let applied = S::CAPABILITIES.select(config)?;
-        let lease = Lease::take()?;
-        // An absent GPIO uses an ODR-derived wake. Failure of a configured IRQ
-        // never changes acquisition mode.
-        let irq = binding.irq_path.map(Irq::open).transpose()?;
-        let bus = Bus::open(binding.path, binding.frequency, trace.clone())?;
-        let sensor = S::open(bus, binding.address, Delay, applied).inspect_err(|_| {
+        let (settings, applied) = resolve::<S>(config)?;
+        let use_guard = state.begin_use()?;
+        // A configured IRQ failure must never select the periodic mode.
+        let irq = irq_path.map(|path| open_irq(path, state)).transpose()?;
+        let resources = open()?;
+        let sensor = initialize(resources, settings).inspect_err(|_| {
             // An interrupted configuration may have left the sensor active.
-            OWNED.store(2, Ordering::Release);
+            state.mark_faulted();
         })?;
         let period = Duration::from_micros(u64::from(applied.delivery_interval_us));
-        let signal = Signal::new(irq, period);
-        let mut device = Self {
+        Ok(Self {
             sensor,
-            signal,
+            applied,
+            signal: Signal::new(irq, period),
             trace,
             cleaned: false,
-            _lease: lease,
-        };
-        if device.trace.sensor_reference() {
-            if let Err(error) = device.sensor.enable_sensor_reference() {
-                return Err(device.cleanup().err().unwrap_or(error));
-            }
+            use_guard,
+        })
+    }
+
+    /// Apply optional sensor setup before publication, retaining cleanup on failure.
+    pub(super) fn prepare(
+        mut self,
+        configure: impl FnOnce(&mut S) -> Result<(), peripheral::imu::Error>,
+    ) -> Result<Self, DeviceError> {
+        if let Err(error) = configure(&mut self.sensor) {
+            return Err(self.cleanup().err().unwrap_or(error.into()));
         }
-        Ok(device)
+        Ok(self)
     }
 
     pub(super) fn applied_config(&self) -> AppliedConfig {
-        self.sensor.applied_config()
+        self.applied
     }
 
     pub(super) fn run(
-        mut self,
+        &mut self,
         stop: &AtomicBool,
         wake: &File,
         emit: &mut dyn FnMut(Event) -> bool,
     ) -> Result<(), DeviceError> {
-        let origin = Instant::now();
+        let mut sequence = 0u64;
+        let sample_interval_us = 1_000_000_000u32.div_ceil(self.applied.rate_millihz);
         let result = (|| {
             while !stop.load(Ordering::Acquire) {
                 let Some(ready) = self.signal.wait(wake)? else {
                     break;
                 };
                 self.trace.wake(ready.periodic_deadline);
-                let now = origin.elapsed().as_millis().try_into().unwrap_or(u64::MAX);
-                let drained = self.sensor.drain(now, |sample| emit(Event::Sample(sample)));
+                let now = acquisition::monotonic_ms();
+                let drained = self.sensor.read_available(|sample| {
+                    sequence = sequence.saturating_add(1);
+                    emit(Event::Sample(ImuSample {
+                        sequence,
+                        timestamp_ms: now,
+                        sample_interval_us,
+                        accel_mps2: sample.accel_mps2,
+                        gyro_rps: sample.gyro_rps,
+                    }))
+                });
                 self.trace.drain(matches!(&drained, Ok(Some(_))));
                 let Some(count) = drained? else {
                     break;
@@ -121,17 +127,56 @@ impl<S: Sensor<Bus, Delay>> Device<S> {
         if core::mem::replace(&mut self.cleaned, true) {
             return Ok(());
         }
-        let stopped = self.sensor.stop();
+        let stopped = self.sensor.stop().map_err(DeviceError::from);
         let detached = self.signal.close();
         if stopped.is_err() || detached.is_err() {
-            OWNED.store(2, Ordering::Release);
+            self.use_guard.mark_faulted();
         }
         stopped.and(detached)
     }
 }
 
-impl<S: Sensor<Bus, Delay>> Drop for Device<S> {
+impl<S: Imu> Drop for Device<S> {
     fn drop(&mut self) {
         let _ = self.cleanup();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use peripheral::imu::{Error, Measurement};
+
+    struct Latest;
+    impl Imu for Latest {
+        const DEFAULT: Config = Config {
+            min_rate_millihz: 100_000,
+            max_rate_millihz: 100_000,
+            accel_range_g: 4,
+            gyro_range_dps: 2000,
+            max_delivery_interval_us: 10_000,
+        };
+        const BUFFERING: Buffering = Buffering::Latest;
+        type Settings = ();
+        fn resolve(_: Config) -> Result<((), AppliedConfig), Error> {
+            panic!("unsupported mode")
+        }
+        fn read_available(
+            &mut self,
+            _: impl FnMut(Measurement) -> bool,
+        ) -> Result<Option<usize>, Error> {
+            panic!("unsupported mode")
+        }
+        fn stop(&mut self) -> Result<(), Error> {
+            panic!("unsupported mode")
+        }
+    }
+
+    #[test]
+    fn latest_value_device_cannot_claim_fifo_acquisition() {
+        assert_eq!(
+            resolve::<Latest>(Latest::DEFAULT),
+            Err(DeviceError::Unsupported)
+        );
     }
 }

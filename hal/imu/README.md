@@ -1,71 +1,71 @@
 # IMU
 
-`open(sink)` creates an owned acquisition session; services receive typed
-`Event::Sample` messages and never read the bus. Call `request_stop()` and `join()`
-to wake acquisition, disable the sensor/IRQ and reclaim its worker. Drop requests
-cancellation without a hidden join; the worker retains resources through cleanup.
+This HAL manages acquisition over `peripheral::imu::Imu`. It has no production
+sensor-driver or I²C/SPI adapter dependency. Concrete selection and resource
+construction live in the [platform composition crate](../../platform/README.md).
 
-The [composition design](../../docs/peripheral-composition.md) places reusable
-BMI270 protocol behavior in `driver/bmi270` and keeps IMU normalization and
-acquisition lifecycle in this crate. The resolved product composition selects
-the NuttX model, I2C binding, optional wake resource and worker stack at build
-time. The build script emits those values as typed Rust constants; the provider
-does not parse device configuration from environment variables at runtime.
-Composition overlays and coordinated simulation are tracked in the
-[migration plan](../../docs/peripheral-composition-plan.md).
+Applications select a named device and pass it to a service, or use the HAL API:
 
-`capabilities()` reports the modes of the selected provider. Use
-`open_configured(config, sink)` to request exact full scales, inclusive rate
-limits in millihertz and a maximum nominal interval between delivery
-opportunities. The HAL selects the slowest supported rate that satisfies both
-timing requirements and returns the session with its applied settings. For
-example, 25–100 Hz with a 20 ms delivery interval limit selects 50 Hz on BMI270.
-The delivery interval is the sample period rounded up to a microsecond for
-the one-sample FIFO watermark or periodic wake. Bus wait, scheduling and sink
-backpressure affect measured latency separately.
+```rust,ignore
+use imu::{Device, Session};
+let device = composition::imu::primary_imu();
+let mut session = device.open_default(sink)?;
+session.request_stop()?;
+session.join()?;
+```
 
-The BMI270 provider accepts 25, 50, 100 or 200 Hz at any combination of
-accelerometer ±2, ±4, ±8 or ±16 g and gyroscope ±125, ±250, ±500, ±1000 or
-±2000 degrees/s. `open(sink)` uses 100 Hz, ±4 g and ±2000 degrees/s.
-The mock offers that default mode. The unbound build reports no capabilities
-and returns `Unsupported`. A zero rate or delivery interval and inverted
-rate limits return `InvalidData` on configured providers. Well-formed
-requirements without a matching mode return `Unsupported` before resource
-acquisition. A configuration readback mismatch returns `InvalidData` and
-quarantines the physical owner.
+`Device` describes permanent identity; `Session` describes exclusive active use.
+`ImuService::start_on(device)` accepts the selected reference. Services do not
+look up profiles or choose concrete devices. Unbound acquisition returns
+`Unsupported`; mocks and coordinated simulation require explicit profiles.
 
-The no_std `nxrs-bmi270` package exposes sensor-specific errors and physical
-samples. See the [driver provenance and protocol notes](../../driver/bmi270/README.md).
-This HAL maps those into `DeviceError` and `ImuSample`, assigning the monotonic
-host reception time, sequence and nominal interval at delivery.
+Drivers resolve `Config` into supported settings and SI measurements. The HAL
+adds sequence numbers, host reception timestamps and nominal sample intervals.
+`device.resolve(config)` previews accepted settings without I/O or reservation.
+`open(config, sink)` resolves before opening resources and returns the session
+with `AppliedConfig`. Invalid requirements fail before I/O; unsupported settings
+return `Unsupported`. The current acquisition loop admits FIFO devices only.
 
-The driver uses the `embedded-hal` I2C and delay traits.
-It waits for both sensors to finish startup, then enables acquisition with equal ODR,
-a one-frame FIFO watermark, headerless combined
-gyro/accel frames and INT1 watermark/full/error notifications. FIFO format is
-verified before admission. The incomplete upstream FIFO reader is not used;
-Nxrs drains bounded, frame-aligned reads through the same I2C trait. Full FIFO or
-malformed framing terminates acquisition rather than hiding an unknown gap.
+Hardware initializes on acquisition. A canonical static `construction::Instance`
+contains the device state and a mutex-protected acquisition slot, including the
+concrete driver while active. Platform wiring supplies resource-opening and
+sensor-initialization functions; the HAL controls their order. A missing bus can
+release the device normally, while uncertain sensor initialization leaves it
+faulted. One private `Device::open` operation validates, reserves and initializes
+the acquisition owner before worker startup, without a separate factory module.
+The construction API is reserved for platform catalogues and qualification;
+architecture checks reject its use in apps and services.
 
-Samples carry SI units, sequence, host reception time and nominal sample interval.
-Batch delivery time is not a measured hardware sample timestamp. Queue-full
-rejections are counted by `dropped()`; terminal errors remain observable through
-`join()` and are retried as a bounded single pending fault event.
+A device stays Busy through final delivery, sink destruction and resource cleanup.
+Failed cleanup leaves that device faulted until restart, without affecting other
+devices. Drop requests cancellation; explicit `join()` establishes retirement.
+The shared acquisition worker implements `Session` directly. Static device storage
+is separate from thread stacks, cancellation state and OS allocations. Opening
+uses typed function pointers; sample processing and ordinary sinks remain
+statically dispatched, without boxing or a runtime device registry.
 
-The NuttX provider owns the I2C File and an optional platform-registered GPIO descriptor.
-Its I2C adapter admits one read, one write or a repeated-start write/read pair,
-with at most 64 bytes in each direction. Other operation sequences fail without
-bus I/O. The host bridge witness checks message layout and cancellation using
-fake target headers. The CoreS3 cross-build checks the actual target headers and
-linkage. Neither measures physical bus or interrupt timing.
-NuttX handles interrupt notification; Rust channels are only used in task context.
-A configured IRQ uses its GPIO descriptor. With no IRQ resource, the provider
-explicitly selects an ODR-derived timer: 100 Hz gives a 10 ms wake period for
-fusion prediction without intentional batching. Both sources invoke the same
-FIFO drain and event sink. Empty FIFO reads
-emit nothing; missed ticks coalesce. A configured IRQ failure never changes modes.
-The same cancellation pipe wakes either wait without another thread or queue.
-OS scheduling and the unsynchronized sensor clock can delay delivery; late wakes
-drain all available frames and retain the nominal interval of the selected mode.
-M135 v1.0 uses this timer path because its interrupts are unwired; see
-[CoreS3 acquisition](../../docs/m5stack-cores3.md).
+The HAL owns readiness and cancellation through NuttX GPIO and shared acquisition
+helpers. A configured IRQ failure never falls back to a timer. An explicitly
+unwired device uses a sampling-rate-derived periodic wake, which is only a hint:
+the driver still checks its FIFO. Late wakes coalesce and empty FIFOs emit nothing.
+NuttX handles interrupt entry; Rust message delivery runs in task context.
+Resource packages own native ABI glue; this HAL contains no C/FFI implementation.
+
+`probe` enables optional tracing. Ordinary builds use zero-sized tracing and
+unwrapped resources, with no observer checks or timing reads. The catalogue's
+`composition::probe::open_configured` selects a physical device and activates an
+observer. Shared timing events and bus wrappers live in `acquisition::probe`;
+the catalogue reexports `Timing` for diagnostic callers. Sensor-reference setup remains
+in catalogue diagnostics, with HAL cleanup retained on setup failure. Mock,
+simulation, unbound and non-probe acquisition reject physical diagnostics.
+
+Samples use SI units. Batch reception time is not a hardware sample timestamp.
+Queue-full losses accumulate in `dropped()`; terminal errors remain observable
+through `join()`, independently of delivery. Bus wait, scheduling and sink
+backpressure affect observed latency separately from requested sampling rate.
+
+Validation includes normalized-provider lifetime tests, actual driver/resource
+witnesses and catalogue profile-switch tests. Host tests and target compilation
+do not establish physical bus or interrupt timing. See the
+[composition design](../../docs/peripheral-composition.md) and
+[static-device contract](../../docs/static-device-composition.md).

@@ -1,0 +1,6 @@
+# Windows detector admission.
+name = "windows"
+target-os = ["windows"]
+
+[hal]
+detector = "windows"

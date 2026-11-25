@@ -15,7 +15,10 @@ pub enum DeviceError {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct GnssFix {
     pub sequence: u64,
+    /// Monotonic host reception time shared with other acquisition streams.
     pub timestamp_ms: u64,
+    /// Unix milliseconds at the solution epoch, when validated by the receiver.
+    pub receiver_utc_ms: Option<i64>,
     /// WGS84 geodetic coordinates. Local map projection belongs to navigation.
     pub latitude_deg: f64,
     pub longitude_deg: f64,
@@ -33,12 +36,24 @@ pub enum Event {
     Failed(DeviceError),
 }
 
-/// Owns acquisition execution. Request cancellation, then explicitly join.
+/// An active fix-stream lifetime, not the receiver's wire protocol. The provider
+/// owns execution; this trait does not prescribe a thread or executor.
+/// Request cancellation, then explicitly join.
 /// Drop requests cancellation without blocking; the worker retains resources.
-pub trait Gnss {
+pub trait Session {
     fn request_stop(&mut self) -> Result<(), DeviceError>;
     fn join(&mut self) -> Result<(), DeviceError>;
     fn is_finished(&self) -> bool;
     /// Events rejected because the destination was full, saturated at u32::MAX.
     fn dropped(&self) -> u32;
 }
+
+/// A permanent configured receiver, separate from an active acquisition session.
+pub trait Device: Sealed + Sync {
+    fn id(&self) -> &'static str;
+    fn open<S: FnMut(Event) -> messaging::DeliveryResult<Event> + Send + 'static>(
+        &'static self,
+        sink: S,
+    ) -> Result<impl Session + Send + 'static, DeviceError>;
+}
+pub trait Sealed {}

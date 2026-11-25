@@ -1,6 +1,6 @@
 use crate::{
     control::{Backend, Owner},
-    Control, DeviceError, State,
+    Control, DeviceError, ResetCause, State,
 };
 use core::cell::Cell;
 use core::marker::PhantomData;
@@ -39,10 +39,18 @@ impl Backend for Provider {
     }
 }
 pub fn open() -> Result<impl Control, DeviceError> {
+    if option_env!("BOOT_UPDATE_CONTROL").is_none() {
+        return Err(DeviceError::Unsupported);
+    }
     if TAKEN.swap(true, Ordering::AcqRel) {
         return Err(DeviceError::Busy);
     }
     Owner::new(Provider {
         _not_sync: PhantomData,
     })
+}
+
+/// Query the previous reset without opening the firmware update controller.
+pub fn reset_cause() -> Result<ResetCause, DeviceError> {
+    ffi::reset_cause()
 }

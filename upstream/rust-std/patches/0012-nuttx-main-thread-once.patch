@@ -1,0 +1,28 @@
+--- a/lib/rustlib/src/rust/library/std/src/rt.rs
++++ b/lib/rustlib/src/rust/library/std/src/rt.rs
+@@ -114,9 +114,23 @@
+         sys::init(argc, argv, sigpipe)
+     };
+ 
+     // Remember the main thread ID to give it the correct name.
+-    // SAFETY: this is the only time and place where we call this function.
+-    unsafe { main_thread::set(thread::current_id()) };
++    let set_main_thread = || {
++        // SAFETY: NuttX calls this closure once per linked image; other
++        // platforms retain their single runtime initialization contract.
++        unsafe { main_thread::set(thread::current_id()) };
++    };
++    #[cfg(target_os = "nuttx")]
++    {
++        // Flat NuttX builtins share std but enter the runtime separately.
++        // Publishing another ID can race readers on targets without 64-bit
++        // atomics. Keep the first identity while sys::init above still runs
++        // for each builtin's file descriptors, signals and arguments.
++        static MAIN_THREAD_INIT: Once = Once::new();
++        MAIN_THREAD_INIT.call_once(set_main_thread);
++    }
++    #[cfg(not(target_os = "nuttx"))]
++    set_main_thread();
+ }
+ 
+ /// Clean up the thread-local runtime state. This *should* be run after all other

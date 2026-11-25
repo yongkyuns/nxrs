@@ -1,10 +1,8 @@
 //! Fixed, MIT-licensed PICO_S8_V1 person model. Rust owns JPEG preparation,
 //! confidence decoding and bounded box postprocessing; a supplied kernel owns
 //! only synchronous quantized numerical execution.
-#[allow(unsafe_code)]
-#[path = "../compute/esp_dl/ffi/mod.rs"]
-mod compute;
 use super::image;
+use crate::compute::esp_dl::ffi as compute;
 use crate::{Bounds, Detection, Detections, DeviceError as Error, Score};
 pub(crate) use compute::Engine;
 use std::{boxed::Box, vec::Vec};

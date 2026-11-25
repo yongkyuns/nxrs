@@ -1,7 +1,9 @@
 //! Single-source nxrs MJPEG ingest. This is a separate process, not the control API.
 #![forbid(unsafe_code)]
+pub mod av;
 pub mod config;
 pub mod bootstrap;
+mod control;
 mod detections;
 mod video;
 mod tls;

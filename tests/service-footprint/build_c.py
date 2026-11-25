@@ -8,7 +8,7 @@ import os
 import re
 import shutil
 import subprocess
-import tomllib
+import sys
 from pathlib import Path
 
 from relink_rust import lock_build_tree, refresh_registration
@@ -68,9 +68,13 @@ def main():
     source = args.source.resolve()
     if not source.is_file() or source.suffix != '.c':
         parser.error(f'missing C source: {source}')
-    profile_path = ROOT / 'platform/nuttx/platforms' / f'{args.platform}.toml'
-    if not profile_path.is_file():
-        parser.error(f'missing platform profile: {profile_path}')
+    sys.path.insert(0, str(ROOT / 'tools'))
+    import platform_config
+    try:
+        profile = platform_config.resolve(args.platform)
+        platform_config.validate_target(profile, 'nuttx')
+    except ValueError as error:
+        parser.error(str(error))
     target_c_sources = [source.resolve() for source in args.target_c_source]
     for target_c_source in target_c_sources:
         if not target_c_source.is_file() or target_c_source.suffix != '.c':
@@ -142,7 +146,6 @@ def main():
     out.mkdir(parents=True)
     shutil.copy2(nuttx / '.config', out / 'resolved.config')
     shutil.copy2(source, out / source.name)
-    profile = tomllib.loads(profile_path.read_text())
     # NuttX application archives can retain an object from the previously
     # selected Rust app even after Kconfig switches it off. Rebuild archives
     # from the selected C sources rather than linking a mixed stale archive.

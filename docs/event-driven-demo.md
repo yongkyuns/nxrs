@@ -5,17 +5,19 @@ service APIs. Product profiles select HAL implementations; app and service code
 contain no OS, board, device-path or native-driver knowledge.
 
 ```sh
-NXRS_PLATFORM=host-demo cargo run --locked -p nxrs-event-demo
+NXRS_PLATFORM=mock cargo run --locked -p nxrs-event-demo
 NXRS_PLATFORM=host-imu cargo run --locked -p nxrs-dual-imu-demo
 ```
 
 ## Ownership and delivery
 
-```text
-IMU IRQ/timer → HAL FIFO drain → typed Sample ─→ ImuService ──┐
-GNSS UART ready → HAL read/UBX → typed Fix ────→ GnssService ─┼→ FusionService
-commands ──────────────────────────────────→ service inboxes ┘
-```
+<figure class="architecture-art">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/nxrs-navigation-dataflow-dark.svg">
+    <img src="assets/nxrs-navigation-dataflow.svg" alt="Separate IMU and GNSS acquisition workers normalize data into typed events, their sensor services process those events, and a fusion owner receives their outputs. Application commands enter service inboxes." loading="lazy">
+  </picture>
+  <figcaption>Acquisition and each service own separate execution lifetimes. Arrows denote bounded task-context delivery; interrupts only notify the acquisition path. <a href="assets/nxrs-navigation-dataflow.svg">Open SVG</a>.</figcaption>
+</figure>
 
 Each HAL owns acquisition, parsing, normalization and device cleanup. Services
 own local processing and session lifecycle. Acquisition events use bounded,
@@ -30,7 +32,10 @@ count as drops. Hardware ODR is independent of service commands. The former
 
 There are two sensor acquisition workers, two sensor service owners and one
 fusion owner in the full demonstration. The dual-IMU fixture creates two
-independent pipelines. This counts application workers, not OS/system tasks.
+independent pipelines by passing the mock fixture's primary and secondary device
+references to `ImuService::start_on`. A hardware composition needs a second
+physical device bound to `aliases.imu_secondary` for the same app. This counts
+application workers, not OS/system tasks.
 Synthetic sources use timers solely as explicit mocks; production providers use
 UART readiness or IMU IRQ/ODR-derived wakes. The stock unwired M135 uses a HAL
 timer; a configured IRQ failure remains an error.

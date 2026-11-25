@@ -1,8 +1,0 @@
-[package]
-name = "nxrs-detector-build-support"
-version.workspace = true
-edition.workspace = true
-publish = false
-
-[dependencies]
-nxrs-build-support = { path = "../../../platform/build-support" }

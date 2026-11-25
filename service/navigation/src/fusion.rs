@@ -298,6 +298,7 @@ mod tests {
         let mut fix = GnssFix {
             sequence: 1,
             timestamp_ms: 0,
+            receiver_utc_ms: None,
             latitude_deg: 45.0,
             longitude_deg: 179.999,
             speed_mps: 1.0,

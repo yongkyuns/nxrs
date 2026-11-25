@@ -1,0 +1,25 @@
+{
+  "crate": "ppproto",
+  "version": "0.2.1",
+  "revision": "bd16b3093fe2ededb4fd7662ed253d7bc6b39a9b",
+  "url": "https://crates.io/api/v1/crates/ppproto/0.2.1/download",
+  "archive_sha256": "2e97092aa0d37d5c9ff116dded64bcf99a89ecda7901fc305b2176bdfac967f2",
+  "files": {
+    "vendor/ppproto/Cargo.toml": "1af45b46674e6b55d30ac557217457907e97e299af71edc129401a6506569048",
+    "vendor/ppproto/LICENSE-APACHE": "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2",
+    "vendor/ppproto/LICENSE-MIT": "8924c88b998da95624f60eeb8705eaa581586e65b686e6d3367ffb14067b8451",
+    "vendor/ppproto/README.md": "43fe583599f565c40f4c7e26ac1917ab260d36f176e087330685f2cbff91c48e",
+    "vendor/ppproto/src/fmt.rs": "29efbba075d0bcf8acd4c3f3228bbe5ab3be735c48d3894c86a957d15bab0f12",
+    "vendor/ppproto/src/lib.rs": "be23bd7ae085d392c218ca5d35de8650262258e1574207e39f0fdee71f8d9317",
+    "vendor/ppproto/src/ppp/ipv4cp.rs": "1f7d384f4e522850cb9dba33402b866df5f839f3f3bbbe151bccd6b17caa2239",
+    "vendor/ppproto/src/ppp/lcp.rs": "9f04d3344910824b761e42632b01becffcf60e13f0dd2f92ebbc7a5d7205bfa9",
+    "vendor/ppproto/src/ppp/mod.rs": "a2a59908ce8204570094d1eacd18b00266c8bfd2d45fc7ba9d3e4548c8ad0a11",
+    "vendor/ppproto/src/ppp/option_fsm.rs": "ed89149bfec6234387b68a1c1f079437283a5892090798e46cb3198f3160e7a8",
+    "vendor/ppproto/src/ppp/pap.rs": "991e2b0d7dee410a5b1b95bee3bc28be0c8df5b54434a12ad4808637503d25f4",
+    "vendor/ppproto/src/pppos/crc.rs": "bc966ee746a7232d8d44842a2a24a7a0b2a5b2d06901fc1c64d6cabe1be07e21",
+    "vendor/ppproto/src/pppos/frame_reader.rs": "3e0c34921ca0f91e5ae14a72f5e540bca1122544a86d06e18c7eb08377871bc3",
+    "vendor/ppproto/src/pppos/frame_writer.rs": "e3b24f5a584f271108029957b4c6d4e1e9b6894e09e3ce7f3b65721750334c0d",
+    "vendor/ppproto/src/pppos/mod.rs": "4f9d32ab901eaff6b02c6c8a2b14ddf68a877ec1db2ddf6eb388d5d2b216434a",
+    "vendor/ppproto/src/wire.rs": "f848ef1a239840de6b38955b17d5c6a60bb8a054f01e2c54724e688d5a053fcf"
+  }
+}

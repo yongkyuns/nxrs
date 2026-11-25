@@ -1,0 +1,137 @@
+From: nxrs contributors
+Subject: [PATCH] esp32s3: use serialized atomics with SMP and external RAM
+
+The Xtensa CAS instruction does not support PSRAM operands. Select the
+existing libc atomic functions for NuttX and compile C/C++ callers to
+use those functions. Serialize the operations with an internal-RAM
+spinlock, including across interrupts and both CPUs.
+
+--- a/arch/xtensa/src/esp32s3/Kconfig
++++ b/arch/xtensa/src/esp32s3/Kconfig
+@@ -694,6 +694,7 @@
+ config ESP32S3_SPIRAM
+ 	bool "SPI RAM Support"
+ 	default n
++	select LIBC_ATOMIC_IRQ if SMP
+ 
+ config ESP32S3_SPI2
+ 	bool "SPI 2"
+--- a/arch/xtensa/src/lx7/Toolchain.defs
++++ b/arch/xtensa/src/lx7/Toolchain.defs
+@@ -119,6 +119,11 @@
+ 
+ ARCHCFLAGS += -fno-common
+ ARCHCXXFLAGS += -fno-common
++
++ifeq ($(CONFIG_ARCH_CHIP_ESP32S3)$(CONFIG_SMP)$(CONFIG_ESP32S3_SPIRAM),yyy)
++  ARCHCFLAGS += -mdisable-hardware-atomics
++  ARCHCXXFLAGS += -mdisable-hardware-atomics
++endif
+ 
+ ARCHCFLAGS += -Wall -Wstrict-prototypes -Wshadow -Wundef -Wno-attributes -Wno-unknown-pragmas
+ ARCHCXXFLAGS += -Wall -Wshadow -Wundef -Wno-attributes -Wno-unknown-pragmas
+--- a/libs/libc/machine/arch_atomic.c
++++ b/libs/libc/machine/arch_atomic.c
+@@ -29,6 +29,7 @@
+ #include <stdbool.h>
+ #include <stdint.h>
+ #include <nuttx/irq.h>
++#include <nuttx/spinlock.h>
+ #include <nuttx/macro.h>
+ #if defined(CONFIG_LIBC_ATOMIC_HWSPINLOCK)
+ #  include <nuttx/hwspinlock/hwspinlock.h>
+@@ -52,6 +53,24 @@
+ {
+   hwspin_unlock_restore(&g_atomic_hwspinlock, flags);
+ }
++#elif defined(CONFIG_LIBC_ATOMIC_IRQ) && defined(CONFIG_ARCH_CHIP_ESP32S3) && \
++      defined(CONFIG_SMP) && defined(CONFIG_ESP32S3_SPIRAM)
++#define COMPILER_CMP_EXCHANGE(fn, n, type) CMP_EXCHANGE_WITH_WEAK(fn, n, type, )
++
++static spinlock_t g_atomic_lock = SP_UNLOCKED;
++
++static inline irqstate_t atomic_lock(void)
++{
++  irqstate_t flags = spin_lock_irqsave_notrace(&g_atomic_lock);
++  __asm__ __volatile__("memw" ::: "memory");
++  return flags;
++}
++
++static inline void atomic_unlock(irqstate_t flags)
++{
++  __asm__ __volatile__("memw" ::: "memory");
++  spin_unlock_irqrestore_notrace(&g_atomic_lock, flags);
++}
+ #elif defined(CONFIG_LIBC_ATOMIC_IRQ)
+ static inline irqstate_t atomic_lock(void)
+ {
+@@ -64,6 +83,10 @@
+ }
+ #endif
+ 
++#ifndef COMPILER_CMP_EXCHANGE
++#  define COMPILER_CMP_EXCHANGE CMP_EXCHANGE
++#endif
++
+ /****************************************************************************
+  * Public Functions
+  ****************************************************************************/
+@@ -129,19 +152,19 @@
+  * Name: __atomic_compare_exchange_1
+  ****************************************************************************/
+ 
+-CMP_EXCHANGE(__atomic_compare_exchange_, 1, uint8_t)
++COMPILER_CMP_EXCHANGE(__atomic_compare_exchange_, 1, uint8_t)
+ 
+ /****************************************************************************
+  * Name: __atomic_compare_exchange_2
+  ****************************************************************************/
+ 
+-CMP_EXCHANGE(__atomic_compare_exchange_, 2, uint16_t)
++COMPILER_CMP_EXCHANGE(__atomic_compare_exchange_, 2, uint16_t)
+ 
+ /****************************************************************************
+  * Name: __atomic_compare_exchange_4
+  ****************************************************************************/
+ 
+-CMP_EXCHANGE(__atomic_compare_exchange_, 4, uint32_t)
++COMPILER_CMP_EXCHANGE(__atomic_compare_exchange_, 4, uint32_t)
+ CMP_EXCHANGE(atomic_compare_exchange_, 4, int32_t)
+ 
+ /****************************************************************************
+--- a/libs/libc/machine/arch_atomic.h
++++ b/libs/libc/machine/arch_atomic.h
+@@ -78,11 +78,11 @@
+     return ret;                                                       \
+   }
+ 
+-#define CMP_EXCHANGE(fn, n, type)                                     \
++#define CMP_EXCHANGE_WITH_WEAK(fn, n, type, ...)                                     \
+                                                                       \
+   bool weak_function CONCATENATE(fn, n)(FAR volatile void *mem,       \
+                                         FAR volatile void *expect,    \
+-                                        type desired, bool weak,      \
++                                        type desired, __VA_ARGS__     \
+                                         int success, int failure)     \
+   {                                                                   \
+     bool ret = false;                                                 \
+@@ -104,6 +104,9 @@
+     return ret;                                                       \
+   }
+ 
++#define CMP_EXCHANGE(fn, n, type) \
++  CMP_EXCHANGE_WITH_WEAK(fn, n, type, bool weak,)
++
+ #define FLAG_TEST_AND_SET(fn, n, type)                                \
+                                                                       \
+   type weak_function CONCATENATE(fn, n)(FAR volatile void *ptr,       \
+--- a/sched/Kconfig
++++ b/sched/Kconfig
+@@ -285,6 +285,7 @@
+ 
+ config TICKET_SPINLOCK
+ 	bool "Use ticket Spinlocks"
++	depends on !ARCH_CHIP_ESP32S3 || !SMP || !ESP32S3_SPIRAM
+ 	default n
+ 	---help---
+ 		Use ticket spinlock algorithm.

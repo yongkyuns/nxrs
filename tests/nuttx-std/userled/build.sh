@@ -49,8 +49,8 @@ assert len(led_roots) == 1, 'unified HAL root target led was not compiled'
 selection = [m for m in messages if m.get('reason') == 'build-script-executed'
              and m['package_id'] == led_id]
 assert len(selection) == 1, 'missing/duplicate LED platform cfg evidence'
-cfgs = [cfg for cfg in selection[0]['cfgs'] if cfg.startswith('hal_')]
-assert cfgs == ['hal_provider="hardware"'], f'wrong LED platform selection: {cfgs}'
+cfgs = [cfg for cfg in selection[0]['cfgs'] if cfg.startswith(('platform=', 'hal_', 'nxrs_hal_'))]
+assert cfgs == ['platform="nuttx"'], f'wrong LED platform selection: {cfgs}'
 assert dict(selection[0]['env'])['NXRS_USERLED_PATH'] == '/dev/nxrs-userled'
 assert 'static=led_native' in selection[0]['linked_libs'], 'LED package did not own its native archive'
 (out / 'userled-hal-selection.json').write_text(json.dumps({
@@ -69,13 +69,13 @@ qualification=userled-esp32s3
 provider_path=/dev/nxrs-userled
 lower_half=instrumented-test-not-physical-gpio
 USERLED_PROVENANCE
-sha256sum hal/led/Cargo.toml hal/led/build.rs hal/led/src/lib.rs hal/led/src/api.rs \
+sha256sum hal/led/Cargo.toml tools/build-support/cargo/hal.rs hal/led/src/lib.rs hal/led/src/api.rs \
   hal/led/src/platform/mod.rs hal/led/src/platform/nuttx/mod.rs \
   hal/led/src/platform/nuttx/ffi/userled.c \
-  platform/build-support/Cargo.toml platform/build-support/src/lib.rs \
-  platform/build-support/src/profile.rs platform/build-support/src/native.rs \
-  platform/build-support/src/native_nuttx.rs platform/nuttx/std-app/Makefile \
-  platform/nuttx/platforms/esp32s3-userled.toml platform/nuttx/platforms/esp32s3-qemu-mock.toml \
+  tools/build-support/Cargo.toml tools/build-support/src/lib.rs \
+  tools/build-support/src/profile.rs tools/build-support/src/native.rs \
+  tools/build-support/src/native_nuttx.rs tools/build/nuttx/std-app/Makefile \
+  tests/profiles/esp32s3-userled.toml tests/profiles/esp32s3-qemu-mock.toml \
   tests/nuttx-std/userled/src/main.rs tests/nuttx-std/userled/nuttx/fixture.c \
   tests/nuttx-std/userled/Cargo.toml tests/nuttx-std/userled/build.sh > "$OUT/userled-sources.sha256"
 echo 'USERLED final image ready; runtime qualification is a separate required step.'

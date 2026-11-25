@@ -2,12 +2,12 @@
 //! the ordinary-std NuttX application. Platform runtime mechanics stay outside.
 use core::ffi::CStr;
 
-use nxrs_applications::{AppState, CameraProduct, Progress};
+use camera_test_support::{AppState, CameraProduct, Progress};
 use camera::{Camera, DeviceError, Format, PixelFormat};
 use nuttx_support::DeviceCamera;
 use nuttx_support::FileStorage;
-use transport::PacketSink;
-use camera_service::{CameraState, CaptureProgress};
+use camera_test_support::packet::PacketSink;
+use camera::capture::{Progress as CaptureProgress, State as CameraState};
 
 extern "C" {
     fn rc_sim_note(phase: u32);

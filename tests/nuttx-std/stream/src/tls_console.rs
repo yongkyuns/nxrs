@@ -193,7 +193,7 @@ mod device {
 
         let mut sequence = 0u64;
         let raw = _raw;
-        let time = move |_: &tls::Identity| {
+        let time = move |_: &tls::Identity, _: home_cam::TimeChannel<'_, '_>, _: home_cam::RefreshStep<'_>| {
             let _keep_console_raw = &raw;
             sequence = sequence.checked_add(1).ok_or(tls::Error::Time)?;
             let started = Instant::now();

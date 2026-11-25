@@ -27,8 +27,8 @@ and uses no OS whitelist. A consumer declares the software it needs normally:
 nxrs-storage = { path = "../../hal/storage", features = ["recording"] }
 ```
 
-The native `nxrs` replay CLI forwards this feature alongside camera replay and
-UDP. Services consume only the `Storage` contract. Core-only compatibility
+Native qualification enables this feature alongside camera replay and UDP.
+Services consume only the `Storage` contract. Core-only compatibility
 providers remain test-local under `tests/nuttx/support`.
 
 ## Queued recording semantics

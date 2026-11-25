@@ -7,6 +7,7 @@ import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
+TARGET = 'xtensa-esp32s3-nuttx'
 
 
 class DetectorCompositionTests(unittest.TestCase):
@@ -25,10 +26,24 @@ class DetectorCompositionTests(unittest.TestCase):
         library = libraries['nxrs_build_support']
         externs = [argument for name, path in libraries.items()
                    for argument in ('--extern', name + '=' + str(path))]
-        for name, path in [('hal', 'hal/detector/build.rs'),
-                           ('stream', 'tests/nuttx-std/stream/build.rs')]:
+        # Use the frontend's receipt writer without invoking a target toolchain.
+        receipt_writer = cls.directory / 'write_receipt.rs'
+        receipt_writer.write_text('''
+use nxrs_build_support::{profile::Profile, resolved};
+use std::path::Path;
+
+fn main() {
+    let args: Vec<_> = std::env::args().collect();
+    let root = Path::new(&args[1]);
+    let profile = Profile::resolve(root, &args[2]).unwrap();
+    resolved::write(Path::new(&args[3]), root, &profile, &args[4], "nuttx").unwrap();
+}
+''')
+        for name, path in [('hal', ROOT / 'tools/detector-build-support/cargo.rs'),
+                           ('stream', ROOT / 'tests/nuttx-std/stream/build.rs'),
+                           ('receipt', receipt_writer)]:
             executable = cls.directory / (name + ('.exe' if os.name == 'nt' else ''))
-            subprocess.run(['rustc', '--edition=2024', str(ROOT / path), '-o', str(executable),
+            subprocess.run(['rustc', '--edition=2024', str(path), '-o', str(executable),
                             *externs, '-L', 'dependency=' + str(library.parent / 'deps'), '-Cpanic=abort'],
                            cwd=ROOT, check=True, capture_output=True, text=True, timeout=60)
             cls.executables[name] = executable
@@ -41,9 +56,14 @@ class DetectorCompositionTests(unittest.TestCase):
         manifest = ROOT / ('hal/detector' if name == 'hal' else 'tests/nuttx-std/stream')
         out = self.directory / 'out'
         out.mkdir(exist_ok=True)
+        receipt = self.directory / (platform + '.json')
+        if not receipt.exists():
+            subprocess.run([str(self.executables['receipt']), str(ROOT), platform, str(receipt), TARGET],
+                           cwd=ROOT, check=True, capture_output=True, text=True, timeout=15)
         env = {**os.environ, 'NXRS_PLATFORM': platform, 'CARGO_MANIFEST_DIR': str(manifest),
+               'NXRS_RESOLVED_PROFILE': str(receipt), 'NXRS_SDK_ROOT': str(ROOT),
                'CARGO_PKG_NAME': 'nxrs-detector', 'CARGO_CFG_TARGET_OS': 'nuttx',
-               'TARGET': 'xtensa-esp32s3-nuttx', 'OUT_DIR': str(out)}
+               'TARGET': TARGET, 'OUT_DIR': str(out)}
         for feature in ('PICO_MODEL', 'PERSON_MODEL', 'PROBE'):
             env.pop('CARGO_FEATURE_' + feature, None)
         env.update({'CARGO_FEATURE_' + feature: '1' for feature in features})
@@ -66,7 +86,8 @@ class DetectorCompositionTests(unittest.TestCase):
         self.assertIn('person_detect.tflite', (out / 'network.rs').read_text())
 
     def test_stream_factory_and_budget_follow_profile_with_independent_probes(self):
-        for suffix, enabled, stack, interval in [('', True, 131072, 750),
+        for suffix, enabled, stack, interval in [('', True, 131072, 500),
+                                                 ('-single-core', True, 131072, 750),
                                                  ('-vww', True, 524288, 2000),
                                                  ('-video', False, 131072, 750)]:
             for features in ((), ('PROBE',)):
@@ -77,7 +98,8 @@ class DetectorCompositionTests(unittest.TestCase):
                     self.assertIn(f'ENABLED:bool = {str(enabled).lower()}', text)
                     self.assertIn(f'STACK_BYTES:usize = {stack}', text)
                     self.assertIn(f'SAMPLE_MS:u64 = {interval}', text)
-                    self.assertEqual('mod batch;' in text, suffix == '' and features == ('PROBE',))
+                    pico = suffix in ('', '-single-core')
+                    self.assertEqual('mod batch;' in text, pico and features == ('PROBE',))
                     self.assertIn('esp32s3-camera-stream.toml', result.stdout)
 
     def test_dry_run_leaves_model_dependency_resolution_pending(self):

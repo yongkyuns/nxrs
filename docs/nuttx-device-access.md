@@ -11,48 +11,41 @@ The governing rule is:
 > A hardware capability is implemented in its single Rust HAL crate. Use
 > qualified Rust `std` APIs directly for ordinary file/socket operations. Keep
 > the small amount of NuttX-specific ABI glue required for device controls
-> private to that crate's selected provider module.
+> private to the owning provider or reused resource package.
 
 Portable applications and services see only typed capability APIs. They never
 see device paths, file descriptors, `ioctl` request numbers, NuttX C structs,
 or NuttX-specific error values.
 
+This is a capability boundary, not a rule that all native code must move into
+drivers. Wi-Fi/BLE adapters remain with their owning HALs. Ordinary networking
+uses `std::net` without a second socket driver. Shared acquisition mechanics
+live in `shared/acquisition`; reusable I²C/GPIO resource access lives in `driver/`.
+
 The [peripheral composition design](peripheral-composition.md) and its
 [migration steps](peripheral-composition-plan.md) extend this boundary to
 Nxrs-owned Rust peripheral drivers over NuttX bus resources. The product profile
-and explicit overlays resolve the resource bindings before compilation.
+and explicit overlays resolve resource bindings before compilation. For composed
+peripherals, a checked BSP mapping derives both NuttX Kconfig and Rust endpoint
+paths from each resource selection. Products supply the binding's native pin
+symbols once; declared claims use the BSP's native numbering namespace.
+Port/mux encodings and electrical setup stay in NuttX board headers and drivers,
+without a separate Nxrs pinctrl catalogue.
+NuttX still owns registration; the build checks its effective Kconfig and
+acquisition checks actual endpoints. See the composition design for supported
+BSP mappings and migration from raw resource paths.
 
 ## 1. Architecture
 
 A typical physical NuttX capability has this shape:
 
-~~~text
-portable app/service
-        |
-        | typed Rust API
-        v
-hal/<capability>/
-  src/api.rs              provider-independent contract
-  src/lib.rs              crate root and profile-selected wiring
-  src/platform/nuttx/    private NuttX implementation in Rust
-    ffi/                   optional, minimal target-header glue only
-        |
-        +---- std::fs / std::io / std::net
-        |         |
-        |         v
-        |      NuttX libc/VFS/socket interface
-        |
-        +---- private typed FFI, only when std cannot express the operation
-                  |
-                  v
-               ioctl / target ABI operation
-                  |
-                  v
-             NuttX VFS driver
-                  |
-                  v
-          lower-half / hardware
-~~~
+<figure class="architecture-art">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/nxrs-device-access-dark.svg">
+    <img src="assets/nxrs-device-access.svg" alt="A typed capability API leads to its private Rust NuttX provider. Qualified std file operations and minimal private device-control bindings reach NuttX native operations and the registered device driver." loading="lazy">
+  </picture>
+  <figcaption>The device endpoint path is shown. Qualified networking uses std::net directly; native radio SDK calls remain private to their capability. <a href="assets/nxrs-device-access.svg">Open SVG</a>.</figcaption>
+</figure>
 
 The Rust NuttX provider is the implementation. The optional C file is not
 another adapter architecture. It is only an ABI boundary for operations whose
@@ -61,15 +54,13 @@ headers.
 
 Example with the qualified USERLED implementation:
 
-~~~text
-application/service
-  -> led::open() / led::Led       # Rust crate namespace; package nxrs-led
-       -> private NuttX module    # hal/led/src/platform/nuttx/mod.rs
-            -> OpenOptions("/dev/userleds")
-            -> set(index, on)
-                 -> private NuttX USERLED ioctl
-                      -> hal/led/src/platform/nuttx/ffi/userled.c
-~~~
+| Boundary | USERLED implementation |
+| --- | --- |
+| Public Rust API | `led::open()` and `led::Led` in package `nxrs-led` |
+| Private provider | `hal/led/src/platform/nuttx/mod.rs` |
+| Resource acquisition | `OpenOptions` opens `/dev/userleds` |
+| Typed operation | `set(index, on)` requests the private NuttX USERLED control |
+| Target-header translation | `hal/led/src/platform/nuttx/ffi/userled.c` |
 
 This is an implemented path, not a claim that every HAL or radio has a NuttX
 provider. The selected `NXRS_PLATFORM` must bind a capability to an existing
@@ -94,26 +85,10 @@ required operation, the provider should use ordinary Rust APIs directly:
 
 Conceptually:
 
-~~~text
-OpenOptions::open("/dev/imu0")
-        |
-        v
-Rust std
-        |
-        v
-NuttX open()
-        |
-        v
-VFS lookup
-        |
-        v
-driver open()
-
-File::read(...)
-        |
-        v
-Rust std -> NuttX read() -> driver read()
-~~~
+| Rust operation | Native operation | NuttX dispatch |
+| --- | --- | --- |
+| `OpenOptions::open("/dev/imu0")` | Rust std calls NuttX `open()` | VFS resolves the registered endpoint and calls its driver `open()` |
+| `File::read(...)` | Rust std calls NuttX `read()` | VFS dispatches the descriptor to the driver's `read()` |
 
 This is the preferred path because it has no Nxrs-specific translation layer.
 
@@ -226,27 +201,17 @@ shim.
 
 A NuttX provider should normally consist of:
 
-~~~text
-hal/<capability>/src/platform/
-  nuttx/
-    mod.rs         # real Rust implementation
-    ffi/           # absent unless target ABI glue is needed
-~~~
+| Path inside `hal/<capability>/src/platform/nuttx/` | Content |
+| --- | --- |
+| `mod.rs` | The Rust implementation |
+| `ffi/` | Optional target ABI glue; omit it when unnecessary |
 
 Do not add wrappers for operations already available through a qualified Rust
 standard-library path.
 
 In particular, do not create capability-local C wrappers merely to rename:
 
-~~~text
-open()
-read()
-write()
-socket()
-send()
-recv()
-close()
-~~~
+`open()`, `read()`, `write()`, `socket()`, `send()`, `recv()` and `close()`
 
 when the provider can use the corresponding qualified Rust `std` facility
 directly.
@@ -267,18 +232,11 @@ IMU is `/dev/imu0`, or which bus/address/IRQ backs either device.
 
 Those facts belong below the portable boundary:
 
-~~~text
-product platform / NuttX board configuration
-        |
-        v
-selected capability provider
-        |
-        v
-provider-local configuration
-        |
-        v
-NuttX device node
-~~~
+| Owner | Configuration responsibility |
+| --- | --- |
+| Product profile and NuttX board configuration | Select supported resources and native settings |
+| Selected capability provider | Consume the validated, provider-local configuration |
+| NuttX device node | Expose the endpoint registered by the BSP and driver |
 
 The exact mechanism can vary by capability. Do not create one giant portable
 configuration enum solely to represent provider-specific resource descriptions.
@@ -301,36 +259,31 @@ The Nxrs Rust HAL begins at the user-facing driver contract exposed by NuttX.
 
 For a raw bus, a Rust resource adapter implements an existing interface such as
 `embedded_hal::i2c::I2c` through the NuttX descriptor. A reusable package under
-`driver/<device>` owns the peripheral protocol. The capability HAL owns the
-translation into common observations and the acquisition lifecycle. The BMI270
-protocol now lives in the no_std `nxrs-bmi270` package; `hal/imu/src/sensors/bmi270.rs`
-maps its samples and errors into the IMU contract. The NuttX provider's
-`i2c.rs` owns the bus descriptor and bounds transfers. Its device owner holds
+`driver/<device>` owns the peripheral protocol. BMI270 and LSM6DSO directly
+implement the shared synchronous IMU contract in `driver/peripheral`, retaining
+chip-specific APIs. The platform catalogue owns concrete construction. The HAL owns reception timestamps,
+stream sequencing, readiness, acquisition and joined cleanup. It maps device
+failures into its lifecycle error vocabulary. `driver/i2c` owns the NuttX-only
+bus adapter, descriptor and bounded transfers; `driver/spi` similarly implements
+bounded `SpiDevice` transactions with one native sequence per transaction; NuttX still owns the controller
+driver and bus serialization. The IMU's `trace/` module only adds optional
+transaction timing through the embedded-hal interface. Its device owner holds
 the sensor and wake resources through acquisition and joined cleanup.
+`driver/gpio` owns the GPIO descriptor, registration/rollback and target ioctls;
+its task-context cleanup-failure hook lets IMU retain quarantine on all failure
+paths. The NuttX poll/pipe ABI used by IMU, GNSS and audio lives in
+`shared/acquisition`. IMU owns readiness mode, cadence, sample admission and
+teardown ordering.
 
 For a complete NuttX device driver, the capability can consume that registered
 interface directly. A resource must have one active driver owner. The CoreS3
 raw-I2C profile therefore disables NuttX's BMI270 driver. Existing camera and
 radio paths retain their qualified SDK/kernel ownership.
 
-~~~text
-Rust capability semantics
-        |
-        v
-NuttX provider in hal/<capability>/nuttx
-        |
-        v
-descriptor operations + minimal private controls
-        |
-        v
-NuttX upper-half / file_operations
-        |
-        v
-NuttX lower-half
-        |
-        v
-hardware
-~~~
+The Rust capability defines semantics and lifetime. Its NuttX provider uses
+ordinary descriptor operations plus the minimum private controls required.
+NuttX dispatches those operations through its upper-half `file_operations` and
+lower-half driver to hardware, as shown in the [device-access figure](#1-architecture).
 
 Nxrs therefore does not need another C "upper half" above the NuttX upper half.
 
@@ -340,9 +293,9 @@ This device-access design does not prescribe a second execution framework.
 
 A HAL/provider may need blocking I/O, descriptor readiness, an IRQ-originated
 notification, or a dedicated acquisition loop. Whatever mechanism is chosen,
-the NuttX-specific wait/readiness details remain inside the capability/provider
-boundary and integrate with the service communication model documented
-elsewhere.
+the NuttX-specific wait/readiness details remain below the public capability
+boundary, in its provider or the shared resource/acquisition support. They
+integrate with the service communication model documented elsewhere.
 
 Do not expose raw descriptor readiness as application policy solely because the
 underlying NuttX device uses a file descriptor.
@@ -384,7 +337,7 @@ ordinary I/O.
 
 ## 11. Current repository migration direction
 
-The desired direction is already demonstrated by the NuttX transport provider,
+The desired direction is already demonstrated by the NuttX standard UDP qualification,
 which uses `std::net::UdpSocket` directly and contains no socket wrapper layer.
 
 Some older camera/storage compatibility providers still route ordinary
@@ -394,16 +347,11 @@ for new physical HALs.
 
 As each corresponding Rust `std` path is qualified, simplify those providers:
 
-~~~text
-before
-Rust HAL -> C open/read/write/close wrapper -> NuttX
-
-target
-Rust HAL -> Rust std -> NuttX
-
-and only where required
-Rust HAL typed method -> tiny private ioctl/ABI helper -> NuttX
-~~~
+| Operation | Migration direction |
+| --- | --- |
+| Ordinary open, read, write and close | Replace the C forwarding wrapper with qualified Rust std calls into NuttX |
+| Device controls requiring native ABI definitions | Retain a typed Rust method with a minimal private ioctl/ABI helper |
+| Capability lifecycle and errors | Keep ownership and error policy in Rust, including existing close/error guarantees |
 
 Existing special close/error qualification must be preserved where its stronger
 lifecycle semantics are part of a capability's requirements; migration must not
@@ -414,7 +362,8 @@ silently weaken an already tested failure contract.
 The following are architectural invariants:
 
 - Applications and services consume typed Rust capability APIs.
-- A concrete hardware resource is implemented in its dedicated Rust HAL provider.
+- Hardware access belongs to the owning Rust HAL provider or a reusable driver
+  resource adapter; consumers see the capability contract.
 - NuttX device paths, descriptors and request numbers stay below that boundary.
 - Qualified `std` APIs are used directly instead of being rewrapped.
 - Device-specific native ABI glue is private and minimal.
@@ -422,10 +371,59 @@ The following are architectural invariants:
 - No generic Nxrs POSIX/device framework is introduced.
 - Unselected capability providers and their exclusive glue are absent from the
   production dependency graph.
-- New Nxrs-owned peripherals place reusable chip behavior in driver packages and
-  capability translation in their HAL. Existing std and embedded-hal interfaces
-  connect these layers, with private native glue only where the OS ABI needs it.
+- New Nxrs-owned peripherals place reusable chip behavior and shared device
+  contract implementations in driver packages. HALs own managed acquisition and
+  resource lifetime. Existing std and embedded-hal interfaces connect resources,
+  with private native glue only where the OS ABI needs it.
 
 See [HAL capability architecture](hal-platform-architecture.md),
 [architecture](architecture.md), [NuttX std qualification](nuttx-std.md), and
 [NuttX descriptor ownership](nuttx-ownership.md).
+
+NuttX camera, RTC, watchdog and flash device paths and the Wi-Fi interface name
+are explicit profile values (`camera.device`, `rtc.device`, `watchdog.device`,
+`flash.device`, `wifi.interface`). They select
+existing BSP registrations; declaring a path does not create a driver or endpoint.
+GNSS device catalogues supply UART bindings and concrete protocol constructors;
+the HAL retains descriptor ownership, termios rollback and per-receiver faults.
+
+## RTC, watchdog and raw NOR
+
+- Use `SystemTime::now()` for OS wall time and `Instant` for elapsed time.
+  `rtc::open()` accesses the hardware clock directly when an application needs
+  to check whether it was set or set it from a trusted source. It exchanges
+  `SystemTime` values at whole-second resolution. NuttX updates its system clock
+  after a successful set.
+- Use `watchdog::arm(Duration)` with a runtime watchdog binding. The owner
+  explicitly feeds the timer after verifying health and calls `disarm` to stop
+  it. Closing the descriptor leaves it running. Inherited bindings use
+  `watchdog::adopt()` and provide only cancellation. Existing profiles default
+  to inherited mode.
+- `boot::reset_cause()` reports the preceding reset on boards that implement
+  NuttX's reset-cause query. It works without an update slot or a boot-control
+  owner. A chip-wide reset code may have several hardware causes.
+- Use `std::fs` for filesystem-backed storage. `settings::Store` persists named
+  settings records on NuttX through the `/dev/config` device controls.
+  `flash::open()` gives an exclusive Nxrs lease on a dedicated,
+  unmounted NOR partition. It uses `File` for seek, read and synchronous direct
+  programming. Geometry, erase and cache invalidation use target ioctls. The
+  partition must be separate from firmware slots, boot metadata, and other
+  consumers. Respect the reported program and erase sizes. The flash operation
+  can stall other work while the chip is busy.
+
+The [peripheral fixture](../tests/nuttx-std/peripherals/README.md) uses
+the WROOM and Pico 2 W BSP registrations and dedicated scratch partitions.
+
+## GPIO, PWM and ADC resources
+
+`driver/gpio` implements the embedded-hal pin traits over NuttX GPIO
+descriptors. Digital levels use standard file reads and writes. A rising-edge
+registration uses the existing cancellable task-context wait and cleanup
+contract. The BSP configures the pin and edge.
+
+`driver/pwm` implements embedded-hal duty control for a single-output timer.
+`driver/adc` reads one native ADC record at a time through a nonblocking
+`File`. Use the trigger operation with a software-triggered endpoint and
+plain reads with a streaming endpoint. Sample values use the lower half's
+units. A consumer that needs voltage supplies the device-specific conversion.
+Native timer and ADC controls stay private to each driver.

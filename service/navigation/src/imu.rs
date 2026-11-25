@@ -1,5 +1,5 @@
 use std::io;
-use std::sync::mpsc::{sync_channel, SyncSender, TrySendError};
+use std::sync::mpsc::{sync_channel, SyncSender};
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,
@@ -7,7 +7,7 @@ use std::sync::{
 use std::thread::{self, JoinHandle};
 
 use crate::fusion::{ImuInput, Submit};
-use imu::{DeliveryError, DeviceError, Imu, ImuSample, Rejected};
+use imu::{DeviceError, ImuSample, Session};
 use messaging::{bounded, Inbox, Sender};
 
 const INBOX_CAPACITY: usize = 32;
@@ -76,27 +76,17 @@ impl ImuService {
         self.processor = processor;
         self
     }
-    pub fn start(self) -> io::Result<ImuHandle> {
+    /// Acquire the caller's logical device while keeping service policy portable.
+    pub fn start_on(self, selected: &'static impl imu::Device) -> io::Result<ImuHandle> {
         let (control, inbox) = bounded(INBOX_CAPACITY);
-        let sender = control.clone();
         // This endpoint only admits messages; acquisition invokes it in task context.
-        let sink = move |value: imu::Event| {
-            sender
-                .try_send(Event::Device(value))
-                .map_err(|error| Rejected {
-                    value,
-                    error: match error {
-                        TrySendError::Full(_) => DeliveryError::Full,
-                        TrySendError::Disconnected(_) => DeliveryError::Closed,
-                    },
-                })
-        };
-        let device = imu::open(sink).map_err(hal_error)?;
+        let sink = crate::inbox_sink(control.clone(), |event| Some(Event::Device(event)));
+        let device = selected.open_default(sink).map_err(hal_error)?;
         Self::start_device(self, device, control, inbox)
     }
 
     #[cfg(test)]
-    pub(super) fn start_with_test_device<D: Imu + Send + 'static>(
+    pub(super) fn start_with_test_device<D: Session + Send + 'static>(
         self,
         device: D,
     ) -> io::Result<(ImuHandle, TestInput)> {
@@ -117,7 +107,7 @@ impl TestInput {
 }
 
 impl ImuService {
-    fn start_device<D: Imu + Send + 'static>(
+    fn start_device<D: Session + Send + 'static>(
         self,
         device: D,
         control: Sender<Event>,
@@ -190,7 +180,7 @@ impl Drop for ImuHandle {
         self.request_stop();
     }
 }
-fn run<D: Imu>(
+fn run<D: Session>(
     mut service: ImuService,
     mut device: D,
     inbox: Inbox<Event>,
@@ -259,7 +249,7 @@ mod tests {
         stopped: bool,
         joined: SyncSender<()>,
     }
-    impl Imu for Source {
+    impl Session for Source {
         fn request_stop(&mut self) -> Result<(), DeviceError> {
             self.stopped = true;
             Ok(())

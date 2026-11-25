@@ -74,7 +74,7 @@ def stage_native_app(tree, language, *, faults=False, pressure=False):
         shutil.copy2(source, app / source.name)
         if source.suffix == ".c" and source.name != "worker.c": native.append(source.name)
     if rust:
-        makefile = (ROOT / "platform/nuttx/std-app/Makefile").read_text()
+        makefile = (ROOT / "tools/build/nuttx/std-app/Makefile").read_text()
     else:
         (app / "Kconfig").write_text('config EXAMPLES_NXRS_BENCH\n\ttristate "C service qualification"\n\tdefault n\n')
         (app / "Make.defs").write_text('ifneq ($(CONFIG_EXAMPLES_NXRS_BENCH),)\nCONFIGURED_APPS += $(APPDIR)/examples/nxrs_bench\nendif\n')

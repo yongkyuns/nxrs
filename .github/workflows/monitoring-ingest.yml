@@ -5,21 +5,21 @@ on:
       - '.github/scripts/install-ubuntu-packages.sh'
       - 'gateway/**'
       - 'app/home-cam/**'
-      - 'service/camera/**'
       - 'service/detection/**'
       - 'hal/detector/src/api.rs'
       - 'hal/tls/**'
       - 'tests/tls/**'
       - 'tests/nuttx-std/tls-identity/**'
       - 'upstream/mbedtls/**'
-      - 'platform/profiles/linux*.toml'
-      - 'platform/build-support/**'
-      - 'platform/build/**'
+      - 'platform/linux/profile.toml'
+      - 'tests/profiles/linux-tls.toml'
+      - 'tools/build-support/**'
+      - 'tools/build/**'
       - 'tools/platform_config.py'
       - 'tools/hal_native.py'
       - 'Cargo.toml'
       - 'Cargo.lock'
-      - 'service/detection-wire/**'
+      - 'service/detection/**'
       - 'service/firmware-update/**'
       - 'service/enrollment/**'
       - 'docs/detection-protocol*'
@@ -58,6 +58,7 @@ jobs:
         run: |
           bash .github/scripts/install-ubuntu-packages.sh ffmpeg libavformat-dev libavcodec-dev libavutil-dev libclang-dev pkg-config
           cargo test --manifest-path gateway/Cargo.toml --locked -p nxrs-camera-ingest small_paced_camera_frames_encode_within_startup_budget -- --ignored
+          cargo test --manifest-path gateway/Cargo.toml --locked -p nxrs-camera-ingest --test av_transport -- --ignored
           cargo build --manifest-path gateway/Cargo.toml --locked -p nxrs-rtsp-publisher
           cargo test --manifest-path gateway/Cargo.toml --locked -p nxrs-rtsp-publisher
           cargo clippy --manifest-path gateway/Cargo.toml --locked -p nxrs-rtsp-publisher --all-targets -- -D warnings
@@ -87,6 +88,9 @@ jobs:
           test "$result" = 91
           python3 gateway/tests/publisher_reference.py --publisher gateway/target/debug/nxrs-rtsp-publisher \
             --mediamtx /tmp/nxrs-ingest-mediamtx/mediamtx --decoder-guard /tmp/nxrs-publisher-no-decoder.so
+          /tmp/nxrs-ingest-test/bin/python gateway/tests/ingest_av_reference.py --gateway-only \
+            --gateway gateway/target/debug/nxrs-gateway-control --ingest gateway/target/debug/nxrs-camera-ingest \
+            --publisher gateway/target/debug/nxrs-rtsp-publisher --mediamtx /tmp/nxrs-ingest-mediamtx/mediamtx
       - name: Actual Rust source, two viewers, stall, reconnect and child cleanup
         run: |
           /tmp/nxrs-ingest-test/bin/python gateway/tests/ingest_reference.py \

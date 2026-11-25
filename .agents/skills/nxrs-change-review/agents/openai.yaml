@@ -1,0 +1,4 @@
+interface:
+  display_name: "NXRS Change Review"
+  short_description: "Review NXRS changes against contracts and architecture"
+  default_prompt: "Use $nxrs-change-review to review these NXRS changes and report actionable, evidence-backed findings."

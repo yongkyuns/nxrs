@@ -1,0 +1,5 @@
+# Exercise the controller's Rust and NuttX path without claiming a physical LED.
+extends = "esp32s3-qemu-mock"
+
+[hal]
+led = "mock"

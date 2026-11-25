@@ -1,11 +1,24 @@
 # Peripheral composition implementation plan
 
-This is the executable work breakdown for the
-[target architecture](peripheral-composition.md). The software steps produce
-separate PR evidence. Protected-mode and physical timing claims require S8.
-Baseline inspected at `3961a15d` on November 7, 2026. Recheck paths and APIs on the
-branch used for each step. The architecture document defines the target contract.
-This plan defines migration order and acceptance evidence.
+This plan records the original composition-v1 migration and its qualification
+sequence, followed by the accepted [static-device follow-up](#static-device-follow-up).
+The [v1 architecture](peripheral-composition.md) describes current mechanics;
+the [declarative build/static-device decision](static-device-composition.md)
+defines the new target. Do not repeat completed v1 work or treat an old stage's
+source paths as the current implementation. Physical claims still require S8.
+
+The BSP resource follow-up resolves profile bindings and native pin settings
+into both NuttX Kconfig and Rust endpoints. NuttX owns pin encoding and electrical
+setup; Nxrs checks declared claims in the BSP's native numbering namespace.
+CoreS3 and DevKit mappings, conflict checks, effective
+configuration checks and input freshness are covered by existing build suites.
+Additional BSP resources require verified registration support; this does not
+complete pending physical qualification. See the [current resource flow](peripheral-composition.md#profile-composition-v1).
+
+The original S0–S11 baseline was inspected at `3961a15d` on November 7, 2026.
+The follow-up was inspected at `15f547594512528db7cae43a7bd1293ee54668e3` on
+November 8, 2026. Recheck paths, tests and overlapping PRs at each implementation
+head. Stages record required evidence, not an assertion that every gate passed.
 
 ## Working protocol
 
@@ -33,9 +46,9 @@ hardware evidence and continue independent host work when devices are absent.
 
 Read `hal/imu/src/{api,bmi270,cadence}.rs`,
 `hal/imu/src/platform/nuttx/{mod,irq,signal}.rs`, `hal/imu/src/test_support.rs`,
-`driver/acquisition/src/`, `platform/build-support/src/profile.rs`,
-`platform/build/src/{deployment,cargo_graph}.rs` and
-`platform/nuttx/platforms/m5stack-cores3-gnss.toml`.
+`shared/acquisition/src/`, `tools/build-support/src/profile.rs`,
+`tools/build/src/{deployment,cargo_graph}.rs` and
+`platform/cores3/profile.toml`.
 
 1. Trace profile values through `configure_hal` to resource acquisition. Record
    that driver selection currently accepts only BMI270 and construction is
@@ -53,7 +66,7 @@ Exit when the behavior inventory and actual test outcomes are available to S1.
 ## S1 — Extract the reusable BMI270 driver
 
 Depends on S0. Primary paths are `driver/bmi270/`, `hal/imu/src/bmi270.rs`,
-`hal/imu/src/sensors/`, both Cargo manifests, workspace membership and
+`hal/imu/src/adapters/`, both Cargo manifests, workspace membership and
 `tools/check-architecture.py` with its regression tests.
 
 1. Create the ordinary `nxrs-bmi270` package and move chip initialization,
@@ -62,7 +75,7 @@ Depends on S0. Primary paths are `driver/bmi270/`, `hal/imu/src/bmi270.rs`,
    exact post-init/configuration checks.
 2. Replace driver imports of HAL `DeviceError` and `ImuSample` with driver-owned
    errors and sample types. Keep chip-specific capabilities/configuration in the
-   driver. It must compile without std and without any Nxrs HAL dependency.
+   driver. It may use std and must remain independent of any Nxrs HAL dependency.
 3. Add a private IMU sensor implementation that maps driver results into the
    existing public contract. Retain sequence, units, reception-time meaning,
    nominal interval, 100 Hz defaults and existing loss semantics.
@@ -72,9 +85,9 @@ Depends on S0. Primary paths are `driver/bmi270/`, `hal/imu/src/bmi270.rs`,
    dependencies and app/service access to concrete drivers.
 
 Run baseline checks, `cargo test --locked -p nxrs-bmi270`, and
-`cargo check --locked -p nxrs-bmi270 --lib`. Inspect its Cargo graph for std/OS
-dependencies and use an installed core-only target for an additional compile
-witness where available. Exit when existing IMU callers and observations are
+`cargo check --locked -p nxrs-bmi270 --lib`. Inspect its Cargo graph for HAL/OS
+coupling and retain the host protocol and NuttX build witnesses. Exit when
+existing IMU callers and observations are
 preserved and the reusable driver can be consumed without `nxrs-imu`.
 
 ## S2 — Separate NuttX resources and session execution
@@ -106,9 +119,10 @@ Depends on S2. Change `hal/imu/src/api.rs`, its sensor implementation,
 `driver/bmi270` configuration support and the capability README. Review the pinned BMI270 API and the intended LSM6DSO data
 sheet/driver before choosing shared configuration semantics.
 
-1. Define capability reporting and requested/accepted configuration types for
-   ODR, physical ranges and delivery latency. Validate allowed combinations,
-   including restrictions between independently supported values.
+1. Define unit-based requested/accepted configuration types for ODR, physical
+   ranges and delivery latency. Resolve requests into concrete driver settings
+   before resource acquisition, using the driver's supported settings. Validate
+   combinations without duplicating capability tables in the HAL.
 2. Add a configured acquisition entry point while keeping `open(sink)` with its
    current defaults. Unsupported requirements return a typed error before
    acquisition is published. Accepted configuration reports actual values.
@@ -123,33 +137,33 @@ and the supported combinations are documented with exact error behavior.
 
 ## S4 — Add typed composition resolution
 
-Depends on S3. Primary paths are `platform/build-support/src/profile.rs`, a new
+Depends on S3. Primary paths are `tools/build-support/src/profile.rs`, a new
 focused `composition.rs`, `hal/imu/bindings/`, and host resolver tests.
 
-1. Implement composition version 1, resources, devices, wake choices and roles as
+1. Implement composition version 1, resources, devices, wake choices and aliases as
    specified in the architecture. Use typed records/enums with bounded validation.
    Keep native resource paths in platform configuration.
 2. Add the BMI270/I2C binding schema and an allowlisted constructor mapping. Reject
    unknown properties/models/buses, ambiguous matches, invalid addresses and
    inconsistent wake resources. Bindings identify implementations that exist.
-3. Resolve a default IMU role and validate resource claims. Distinct I2C addresses
+3. Resolve a default IMU alias and validate resource claims. Distinct I2C addresses
    may share a bus. Duplicate physical devices and exclusive IRQ conflicts fail.
 4. Translate legacy IMU profiles to the same internal graph at one resolver
    boundary, including their omitted-IRQ periodic semantics. Reject simultaneous
    legacy and v1 fields for the same capability. Keep unrelated capabilities in
    their current representation during incremental migration.
-5. Reuse application `required-capabilities` validation against the resolved role.
+5. Reuse application `required-capabilities` validation against the resolved alias.
    Add deterministic serialization and source provenance. Implement schema
    version rejection and target/provider compatibility before code generation.
 
 Run build-support tests, `test_deployment.py` and `test_platform_profiles.py`.
 Exit with legacy/v1 equivalence and negative cases for unresolved references,
-conflicting claims, incompatible roles and simulation in hardware mode.
+conflicting claims, incompatible aliases and simulation in hardware mode.
 
 ## S5 — Implement explicit overlay composition
 
-Depends on S4. Change the shared resolver, `platform/build/src/main.rs`, build
-options and `platform/build/tests/cli.rs`. Reuse the profile inspection command.
+Depends on S4. Change the shared resolver, `tools/build/src/main.rs`, build
+options and `tools/build/tests/cli.rs`. Reuse the profile inspection command.
 
 1. Implement the documented ordering, field replacement, whole-record replacement
    on compatible/kind changes, whole wake-table replacement and explicit removals.
@@ -158,7 +172,7 @@ options and `platform/build/tests/cli.rs`. Reuse the profile inspection command.
    build and inspection. Resolve relative paths against their declaring files.
    Plain builds must never discover overlays from the working directory.
 3. Validate after all merges so an overlay can replace a referenced device and
-   repair roles together. Errors must identify the responsible file/property.
+   repair aliases together. Errors must identify the responsible file/property.
 4. Print the resolved selection and provenance through profile inspection and
    dry-run. Hash normalized semantic inputs and record ordered source hashes.
    Track raw input fingerprints separately from semantic graph digests so that
@@ -172,14 +186,14 @@ the changed input/ordering appears in provenance and build identity.
 
 ## S6 — Connect resolution to normal builds and factories
 
-Depends on S5. Change `platform/build-support/src/lib.rs`,
-`platform/build/src/{build,reuse,cargo_graph}.rs`, `hal/imu/build.rs`,
+Depends on S5. Change `tools/build-support/src/lib.rs`,
+`tools/build/src/{build,reuse,cargo_graph}.rs`, `tools/build-support/cargo/hal.rs`,
 `hal/imu/src/platform/` and detached-consumer tests.
 
 1. Emit a versioned resolved-profile file atomically per build and implement
-   `NXRS_RESOLVED_PROFILE` validation. Direct Cargo consumers resolve named
-   profiles with declared overlays using `NXRS_PLATFORM` and `NXRS_SDK_ROOT`.
-   Both entry points must share the resolver and produce the same graph.
+   `NXRS_RESOLVED_PROFILE` validation. NuttX profile builds use the frontend;
+   Cargo adapters consume its receipt. Explicit host fixtures may resolve named
+   profiles using `NXRS_PLATFORM` and `NXRS_SDK_ROOT` through the same resolver.
 2. Generate typed constants and the selected checked-in factory into OUT_DIR.
    Use parsed enums and allowlisted mappings, escaping strings as Rust literals.
    Never interpolate profile text as Rust paths, shell commands or source code.
@@ -293,7 +307,7 @@ capability-local simulation implementations and a named simulation profile.
    to test harnesses and prevent scenario reuse while old callbacks are alive.
 3. Preserve existing independent scripted-session tests as named qualification
    fixtures. Specify whether an endpoint allows subscribers or exclusive
-   acquisition. Reopening a physical device's role must retain Busy semantics.
+   acquisition. Reopening a physical device's alias must retain Busy semantics.
 4. Test repeated-run equality, cross-sensor consistency, cancellation while time
    is paused, overload, detach/rejoin and no state leakage between sessions.
 5. For application determinism, route relevant timer/deadline inputs through an
@@ -310,8 +324,8 @@ behavior and the same profile resolver. Preserve receiver configuration rollback
 UART settings and existing event semantics. Use `std::io` or an existing embedded
 stream trait according to the actual driver contract.
 
-Extract a shared resource HAL only when a second consumer needs its exact bus
-protocol. Move its native ABI inventory and tests with it. Keep OS-specific
+Reusable controller access belongs in `driver/<bus>`; the NuttX-only I²C adapter
+now follows this structure with its native ABI inventory and tests. Keep OS-specific
 interfaces local and retain direct std operations for files/sockets.
 Add a macOS/Linux source only when a real supported API or external-device
 transport is identified. A native source can implement the capability directly.
@@ -353,7 +367,7 @@ python3 -m unittest discover -s tests/host -p test_hal_boundaries.py
 python3 -m unittest discover -s tests/host -p test_imu_i2c_ffi.py
 python3 -m unittest discover -s tests/host -p test_deployment.py
 python3 -m unittest discover -s tests/host -p test_platform_profiles.py
-cargo test --locked -p nxrs-imu -p nxrs-gnss -p nxrs-acquisition --lib
+cargo test --locked -p nxrs-imu -p nxrs-gnss -p nxrs-acquisition
 cargo test --locked -p nxrs-build-support -p nxrs-build
 ~~~
 
@@ -370,3 +384,326 @@ Each agent handoff must answer these questions in its PR description.
 3. Which exact commands passed, failed or could not run, and why?
 4. What evidence is host, emulator, target ABI or physical evidence?
 5. Which acceptance criteria remain open, and which step can start next?
+
+
+## Shared IMU device contract follow-up
+
+BMI270 and LSM6DSO now implement `driver/peripheral::imu::Imu` directly. This
+supersedes S1/S7's private normalization wrappers: device settings, measurements
+and errors are shared below the HAL. The selected HAL factory constructs the
+chip; shared acquisition accepts only the normalized device contract. HAL IMU
+keeps stream metadata, readiness, acquisition and lifecycle policy. Drivers own
+their binding metadata; product profiles select actual resource assignments.
+No other peripheral is migrated by this change; the static-device work below
+remains separate.
+
+## Static-device follow-up
+
+**Accepted direction; implementation in progress in
+[issue #246](https://github.com/yongkyuns/nxrs/issues/246).** D0–D5 implement the
+[declarative build and static-device contract](static-device-composition.md).
+They supersede S4/S6's local emitter, unconditional-driver and singleton
+construction mechanisms. Preserve the earlier steps' behavior and qualification
+evidence; do not restart the sensor extraction or simulation work.
+
+IMU and GNSS now use the shared pre-Cargo configuration/native handoff, optional
+chip and resource features, and canonical per-device storage. Product-owned
+catalogues and inherited path drivers use the same frontend. Common instance
+checks have a build-only third-capability witness; this does not qualify a new
+production HAL. The steps below retain the design sequence and evidence gates.
+Physical results remain specific to the revision and configuration measured.
+
+Continue from main; do not create stacked PRs.
+Update affected architecture and regression checks in the same PR that replaces
+the mechanism they enforce. Every intermediate PR must retain passing relevant
+gates; D5 audits the integrated result, not deferred repair of earlier tests.
+Preserve the current NuttX resource contracts and GNSS receiver/descriptor lease
+release ordering. Keep
+physical S8 results and unrelated radio/camera work separately scoped.
+
+### D0 — Freeze the contract and record the baseline
+
+Record current build duties and lifetime behavior before moving them. Shared
+preparation now loads package-owned catalogs and generates direct implementation
+selection with typed resource bindings. The composition crate supplies named references
+to apps and use additive optional chip dependencies. Services receive normalized
+device references. IMU and GNSS have permanent `Device` references and static
+per-device acquisition storage; uncertain cleanup quarantines only that device.
+
+Extend the typed resource construction convention to permanent instances. Settle
+generated-input delivery and package-specific compiler/link configuration; the
+public permanent-device versus session API; static state inventory; initialization
+and recovery policy; and reacquisition/terminal-event ordering. Define active
+instances from consumed, admitted capabilities and how unconsumed board-profile
+records are validated without pulling in their HAL packages or catalogs.
+The IMU API and retirement ordering are recorded in the static-device contract.
+No design may rely on per-HAL host callbacks, arbitrary Rust snippets,
+a global provider flag or Cargo features reaching undeclared dependency edges.
+
+Preserve public defaults and configured sampling semantics. IMU consumers now
+use `Device::open`/`open_default` and `Session`; root compatibility functions and
+the old session alias are removed. No-profile builds return `Unsupported`.
+IMU now retains its lease through final delivery, sink destruction and cleanup.
+Exit with the reviewed contract and a bounded baseline of relevant tests.
+
+### D1 — Prove shared preparation and Cargo integration
+
+The first slice, D1a, implements package-relative catalog discovery and
+shared typed rendering for the actual IMU/GNSS outputs. Both local build scripts
+become generic adapters, with their custom callbacks and the IMU emitter removed.
+The production shared preparation API is exercised by a detached Cargo witness;
+catalog changes invalidate receipts and generated outputs. Isolated
+IMU-only, GNSS-only and camera-only consumers check package closure.
+
+D1a initially preserved provider flags, OUT_DIR handoff, simulation preparation
+and native compilation in generic adapters. The current frontend now publishes
+validated configuration and consumed native archives before target compilation;
+adapters consume that handoff. Preserve the corresponding freshness, helper
+exclusion and target-context checks as composition is extended.
+
+
+Start in `tools/build-support/src/{composition,profile,resolved,lib}.rs`,
+`tools/build/src/{build,cargo_graph}.rs` and existing native build support.
+Extend the controller's pre-Cargo `configure_profile` path. Preserve package-relative catalog discovery and typed resource generation while
+moving their outputs into the pre-Cargo handoff.
+
+First demonstrate one profile-selected optional implementation through the real
+Cargo entry point, using a small fixture or a minimal production feature seam
+before D2 migrates all IMU implementations. Include app-to-service-to-HAL and a
+detached consumer. Feature
+activation must precede target compilation and preserve aliases, inheritance,
+defaults and Cargo's additive feature semantics. Do not copy the detector's
+mutually exclusive model policy into sensor selection.
+
+For each migrated package, replace all local build-script duties: typed
+generation, per-package provider selection, simulation configuration, native source compilation/linking and
+profile/source/header/environment freshness. Keep native sources beside the
+runtime owner and compile only consumed, feature-enabled helpers. Generated
+files stay outside source and have target/configuration/schema/generator identity,
+atomic writes and concurrent-build isolation.
+
+Exercise NuttX builds through `cargo nxrs build`, including detached products
+and qualification apps. Cargo adapters and editor checks consume prepared inputs;
+unprepared or stale firmware inputs fail clearly. Preserve ordinary Cargo for
+no-profile contracts and explicit host fixtures. Update affected generation,
+freshness and native-helper tests in this PR.
+Exit with a working handoff; do not delete HAL scripts while any of their
+responsibilities lacks a replacement.
+
+The configuration cleanup uses version 2 binding declarations, fixed I²C/UART
+resource contracts and direct checked-in implementation selection. The IMU platform catalogue imports
+its driver-owned declarations; GNSS does likewise through its catalogue. This
+removes field-projection schemas and both model-enum tables. The reusable NuttX
+I²C adapter is owned by `driver/i2c`. Profile/overlay semantics are preserved;
+detached build tests compile the actual IMU factory across both sensor
+selections. Optional dependency activation and per-device ownership are
+implemented below; current native preparation follows the consumed target graph.
+
+### D2 — Make implementations optional and additive
+
+The catalogues now declare additive optional chip dependencies. Product builds
+derive features through direct catalogue dependencies before compiling; graph
+witnesses cover either IMU driver alone and both. Catalogue-owned
+`resource-features` additionally select I2C/SPI adapters from validated devices.
+Graph and native archive witnesses cover I2C-only, SPI-only, mixed and unconsumed
+IMU configurations. Feature names remain catalogue-owned ordinary Cargo features.
+
+Change `platform/Cargo.toml`, catalogue module admission, binding metadata
+and concrete construction; keep chip dependencies out of `hal/imu`. Use ordinary optional dependencies and one feature gate per named
+implementation module. Keep direct implementation selection when extending generation to multiple
+instances; the global `MODEL` match has already been removed. No redundant `source` metadata,
+generated file selector, feature-per-instance or duplicate `mod selected`.
+
+Compile BMI270-only, LSM6DSO-only and both implementations using normal build
+entry points. Explain Cargo feature unification and distinguish production
+packages from host/dev dependencies. Preserve explicit `probe` feature and
+observer activation semantics. Runtime detection is opt-in policy, not a
+prerequisite for this work.
+Replace emitter/model-match architecture expectations alongside the new wiring.
+Exit with valid mixed-model compilation and target graph evidence that the
+unselected driver is absent in each single-model production build.
+
+### D3 — Enforce canonical static objects and per-device ownership
+
+**IMU implemented in PR #306; GNSS now follows the same ownership boundary.** Named accessors refer to permanent objects;
+same-model and mixed-model devices acquire independently. Tests cover concurrent
+settings/events, Busy aliases, failure isolation, cancellation-setup rollback,
+terminal backpressure, callback retirement and per-instance IRQ quarantine.
+Actual generated factories compile across profile switches in one Cargo output.
+Flat/protected target compile/link checks do not qualify physical concurrency.
+In the pinned 32-bit Xtensa release/probe witness, two BMI270 I²C slots and one
+LSM6DSO I²C slot occupy 144 + 144 + 168 = 456 static bytes; four aliases emit three
+objects. These sizes exclude worker stacks, transient buffers and OS allocations.
+GNSS owns per-receiver static storage and
+retains admission through terminal delivery, sink destruction and restored UART cleanup.
+
+Generate one actual static object for each active physical device with private
+configuration, persistent instance storage and ownership/fault state. Common HAL
+machinery controls construction; aliases return the same object. Keep the
+session's stop/join and typed callback contract independent from permanent identity.
+
+Migrate `hal/imu/src/platform/nuttx/{mod,device,irq}.rs`, session integration and
+every global poison path. Define private runtime access and prove that Drop cannot
+allow reacquisition while old workers/callbacks can still use the instance.
+Preserve rollback, IRQ detach, sensor stop, worker-start failure and quarantine.
+Report static bytes separately from stack, queue, transient and backend allocation.
+
+Exercise two same-model devices and a mixed pair concurrently with independent
+configuration/events/state. Verify same-object Busy through two aliases,
+other-device availability after a fault, normal cleanup/reopen and the chosen
+terminal-event ordering. Normalize physical endpoint identities and reject
+duplicate owners and conflicting IRQ/CS claims. Sharing an I2C controller must
+retain qualified transaction serialization without claiming the whole bus for
+one sensor. Exit with deterministic lifecycle/resource witnesses; hardware
+behavior remains a separate gate.
+
+### D4 — Prove reuse and detached package closure
+
+GNSS now uses the same declarative preparation path and a platform catalogue. Preserve
+UART configuration/restore ordering, receiver initialization rollback, terminal
+faults and joined cleanup. Use it to demonstrate that the schema and instance
+machinery do not encode IMU knowledge; do not expand into an unrelated HAL rewrite.
+
+Use a small declarative fixture to show that a supported binding can be added
+without central chip enums or emitter branches. A board profile's unconsumed
+devices must not add packages, helpers or linked instance storage. Exercise isolated IMU-only and
+GNSS-only detached dependency closures; retain camera-only and other existing
+external-consumer witnesses. Do not let a fixture that includes both sensor HALs
+hide undeclared sibling catalog access. Preserve explicit simulation/qualification
+profiles and portable service logic.
+
+The external product witness additionally selects a product-owned catalogue,
+inherits a renamed optional path driver through Cargo workspace metadata,
+compiles generated construction, and rejects stale workspace/catalogue inputs.
+Git/registry binding-source discovery remains outside the current path-package
+contract; it must not be approximated by an all-features fetch or another resolver.
+
+Exit with common preparation for both capabilities, no migrated HAL-local
+`build.rs`/host emitter, complete package-owned inputs and correct native-helper
+selection/linking. Record any separately scoped HALs that still await migration.
+
+### D5 — Audit integration and publish implementation evidence
+
+Confirm that D1–D4 updated `tools/check-architecture.py::inspect_generated_imu_factory`
+and `tests/host/test_hal_boundaries.py` alongside their corresponding changes.
+They must enforce the new ownership/generation boundary rather than the old
+emitter and model match. Retain checks for trusted
+construction, escaped data, dependency direction, private ABI glue, named exports
+and platform-free app/service code.
+
+Verify the adapted `tools/build/tests/imu_profile_freshness.rs` exercises the
+real common preparation path. Confirm `nuttx_helper_ownership.rs` and
+`native_header_freshness.rs` retained their behavior as compilation moved. Exercise one output
+directory through endpoint/model/instance-count/catalog changes and back to the
+original profile, plus stale-target and concurrent-profile negative cases.
+
+The concurrent-profile gate uses `tools/qualify-concurrent-builds.py` and its
+independent `tools/check-concurrent-builds.py` checker. It builds the ordinary
+CoreS3 `event-demo` profile and the existing LSM6DSO overlay in fresh sibling
+outputs, using one frontend compiled from the clean identified source revision.
+Both child builds must remain alive across observation of both complete prepared
+input sets. Final checks retain configuration actually consumed by Cargo,
+per-output native helpers and private SDK/link paths, driver inclusion/exclusion,
+provenance and target artifacts. Host regressions reject contaminated evidence
+and exercise early exit, build failure, timeout, interruption and descendant
+cleanup. The existing ESP32-S3 job runs the pair and uploads a checked finite
+bundle for relocation replay; see
+[concurrent profile qualification](build-system.md#concurrent-profile-qualification).
+Report the exact source revision and observed result for each run. This gate
+does not qualify CPU parallelism, static-memory sizes, allocation behavior or
+physical device concurrency, and does not close the remaining D5/S8 gates.
+
+The implementation acceptance matrix is:
+
+| Area | Required evidence |
+| --- | --- |
+| Generic build ownership | IMU and GNSS plus a declarative fixture use common generation; no chip-specific central branch or hidden sibling file |
+| Implementation selection | One implementation for two same-model instances; both for a mixed pair; unused target driver absent in single-model builds |
+| Identity and ownership | Actual static identity, shared aliases, duplicate-acquire Busy and independent device availability |
+| Lifecycle and faults | Cancel/drop/cleanup barriers, successful reopen, partial-start and IRQ failures, per-device quarantine |
+| Resource sharing | Duplicate endpoint/IRQ/CS rejection and correct shared-controller transactions with documented enforcement limits |
+| Freshness and package use | A→B→A, changed catalog/instance count, stale/mismatched inputs, concurrent profiles and isolated detached consumers |
+| Native and memory evidence | Selected helper/ABI checks, final map/code/data inspection, static state versus remaining allocation inventory |
+| Portability | The same application/service policy and normal entry points work across selected sensor implementations |
+
+The [acquisition memory witness](memory-qualification.md#acquisition-lifetime-witness)
+separates construction, completed first wait, stop/join and session drop for one
+and two workers, then repeats each lifecycle eight times. Its Linux Rust-allocator
+measurements and ownership inventory complement linked static-object evidence;
+they do not measure native NuttX heap/descriptor costs, stack high-water marks or
+physical sensor execution. Joined sessions still own cancellation/state allocations
+until dropped. Keep those two reclamation boundaries distinct in future target
+measurements and in the remaining D5 allocation accounting.
+
+Run the relevant existing commands above, build-support/build tests, boundary
+regressions and external-consumer suites. Inspect actual target Cargo artifacts
+and the final linked image; Cargo.lock presence or total binary size alone is
+not proof of driver inclusion/exclusion. Cross-link the affected NuttX paths
+with their pinned ABI witnesses. Run physical S8 checks only when the required
+hardware is available and authorized, and label pending cases.
+
+#### Paired CoreS3 linked-device evidence
+
+The event-demo workflow checks its existing CoreS3 BMI270 build and replacement
+LSM6DSO overlay build with `tools/check-device-closure.py`. Each image also
+consumes the configured UBX GNSS device. This is a comparison of two
+single-IMU images; it does not qualify a mixed-IMU image.
+
+The checker connects the selected production packages and target Cargo
+artifacts to the prepared configuration, build receipts, and actual Rust and
+final NuttX ELFs. It rejects a wrong model, target or revision, missing or changed
+inputs, and evidence that tries to satisfy a target-driver requirement using
+only a host artifact. Symbol inspection supplements the package and artifact
+checks; absence of a name after optimization is not sufficient evidence that a
+driver was excluded. Observed permanent device objects are reported with their
+symbol sizes, separately from worker stacks, queues, transient/session state,
+native descriptors and other runtime allocations.
+
+The `event-demo-esp32s3-nuttx` artifact retains both images, link maps, generated
+configuration, native-helper archives, Cargo messages, provenance, input hashes
+and the successful `device-closure.json` report. The report records the exact
+revision and image hashes. A failed check removes any previous report, so a
+stale success cannot be published by a repeated invocation.
+
+#### Finite CoreS3 composition matrix
+
+The same workflow has a separate `nuttx-device-matrix` job for the three
+qualification cases described in
+[`tests/nuttx-std/device-composition`](../tests/nuttx-std/device-composition/README.md).
+All three cases retain the full declared device graph; only the selected
+consumer and ordered overlays vary.
+
+| Case | Declared devices | Consumed capability | Expected linked device objects |
+| --- | --- | --- | --- |
+| `two-bmi270` | Two BMI270 IMUs and one UBX GNSS receiver | IMU | Two independent BMI270 objects; one implementation package |
+| `mixed-imu` | One BMI270, one LSM6DSO and one UBX GNSS receiver | IMU | One object per IMU; both implementation packages |
+| `gnss-only` | Same mixed device graph | GNSS | One GNSS object; no IMU implementation packages or IMU objects |
+
+`tools/check-device-closure.py` checks each case against its fixed expected
+consumer, full device graph, aliases, selected production package closure,
+native helper set and generated declarations. It compares capability, instance
+identity and object size between the Rust and final ELFs, and rejects overlapping
+final object ranges. Generated alias accessors must select the canonical
+objects without adding storage. In each case the unconsumed capability must
+contribute no NXRS target packages, helper archives or static device objects.
+The unchanged full CoreS3 profile can still enable NuttX I2C/GPIO facilities;
+their system-wide removal is outside this claim.
+
+The `device-composition-esp32s3-nuttx` artifact retains all three images and their
+maps, generated configuration, helper archives, Cargo messages, provenance,
+input hashes and successful `device-matrix.json` report. The original two-image
+checker interface and report remain available. Both modes reject a partial or
+mixed input set and remove stale reports before checking new evidence.
+
+These finite target-image checks address the same-model, mixed-model and
+unconsumed-capability cases in D5's implementation-selection and permanent-state
+evidence. The [concurrent profile qualification](build-system.md#concurrent-profile-qualification)
+covers simultaneous builds with separate outputs. Same-output locking and
+sequential profile-switch tests cover their respective concurrency and
+freshness cases. Physical S8 behavior, target allocation accounting and
+whole-system performance and memory measurements require separate evidence.
+
+Update architecture docs, HAL READMEs and AGENTS rules to the implemented state,
+remove superseded migration guidance and retain source/qualification provenance.
+A documentation-only PR references #246; it does not close this implementation
+issue or count as runtime acceptance.

@@ -1,10 +1,10 @@
 #![allow(unsafe_code)]
 
 use super::{normalize_scan, read_scan_with_retry, station, Field, SCAN_READ_TIMEOUT};
-use crate::worker::Driver;
+use crate::platform::worker::Driver;
 use crate::{AccessPoint, Capabilities, Credentials, Error, LinkState, Ssid};
 use std::boxed::Box;
-use std::ffi::{c_char, c_int, CString};
+use std::ffi::{c_int, CString};
 use std::io;
 use std::net::{Ipv4Addr, SocketAddrV4, UdpSocket};
 use std::os::fd::AsRawFd;
@@ -14,58 +14,15 @@ use std::vec;
 
 const SCAN_BYTES: usize = 4096;
 
-unsafe extern "C" {
-    fn wifi_station_available() -> c_int;
-    fn wifi_quiescence_available() -> c_int;
-    fn wifi_interface_flags_get(
-        fd: c_int,
-        interface: *const c_char,
-        flags: *mut u32,
-        up_mask: *mut u32,
-    ) -> c_int;
-    fn wifi_interface_flags_set(fd: c_int, interface: *const c_char, flags: u32) -> c_int;
-    fn wifi_station_link(fd: c_int, interface: *const c_char, state: *mut u32) -> c_int;
-    fn wifi_station_infra(fd: c_int, interface: *const c_char) -> c_int;
-    fn wifi_station_wpa(fd: c_int, interface: *const c_char, secured: c_int) -> c_int;
-    fn wifi_station_cipher(fd: c_int, interface: *const c_char, secured: c_int) -> c_int;
-    fn wifi_station_key(
-        fd: c_int,
-        interface: *const c_char,
-        password: *const u8,
-        length: usize,
-    ) -> c_int;
-    fn wifi_station_ssid(
-        fd: c_int,
-        interface: *const c_char,
-        ssid: *const u8,
-        length: usize,
-    ) -> c_int;
-    fn wifi_station_disconnect(fd: c_int, interface: *const c_char) -> c_int;
-    fn wifi_station_address(interface: *const c_char, field: u32, value: u32) -> c_int;
-    fn wifi_station_mac(interface: *const c_char, mac: *mut u8) -> c_int;
-    fn wifi_dhcp_open(
-        interface: *const c_char,
-        mac: *const u8,
-        client: *mut *mut core::ffi::c_void,
-    ) -> c_int;
-    fn wifi_dhcp_request(client: *mut core::ffi::c_void, lease: *mut station::Lease) -> c_int;
-    fn wifi_dhcp_close(client: *mut core::ffi::c_void);
-    fn wifi_scan_check(fd: c_int, interface: *const c_char) -> c_int;
-    fn wifi_scan_start(fd: c_int, interface: *const c_char) -> c_int;
-    fn wifi_scan_read(
-        fd: c_int,
-        interface: *const c_char,
-        buffer: *mut u8,
-        capacity: usize,
-        length: *mut usize,
-    ) -> c_int;
-    fn wifi_scan_next(
-        buffer: *const u8,
-        length: usize,
-        offset: *mut usize,
-        field: *mut Field,
-    ) -> c_int;
-}
+#[path = "ffi/mod.rs"]
+mod ffi;
+use self::ffi::{
+    wifi_dhcp_close, wifi_dhcp_open, wifi_dhcp_request, wifi_initialize_network,
+    wifi_interface_flags_get, wifi_interface_flags_set, wifi_quiescence_available, wifi_scan_check,
+    wifi_scan_next, wifi_scan_read, wifi_scan_start, wifi_station_address, wifi_station_available,
+    wifi_station_cipher, wifi_station_disconnect, wifi_station_infra, wifi_station_key,
+    wifi_station_link, wifi_station_mac, wifi_station_ssid, wifi_station_wpa,
+};
 
 pub(super) struct Native {
     socket: UdpSocket,
@@ -76,8 +33,7 @@ pub(super) struct Native {
 }
 
 fn open_interface() -> Result<(UdpSocket, CString), Error> {
-    let interface = CString::new(option_env!("NXRS_WIFI_INTERFACE").unwrap_or("wlan0"))
-        .map_err(|_| Error::InvalidConfig)?;
+    let interface = CString::new(env!("WIFI_INTERFACE")).map_err(|_| Error::InvalidConfig)?;
     let socket = UdpSocket::bind(SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, 0)).map_err(io_error)?;
     // SAFETY: live descriptor and name; validation retains no pointer and has
     // no interface side effects. Already-down interfaces are refused.
@@ -411,9 +367,6 @@ impl Drop for Dhcp {
 }
 
 pub(super) fn initialize_network() -> i32 {
-    unsafe extern "C" {
-        fn wifi_initialize_network() -> i32;
-    }
     // SAFETY: synchronous SDK setup; the caller serializes and retains failures.
     unsafe { wifi_initialize_network() }
 }

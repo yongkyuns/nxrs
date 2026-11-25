@@ -1,0 +1,328 @@
+diff --git a/examples/src/bin/webrtc_camera.rs b/examples/src/bin/webrtc_camera.rs
+index 0feb9bf..6e3c410 100644
+--- a/examples/src/bin/webrtc_camera.rs
++++ b/examples/src/bin/webrtc_camera.rs
+@@ -91,7 +91,8 @@ use rs_matter::dm::clusters::app::cam_av_settings::{
+     Mptz, CLUSTER_DPTZ_ONLY,
+ };
+ use rs_matter::dm::clusters::app::cam_av_stream::{
+-    CamAvError, CameraAvStreamConfig, CameraAvStreamHandler, CameraAvStreamHooks,
++    AudioCapabilitiesConfig, AudioCodecEnum, AudioStreamParams, CamAvError, CameraAvStreamConfig,
++    CameraAvStreamHandler, CameraAvStreamHooks, Feature as CameraFeature,
+     RateDistortionPoint, StreamUsageEnum, VideoCodecEnum, VideoSensorParams, VideoStream,
+ };
+ use rs_matter::dm::clusters::app::webrtc_prov::{
+@@ -193,9 +194,17 @@ const CAM_AV_NV: usize = 2;
+ /// lifecycle, not by `CameraAVStreamManagement` commands. So all hooks
+ /// are no-ops — they merely log so an operator can see the cluster
+ /// being driven.
+-struct Str0mCamHooks;
++struct Str0mCamHooks(Video);
+
+ impl CameraAvStreamHooks for Str0mCamHooks {
++    fn admit_audio(&self, params: &AudioStreamParams) -> Result<(), CamAvError> {
++        if self.0.has_opus_track() && params.bit_rate == 64_000 {
++            Ok(())
++        } else {
++            Err(CamAvError::DynamicConstraint)
++        }
++    }
++
+     async fn allocate_video(&self, stream: &VideoStream) -> Result<(), CamAvError> {
+         info!(
+             "cam-av: allocate video #{} {}x{}@{}fps",
+@@ -1176,7 +1185,7 @@ static TCP_BUFFERS: StaticCell<rs_matter::transport::network::tcp::TcpNetworkBuf
+     StaticCell::new();
+ static STATE: StaticCell<InteractionModelState> = StaticCell::new();
+ static WEBRTC: StaticCell<WebRtc> = StaticCell::new();
+-static CAM_AV: StaticCell<CameraAvStreamHandler<'static, Str0mCamHooks, CAM_AV_NV>> =
++static CAM_AV: StaticCell<CameraAvStreamHandler<'static, Str0mCamHooks, CAM_AV_NV, 1>> =
+     StaticCell::new();
+ static ZONE_MGMT: StaticCell<ZoneMgmtHandler<DemoZoneHooks, ZONE_NZ, ZONE_NV, ZONE_NT>> =
+     StaticCell::new();
+@@ -1255,7 +1264,7 @@ fn main() -> Result<(), Error> {
+     let (reader, video) = Reader::open(value("WEBRTC_RTSP_ADDR")?.parse().map_err(|_| ErrorCode::Invalid)?,
+         &value("WEBRTC_RTSP_PATH")?, &value("WEBRTC_RTSP_USER")?,
+         std::path::Path::new(&value("WEBRTC_RTSP_TOKEN_FILE")?)).map_err(|_| ErrorCode::Invalid)?;
+-    let shared = SHARED.init(Str0mShared::new(video));
++    let shared = SHARED.init(Str0mShared::new(video.clone()));
+     let webrtc = WEBRTC.init(WebRtcProvHandler::new(
+         Dataver::new_rand(&mut rand),
+         matter,
+@@ -1277,14 +1286,19 @@ fn main() -> Result<(), Error> {
+         supported_stream_usages: CAM_AV_STREAM_USAGES,
+         default_stream_usage_priorities: CAM_AV_STREAM_USAGES,
+         rate_distortion_points: CAM_AV_RATE_DISTORTION,
+-        mic_capabilities: None,
++        mic_capabilities: Some(AudioCapabilitiesConfig {
++            max_channels: 1,
++            supported_codecs: &[AudioCodecEnum::OPUS],
++            supported_sample_rates: &[16_000],
++            supported_bit_depths: &[16],
++        }),
+     };
+     let cam_av = CAM_AV.init(CameraAvStreamHandler::new(
+         Dataver::new_rand(&mut rand),
+         1,
+         cam_av_config,
+-        rs_matter::dm::clusters::app::cam_av_stream::Feature::VIDEO.bits(),
+-        Str0mCamHooks,
++        CameraFeature::VIDEO.bits() | CameraFeature::AUDIO.bits(),
++        Str0mCamHooks(video),
+     ));
+     // Pre-seed one H.264 1080p30 stream so AllocatedVideoStreams is
+     // non-empty at boot, mirroring the prior demo behaviour.
+@@ -1449,7 +1463,7 @@ const NODE: Node<'static> = Node {
+             clusters!(
+                 desc::DescHandler::CLUSTER,
+                 groups::GroupsHandler::CLUSTER,
+-                CameraAvStreamHandler::<Str0mCamHooks, CAM_AV_NV>::CLUSTER,
++                CameraAvStreamHandler::<Str0mCamHooks, CAM_AV_NV, 1>::CLUSTER_VIDEO_AUDIO,
+                 rs_matter::dm::clusters::app::cam_av_settings::CLUSTER_DPTZ_ONLY,
+                 ZoneMgmtHandler::<DemoZoneHooks, ZONE_NZ, ZONE_NV, ZONE_NT>::CLUSTER,
+                 WebRtc::CLUSTER,
+@@ -1478,7 +1492,7 @@ fn data_model<'a>(
+     matter: &'a Matter<'a>,
+     mut rand: impl Rng + Copy,
+     webrtc: &'a WebRtc,
+-    cam_av: &'a CameraAvStreamHandler<'static, Str0mCamHooks, CAM_AV_NV>,
++    cam_av: &'a CameraAvStreamHandler<'static, Str0mCamHooks, CAM_AV_NV, 1>,
+     cam_av_settings: &'a CamAvSettingsHandler<
+         DemoCamAvSettingsHooks,
+         CAM_AV_SETTINGS_NP,
+@@ -1532,7 +1546,7 @@ fn data_model<'a>(
+                 ),
+             )
+             .chain(
+-                |e, c| e == 1 && c == CameraAvStreamHandler::<Str0mCamHooks, CAM_AV_NV>::CLUSTER.id,
++                |e, c| e == 1 && c == CameraAvStreamHandler::<Str0mCamHooks, CAM_AV_NV, 1>::CLUSTER_VIDEO_AUDIO.id,
+                 rs_matter::dm::clusters::app::cam_av_stream::HandlerAsyncAdaptor(cam_av),
+             )
+             .chain(
+diff --git a/rs-matter-dm/src/clusters/app/cam_av_stream.rs b/rs-matter-dm/src/clusters/app/cam_av_stream.rs
+index 888cb0a..2193ccf 100644
+--- a/rs-matter-dm/src/clusters/app/cam_av_stream.rs
++++ b/rs-matter-dm/src/clusters/app/cam_av_stream.rs
+@@ -67,7 +67,7 @@
+ //!   per-stream toggles (not yet exposed at cluster level — once the
+ //!   user sets those feature bits, modify accepts them).
+ //! * NOT in scope (return `INVALID_ACTION` / `UNSUPPORTED_ATTRIBUTE`):
+-//!   audio streams, snapshot streams, `CaptureSnapshot`, privacy modes,
++//!   snapshot streams, `CaptureSnapshot`, privacy modes,
+ //!   night vision, image control, speaker / microphone, status light.
+ //!   Each is a follow-up.
+
+@@ -89,9 +89,12 @@ pub use crate::dm::clusters::decl::globals::StreamUsageEnum;
+
+ use super::super::decl::camera_av_stream_management as decl;
+ use super::cam_av_common::{
+-    build_stream_priorities, read_enum_array, write_audio_capabilities, write_audio_stream,
++    build_stream_priorities, read_enum_array, validate_audio_allocate, write_audio_capabilities,
++    write_audio_stream, AudioStreamTable, StreamAllocation,
++};
++pub use super::cam_av_common::{
++    AudioCapabilitiesConfig, AudioStream, AudioStreamParams, CamAvError,
+ };
+-pub use super::cam_av_common::{AudioCapabilitiesConfig, AudioStream, CamAvError};
+
+ /// Static description of the camera image sensor.
+ ///
+@@ -169,6 +172,12 @@ pub trait CameraAvStreamHooks: MaybeSendSync {
+         stream: &VideoStream,
+     ) -> impl Future<Output = Result<(), CamAvError>> + MaybeSend;
+
++    /// Check whether the source can supply this already-encoded format now.
++    /// The handler records an allocation only after this check succeeds.
++    fn admit_audio(&self, _params: &AudioStreamParams) -> Result<(), CamAvError> {
++        Err(CamAvError::DynamicConstraint)
++    }
++
+     /// Called when a controller requests `VideoStreamModify`.
+     ///
+     /// The handler has already verified the stream exists and that the
+@@ -199,6 +208,10 @@ where
+         (*self).allocate_video(stream)
+     }
+
++    fn admit_audio(&self, params: &AudioStreamParams) -> Result<(), CamAvError> {
++        (*self).admit_audio(params)
++    }
++
+     fn modify_video(
+         &self,
+         video_stream_id: u16,
+@@ -256,7 +269,7 @@ pub struct CameraAvStreamConfig<'a> {
+
+ struct State<const NV: usize, const NA: usize> {
+     videos: Vec<VideoStream, NV>,
+-    audios: Vec<AudioStream, NA>,
++    audios: AudioStreamTable<NA>,
+     stream_usage_priorities: Vec<StreamUsageEnum, MAX_STREAM_USAGES>,
+ }
+
+@@ -264,7 +277,7 @@ impl<const NV: usize, const NA: usize> State<NV, NA> {
+     const fn new() -> Self {
+         Self {
+             videos: Vec::new(),
+-            audios: Vec::new(),
++            audios: AudioStreamTable::new(),
+             stream_usage_priorities: Vec::new(),
+         }
+     }
+@@ -294,7 +307,6 @@ where
+     hooks: H,
+     state: Mutex<RefCell<State<NV, NA>>>,
+     next_id: Mutex<Cell<u16>>,
+-    next_audio_id: Mutex<Cell<u16>>,
+ }
+
+ impl<'a, H, const NV: usize, const NA: usize> CameraAvStreamHandler<'a, H, NV, NA>
+@@ -329,7 +341,7 @@ where
+     /// Cluster metadata advertising both `VIDEO` and `AUDIO` features.
+     ///
+     /// Use this (together with `CameraAvStreamConfig::mic_capabilities: Some(...)`)
+-    /// when the camera also exposes a microphone and pre-allocated audio streams.
++    /// when the camera also exposes a microphone and admits audio allocations.
+     pub const CLUSTER_VIDEO_AUDIO: Cluster<'static> = decl::FULL_CLUSTER
+         .with_revision(1)
+         .with_features(decl::Feature::VIDEO.bits() | decl::Feature::AUDIO.bits())
+@@ -348,6 +360,8 @@ where
+             decl::CommandId::VideoStreamAllocate
+                 | decl::CommandId::VideoStreamModify
+                 | decl::CommandId::VideoStreamDeallocate
++                | decl::CommandId::AudioStreamAllocate
++                | decl::CommandId::AudioStreamDeallocate
+                 | decl::CommandId::SetStreamPriorities
+         ));
+
+@@ -383,7 +397,6 @@ where
+             hooks,
+             state: Mutex::new(RefCell::new(State::new())),
+             next_id: Mutex::new(Cell::new(1)),
+-            next_audio_id: Mutex::new(Cell::new(1)),
+         }
+     }
+
+@@ -476,7 +489,7 @@ where
+
+     /// Snapshot the current set of allocated audio streams.
+     pub fn audio_streams(&self) -> Vec<AudioStream, NA> {
+-        self.state.lock(|cell| cell.borrow().audios.clone())
++        self.state.lock(|cell| cell.borrow().audios.snapshot())
+     }
+
+     /// Pre-seed an entry into `AllocatedAudioStreams` at boot without
+@@ -486,15 +499,10 @@ where
+     /// is full (or `NA = 0`).
+     pub fn add_preallocated_audio(&self, mut stream: AudioStream) -> Result<u16, Error> {
+         stream.reference_count = 0;
+-        stream.audio_stream_id = self.alloc_audio_id();
+-        let id = stream.audio_stream_id;
+-        let pushed = self.state.lock(|cell| {
+-            let mut state = cell.borrow_mut();
+-            state.audios.push(stream).is_ok()
+-        });
+-        if !pushed {
+-            return Err(ErrorCode::ResourceExhausted.into());
+-        }
++        stream.audio_stream_id = 0;
++        let id = self
++            .state
++            .lock(|cell| cell.borrow_mut().audios.add_preallocated(stream))?;
+         self.dataver.changed();
+         Ok(id)
+     }
+@@ -515,17 +523,6 @@ where
+         })
+     }
+
+-    fn alloc_audio_id(&self) -> u16 {
+-        self.next_audio_id.lock(|cell| {
+-            let mut id = cell.get();
+-            if id == 0 {
+-                id = 1;
+-            }
+-            cell.set(id.wrapping_add(1).max(1));
+-            id
+-        })
+-    }
+-
+     /// Initialise the mutable `StreamUsagePriorities` table from
+     /// `config.default_stream_usage_priorities` exactly once.
+     fn ensure_priorities_seeded(&self) {
+@@ -974,7 +971,7 @@ where
+         _ctx: impl ReadContext,
+         builder: ArrayAttributeRead<AudioStreamStructArrayBuilder<P>, AudioStreamStructBuilder<P>>,
+     ) -> Result<P, Error> {
+-        let snapshot = self.state.lock(|cell| cell.borrow().audios.clone());
++        let snapshot = self.state.lock(|cell| cell.borrow().audios.snapshot());
+         match builder {
+             ArrayAttributeRead::ReadAll(mut b) => {
+                 for s in snapshot.iter() {
+@@ -992,23 +989,57 @@ where
+         }
+     }
+
+-    // ----- Commands deferred to follow-up sessions -----
+-
+     async fn handle_audio_stream_allocate<P: TLVBuilderParent>(
+         &self,
+-        _ctx: impl InvokeContext,
+-        _request: AudioStreamAllocateRequest<'_>,
+-        _response: AudioStreamAllocateResponseBuilder<P>,
++        ctx: impl InvokeContext,
++        request: AudioStreamAllocateRequest<'_>,
++        response: AudioStreamAllocateResponseBuilder<P>,
+     ) -> Result<P, Error> {
+-        Err(ErrorCode::CommandNotFound.into())
++        if !self.has_feature(decl::Feature::AUDIO.bits()) {
++            return Err(ErrorCode::CommandNotFound.into());
++        }
++        let caps = self
++            .config
++            .mic_capabilities
++            .as_ref()
++            .ok_or(ErrorCode::InvalidInState)?;
++        let params = AudioStreamParams::new(
++            request.stream_usage()?,
++            request.audio_codec()?,
++            request.channel_count()?,
++            request.sample_rate()?,
++            request.bit_rate()?,
++            request.bit_depth()?,
++        );
++        self.ensure_priorities_seeded();
++        self.state.lock(|cell| {
++            validate_audio_allocate(&params, caps, &cell.borrow().stream_usage_priorities)
++        })?;
++        self.hooks.admit_audio(&params)?;
++        let allocation = self
++            .state
++            .lock(|cell| cell.borrow_mut().audios.find_or_create(&params))?;
++        if matches!(allocation, StreamAllocation::Created(_)) {
++            ctx.notify_own_attr_changed(AttributeId::AllocatedAudioStreams as _);
++        }
++        response
++            .audio_stream_id(allocation.stream().audio_stream_id)?
++            .end()
+     }
+
+     async fn handle_audio_stream_deallocate(
+         &self,
+-        _ctx: impl InvokeContext,
+-        _request: AudioStreamDeallocateRequest<'_>,
++        ctx: impl InvokeContext,
++        request: AudioStreamDeallocateRequest<'_>,
+     ) -> Result<(), Error> {
+-        Err(ErrorCode::CommandNotFound.into())
++        if !self.has_feature(decl::Feature::AUDIO.bits()) {
++            return Err(ErrorCode::CommandNotFound.into());
++        }
++        let id = request.audio_stream_id()?;
++        self.state
++            .lock(|cell| cell.borrow_mut().audios.deallocate(id))?;
++        ctx.notify_own_attr_changed(AttributeId::AllocatedAudioStreams as _);
++        Ok(())
+     }
+
+     async fn handle_snapshot_stream_allocate<P: TLVBuilderParent>(

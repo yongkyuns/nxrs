@@ -1,8 +1,12 @@
-//! Select one implementation from profile admission and Rust target_os.
-#[cfg_attr(
-    all(hal_provider = "hardware", target_os = "nuttx"),
-    path = "nuttx/mod.rs"
-)]
-#[cfg_attr(not(hal_provider = "hardware"), path = "unbound.rs")]
-mod selected;
+//! Select one implementation from the validated profile binding.
+cfg_if::cfg_if! {
+    if #[cfg(platform = "nuttx")] {
+        mod nuttx;
+        use nuttx as selected;
+    } else {
+        mod unbound;
+        use unbound as selected;
+    }
+}
+
 pub use selected::configure_current;

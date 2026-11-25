@@ -58,6 +58,21 @@ permissions. Administrative actions remain denied in the legacy profile; strict
 revocation mode adds a **separate privileged management token** for a private
 loopback API. That token must never appear in viewer enrollment or media grants.
 
+A service enrollment with `"scope": "camera_source"` admits authenticated
+loopback RTSP reads of its configured camera paths in strict mode. Use the
+viewer ID as the RTSP username and a separate generated token as its password.
+Ordinary viewer and publisher enrollments retain their existing permissions.
+The gateway reconciles WebRTC and RTSP sessions independently. Revoking a
+camera-source account retires its readers while other accounts and the
+publisher can continue. [Matter reader and outage handling](matter/README.md).
+
+The Matter bridge resolves its selected source on the loopback control
+listener at `GET /service/v1/sites/{site}/cameras/{camera}/source`. The strict
+gateway returns the current RTSP path and username only for a matching
+`camera_source` credential. RTSP requests from a configured bridge carry
+the site and camera ID so authorization can verify the mapping again.
+Detection streams include the authenticated site in `X-Nxrs-Site-Id`.
+
 Responses use `no-store`; bodies are limited to 16 KiB, handlers to 64 per
 listener, request/body time to five seconds, configuration to 64 KiB and catalogs
 to 64 cameras. Proxy/socket/header limits remain a deployment responsibility.
@@ -90,6 +105,11 @@ backup/rollback protection and end-user account administration remain work.
 VPN peer removal is a separate network operation, not application identity.
 
 ## Reference and regression tests
+
+The opt-in [Matter camera fixture](tests/matter/README.md) qualifies commissioning,
+both WebRTC offer directions, trickled ICE and decoded generated video for
+[#388](https://github.com/yongkyuns/nxrs/issues/388). It does not enable a
+production Matter endpoint or change existing gateway dependencies.
 
 The dedicated workflows separate different kinds of evidence:
 

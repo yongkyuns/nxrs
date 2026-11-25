@@ -8,15 +8,25 @@ on:
       - 'app/**'
       - 'service/**'
       - 'hal/**'
+      - 'shared/acquisition/**'
+      - 'tools/detector-build-support/**'
       - 'driver/**'
       - 'shared/messaging/**'
-      - 'platform/build-support/**'
-      - 'platform/profiles/**'
+      - 'tools/build-support/**'
+      - 'platform/Cargo.toml'
+      - 'platform/src/**'
+      - 'platform/tests/**'
+      - 'platform/*/profile.toml'
+      - 'platform/*/profiles/**'
+      - 'tests/profiles/mock.toml'
+      - 'tests/profiles/mps2-an521-mock.toml'
+      - 'tests/profiles/pico2-mock.toml'
+      - 'tests/profiles/esp32s3-qemu-mock.toml'
       - 'tools/platform_config.py'
       - 'Cargo.toml'
       - 'Cargo.lock'
       - '.cargo/config.toml'
-      - 'platform/build/**'
+      - 'tools/build/**'
       - 'platform/nuttx/**'
       - 'upstream/nuttx/**'
       - 'tools/nuttx-version.py'
@@ -26,6 +36,7 @@ on:
       - 'tests/host/**'
       - 'tests/portable/**'
       - 'tests/native/**'
+      - 'tests/camera-support/**'
       - 'tests/nuttx-std/**'
       - 'external/nuttx'
       - 'external/nuttx-apps'
@@ -40,15 +51,25 @@ on:
       - 'app/**'
       - 'service/**'
       - 'hal/**'
+      - 'shared/acquisition/**'
+      - 'tools/detector-build-support/**'
       - 'driver/**'
       - 'shared/messaging/**'
-      - 'platform/build-support/**'
-      - 'platform/profiles/**'
+      - 'tools/build-support/**'
+      - 'platform/Cargo.toml'
+      - 'platform/src/**'
+      - 'platform/tests/**'
+      - 'platform/*/profile.toml'
+      - 'platform/*/profiles/**'
+      - 'tests/profiles/mock.toml'
+      - 'tests/profiles/mps2-an521-mock.toml'
+      - 'tests/profiles/pico2-mock.toml'
+      - 'tests/profiles/esp32s3-qemu-mock.toml'
       - 'tools/platform_config.py'
       - 'Cargo.toml'
       - 'Cargo.lock'
       - '.cargo/config.toml'
-      - 'platform/build/**'
+      - 'tools/build/**'
       - 'platform/nuttx/**'
       - 'upstream/nuttx/**'
       - 'tools/nuttx-version.py'
@@ -58,6 +79,7 @@ on:
       - 'tests/host/**'
       - 'tests/portable/**'
       - 'tests/native/**'
+      - 'tests/camera-support/**'
       - 'tests/nuttx-std/**'
       - 'external/nuttx'
       - 'external/nuttx-apps'
@@ -124,19 +146,16 @@ jobs:
           python3 -m unittest discover -s tests/host -p test_deployment.py -v
           python3 -m unittest discover -s tests/host -p test_platform_profiles.py -v
           python3 tools/check-architecture.py
-          NXRS_PLATFORM=linux cargo +1.90.0 test --locked -p nxrs-native-integration
-          NXRS_PLATFORM=linux cargo +1.90.0 test --locked -p nxrs-applications --bin nxrs
           NXRS_PLATFORM=mock cargo +1.90.0 test --locked -p nxrs-simulator
           NXRS_PLATFORM=mock cargo +1.90.0 run --locked -p nxrs-simulator --bin nxrs-simulator
-          NXRS_PLATFORM=linux python3 tests/host/test-native-runner.py
+          python3 tests/native/qualify.py
           export NXRS_PLATFORM=linux
           cargo +1.90.0 clippy --locked \
-            -p nxrs-camera -p nxrs-storage -p nxrs-transport \
-            -p nxrs-camera-service -p nxrs-recording-service -p nxrs-telemetry-service \
-            -p nxrs-applications \
-            --lib --bins -- -D warnings
+            -p nxrs-camera -p nxrs-storage \
+            -p nxrs-camera-test-support -p nxrs-native-integration \
+            --lib -- -D warnings
           unset NXRS_PLATFORM
-          cargo +1.90.0 check --locked -p nxrs-applications --no-default-features --lib --target thumbv6m-none-eabi
+          cargo +1.90.0 check --locked -p nxrs-camera-test-support --lib --target thumbv6m-none-eabi
           NXRS_PLATFORM=mock cargo +1.90.0 build --locked --release --lib -p nxrs-simulator --target wasm32-unknown-unknown
       - name: Check firmware discovery and app isolation
         shell: bash
@@ -150,7 +169,7 @@ jobs:
               cargo +1.90.0 nxrs build --app "$app" --profile "$platform" --dry-run
             done
             cargo +1.90.0 tree --locked -p "nxrs-$app" > "/tmp/$app-tree.txt"
-            ! grep -E 'nxrs-(imu|gnss|camera|storage|transport)' "/tmp/$app-tree.txt"
+            ! grep -E 'nxrs-(imu|gnss|camera|storage)' "/tmp/$app-tree.txt"
           done
       - name: Record release behavior
         shell: bash

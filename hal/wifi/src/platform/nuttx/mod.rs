@@ -1,10 +1,9 @@
 //! NuttX acquisition and scan normalization. Portable execution lives in worker.
 #![deny(unsafe_code)]
 
-#[path = "../../quiescence.rs"]
-mod quiescence;
+use crate::platform::quiescence;
 
-pub(crate) use crate::worker::Lease;
+pub(crate) use crate::platform::worker::Lease;
 mod station;
 use crate::{AccessPoint, Error, Security, Ssid};
 use std::thread;
@@ -44,14 +43,17 @@ pub(crate) const SCAN_READ_TIMEOUT: Duration = Duration::from_secs(6);
 const SCAN_READ_POLL: Duration = Duration::from_millis(20);
 
 #[cfg(not(test))]
-pub(crate) fn open<S>(sink: S, _: crate::CredentialStorage) -> Result<crate::worker::Worker, Error>
+pub(crate) fn open<S>(
+    sink: S,
+    _: crate::CredentialStorage,
+) -> Result<crate::platform::worker::Worker, Error>
 where
     S: FnMut(crate::Event) -> messaging::DeliveryResult<crate::Event> + Send + 'static,
 {
     let lease = Lease::acquire()?;
     initialize_network()?;
     let driver = native::Native::open()?;
-    crate::worker::Worker::start_with_stack(driver, sink, lease, 8192)
+    crate::platform::worker::Worker::start_with_stack(driver, sink, lease, 8192)
 }
 
 #[cfg(not(test))]

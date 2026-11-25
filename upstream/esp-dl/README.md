@@ -12,7 +12,7 @@ initializers. Rust applies it and verifies every prepared source hash.
 Every generated call requests synchronous single-core execution. This capsule
 provides numerical operations, not an RTOS compatibility layer.
 
-The HAL-owned `hal/detector/build-support/src/graph.rs` reads the pinned EDL2 model at build time, validates its 114
+The HAL-owned `tools/detector-build-support/src/graph.rs` reads the pinned EDL2 model at build time, validates its 114
 operators and exact input/output protocol, and creates a fixed numerical graph.
 There is no runtime model parser or loader. Its aligned lifetime arena allocates
 an output before retiring inputs and retains all six result heads. Host weights

@@ -36,54 +36,177 @@ class HalBoundariesTests(unittest.TestCase):
                               'let x = cfg!(nxrs_hal_platform = "nuttx");',
                               '#[cfg(hal_enabled)] fn f() {}',
                               '#[cfg(hal_mock)] fn f() {}',
-                              '#[cfg(hal_provider = "simulation")] fn f() {}',
+                              '#[cfg(platform = "simulation")] fn f() {}',
+                              '#[cfg_attr(platform = "mock", allow(dead_code))] fn f() {}',
+                              'let x = cfg!(platform = "simulation");',
+                              'let x = option_env!("CARGO_CFG_PLATFORM");',
                               'let x = option_env!("NXRS_PLATFORM");'):
                 with self.subTest(module=module, selection=selection):
                     path = self.write('hal/demo/src/' + module, selection)
                     self.assertTrue(self.errors())
                     path.unlink()
 
-    def test_generated_imu_factory_is_fixed_and_maps_only_to_checked_in_constructors(self):
-        self.write('hal/imu/src/platform/nuttx/mod.rs', '''
-            include!(concat!(env!("OUT_DIR"), "/imu_config.rs"));
-            let device = match MODEL {
-                SensorModel::Bmi270 => acquire::<Bmi270>(BINDING, config, sink, trace),
-                SensorModel::Lsm6dso => acquire::<Lsm6dso>(BINDING, config, sink, trace),
-            };
-            Session::start(STACK_BYTES, cancel, sink, run)
+    def test_platform_identifier_is_not_a_selection_flag(self):
+        self.write('hal/demo/src/api.rs', '#[cfg(test)] fn platform() {}')
+        self.assertEqual(self.errors(), [])
+
+    def test_radio_selection_stays_in_the_selector(self):
+        self.write('hal/wifi/src/lib.rs', '#![cfg_attr(target_os = "none", no_std)]\nmod platform;')
+        selector = self.write('hal/wifi/src/platform/mod.rs', '''
+            #[cfg(platform = "nuttx")]
+            #[path = "../worker/mod.rs"]
+            mod worker;
+            cfg_if::cfg_if! {
+                if #[cfg(platform = "nuttx")] { mod nuttx; use nuttx as selected; }
+                else { mod unbound; use unbound as selected; }
+            }
+            pub(crate) use selected::open;
         ''')
-        self.write('hal/imu/build.rs', '''
-            mod emit;
-            if profile.binding("imu") == "nuttx" && os == "nuttx" {
-                emit::write(&out.join("imu_config.rs"), binding)?;
+        self.assertEqual(self.errors(), [])
+        path = self.write('hal/wifi/src/lib.rs', '#[cfg(platform = "nuttx")] mod worker;')
+        self.assertTrue(any('radio platform selection belongs' in error for error in self.errors()))
+        path.write_text('mod platform;')
+        selector.write_text(selector.read_text().replace('mod nuttx;', '#[path = "../nuttx.rs"] mod nuttx;'))
+        self.assertTrue(self.errors())
+
+    def test_rust_foreign_declarations_require_the_owning_ffi_directory(self):
+        bindings = 'unsafe extern "C" { fn device(); }'
+        source = self.write('hal/demo/src/platform/nuttx/mod.rs', bindings)
+        self.assertTrue(any('Rust FFI declarations' in error for error in self.errors()))
+        source.write_text('mod ffi; pub extern "C" fn native_callback() {}')
+        self.write('hal/demo/src/platform/nuttx/ffi/mod.rs', bindings)
+        self.assertEqual(self.errors(), [])
+
+    def write_declarative_imu(self):
+        self.write('platform/src/nuttx/imu.rs', '''
+            include!(concat!(env!("OUT_DIR"), "/imu_config.rs"));
+            macro_rules! declare_device {
+                static $name: Instance<$sensor, $resources> = Instance::new(
+                    |trace| $open($binding, trace), |bus, settings| {
+                    <$sensor>::from_interface(bus.try_into()?, Delay, settings)
+                });
             }
         ''')
-        self.write('hal/imu/build/emit.rs', '''
-            let model = match binding.model {
-                nxrs_build_support::composition::ImuModel::Bmi270 => "SensorModel::Bmi270",
-                nxrs_build_support::composition::ImuModel::Lsm6dso => "SensorModel::Lsm6dso",
-            };
-            let source = format!(
-                "enum SensorModel {{ Bmi270, Lsm6dso }}\\n\\
-                 const MODEL: SensorModel = {model};\\n\\
-                 const BINDING: Binding<'static> = Binding {{ path: {path:?}, address: {address}, frequency: {frequency}, irq_path: {irq_path} }};\\n\\
-                 const STACK_BYTES: usize = {stack_bytes};\\n",
-                path = binding.path,
-            );
+        self.write('hal/imu/src/platform/nuttx/instance.rs', """
+            device::Device::open(config, self.irq_path, trace, &self.state, open, initialize);
+            state: DeviceState,
+            storage: Mutex<Option<device::Device<S>>>,
+            let delivery = (sink, Retained(self));
+            session::start(self.stack_bytes, cancel, delivery, run)
+        """)
+        self.write('tools/build-support/cargo/composition.rs', '''
+            fn main() {
+                nxrs_build_support::configure_composition().unwrap_or_else(|error| panic!("{error}"));
+            }
         ''')
-        self.write('hal/imu/src/sensors/bmi270.rs', 'pub struct Sensor;')
-        self.write('hal/imu/src/sensors/lsm6dso.rs', 'pub struct Sensor;')
+        self.write('platform/Cargo.toml', '''
+            [package]
+            name = "nxrs-composition"
+            build = "../tools/build-support/cargo/composition.rs"
+            [features]
+            imu = []
+            [package.metadata.nxrs]
+            device-capabilities = ["imu"]
+            [target.'cfg(target_os = "nuttx")'.dependencies]
+            sensor = { package = "nxrs-bmi270", path = "../driver/bmi270", optional = true }
+        ''')
+        self.write('driver/bmi270/Cargo.toml', '''
+            [package]
+            name = "nxrs-bmi270"
+            [package.metadata.nxrs]
+            bindings = ["bindings.toml"]
+            [package.metadata.nxrs.device]
+            capability = "imu"
+        ''')
+        self.write('driver/bmi270/bindings.toml', '''
+            version = 2
+            [[binding]]
+            compatible = "bosch,bmi270"
+            bus = "i2c"
+            implementation = "Bmi270"
+        ''')
+
+    def test_sensor_generation_uses_declarative_package_inputs(self):
+        self.write_declarative_imu()
+        self.assertEqual(CHECK.inspect_generated_imu_factory(self.root), [])
+        build = self.root / 'tools/build-support/cargo/composition.rs'
+        generic = build.read_text()
+        build.write_text(generic.replace('configure_composition()', 'configure_composition_with(emit)'))
+        self.assertTrue(any('generic shared-preparation' in error
+                            for error in CHECK.inspect_generated_imu_factory(self.root)))
+        build.write_text(generic)
+        emitter = self.write('platform/build/emit.rs', 'fn emit() {}')
+        self.assertTrue(any('host generation belongs' in error
+                            for error in CHECK.inspect_generated_imu_factory(self.root)))
+        emitter.unlink()
         self.assertEqual(CHECK.inspect_generated_imu_factory(self.root), [])
 
-        build = self.root / 'hal/imu/build.rs'
-        build.write_text(build.read_text().replace('"imu_config.rs"', 'profile_text'))
-        self.assertTrue(any('fixed generated factory' in error
+    def test_generated_sensor_include_matches_its_resource_contract(self):
+        self.write_declarative_imu()
+        provider = self.root / 'platform/src/nuttx/imu.rs'
+        provider.write_text(provider.read_text().replace('imu_config.rs', 'other.rs'))
+        self.assertTrue(any('declared generated output' in error
                             for error in CHECK.inspect_generated_imu_factory(self.root)))
-        build.write_text(build.read_text().replace('profile_text', '"imu_config.rs"'))
-        nuttx = self.root / 'hal/imu/src/platform/nuttx/mod.rs'
-        nuttx.write_text(nuttx.read_text().replace('SensorModel::Bmi270 =>', 'SensorModel::Unknown =>'))
-        self.assertTrue(any('checked-in typed constructor' in error
+        provider.write_text(provider.read_text().replace('other.rs', 'imu_config.rs'))
+        manifest = self.root / 'driver/bmi270/Cargo.toml'
+        manifest.write_text(manifest.read_text().replace('bindings.toml', '../outside.toml'))
+        self.assertTrue(any('package-relative' in error
                             for error in CHECK.inspect_generated_imu_factory(self.root)))
+
+    def test_generated_imu_keeps_the_current_checked_in_constructor_boundary(self):
+        self.write_declarative_imu()
+        nuttx = self.root / 'platform/src/nuttx/imu.rs'
+        nuttx.write_text(nuttx.read_text() + '\ntype Bmi270 = sensor::Bmi270<Bus, Delay>;\n')
+        self.assertTrue(any('generate driver types' in error
+                            for error in CHECK.inspect_generated_imu_factory(self.root)))
+
+    def test_static_devices_cannot_regress_to_global_or_descriptor_only_ownership(self):
+        self.write_declarative_imu()
+        instance = self.root / 'hal/imu/src/platform/nuttx/instance.rs'
+        original = instance.read_text()
+        for removed in ['storage: Mutex<Option<device::Device<S>>>', 'state: DeviceState',
+                        'session::start', 'Retained(self)', 'device::Device::open']:
+            instance.write_text(original.replace(removed, 'missing'))
+            self.assertTrue(any('guarded worker retirement' in error for error in CHECK.inspect_generated_imu_factory(self.root)))
+        instance.write_text(original)
+        self.write('hal/imu/src/platform/nuttx/device.rs', 'static OWNED: AtomicU8 = AtomicU8::new(0);')
+        self.assertTrue(any('global device ownership' in error for error in CHECK.inspect_generated_imu_factory(self.root)))
+
+    def test_hal_cannot_reintroduce_concrete_sensor_wiring(self):
+        self.write_declarative_imu()
+        self.write('hal/imu/src/lib.rs', 'use nxrs_bmi270::Bmi270;')
+        self.assertTrue(any('concrete sensor wiring' in error
+                            for error in CHECK.inspect_generated_imu_factory(self.root)))
+        self.write('hal/imu/src/lib.rs', '')
+        self.write('hal/imu/Cargo.toml', '[package.metadata.nxrs]\nbindings = ["bindings.toml"]\n')
+        self.assertTrue(any('concrete bindings belong' in error
+                            for error in CHECK.inspect_generated_imu_factory(self.root)))
+
+    def test_sensor_bindings_require_a_normal_optional_driver_dependency(self):
+        self.write_declarative_imu()
+        self.assertEqual(CHECK.inspect_generated_imu_factory(self.root), [])
+        manifest = self.root / 'platform/Cargo.toml'
+        manifest.write_text(manifest.read_text().replace('.dependencies]', '.dev-dependencies]'))
+        self.assertTrue(any('optional Cargo path dependency' in error
+                            for error in CHECK.inspect_generated_imu_factory(self.root)))
+
+    def test_gnss_uses_driver_declarations_and_retains_canonical_ownership(self):
+        for relative in ("platform/Cargo.toml", "tools/build-support/cargo/composition.rs",
+                         "platform/src/nuttx/gnss.rs", "driver/ubx/Cargo.toml",
+                         "driver/ubx/bindings.toml", "driver/bmi270/Cargo.toml",
+                         "driver/lsm6dso/Cargo.toml", "driver/axp2101/Cargo.toml",
+                         "hal/gnss/Cargo.toml",
+                         "hal/gnss/src/platform/nuttx/mod.rs"):
+            self.write(relative, (ROOT / relative).read_text())
+        self.assertEqual(CHECK.inspect_generated_imu_factory(self.root), [])
+        runtime = self.root / "hal/gnss/src/platform/nuttx/mod.rs"
+        original = runtime.read_text()
+        runtime.write_text(original.replace("Retained(self)", "()"))
+        self.assertTrue(any("canonical state" in e for e in CHECK.inspect_generated_imu_factory(self.root)))
+        runtime.write_text(original)
+        manifest = self.root / "hal/gnss/Cargo.toml"
+        manifest.write_text(manifest.read_text().replace("[dependencies]", "[dependencies]\nnxrs-ubx-driver = { path = \"../../driver/ubx\" }"))
+        self.assertTrue(any("concrete receiver construction" in e for e in CHECK.inspect_generated_imu_factory(self.root)))
 
     def test_platform_wiring_and_ordinary_test_selection_are_allowed(self):
         self.write('hal/demo/src/lib.rs', '#[cfg(target_os = "linux")] mod selected;')
@@ -120,7 +243,7 @@ class HalBoundariesTests(unittest.TestCase):
             path.parent.rmdir()
 
     def test_std_cannot_return_as_a_platform_or_shared_provider_directory(self):
-        path = self.write('platform/profiles/std.toml', '[hal]\n')
+        path = self.write('platform/std/profile.toml', '[hal]\n')
         self.assertTrue(self.errors())
         path.unlink()
         path = self.write('hal/demo/src/platform/std/mod.rs', 'fn f() {}')
@@ -141,7 +264,8 @@ class HalBoundariesTests(unittest.TestCase):
 
     def test_driver_and_sdk_build_packages_retain_native_inventory_and_behavior_checks(self):
         for name in ('driver/linux/gio/src/platform/linux/ffi/gio.c',
-                     'hal/detector/build-support/src/ffi/compat.hpp'):
+                     'shared/acquisition/src/platform/nuttx/ffi/events.c',
+                     'tools/detector-build-support/src/ffi/compat.hpp'):
             with self.subTest(path=name):
                 source = self.write(name, 'unsigned sdk_constant(void) { return 1; }')
                 self.assertTrue(any('documented ABI boundary' in error for error in self.errors()))
@@ -154,7 +278,8 @@ class HalBoundariesTests(unittest.TestCase):
                 self.write('hal/ffi-boundaries.toml', '')
 
     def test_driver_and_sdk_glue_cannot_move_outside_the_owning_source_module(self):
-        for name in ('driver/linux/gio/ffi/gio.c', 'hal/detector/build-support/compat.hpp'):
+        for name in ('driver/linux/gio/ffi/gio.c', 'shared/acquisition/ffi/nuttx/events.c',
+                     'tools/detector-build-support/compat.hpp'):
             with self.subTest(path=name):
                 source = self.write(name, 'unsigned sdk_constant(void) { return 1; }')
                 self.write('hal/ffi-boundaries.toml', f'[[bridge]]\npath="{name}"\nkind="abi"\nreason="SDK header translation"\n')
@@ -204,10 +329,15 @@ def wiring_errors(root, selector):
     if re.search(r'#\s*\[\s*path\s*=\s*"platform/', root):
         errors.append('injected provider sources belong in test_support.rs')
     selected = exports(selector)
+    modules = set(re.findall(r'\bmod\s+(\w+)\s*;', selector))
+    aliases = {f'{name} as selected' for name in modules if name != 'selected'}
+    aliases.update(f'crate::{name} as selected' for name in re.findall(r'\bmod\s+(\w+)\s*;', root))
+    selected_aliases = re.findall(r'\buse\s+((?:crate::)?\w+\s+as\s+selected)\s*;', selector)
     named = r'selected::(?:[A-Za-z_]\w*|\{\s*[A-Za-z_]\w*(?:\s*,\s*[A-Za-z_]\w*)*\s*,?\s*\})'
-    if not selected or any(not re.fullmatch(named, item.strip()) for item in selected):
+    if not selected or any(not (re.fullmatch(named, item.strip()) or item.strip() == 'selected as construction' or item.strip() in aliases) for item in selected):
         errors.append('selector must export named selected items only')
-    if not re.search(r'\bmod\s+selected\s*;', selector):
+    if (any(alias not in aliases for alias in selected_aliases)
+            or not ('selected' in modules or any(alias in aliases for alias in selected_aliases))):
         errors.append('selector must select a source module')
     if re.search(r'\b(?:fn|impl|struct|enum|trait)\b|\bmod\s+\w+\s*\{', selector):
         errors.append('selector must not implement behavior')
@@ -226,11 +356,17 @@ def capabilities(root):
 
 class WiringNegativeControls(unittest.TestCase):
     ROOT = 'mod api; mod platform; pub use api::*; pub use platform::open;'
-    SELECTOR = '#[path = "unbound.rs"] mod selected; pub use selected::open;'
+    SELECTOR = ('cfg_if::cfg_if! { if #[cfg(platform = "nuttx")] '
+                '{ mod nuttx; use nuttx as selected; } else '
+                '{ mod unbound; use unbound as selected; } } pub use selected::open;')
 
     def test_explicit_api_and_named_selected_exports_are_allowed(self):
         self.assertEqual(wiring_errors(self.ROOT, self.SELECTOR), [])
-        self.assertEqual(wiring_errors(self.ROOT, self.SELECTOR + '\n#[cfg(hal_provider = "mock")] pub use selected::{Mock, FORMAT};'), [])
+        self.assertEqual(wiring_errors('mod platform; pub use platform::construction;',
+                                       self.SELECTOR.replace('selected::open', 'selected as construction')), [])
+        self.assertEqual(wiring_errors(self.ROOT + 'mod model;',
+                                       self.SELECTOR.replace('mod nuttx; use nuttx as selected;', 'use crate::model as selected;')), [])
+        self.assertEqual(wiring_errors(self.ROOT, self.SELECTOR + '\n#[cfg(platform = "mock")] pub use selected::{Mock, FORMAT};'), [])
 
     def test_backend_globs_in_roots_are_rejected(self):
         for export in ('pub use platform::*;', 'pub use self::platform::{open, *};'):
@@ -251,6 +387,8 @@ class WiringNegativeControls(unittest.TestCase):
         self.assertTrue(wiring_errors(self.ROOT, ''))
         self.assertTrue(wiring_errors(self.ROOT, 'mod selected;'))
         self.assertTrue(wiring_errors(self.ROOT, 'pub use selected::open;'))
+        self.assertTrue(wiring_errors(self.ROOT, 'use crate::missing as selected; pub use selected::open;'))
+        self.assertTrue(wiring_errors(self.ROOT, 'mod unbound; use unbound as selected; use missing as selected; pub use selected::open;'))
 
     def test_public_backend_namespace_and_root_injection_are_rejected(self):
         self.assertIn('platform namespace must remain private', wiring_errors('pub mod platform;', self.SELECTOR))
@@ -283,7 +421,8 @@ class RepositoryHalOrganization(unittest.TestCase):
                 self.assertEqual(wiring_errors(root.read_text(), selector.read_text()), [])
                 support = directory / 'src/test_support.rs'
                 if support.exists():
-                    self.assertRegex(code(root.read_text()), r'#\[cfg\(test\)\]\s*mod test_support;')
+                    wiring = code(root.read_text()) + code(selector.read_text())
+                    self.assertRegex(wiring, r'#\[cfg\(test\)\]\s*(?:#\[path = "\.\./test_support\.rs"\]\s*)?mod test_support;')
         print(f'HAL organization: {len(directories)} capabilities checked')
 
 

@@ -1,0 +1,24 @@
+[package]
+name = "nxrs-tracker-sim-qualification"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[dependencies]
+nxrs-cellular = { path = "../../../hal/cellular" }
+nxrs-composition = { path = "../../../platform", features = ["battery", "gnss", "imu"] }
+nxrs-battery = { path = "../../../hal/battery" }
+nxrs-display = { path = "../../../hal/display" }
+nxrs-gnss = { path = "../../../hal/gnss" }
+nxrs-imu = { path = "../../../hal/imu" }
+nxrs-settings = { path = "../../../hal/settings" }
+nxrs-messaging = { path = "../../../shared/messaging" }
+nxrs-touch = { path = "../../../hal/touch" }
+
+[package.metadata.nxrs]
+qualification-only = true
+required-capabilities = ["cellular", "battery", "display", "gnss", "imu", "settings", "touch"]
+
+[package.metadata.nxrs.firmware]
+command = "tracker_sim_qualification"
+stack-size = 16384

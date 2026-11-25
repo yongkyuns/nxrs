@@ -1,34 +1,60 @@
 # Documentation
 
-Start with the [repository README](../README.md) for app, test and firmware
-commands. The active architecture and device-access guides are
-[source ownership](architecture.md), [HAL ownership](hal-platform-architecture.md)
-and [NuttX device access](nuttx-device-access.md).
+Start with the [user guide](../website/guide/start-here.md) for setup, application development, and firmware builds. The [repository README](../README.md) gives a short project overview.
 
-The [peripheral composition architecture](peripheral-composition.md) describes
-how IMU and GNSS use reusable drivers, OS resources, and resolved profiles. The
-[implementation plan](peripheral-composition-plan.md) records file ownership,
-dependencies, compatibility gates, and verification commands. See its
-[physical qualification step](peripheral-composition-plan.md#s8--qualify-protected-execution-and-physical-deadlines)
-for the remaining on-board validation and measurements.
+## Framework and development
 
-Each `hal/<capability>` is one crate. Its contract is in `src/api.rs`, selected
-Rust implementations stay private under `src/platform/`, and target-specific
-NuttX C helpers live beside their Rust provider in its `ffi/` directory. A single `NXRS_PLATFORM` value selects
-an actual OS profile (`linux`, `macos` or `windows`), board profile or explicit
-fixture (`mock`, `host-demo`, `host-imu`). `std` is not a platform. Without a profile, builds use portable contracts
-only and do not silently select mocks. A profile binds only implementations
-that exist; it does not imply that every radio or board is supported.
+| Reference | Contents |
+| --- | --- |
+| [Architecture](architecture.md) | Components and source ownership |
+| [Build system](build-system.md) | Applications, profiles, toolchains, and outputs |
+| [Rust std on NuttX](nuttx-std.md) | Standard-library and target integration |
+| [HAL architecture](hal-platform-architecture.md) | Capability APIs and implementation boundaries |
+| [NuttX device access](nuttx-device-access.md) | Native resources and Rust access |
+| [Peripheral composition](peripheral-composition.md) | Devices, resources, aliases, and overlays |
+| [Static-device composition](static-device-composition.md) | Device identity and ownership |
+| [Event communication](concurrency-event-communication.md) | Delivery, execution, and lifecycle |
+| [Editor setup](editor-setup.md) | Local Rust and native tooling |
+| [Security](security.md) | Trust boundaries and deployment requirements |
 
-Hardware qualification scope, limitations and measured results remain in the
-individual fixture guides and evidence documents linked from the README.
+## Performance and comparisons
 
-The [event communication guide](concurrency-event-communication.md) explains
-provider ownership, bounded delivery and the owner's wait loop.
-[Measuring Rust std in nxrs's event-driven core](std-channel-performance.md)
-walks through the performance and memory evidence for that model, from channel
-storage and thread stacks to physical handoff measurements and their scope.
+Start with the [performance guide](../website/guide/performance.md) to choose a measurement. These summaries answer different questions:
 
-The [security design and release requirements](security.md) records the trust
-boundaries, explicit non-FIPS deployment decision and evidence needed for
-authenticated transport, firmware integrity, key lifecycle and protected storage.
+| Question | Reference |
+| --- | --- |
+| How do delivery, RAM and deadlines compare with Zephyr and Embassy? | [RTOS comparison results](rtos-comparison.md) |
+| How do bounded std inboxes work, and where does their cost come from? | [Bounded channels](std-channel-performance.md) |
+| What consumes RAM and flash as the application grows? | [Memory and image size](rust-std-footprint.md) |
+| How do I detect allocation, retention and stack pressure? | [Rust allocation](memory-qualification.md), [NuttX heap and stacks](nuttx-memory-qualification.md) |
+| How should I test progress, recovery and portability? | [Evaluation method](rtos-characterization.md) |
+| How do detection and video perform together? | [PICO performance report](camera-pico-performance.md) |
+| How accurate are the evaluated person detectors? | [Pretrained detector comparison](camera-detector-alternatives.md) |
+| Which commands should I run? | [Test and fixture index](../tests/README.md) |
+
+Host checks, target builds, emulator execution and physical observations establish different things. Each result identifies its scope. The [NuttX simulator](nuttx-sim.md) and [QEMU](nuttx-qemu.md) references explain the execution fixtures.
+
+## Historical measurements
+
+These reports preserve the original investigation and evidence. Read the summaries above first; older results do not describe every later firmware build.
+
+| Study | Question at the time |
+| --- | --- |
+| [ESP32-S3 std channel campaign](history/std-channel-campaign.md) | Which queue, wakeup and placement changes address the observed transport gap? |
+| [Native-adapter RTOS study](history/native-rtos-study.md) and [resource ledger](rtos-comparison-accounting.md) | How do native threaded services and a cooperative executor compare at equal event capacity? |
+| [C/Rust footprint study](history/rust-footprint-study.md) | Which startup, output and transport choices retain code and storage? |
+| [Thread-Metric foundation](rtos-benchmarking.md) | What can be reproduced and compared with an external RTOS report? |
+
+## Application-specific notes
+
+Find runnable projects in the [examples guide](../website/guide/examples.md). These references explain the integrations in more detail.
+
+| If you want to… | Read |
+| --- | --- |
+| See how a sensor application connects its components | [Event-driven application](event-driven-demo.md) |
+| Follow camera frames and detection events to a viewer | [Camera delivery](camera-detection-delivery.md) and [Native camera clients](client-camera-architecture.md) |
+| Try Matter with no board | [Switch a simulated light from Home Assistant](../website/examples/matter-led/README.md) |
+| Connect a camera to Matter | [Camera integration](../gateway/matter/integration.md) and [Bridge configuration](../gateway/matter/README.md) |
+| Check controller compatibility and production requirements | [Matter validation](../gateway/tests/matter/README.md) and [Camera conformance](../gateway/tests/matter/conformance.md) |
+
+Implementation plans and historical reports remain in this directory. For current work on peripheral composition, see the [implementation plan](peripheral-composition-plan.md) and its linked issues.

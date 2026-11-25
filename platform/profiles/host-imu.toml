@@ -1,4 +1,0 @@
-# IMU-only demonstration; GNSS remains explicitly unbound.
-
-[hal]
-imu = "mock"

@@ -1,6 +1,7 @@
 """Exercise the registered ESP mbedTLS allocator patch with native stubs."""
 
 from pathlib import Path
+import hashlib
 import re
 import shutil
 import subprocess
@@ -15,6 +16,11 @@ APPLICATOR = ROOT / "tools/apply-nuttx-patches.py"
 SOURCE = "components/mbedtls/port/esp_mem.c"
 INTR_SOURCE = "components/esp_hw_support/intr_alloc.c"
 INTR_PATCH = ROOT / "upstream/esp-hal-3rdparty/patches/0002-intr-alloc-pair-capability-allocators.patch"
+WPA_FIXTURE = ROOT / "tests/host/fixtures/esp-wpa-aes"
+WPA_PREIMAGES = {
+    "aes.h": "078b9b925089a7bc8ce08408f60b2017acd5fa82f5241eedae133ef4a85c5261",
+    "crypto.h": "6c04fc7a367ee88cbbc72587bbf14b7d37c523b5e86de0e3bacfc3e105437a0b",
+}
 
 STUBS = {
     "esp_attr.h": "",
@@ -126,7 +132,7 @@ int main(void)
 """
 
 
-def source_preimage(patch_text, target=SOURCE, *, expected_lines=42):
+def source_preimage(patch_text, target=SOURCE, *, expected_lines=42, preimage=""):
     """Rebuild a complete source or sparse preimage from unified diff hunks."""
     lines = patch_text.splitlines()
     target_header = f"+++ b/{target}"
@@ -136,7 +142,7 @@ def source_preimage(patch_text, target=SOURCE, *, expected_lines=42):
         raise AssertionError(f"patch does not modify {target}") from error
     while index < len(lines) and not lines[index].startswith("@@"):
         index += 1
-    original = []
+    original = preimage.splitlines()
     while index < len(lines) and lines[index].startswith("@@"):
         match = re.match(r"@@ -(\d+)(?:,(\d+))? ", lines[index])
         if not match:
@@ -179,12 +185,19 @@ class EspMbedtlsAllocatorTests(unittest.TestCase):
         intr_source.parent.mkdir(parents=True)
         intr_source.write_text(source_preimage(INTR_PATCH.read_text(), INTR_SOURCE,
                                               expected_lines=None))
-        phy_source = self.source_root / 'components/esp_phy/src/phy_init.c'
-        phy_source.parent.mkdir(parents=True, exist_ok=True)
-        phy_patch = ROOT/'upstream/esp-hal-3rdparty/patches/0003-esp32s3-serialize-wifi-phy-state.patch'
-        phy_source.write_text(source_preimage(phy_patch.read_text(),
-                                             'components/esp_phy/src/phy_init.c', expected_lines=None))
-        originals = [source, intr_source, phy_source]
+        patch_dir = PATCH.parent
+        phy_relative = "components/esp_phy/src/phy_init.c"
+        phy_source = self.source_root / phy_relative
+        phy_source.parent.mkdir(parents=True)
+        phy_patch = (patch_dir / "0003-esp32s3-serialize-wifi-phy-state.patch").read_text()
+        rng_patch = (patch_dir / "0008-esp32s3-smp-rng.patch").read_text()
+        phy = source_preimage(phy_patch, phy_relative, expected_lines=None)
+        phy_source.write_text(source_preimage(rng_patch, phy_relative, expected_lines=None,
+                                              preimage=phy))
+        rng_relative = "components/esp_hw_support/hw_random.c"
+        rng_source = self.source_root / rng_relative
+        rng_source.write_text(source_preimage(rng_patch, rng_relative, expected_lines=None))
+        originals = [source, intr_source, phy_source, rng_source]
         for name, relative in (
                 ("0005-esp32s3-inherit-watchdog-clock.patch", "components/esp_system/port/soc/esp32s3/clk.c"),
                 ("0006-esp32s3-inherit-watchdog-user-handoff.patch", "nuttx/esp32s3/include/sdkconfig.h")):
@@ -192,6 +205,15 @@ class EspMbedtlsAllocatorTests(unittest.TestCase):
             path.parent.mkdir(parents=True, exist_ok=True)
             patch = ROOT / "upstream/esp-hal-3rdparty/patches" / name
             path.write_text(source_preimage(patch.read_text(), relative, expected_lines=None))
+            originals.append(path)
+        # The real applicator applies the complete registered series. Preserve
+        # the exact pinned WPA headers needed by the AES namespace backport.
+        for name, expected_hash in WPA_PREIMAGES.items():
+            contents = (WPA_FIXTURE / name).read_bytes()
+            self.assertEqual(hashlib.sha256(contents).hexdigest(), expected_hash)
+            path = self.source_root / "components/wpa_supplicant/src/crypto" / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(contents)
             originals.append(path)
         self.original_sources = {path: path.read_bytes() for path in originals}
         for name, contents in STUBS.items():

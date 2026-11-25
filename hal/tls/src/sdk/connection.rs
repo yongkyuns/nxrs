@@ -1,11 +1,13 @@
 //! Single borrowed-key TLS connection. The SDK does not own sockets or clocks.
 use super::*;
+use crate::Stream;
 use std::io::{self, Read, Write};
-use std::net::{Shutdown, TcpStream};
+use std::net::TcpStream;
 use std::time::{Duration, Instant};
 
 const RECORD: usize = 4096;
 const HANDSHAKE: Duration = Duration::from_secs(5);
+const VERIFY_STEP_OPS: u32 = 64;
 // RFC 5280 id-kp-serverAuth/clientAuth OID contents, parsed by the SDK.
 const SERVER_AUTH: &[u8] = b"\x2b\x06\x01\x05\x05\x07\x03\x01";
 const CLIENT_AUTH: &[u8] = b"\x2b\x06\x01\x05\x05\x07\x03\x02";
@@ -45,6 +47,36 @@ fn timed(identity: &Identity, epoch: i64, action: impl FnOnce() -> c_int) -> Res
     result
 }
 
+fn verify(
+    identity: &Identity,
+    epoch: i64,
+    restart: Option<Opaque>,
+    progress: &mut impl FnMut() -> Result<(), Error>,
+    mut operation: impl FnMut(*mut c_void) -> c_int,
+) -> Result<(), Error> {
+    loop {
+        progress()?;
+        let status = timed(identity, epoch, || {
+            let Some(restart) = &restart else {
+                return operation(ptr::null_mut());
+            };
+            // TF-PSA's step limit is global. Restore it before running media
+            // or any other SDK operation on this single-threaded owner.
+            let previous = unsafe { psa_interruptible_get_max_ops() };
+            unsafe { psa_interruptible_set_max_ops(VERIFY_STEP_OPS) };
+            let status = operation(restart.pointer());
+            unsafe { psa_interruptible_set_max_ops(previous) };
+            status
+        })?;
+        if status == 0 {
+            return Ok(());
+        }
+        if restart.is_none() || status != unsafe { tls_ecc_in_progress() } {
+            return Err(Error::Authentication);
+        }
+    }
+}
+
 fn bytes(owner: &Opaque, view: View) -> Result<&[u8], Error> {
     let mut size = 0;
     // SAFETY: each caller pairs a parsed/initialized SDK owner with its getter.
@@ -54,6 +86,26 @@ fn bytes(owner: &Opaque, view: View) -> Result<&[u8], Error> {
         return Err(Error::Authentication);
     }
     Ok(unsafe { std::slice::from_raw_parts(pointer, size) })
+}
+
+fn sha256(identity: &Identity, input: &[u8]) -> Result<[u8; 32], Error> {
+    let mut fingerprint = [0; 32];
+    let mut length = 0;
+    // SAFETY: bounded buffers remain live for the synchronous SDK hash.
+    identity.sdk(|| unsafe {
+        psa_hash_compute(
+            tls_sha256_algorithm(),
+            input.as_ptr(),
+            input.len(),
+            fingerprint.as_mut_ptr(),
+            fingerprint.len(),
+            &mut length,
+        )
+    })?;
+    if length != fingerprint.len() {
+        return Err(Error::Crypto);
+    }
+    Ok(fingerprint)
 }
 
 fn uri(owner: &Opaque, expected: &str) -> Result<(), Error> {
@@ -93,7 +145,13 @@ struct Roots {
     crl: Opaque,
 }
 impl Roots {
-    fn parse(identity: &Identity, certs: Certificates<'_>, epoch: i64) -> Result<Self, Error> {
+    fn parse(
+        identity: &Identity,
+        certs: Certificates<'_>,
+        epoch: i64,
+        previous: Option<&Self>,
+        progress: &mut impl FnMut() -> Result<(), Error>,
+    ) -> Result<Self, Error> {
         certs.policy.validate()?;
         if [certs.own, certs.issuer, certs.approved_peer]
             .iter()
@@ -103,21 +161,7 @@ impl Roots {
         {
             return Err(Error::Capacity);
         }
-        let mut fingerprint = [0; 32];
-        let mut length = 0;
-        // SAFETY: initialized SDK owner; bounded input/output remain live for
-        // this synchronous hash operation. The expected pin is caller supplied.
-        identity.sdk(|| unsafe {
-            psa_hash_compute(
-                tls_sha256_algorithm(),
-                certs.issuer.as_ptr(),
-                certs.issuer.len(),
-                fingerprint.as_mut_ptr(),
-                fingerprint.len(),
-                &mut length,
-            )
-        })?;
-        if length != fingerprint.len() || fingerprint != certs.policy.issuer_sha256 {
+        if sha256(identity, certs.issuer)? != certs.policy.issuer_sha256 {
             return Err(Error::Authentication);
         }
         // SAFETY: exact SDK layouts, paired constructors/destructors, fresh contexts.
@@ -179,6 +223,40 @@ impl Roots {
         {
             return Err(Error::Authentication);
         }
+        uri(&roots.own, &certs.policy.own_uri)?;
+        uri(&roots.peer, &certs.policy.peer_uri)?;
+        if let Some(previous) = previous {
+            for (old, new) in [(&previous.own, &roots.own), (&previous.peer, &roots.peer)] {
+                if bytes(old, tls_crt_public_key)? != bytes(new, tls_crt_public_key)? {
+                    return Err(Error::Authentication);
+                }
+            }
+        }
+        // The single issuer and signed CRL apply to both leaves. Check that
+        // signature once and check each leaf's serial with the SDK below.
+        // `cutoff` checks the validity of all four documents before use.
+        let digest = sha256(identity, bytes(&roots.crl, tls_crl_signed_bytes)?)?;
+        let signature = bytes(&roots.crl, tls_crl_signature)?;
+        let restart = previous
+            .map(|_| unsafe {
+                Opaque::new(
+                    tls_pk_restart_size(),
+                    tls_pk_restart_align(),
+                    mbedtls_pk_restart_init,
+                    mbedtls_pk_restart_free,
+                )
+            })
+            .transpose()?;
+        verify(identity, epoch, restart, progress, |restart| unsafe {
+            tls_pk_verify_sha256(
+                tls_crt_pk(roots.issuer.pointer()),
+                digest.as_ptr(),
+                digest.len(),
+                signature.as_ptr(),
+                signature.len(),
+                restart,
+            )
+        })?;
         for (owner, purpose) in [(&roots.own, SERVER_AUTH), (&roots.peer, CLIENT_AUTH)] {
             if bytes(owner, tls_crt_issuer)? != bytes(&roots.issuer, tls_crt_subject)?
                 || bytes(owner, tls_crt_eku)? != purpose
@@ -186,32 +264,36 @@ impl Roots {
                     tls_crt_ca(owner.pointer()) != 0
                         || tls_crt_usage(owner.pointer()) != tls_sign_usage()
                         || !tls_crt_eku_next(owner.pointer()).is_null()
+                        || mbedtls_x509_crt_is_revoked(owner.pointer(), roots.crl.pointer()) != 0
                 }
             {
                 return Err(Error::Authentication);
             }
+            let restart = previous
+                .map(|_| unsafe {
+                    Opaque::new(
+                        tls_crt_restart_size(),
+                        tls_crt_restart_align(),
+                        mbedtls_x509_crt_restart_init,
+                        mbedtls_x509_crt_restart_free,
+                    )
+                })
+                .transpose()?;
             let mut flags = u32::MAX;
-            let status = timed(identity, epoch, || unsafe {
-                mbedtls_x509_crt_verify(
-                    owner.pointer(),
-                    roots.issuer.pointer(),
-                    roots.crl.pointer(),
-                    ptr::null(),
-                    &mut flags,
-                    None,
-                    ptr::null_mut(),
-                )
+            verify(identity, epoch, restart, progress, |restart| unsafe {
+                tls_crt_verify(owner.pointer(), roots.issuer.pointer(), &mut flags, restart)
             })?;
-            if status != 0 || flags != 0 {
+            if flags != 0 {
                 return Err(Error::Authentication);
             }
         }
-        let pk = identity.pk.as_ref().ok_or(Error::Poisoned)?;
-        uri(&roots.own, &certs.policy.own_uri)?;
-        uri(&roots.peer, &certs.policy.peer_uri)?;
-        identity.sdk(|| unsafe {
-            mbedtls_pk_check_pair(tls_crt_pk(roots.own.pointer()), pk.pointer())
-        })?;
+        if previous.is_none() {
+            let pk = identity.pk.as_ref().ok_or(Error::Poisoned)?;
+            identity.sdk(|| unsafe {
+                mbedtls_pk_check_pair(tls_crt_pk(roots.own.pointer()), pk.pointer())
+            })?;
+        }
+        progress()?;
         Ok(roots)
     }
     fn future(&self, identity: &Identity, epoch: i64) -> Result<bool, Error> {
@@ -283,9 +365,24 @@ impl Enrollment {
         identity: &Identity,
         certificates: Certificates<'_>,
         time: &TimeLease,
+        previous: Option<&Self>,
+        progress: &mut impl FnMut() -> Result<(), Error>,
     ) -> Result<Self, Error> {
+        if let Some(previous) = previous {
+            if certificates.issuer != bytes(&previous.roots.issuer, tls_crt_raw)? {
+                return Err(Error::Authentication);
+            }
+            uri(&previous.roots.own, &certificates.policy.own_uri)?;
+            uri(&previous.roots.peer, &certificates.policy.peer_uri)?;
+        }
         let (_, upper, _) = time.sample()?;
-        let roots = Roots::parse(identity, certificates, upper)?;
+        let roots = Roots::parse(
+            identity,
+            certificates,
+            upper,
+            previous.map(|p| &p.roots),
+            progress,
+        )?;
         // SAFETY: exact SDK layout and matching initialization/free operations.
         let config = unsafe {
             Opaque::new(
@@ -324,15 +421,21 @@ impl Enrollment {
     }
 }
 
-struct Socket {
-    stream: RefCell<TcpStream>,
+struct Socket<T> {
+    stream: RefCell<Option<T>>,
     until: Cell<Instant>,
     last: Cell<Instant>,
     calls: Cell<u8>,
     bytes: Cell<usize>,
     fault: Cell<bool>,
 }
-impl Socket {
+impl<T: Stream> Socket<T> {
+    fn retire(&mut self) {
+        if let Some(stream) = self.stream.get_mut().take() {
+            stream.retire();
+        }
+    }
+
     fn budget(&self, size: usize) -> Option<usize> {
         let now = Instant::now();
         if now >= self.until.get() || now < self.last.get() {
@@ -351,10 +454,10 @@ impl Socket {
         Some(size.min(self.bytes.get()))
     }
 }
-unsafe extern "C" fn send(context: *mut c_void, input: *const u8, size: usize) -> c_int {
+unsafe extern "C" fn send<T: Stream>(context: *mut c_void, input: *const u8, size: usize) -> c_int {
     // SAFETY: BIO borrows this stable owned box only while the SSL context lives;
     // SDK-provided input is readable for size bytes. There is no async callback.
-    let socket = unsafe { &*context.cast::<Socket>() };
+    let socket = unsafe { &*context.cast::<Socket<T>>() };
     let Some(size) = socket.budget(size) else {
         return unsafe { tls_want_write() };
     };
@@ -362,8 +465,12 @@ unsafe extern "C" fn send(context: *mut c_void, input: *const u8, size: usize) -
         socket.fault.set(true);
         return unsafe { tls_io_failure() };
     };
+    let Some(stream) = stream.as_mut() else {
+        socket.fault.set(true);
+        return unsafe { tls_io_failure() };
+    };
     match stream.write(unsafe { std::slice::from_raw_parts(input, size) }) {
-        Ok(n) if n > 0 => {
+        Ok(n) if n > 0 && n <= size => {
             socket.bytes.set(socket.bytes.get() - n);
             n as c_int
         }
@@ -379,9 +486,9 @@ unsafe extern "C" fn send(context: *mut c_void, input: *const u8, size: usize) -
         }
     }
 }
-unsafe extern "C" fn recv(context: *mut c_void, output: *mut u8, size: usize) -> c_int {
+unsafe extern "C" fn recv<T: Stream>(context: *mut c_void, output: *mut u8, size: usize) -> c_int {
     // SAFETY: same BIO lifetime; SDK supplies writable output for size bytes.
-    let socket = unsafe { &*context.cast::<Socket>() };
+    let socket = unsafe { &*context.cast::<Socket<T>>() };
     let Some(size) = socket.budget(size) else {
         return unsafe { tls_want_read() };
     };
@@ -389,8 +496,12 @@ unsafe extern "C" fn recv(context: *mut c_void, output: *mut u8, size: usize) ->
         socket.fault.set(true);
         return unsafe { tls_io_failure() };
     };
+    let Some(stream) = stream.as_mut() else {
+        socket.fault.set(true);
+        return unsafe { tls_io_failure() };
+    };
     match stream.read(unsafe { std::slice::from_raw_parts_mut(output, size) }) {
-        Ok(n) if n > 0 => {
+        Ok(n) if n > 0 && n <= size => {
             socket.bytes.set(socket.bytes.get() - n);
             n as c_int
         }
@@ -407,9 +518,14 @@ unsafe extern "C" fn recv(context: *mut c_void, output: *mut u8, size: usize) ->
     }
 }
 
-enum Peer<'a> {
+enum Peer {
+    #[cfg(feature = "pairing")]
+    Paired {
+        config: Opaque,
+    },
+
     Enrolled {
-        enrollment: &'a Enrollment,
+        enrollment: Rc<Enrollment>,
         time: TimeLease,
     },
     Pinned {
@@ -417,11 +533,13 @@ enum Peer<'a> {
         sha256: [u8; 32],
     },
 }
-impl Peer<'_> {
+impl Peer {
     fn config(&self) -> &Opaque {
         match self {
             Self::Enrolled { enrollment, .. } => &enrollment.config,
             Self::Pinned { config, .. } => config,
+            #[cfg(feature = "pairing")]
+            Self::Paired { config } => config,
         }
     }
     fn sample(&self) -> Result<(i64, i64, Instant), Error> {
@@ -429,6 +547,8 @@ impl Peer<'_> {
             Self::Enrolled { time, .. } => time.sample(),
             // Exact-pin bootstrap has a monotonic deadline, not a UTC claim.
             Self::Pinned { .. } => Ok((0, 0, Instant::now())),
+            #[cfg(feature = "pairing")]
+            Self::Paired { .. } => Ok((0, 0, Instant::now())),
         }
     }
 }
@@ -436,10 +556,10 @@ impl Peer<'_> {
 /// One nonblocking enrolled server or exact-pin bootstrap client connection.
 /// Native crypto execution is synchronous; callers must qualify its CPU/source
 /// latency before placing it on a camera capture thread. No worker is implied.
-pub struct Connection<'a> {
+pub struct Connection<'a, T: Stream = TcpStream> {
     ssl: Opaque,
-    peer: Peer<'a>,
-    socket: Box<Socket>,
+    peer: Peer,
+    socket: Box<Socket<T>>,
     pending: Box<[u8; RECORD]>,
     pending_size: usize,
     identity: &'a Identity,
@@ -465,7 +585,74 @@ impl Identity {
         stream: TcpStream,
         time: TimeLease,
     ) -> Result<Connection<'a>, Error> {
-        let enrollment = self.enrollment.as_ref().ok_or(Error::InvalidInput)?;
+        self.accept_stream(stream, time)
+    }
+
+    /// Generate a commissioning key from the guarded SDK DRBG. Convey it
+    /// over a physically trusted path and keep it out of persistent storage.
+    #[cfg(feature = "pairing")]
+    pub fn pairing_key(&self) -> Result<[u8; 32], Error> {
+        let mut key = [0; 32];
+        self.sdk(|| unsafe { psa_generate_random(key.as_mut_ptr(), key.len()) })?;
+        Ok(key)
+    }
+
+    /// Mutually authenticated TLS 1.2 PSK for a physically commissioned peer.
+    /// This mode uses a session-specific high-entropy key and a fixed deadline.
+    #[cfg(feature = "pairing")]
+    pub fn accept_pairing<'a, T: Stream>(
+        &'a self,
+        stream: T,
+        key: &[u8; 32],
+    ) -> Result<Connection<'a, T>, Error> {
+        // The endpoint comes from the pinned SDK's server enum.
+        self.pairing(stream, key, unsafe { tls_server_endpoint() })
+    }
+
+    #[cfg(feature = "pairing")]
+    fn pairing<'a, T: Stream>(
+        &'a self,
+        stream: T,
+        key: &[u8; 32],
+        endpoint: c_int,
+    ) -> Result<Connection<'a, T>, Error> {
+        if key == &[0; 32] {
+            return Err(Error::InvalidInput);
+        }
+        let config = unsafe {
+            Opaque::new(
+                tls_config_size(),
+                tls_config_align(),
+                mbedtls_ssl_config_init,
+                mbedtls_ssl_config_free,
+            )?
+        };
+        self.sdk(|| unsafe {
+            mbedtls_ssl_config_defaults(
+                config.pointer(),
+                endpoint,
+                tls_stream_transport(),
+                tls_default_preset(),
+            )
+        })?;
+        self.sdk(|| unsafe { tls_configure_pairing(config.pointer(), key.as_ptr(), key.len()) })?;
+        self.connection(
+            stream,
+            Peer::Paired { config },
+            Instant::now() + Duration::from_secs(3600),
+        )
+    }
+
+    pub fn accept_stream<'a, T: Stream>(
+        &'a self,
+        stream: T,
+        time: TimeLease,
+    ) -> Result<Connection<'a, T>, Error> {
+        let enrollment = self
+            .enrollment
+            .borrow()
+            .clone()
+            .ok_or(Error::InvalidInput)?;
         let until = enrollment.roots.cutoff(self, &time)?;
         self.connection(stream, Peer::Enrolled { enrollment, time }, until)
     }
@@ -475,13 +662,18 @@ impl Identity {
     /// claimed. Handshake proof and the pin must pass before application I/O.
     /// The certificate pin remains authoritative even if that certificate expires;
     /// replace it only through an independently authorized commissioning path.
+    /// A reusable pinned session has a fixed monotonic lifetime of at most one
+    /// hour. The handshake still has its own short deadline. The caller must
+    /// bound each application exchange independently of the session lifetime.
     pub fn connect_pinned<'a>(
         &'a self,
         stream: TcpStream,
         certificate_sha256: [u8; 32],
         lifetime: Duration,
     ) -> Result<Connection<'a>, Error> {
-        if lifetime.is_zero() || lifetime > Duration::from_secs(10) || certificate_sha256 == [0; 32]
+        if lifetime.is_zero()
+            || lifetime > Duration::from_secs(60 * 60)
+            || certificate_sha256 == [0; 32]
         {
             return Err(Error::InvalidInput);
         }
@@ -521,17 +713,25 @@ impl Identity {
         )
     }
 
-    fn connection<'a>(
+    fn connection<'a, T: Stream>(
         &'a self,
-        stream: TcpStream,
-        peer: Peer<'a>,
+        mut stream: T,
+        peer: Peer,
         until: Instant,
-    ) -> Result<Connection<'a>, Error> {
+    ) -> Result<Connection<'a, T>, Error> {
         let (lower, _, now) = peer.sample()?;
-        stream.set_nonblocking(true).map_err(|_| Error::Io)?;
+        #[cfg(feature = "pairing")]
+        let handshake = if matches!(peer, Peer::Paired { .. }) {
+            Duration::from_secs(20)
+        } else {
+            HANDSHAKE
+        };
+        #[cfg(not(feature = "pairing"))]
+        let handshake = HANDSHAKE;
+        stream.prepare().map_err(|_| Error::Io)?;
         let socket = try_boxed(Socket {
-            stream: RefCell::new(stream),
-            until: Cell::new(until.min(now + HANDSHAKE)),
+            stream: RefCell::new(Some(stream)),
+            until: Cell::new(until.min(now + handshake)),
             last: Cell::new(now),
             calls: Cell::new(0),
             bytes: Cell::new(0),
@@ -551,9 +751,9 @@ impl Identity {
         unsafe {
             mbedtls_ssl_set_bio(
                 ssl.pointer(),
-                (&*socket as *const Socket).cast_mut().cast(),
-                Some(send),
-                Some(recv),
+                (&*socket as *const Socket<T>).cast_mut().cast(),
+                Some(send::<T>),
+                Some(recv::<T>),
                 None,
             );
         }
@@ -565,19 +765,19 @@ impl Identity {
             pending_size: 0,
             identity: self,
             until,
-            handshake_until: now + HANDSHAKE,
+            handshake_until: now + handshake,
             last_epoch: lower,
             ready: false,
             closed: false,
         })
     }
 }
-impl Connection<'_> {
+impl<T: Stream> Connection<'_, T> {
     fn fail(&mut self, error: Error) -> Error {
         self.closed = true;
         self.pending.fill(0);
         self.pending_size = 0;
-        let _ = self.socket.stream.borrow().shutdown(Shutdown::Both);
+        self.socket.retire();
         error
     }
     fn epoch(&mut self) -> Result<i64, Error> {
@@ -599,7 +799,10 @@ impl Connection<'_> {
         }
         Ok(upper)
     }
-    fn operation(&mut self, action: impl FnOnce(*mut c_void) -> c_int) -> Result<c_int, Error> {
+    // Each transport shares the SDK deadline and record-workspace path across
+    // handshake, read, write and close.
+    #[inline(never)]
+    fn operation(&mut self, action: &mut dyn FnMut(*mut c_void) -> c_int) -> Result<c_int, Error> {
         let epoch = self.epoch()?;
         self.socket.calls.set(8);
         self.socket.bytes.set(8192);
@@ -608,8 +811,16 @@ impl Connection<'_> {
         } else {
             self.until.min(self.handshake_until)
         });
-        let result =
-            timed(self.identity, epoch, || action(self.ssl.pointer())).map_err(|e| self.fail(e))?;
+        let record = self
+            .ready
+            .then(|| self.identity.record.enter())
+            .transpose()
+            .map_err(|e| self.fail(e))?;
+        let result = timed(self.identity, epoch, || action(self.ssl.pointer()));
+        if let Some(record) = record {
+            record.finish().map_err(|e| self.fail(e))?;
+        }
+        let result = result.map_err(|e| self.fail(e))?;
         self.epoch()?;
         if self.socket.fault.get() {
             return Err(self.fail(Error::Io));
@@ -623,7 +834,7 @@ impl Connection<'_> {
             return Ok(true);
         }
         if unsafe { tls_handshake_over(self.ssl.pointer()) } == 0 {
-            let status = self.operation(|p| unsafe { mbedtls_ssl_handshake_step(p) })?;
+            let status = self.operation(&mut |p| unsafe { mbedtls_ssl_handshake_step(p) })?;
             if status == unsafe { tls_want_read() } || status == unsafe { tls_want_write() } {
                 return Ok(false);
             }
@@ -643,6 +854,8 @@ impl Connection<'_> {
     }
     fn authenticated(&self) -> Result<bool, Error> {
         Ok(match &self.peer {
+            #[cfg(feature = "pairing")]
+            Peer::Paired { .. } => unsafe { tls_pairing_cipher(self.ssl.pointer()) },
             Peer::Enrolled { enrollment, .. } => {
                 (unsafe { mbedtls_ssl_get_verify_result(self.ssl.pointer()) }) == 0
                     && matches!((bytes(&self.ssl, tls_peer_raw), bytes(&enrollment.roots.peer, tls_crt_raw)),
@@ -672,16 +885,21 @@ impl Connection<'_> {
         time.raise_lower(self.last_epoch)
             .map_err(|e| self.fail(e))?;
         let (lower, _, _) = time.sample()?;
-        let Peer::Enrolled { enrollment, .. } = &self.peer else {
+        let Peer::Enrolled { time: current, .. } = &mut self.peer else {
             return Err(Error::InvalidInput);
         };
-        self.until = enrollment
-            .roots
-            .cutoff(self.identity, &time)
-            .map_err(|e| self.fail(e))?;
-        if let Peer::Enrolled { time: current, .. } = &mut self.peer {
-            *current = time;
-        }
+        let cutoff = self
+            .identity
+            .enrollment
+            .borrow()
+            .as_ref()
+            .ok_or(Error::InvalidInput)
+            .and_then(|enrollment| enrollment.roots.cutoff(self.identity, &time));
+        self.until = match cutoff {
+            Ok(until) => until,
+            Err(error) => return Err(self.fail(error)),
+        };
+        *current = time;
         self.last_epoch = lower;
         Ok(())
     }
@@ -690,12 +908,12 @@ impl Connection<'_> {
         if self.pending_size != 0 {
             return Err(self.fail(Error::InvalidInput));
         }
-        let status = self.operation(|p| unsafe { mbedtls_ssl_close_notify(p) })?;
+        let status = self.operation(&mut |p| unsafe { mbedtls_ssl_close_notify(p) })?;
         if status == unsafe { tls_want_read() } || status == unsafe { tls_want_write() } {
             return Ok(false);
         }
         self.closed = true;
-        let _ = self.socket.stream.borrow().shutdown(Shutdown::Both);
+        self.socket.retire();
         if status == 0 {
             Ok(true)
         } else {
@@ -717,7 +935,7 @@ impl Connection<'_> {
         Err(io::ErrorKind::InvalidData.into())
     }
 }
-impl Read for Connection<'_> {
+impl<T: Stream> Read for Connection<'_, T> {
     fn read(&mut self, output: &mut [u8]) -> io::Result<usize> {
         if output.is_empty() {
             return Ok(0);
@@ -727,14 +945,15 @@ impl Read for Connection<'_> {
         if !self.poll().map_err(io_error)? {
             return Err(io::ErrorKind::WouldBlock.into());
         }
-        let status =
-            match self.operation(|p| unsafe { mbedtls_ssl_read(p, output.as_mut_ptr(), size) }) {
-                Ok(status) => status,
-                Err(error) => {
-                    output[..size].fill(0);
-                    return Err(io_error(error));
-                }
-            };
+        let status = match self
+            .operation(&mut |p| unsafe { mbedtls_ssl_read(p, output.as_mut_ptr(), size) })
+        {
+            Ok(status) => status,
+            Err(error) => {
+                output[..size].fill(0);
+                return Err(io_error(error));
+            }
+        };
         let result = self.io_status(status);
         if result.is_err() {
             output[..size].fill(0);
@@ -742,7 +961,7 @@ impl Read for Connection<'_> {
         result
     }
 }
-impl Write for Connection<'_> {
+impl<T: Stream> Write for Connection<'_, T> {
     fn write(&mut self, input: &[u8]) -> io::Result<usize> {
         if input.is_empty() {
             return Ok(0);
@@ -760,7 +979,7 @@ impl Write for Connection<'_> {
         let pointer = self.pending.as_ptr();
         let size = self.pending_size;
         let status = self
-            .operation(|p| unsafe { mbedtls_ssl_write(p, pointer, size) })
+            .operation(&mut |p| unsafe { mbedtls_ssl_write(p, pointer, size) })
             .map_err(io_error)?;
         let result = self.io_status(status);
         if let Ok(n) = result {
@@ -776,20 +995,25 @@ impl Write for Connection<'_> {
     fn flush(&mut self) -> io::Result<()> {
         self.epoch().map_err(io_error)?;
         if self.pending_size == 0 {
-            Ok(())
+            self.socket
+                .stream
+                .get_mut()
+                .as_mut()
+                .ok_or(io::ErrorKind::NotConnected)?
+                .flush()
         } else {
             Err(io::ErrorKind::WouldBlock.into())
         }
     }
 }
-impl Drop for Connection<'_> {
+impl<T: Stream> Drop for Connection<'_, T> {
     fn drop(&mut self) {
         // SDK execution and BIO callbacks are synchronous. Detach before freeing
         // SSL; fields then retire SSL/config before certificates, socket or key.
         unsafe {
             mbedtls_ssl_set_bio(self.ssl.pointer(), ptr::null_mut(), None, None, None);
         }
-        let _ = self.socket.stream.borrow().shutdown(Shutdown::Both);
+        self.socket.retire();
         self.pending.fill(0);
     }
 }
@@ -799,22 +1023,130 @@ mod tests {
     use super::*;
     #[test]
     fn actual_native_clock_uses_only_call_scoped_signed64_observation() {
-        unsafe extern "C" {
-            fn tls_test_clock_probe(expected: i64) -> c_int;
-        }
         let _serial = super::super::tests::serial();
-        let mut identity = crate::open().unwrap();
+        let identity = crate::open().unwrap();
         let epoch = 1_i64 << 34;
         assert_eq!(
-            timed(&identity, epoch, || unsafe { tls_test_clock_probe(epoch) }),
+            timed(&identity, epoch, || unsafe {
+                ffi::tls_test_clock_probe(epoch)
+            }),
             Ok(0)
         );
-        assert_eq!(unsafe { tls_test_clock_probe(-1) }, 0);
+        assert_eq!(unsafe { ffi::tls_test_clock_probe(-1) }, 0);
         assert_eq!(
             identity.request("device", &mut [0; 1024]),
             Err(Error::Poisoned)
         );
         drop(identity);
         assert!(crate::open().is_ok());
+    }
+}
+
+#[cfg(all(test, feature = "pairing", not(target_os = "nuttx")))]
+mod pairing_tests {
+    use super::*;
+    use std::collections::VecDeque;
+
+    struct End {
+        side: usize,
+        queues: Rc<RefCell<[VecDeque<u8>; 2]>>,
+    }
+    impl Read for End {
+        fn read(&mut self, output: &mut [u8]) -> io::Result<usize> {
+            let mut queues = self.queues.borrow_mut();
+            let buffer = &mut queues[self.side];
+            let count = output.len().min(buffer.len()).min(20);
+            if count == 0 {
+                return Err(io::ErrorKind::WouldBlock.into());
+            }
+            for (slot, byte) in output.iter_mut().zip(buffer.drain(..count)) {
+                *slot = byte;
+            }
+            Ok(count)
+        }
+    }
+    impl Write for End {
+        fn write(&mut self, input: &[u8]) -> io::Result<usize> {
+            let mut queues = self.queues.borrow_mut();
+            let buffer = &mut queues[1 - self.side];
+            let count = input.len().min(20 - buffer.len());
+            if count == 0 {
+                return Err(io::ErrorKind::WouldBlock.into());
+            }
+            buffer.extend(&input[..count]);
+            Ok(count)
+        }
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+    impl Stream for End {
+        fn prepare(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+        fn abort(&mut self) {
+            self.queues.borrow_mut()[self.side].clear();
+        }
+    }
+
+    #[test]
+    fn actual_sdk_authenticates_pairing_over_twenty_byte_backpressure() {
+        let _serial = super::super::tests::serial();
+        let identity = crate::open().unwrap();
+        let key = identity.pairing_key().unwrap();
+        for matches in [true, false] {
+            let queues = Rc::new(RefCell::new([VecDeque::new(), VecDeque::new()]));
+            let mut server = identity
+                .accept_pairing(
+                    End {
+                        side: 0,
+                        queues: queues.clone(),
+                    },
+                    &key,
+                )
+                .unwrap();
+            let mut client_key = key;
+            if !matches {
+                client_key[0] ^= 1;
+            }
+            let mut client = identity
+                .pairing(End { side: 1, queues }, &client_key, unsafe {
+                    tls_client_endpoint()
+                })
+                .unwrap();
+            let mut rejected = false;
+            let mut received = false;
+            let mut sent = false;
+            for _ in 0..8192 {
+                match (server.poll(), client.poll()) {
+                    (Err(Error::Authentication), _) | (_, Err(Error::Authentication)) => {
+                        rejected = true;
+                        break;
+                    }
+                    (Ok(true), Ok(true)) => {
+                        if !sent {
+                            match server.write(b"telemetry") {
+                                Ok(9) => sent = true,
+                                Err(error) if error.kind() == io::ErrorKind::WouldBlock => {}
+                                status => panic!("unexpected write: {status:?}"),
+                            }
+                        }
+                        let mut bytes = [0; 9];
+                        match client.read(&mut bytes) {
+                            Ok(9) => {
+                                assert_eq!(&bytes, b"telemetry");
+                                received = true;
+                                break;
+                            }
+                            Err(error) if error.kind() == io::ErrorKind::WouldBlock => {}
+                            status => panic!("unexpected read: {status:?}"),
+                        }
+                    }
+                    (Ok(_), Ok(_)) => {}
+                    (server, client) => panic!("unexpected handshake: {server:?}, {client:?}"),
+                }
+            }
+            assert_eq!((received, rejected), (matches, !matches));
+        }
     }
 }

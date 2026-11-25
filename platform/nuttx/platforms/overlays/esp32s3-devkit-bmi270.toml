@@ -1,9 +1,0 @@
-# Default IMU binding for the DevKit qualification profiles.
-[devices.motion]
-compatible = "bosch,bmi270"
-bus = "sensor_bus"
-address = 0x68
-wake = { kind = "interrupt", resource = "imu_irq" }
-
-[roles]
-imu = "motion"

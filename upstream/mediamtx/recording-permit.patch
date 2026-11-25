@@ -1,0 +1,444 @@
+--- a/mediamtx/internal/api/api.go
++++ b/mediamtx/internal/api/api.go
+@@ -90,6 +90,8 @@
+ 	MoQServer      defs.APIMoQServer
+ 	Parent         apiParent
+ 
++	RecordingPermit func(context.Context, string, defs.APIRecordingPermit, bool) (defs.APIRecordingPermit, error)
++
+ 	httpServer *httpp.Server
+ 	ctx        context.Context
+ 	ctxCancel  func()
+@@ -129,6 +131,9 @@
+ 
+ 	group.GET("/paths/list", a.onPathsList)
+ 	group.GET("/paths/get/*name", a.onPathsGet)
++	if a.RecordingPermit != nil {
++		group.POST("/paths/recording-permit/*name", a.onRecordingPermit)
++	}
+ 	group.GET("/paths/forward-dests/list", a.onForwardDestsList)
+ 	group.GET("/paths/forward-dests/get", a.onForwardDestsGet)
+ 	group.GET("/paths/static-sources/get/*name", a.onStaticSourcesGet)
+--- /dev/null
++++ b/mediamtx/internal/api/api_recording_permit.go
+@@ -0,0 +1,55 @@
++package api //nolint:revive
++
++import (
++	"context"
++	"encoding/json"
++	"errors"
++	"fmt"
++	"io"
++	"net/http"
++	"time"
++
++	"github.com/gin-gonic/gin"
++	"github.com/google/uuid"
++
++	"github.com/bluenviron/mediamtx/internal/conf"
++	"github.com/bluenviron/mediamtx/internal/defs"
++)
++
++func (a *API) onRecordingPermit(ctx *gin.Context) {
++	name, ok := paramName(ctx)
++	if !ok {
++		a.writeError(ctx, http.StatusBadRequest, fmt.Errorf("invalid name"))
++		return
++	}
++
++	var req struct {
++		PathID   uuid.UUID `json:"pathId"`
++		Revision *uint64   `json:"revision"`
++		Enable   *bool     `json:"enable"`
++	}
++	ctx.Request.Body = http.MaxBytesReader(ctx.Writer, ctx.Request.Body, 256)
++	decoder := json.NewDecoder(ctx.Request.Body)
++	decoder.DisallowUnknownFields()
++	if err := decoder.Decode(&req); err != nil || req.PathID == uuid.Nil ||
++		req.Revision == nil || req.Enable == nil || decoder.Decode(new(any)) != io.EOF {
++		a.writeError(ctx, http.StatusBadRequest, fmt.Errorf("invalid recording permit"))
++		return
++	}
++
++	deadline, cancel := context.WithTimeout(ctx.Request.Context(), 2*time.Second)
++	defer cancel()
++	state, err := a.RecordingPermit(deadline, name, defs.APIRecordingPermit{
++		PathID: req.PathID, Revision: *req.Revision,
++	}, *req.Enable)
++	switch {
++	case err == nil:
++		ctx.JSON(http.StatusOK, state)
++	case errors.Is(err, conf.ErrPathNotFound):
++		a.writeError(ctx, http.StatusNotFound, err)
++	case errors.Is(err, defs.ErrRecordingPermitConflict):
++		a.writeError(ctx, http.StatusConflict, err)
++	default:
++		a.writeError(ctx, http.StatusServiceUnavailable, fmt.Errorf("recording permit unavailable"))
++	}
++}
+--- a/mediamtx/internal/conf/path.go
++++ b/mediamtx/internal/conf/path.go
+@@ -240,6 +240,7 @@
+ 
+ 	// Record
+ 	Record                bool         `json:"record"`
++	RecordRequiresPermit  bool         `json:"recordRequiresPermit"`
+ 	Playback              *bool        `json:"playback,omitempty" deprecated:"true"`
+ 	RecordPath            string       `json:"recordPath"`
+ 	RecordFormat          RecordFormat `json:"recordFormat"`
+--- a/mediamtx/internal/core/core.go
++++ b/mediamtx/internal/core/core.go
+@@ -944,6 +944,8 @@
+ 			SRTServer:      p.srtServer,
+ 			MoQServer:      p.moqServer,
+ 			Parent:         p,
++
++			RecordingPermit: p.pathManager.setRecordingPermit,
+ 		}
+ 		err = i.Initialize()
+ 		if err != nil {
+--- a/mediamtx/internal/core/path.go
++++ b/mediamtx/internal/core/path.go
+@@ -131,6 +131,7 @@
+ 	source                         defs.Source
+ 	stream                         *stream.Stream
+ 	recorder                       *recorder.Recorder
++	recordingPermit                recordingPermit
+ 	forwardManager                 *forward.Manager
+ 	availableTime                  time.Time
+ 	onlineTime                     time.Time
+@@ -157,6 +158,7 @@
+ 	chAddReader               chan defs.PathAddReaderReq
+ 	chRemoveReader            chan defs.PathRemoveReaderReq
+ 	chAPIPathsGet             chan pathAPIPathsGetReq
++	chRecordingPermit         chan recordingPermitRequest
+ 	chAPIStaticSourcesGet     chan pathAPIStaticSourcesGetReq
+ 
+ 	// out
+@@ -183,6 +185,11 @@
+ 	pa.chAddReader = make(chan defs.PathAddReaderReq)
+ 	pa.chRemoveReader = make(chan defs.PathRemoveReaderReq)
+ 	pa.chAPIPathsGet = make(chan pathAPIPathsGetReq)
++	if pa.conf.RecordRequiresPermit {
++		pa.recordingPermit.state.PathID = uuid.New()
++		pa.recordingPermit.timer = emptyTimer()
++		pa.chRecordingPermit = make(chan recordingPermitRequest)
++	}
+ 	pa.chAPIStaticSourcesGet = make(chan pathAPIStaticSourcesGetReq)
+ 	pa.done = make(chan struct{})
+ 
+@@ -281,6 +288,9 @@
+ 	pa.onDemandStaticSourceCloseTimer.Stop()
+ 	pa.onDemandPublisherReadyTimer.Stop()
+ 	pa.onDemandPublisherCloseTimer.Stop()
++	if pa.recordingPermit.timer != nil {
++		pa.recordingPermit.timer.Stop()
++	}
+ 
+ 	onUnInitHook()
+ 
+@@ -314,8 +324,18 @@
+ }
+ 
+ func (pa *path) runInner() error {
++	var recordingDeadline <-chan time.Time
++	if pa.recordingPermit.timer != nil {
++		recordingDeadline = pa.recordingPermit.timer.C
++	}
+ 	for {
+ 		select {
++		case <-recordingDeadline:
++			pa.retireRecordingPermit()
++
++		case req := <-pa.chRecordingPermit:
++			pa.doRecordingPermit(req)
++
+ 		case <-pa.onDemandStaticSourceReadyTimer.C:
+ 			pa.doOnDemandStaticSourceReadyTimer()
+ 
+@@ -451,6 +471,10 @@
+ 	oldConf := pa.conf
+ 	pa.conf = newConf
+ 	pa.confMutex.Unlock()
++
++	if pa.recordingPermit.timer != nil && newConf.Record != oldConf.Record {
++		pa.retireRecordingPermit()
++	}
+ 
+ 	if pa.conf.HasStaticSource() {
+ 		pa.source.(*staticsources.Handler).ReloadConf(newConf)
+@@ -471,10 +495,7 @@
+ 		pa.recorder = nil
+ 	}
+ 
+-	if newConf.Record && pa.stream != nil && pa.recorder == nil &&
+-		(!newConf.AlwaysAvailable || newConf.AlwaysAvailableRecorded || pa.isOnline()) {
+-		pa.startRecording()
+-	}
++	pa.recordWhenAvailable()
+ }
+ 
+ func (pa *path) doSourceStaticSetReady(req defs.PathSourceStaticSetReadyReq) {
+@@ -707,9 +728,12 @@
+ 
+ 	req.res <- pathAPIPathsGetRes{
+ 		data: &defs.APIPath{
+-			Name:     pa.name,
+-			ConfName: pa.conf.Name,
+-			Ready:    pa.isAvailable(),
++			Name:             pa.name,
++			ConfName:         pa.conf.Name,
++			RecordingEnabled: pa.recordingAllowed(),
++			RecorderPresent:  pa.recorder != nil,
++			RecordingPermit:  pa.recordingPermitState(),
++			Ready:            pa.isAvailable(),
+ 			ReadyTime: func() *time.Time {
+ 				if !pa.isAvailable() {
+ 					return nil
+@@ -911,7 +935,7 @@
+ 
+ 	pa.onlineTime = time.Now()
+ 
+-	if pa.conf.AlwaysAvailable && pa.conf.Record &&
++	if pa.conf.AlwaysAvailable &&
+ 		!pa.conf.AlwaysAvailableRecorded && pa.recorder == nil {
+ 		pa.startRecording()
+ 	}
+@@ -974,7 +998,7 @@
+ 
+ 	pa.forwardManager.Start(pa.stream)
+ 
+-	if pa.conf.Record && (!pa.conf.AlwaysAvailable || pa.conf.AlwaysAvailableRecorded) {
++	if !pa.conf.AlwaysAvailable || pa.conf.AlwaysAvailableRecorded {
+ 		pa.startRecording()
+ 	}
+ 
+@@ -1028,6 +1052,9 @@
+ }
+ 
+ func (pa *path) startRecording() {
++	if !pa.recordingAllowed() {
++		return
++	}
+ 	pa.recorder = &recorder.Recorder{
+ 		PathFormat:      pa.conf.RecordPath,
+ 		Format:          pa.conf.RecordFormat,
+@@ -1219,8 +1246,8 @@
+ }
+ 
+ // APIPathsGet implements defs.APIPathManager.
+-func (pa *path) APIPathsGet(req pathAPIPathsGetReq) (*defs.APIPath, error) {
+-	req.res = make(chan pathAPIPathsGetRes)
++func (pa *path) APIPathsGet() (*defs.APIPath, error) {
++	req := pathAPIPathsGetReq{res: make(chan pathAPIPathsGetRes)}
+ 	select {
+ 	case pa.chAPIPathsGet <- req:
+ 		res := <-req.res
+--- a/mediamtx/internal/core/path_manager.go
++++ b/mediamtx/internal/core/path_manager.go
+@@ -710,7 +710,7 @@
+ 		}
+ 
+ 		for _, pa := range res.paths {
+-			item, err := pa.APIPathsGet(pathAPIPathsGetReq{})
++			item, err := pa.APIPathsGet()
+ 			if err == nil {
+ 				res.data.Items = append(res.data.Items, *item)
+ 			}
+@@ -727,8 +727,7 @@
+ 	}
+ }
+ 
+-// APIPathsGet implements defs.APIPathManager.
+-func (pm *pathManager) APIPathsGet(name string) (*defs.APIPath, error) {
++func (pm *pathManager) apiPath(ctx context.Context, name string) (*path, error) {
+ 	req := pathAPIPathsGetReq{
+ 		name: name,
+ 		res:  make(chan pathAPIPathsGetRes),
+@@ -737,16 +736,33 @@
+ 	select {
+ 	case pm.chAPIPathsGet <- req:
+ 		res := <-req.res
+-		if res.err != nil {
+-			return nil, res.err
+-		}
+-
+-		data, err := res.path.APIPathsGet(req)
+-		return data, err
++		return res.path, res.err
++
++	case <-ctx.Done():
++		return nil, ctx.Err()
+ 
+ 	case <-pm.ctx.Done():
+ 		return nil, fmt.Errorf("terminated")
+ 	}
++}
++
++// APIPathsGet implements defs.APIPathManager.
++func (pm *pathManager) APIPathsGet(name string) (*defs.APIPath, error) {
++	pa, err := pm.apiPath(pm.ctx, name)
++	if err != nil {
++		return nil, err
++	}
++	return pa.APIPathsGet()
++}
++
++func (pm *pathManager) setRecordingPermit(ctx context.Context, name string,
++	state defs.APIRecordingPermit, enabled bool,
++) (defs.APIRecordingPermit, error) {
++	pa, err := pm.apiPath(ctx, name)
++	if err != nil {
++		return defs.APIRecordingPermit{}, err
++	}
++	return pa.setRecordingPermit(ctx, state, enabled)
+ }
+ 
+ // APIForwardDestsList implements defs.APIPathManager.
+--- /dev/null
++++ b/mediamtx/internal/core/path_recording_permit.go
+@@ -0,0 +1,110 @@
++package core
++
++import (
++	"context"
++	"fmt"
++	"time"
++
++	"github.com/bluenviron/mediamtx/internal/defs"
++)
++
++const recordingPermitDuration = 3 * time.Second
++
++type recordingPermit struct {
++	state defs.APIRecordingPermit
++	until time.Time
++	timer *time.Timer
++}
++
++type recordingPermitRequest struct {
++	ctx      context.Context
++	expected defs.APIRecordingPermit
++	enable   bool
++	reply    chan recordingPermitResult
++}
++
++type recordingPermitResult struct {
++	state defs.APIRecordingPermit
++	err   error
++}
++
++func (pa *path) recordingAllowed() bool {
++	return pa.conf.Record && (pa.recordingPermit.timer == nil || time.Now().Before(pa.recordingPermit.until))
++}
++
++func (pa *path) recordingPermitState() *defs.APIRecordingPermit {
++	if pa.recordingPermit.timer == nil || !pa.conf.Record {
++		return nil
++	}
++	state := pa.recordingPermit.state
++	return &state
++}
++
++func (pa *path) recordWhenAvailable() {
++	if pa.stream != nil && pa.recorder == nil &&
++		(!pa.conf.AlwaysAvailable || pa.conf.AlwaysAvailableRecorded || pa.isOnline()) {
++		pa.startRecording()
++	}
++}
++
++func (pa *path) retireRecordingPermit() {
++	pa.recordingPermit.timer.Stop()
++	pa.recordingPermit.until = time.Time{}
++	pa.recordingPermit.state.Revision++
++	if pa.recorder != nil {
++		pa.recorder.Close()
++		pa.recorder = nil
++	}
++}
++
++func (pa *path) doRecordingPermit(req recordingPermitRequest) {
++	if ctxErr := req.ctx.Err(); ctxErr != nil {
++		req.reply <- recordingPermitResult{err: ctxErr}
++		return
++	}
++
++	permit := &pa.recordingPermit
++	if !permit.until.IsZero() && !time.Now().Before(permit.until) {
++		pa.retireRecordingPermit()
++	}
++	if !pa.conf.Record || req.expected != permit.state {
++		req.reply <- recordingPermitResult{err: defs.ErrRecordingPermitConflict}
++		return
++	}
++
++	if req.enable {
++		permit.state.Revision++
++		permit.until = time.Now().Add(recordingPermitDuration)
++		permit.timer.Reset(recordingPermitDuration)
++		pa.recordWhenAvailable()
++	} else {
++		// Retire and join the recorder before acknowledging the write.
++		pa.retireRecordingPermit()
++	}
++	req.reply <- recordingPermitResult{state: permit.state}
++}
++
++func (pa *path) setRecordingPermit(ctx context.Context, expected defs.APIRecordingPermit,
++	enable bool,
++) (defs.APIRecordingPermit, error) {
++	if pa.chRecordingPermit == nil {
++		return defs.APIRecordingPermit{}, defs.ErrRecordingPermitConflict
++	}
++	req := recordingPermitRequest{
++		ctx: ctx, expected: expected, enable: enable,
++		reply: make(chan recordingPermitResult, 1),
++	}
++	select {
++	case pa.chRecordingPermit <- req:
++		select {
++		case result := <-req.reply:
++			return result.state, result.err
++		case <-ctx.Done():
++			return defs.APIRecordingPermit{}, ctx.Err()
++		}
++	case <-ctx.Done():
++		return defs.APIRecordingPermit{}, ctx.Err()
++	case <-pa.ctx.Done():
++		return defs.APIRecordingPermit{}, fmt.Errorf("terminated")
++	}
++}
+--- a/mediamtx/internal/defs/api_path.go
++++ b/mediamtx/internal/defs/api_path.go
+@@ -1,6 +1,7 @@
+ package defs
+ 
+ import (
++	"errors"
+ 	"time"
+ 
+ 	"github.com/google/uuid"
+@@ -69,10 +70,22 @@
+ 	ID   string            `json:"id"`
+ }
+ 
++// ErrRecordingPermitConflict means the native recorder instance or revision no longer matches.
++var ErrRecordingPermitConflict = errors.New("recording permit conflict")
++
++// APIRecordingPermit identifies the current path incarnation and its permit revision.
++type APIRecordingPermit struct {
++	PathID   uuid.UUID `json:"pathId"`
++	Revision uint64    `json:"revision"`
++}
++
+ // APIPath is a path.
+ type APIPath struct {
+ 	Name                 string              `json:"name"`
+ 	ConfName             string              `json:"confName"`
++	RecordingEnabled     bool                `json:"recordingEnabled"`
++	RecorderPresent      bool                `json:"recorderPresent"`
++	RecordingPermit      *APIRecordingPermit `json:"recordingPermit,omitempty"`
+ 	Ready                bool                `json:"ready" deprecated:"true"`
+ 	ReadyTime            *time.Time          `json:"readyTime" deprecated:"true"`
+ 	Available            bool                `json:"available"`

@@ -1,0 +1,49 @@
+From: nxrs contributors
+Subject: [PATCH] serial: share window dimensions across the PTY pair
+
+openpty sets dimensions on the slave, while terminal resize is received
+on the master. Keep both ioctl operations under the existing pair lock.
+
+diff --git a/drivers/serial/pty.c b/drivers/serial/pty.c
+--- a/drivers/serial/pty.c
++++ b/drivers/serial/pty.c
+@@ -121,6 +121,7 @@
+   uint16_t pp_nopen;            /* Open file count */
+   sem_t pp_slavesem;            /* Slave lock semaphore */
+   mutex_t pp_lock;              /* Mutual exclusion */
++  struct winsize pp_winsize;    /* Terminal size shared by both endpoints */
+ };
+ 
+ /****************************************************************************
+@@ -930,6 +931,31 @@
+         break;
+ #endif
+ 
++      case TIOCGWINSZ:
++      case TIOCSWINSZ:
++        {
++          FAR struct winsize *win = (FAR struct winsize *)((uintptr_t)arg);
++
++          if (win == NULL)
++            {
++              ret = -EINVAL;
++            }
++          else
++            {
++              if (cmd == TIOCGWINSZ)
++                {
++                  *win = devpair->pp_winsize;
++                }
++              else
++                {
++                  devpair->pp_winsize = *win;
++                }
++
++              ret = 0;
++            }
++        }
++        break;
++
+       /* Any unrecognized IOCTL commands will be passed to the contained
+        * pipe driver.
+        *

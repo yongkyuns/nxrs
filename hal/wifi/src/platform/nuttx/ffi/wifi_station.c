@@ -48,7 +48,8 @@ int wifi_station_available(void)
 int wifi_quiescence_available(void)
 {
 #if defined(CONFIG_ARCH_CHIP_ESP32S3) && \
-    defined(CONFIG_ESPRESSIF_WIFI_STATION) && !defined(CONFIG_SMP)
+    defined(CONFIG_ESPRESSIF_WIFI_STATION) && \
+    !defined(CONFIG_ESPRESSIF_WIFI_SOFTAP)
   return 1;
 #else
   return 0;

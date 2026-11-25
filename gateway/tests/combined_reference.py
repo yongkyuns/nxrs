@@ -18,6 +18,7 @@ import subprocess
 import sys
 
 from combined_viewer import HEALTH_TIMEOUT
+import systemd_exec
 
 ROLES = ('control', 'media', 'proxy', 'ingest')
 HERE = Path(__file__).resolve().parent
@@ -59,7 +60,7 @@ def adapt_unit(text, original, prefix, root, server):
     text = text.replace('/etc/nxrs-monitor', str(root / 'conf'))
     for binary, installed in [('gateway', 'nxrs-gateway-control'), ('media', 'nxrs-mediamtx'),
                               ('ingest', 'nxrs-camera-ingest')]:
-        text = text.replace('/usr/local/libexec/' + installed, str(root / 'bin' / binary))
+        text = text.replace('/usr/local/libexec/' + installed, str(systemd_exec.LIBEXEC / prefix / binary))
     mapping = {'wg-quick@wg-nxrs': prefix + '-network', 'nxrs-firewall': prefix + '-firewall',
                'nxrs-monitor': prefix + '-monitor', **{'nxrs-' + r: prefix + '-' + r for r in ROLES}}
     name = original
@@ -175,6 +176,7 @@ async def exercise(args, prefix, nets):
     root, state = Path('/run') / prefix, Path('/var/lib') / (prefix + '-control')
     require(not root.exists() and not state.exists(), 'new private fixture required')
     root.mkdir(mode=0o755)
+    executables = None
     conf = root / 'conf'
     unit_files, names = [], []
     account_created = False
@@ -200,11 +202,11 @@ async def exercise(args, prefix, nets):
         return {int(pid) for file in path.rglob('cgroup.procs') for pid in file.read_text().split()}
 
     try:
-        (root / 'bin').mkdir(mode=0o755)
+        executables = systemd_exec.allocate(prefix)
         for path, name in [(args.gateway, 'gateway'), (args.mediamtx, 'media'), (args.ingest, 'ingest'),
                            (args.ingest.with_name('nxrs-rtsp-publisher'), 'publisher')]:
-            shutil.copyfile(path, root / 'bin' / name)
-            (root / 'bin' / name).chmod(0o755)
+            shutil.copyfile(path, executables / name)
+            (executables / name).chmod(0o755)
         images = root / 'images'
         images.mkdir(mode=0o700)
         camera = await RustCamera.start(args.camera_source, images)
@@ -224,7 +226,7 @@ async def exercise(args, prefix, nets):
         (conf / 'security.json').write_text(json.dumps(security))
         ingest_config = json.loads((conf / 'ingest.json').read_text())
         ingest_config['publisher_token_file'] = '/run/' + roles['ingest'] + '/publisher.token'
-        ingest_config['publisher'] = str(root/'bin/publisher')
+        ingest_config['publisher'] = str(executables/'publisher')
         (conf / 'ingest.json').write_text(json.dumps(ingest_config))
         try:
             pwd.getpwnam(roles['control'])
@@ -425,7 +427,7 @@ async def exercise(args, prefix, nets):
                 failures.append('camera')
         failures += cleanup_all([('unit file', lambda p=p: p.unlink(missing_ok=True)) for p in unit_files])
         failures += cleanup_all([('reload', lambda: command(['systemctl', 'daemon-reload']))])
-        for path in [state, root]:
+        for path in [state, root, executables]:
             failures += cleanup_all([('private fixture', lambda p=path: shutil.rmtree(p) if p.exists() else None)])
         if account_created:
             failures += cleanup_all([('account', lambda: command(['userdel', roles['control']]))])

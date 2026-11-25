@@ -584,10 +584,30 @@
 +}
 --- /dev/null
 +++ b/lib/rustlib/src/rust/library/std/src/sys/sync/mpmc/nuttx/ffi/lock.c
-@@ -0,0 +1,13 @@
+@@ -0,0 +1,34 @@
 +/* Header ABI translation only; all queue behavior is Rust. */
 +#include <stdint.h>
 +#include <nuttx/spinlock.h>
++#if defined(CONFIG_ARCH_CHIP_ESP32S3) && defined(CONFIG_SMP) && \
++    defined(CONFIG_ESP32S3_SPIRAM)
++#include <nuttx/atomic.h>
++/* The gate can reside in PSRAM. Keep the IRQ barrier and use libc CAS. */
++_Static_assert(sizeof(atomic_t) <= sizeof(uintptr_t), "atomic storage size");
++_Static_assert(_Alignof(atomic_t) <= _Alignof(uintptr_t), "atomic storage alignment");
++void __rust_nuttx_spin_init(void *storage) { atomic_set((atomic_t *)storage, 0); }
++uintptr_t __rust_nuttx_spin_lock(void *storage) {
++  irqstate_t flags = up_irq_save();
++  int32_t expected;
++  do {
++    expected = 0;
++  } while (!atomic_try_cmpxchg_acquire((atomic_t *)storage, &expected, 1));
++  return (uintptr_t)flags;
++}
++void __rust_nuttx_spin_unlock(void *storage, uintptr_t flags) {
++  atomic_set_release((atomic_t *)storage, 0);
++  up_irq_restore((irqstate_t)flags);
++}
++#else
 +_Static_assert(sizeof(spinlock_t) <= 2 * sizeof(uintptr_t), "spinlock storage size");
 +_Static_assert(_Alignof(spinlock_t) <= _Alignof(uintptr_t), "spinlock storage alignment");
 +_Static_assert(sizeof(irqstate_t) <= sizeof(uintptr_t), "interrupt state ABI");
@@ -598,3 +618,4 @@
 +void __rust_nuttx_spin_unlock(void *storage, uintptr_t flags) {
 +  spin_unlock_irqrestore((volatile spinlock_t *)storage, (irqstate_t)flags);
 +}
++#endif

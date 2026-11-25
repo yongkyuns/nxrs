@@ -1,17 +1,17 @@
-//! Select one checked-in implementation from the resolved profile.
-#[cfg_attr(
-    all(hal_provider = "hardware", target_os = "nuttx"),
-    path = "nuttx/mod.rs"
-)]
-#[cfg_attr(hal_provider = "mock", path = "mock.rs")]
-#[cfg_attr(hal_provider = "simulation", path = "simulation.rs")]
-#[cfg_attr(
-    not(any(
-        hal_provider = "hardware",
-        hal_provider = "mock",
-        hal_provider = "simulation"
-    )),
-    path = "unbound.rs"
-)]
-mod selected;
-pub use selected::open;
+//! Select one implementation from the validated profile binding.
+cfg_if::cfg_if! {
+    if #[cfg(platform = "nuttx")] {
+        pub mod nuttx;
+        pub use nuttx as selected;
+    } else if #[cfg(platform = "mock")] {
+        pub mod mock;
+        pub use mock as selected;
+    } else if #[cfg(platform = "simulation")] {
+        pub mod simulation;
+        pub use simulation as selected;
+    } else {
+        pub mod unbound;
+        pub use unbound as selected;
+    }
+}
+pub use selected as construction;

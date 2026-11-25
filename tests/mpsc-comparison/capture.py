@@ -21,6 +21,22 @@ def cases():
         for mode, payload, capacity in SHAPES for n in (1, 4)}
 
 
+def plan(passes, include_native_control=False, observer='primary'):
+    build.selected_observer('esp32s3', observer)
+    arms = [('nuttx', 'std'), ('zephyr', 'native')]
+    if include_native_control:
+        arms.insert(1, ('nuttx', 'native'))
+    result = []
+    for number in range(1, passes + 1):
+        # Rotation gives each of three arms every position over three passes.
+        offset = (number - 1) % len(arms)
+        order = arms[offset:] + arms[:offset]
+        for case, values in cases().items():
+            result.extend(dict(pass_number=number, runtime=runtime, backend=backend, observer=observer,
+                               case=case, **values) for runtime, backend in order)
+    return result
+
+
 def read(path):
     return json.loads(Path(path).read_text(), object_pairs_hook=metrics.unique)
 
@@ -36,14 +52,19 @@ def session(value, receipt, root):
 
 def expected(receipt, case):
     return dict(build_id=receipt['build_id'], runtime=receipt['runtime'], native=True,
-                accounting=False, clock_hz=receipt['board_contract']['clock-hz'],
-                backend='std' if receipt['runtime'] == 'nuttx' else 'native', **cases()[case])
+                accounting=receipt['observer'] == 'cpu', observer=receipt['observer'],
+                cpu_scope=metrics.cpu_scope(receipt['runtime'], receipt['observer']),
+                irq_observer=receipt.get('irq_observer'),
+                clock_hz=receipt['board_contract']['clock-hz'],
+                backend=receipt['backend'],
+                wait_observer='queue-object' if receipt['backend'] == 'native' else 'semaphore-state-and-phase',
+                **cases()[case])
 
 
 def replay(directory, root):
     receipt = build.receipt(root)
     run = read(directory / 'run.json')
-    metrics.require(run.get('schema') == 'mpsc-comparison-capture-v2' and run.get('failure') is None,
+    metrics.require(run.get('schema') == 'mpsc-comparison-capture-v4' and run.get('failure') is None,
                     'failed/incomplete capture')
     raw = (directory / 'console.log').read_bytes()
     attestation = (directory / 'session.json').read_bytes()
@@ -65,7 +86,7 @@ def capture(args):
     args.output.mkdir(parents=True, mode=0o700, exist_ok=False)
     (args.output / 'session.json').write_bytes(attestation)
     exp = expected(receipt, args.case)
-    run = dict(schema='mpsc-comparison-capture-v2', case=args.case, expected=exp,
+    run = dict(schema='mpsc-comparison-capture-v4', case=args.case, expected=exp,
                failure='incomplete', fresh_boot_attested=True,
                session_sha256=hashlib.sha256(attestation).hexdigest())
     raw = bytearray()
@@ -108,28 +129,50 @@ def capture(args):
 
 
 def compare(args):
-    left, right = (build.receipt(path) for path in (args.nuttx_build, args.zephyr_build))
-    metrics.require(left['runtime'] == 'nuttx' and right['runtime'] == 'zephyr'
-                    and left['board'] == right['board']
-                    and left['board_contract'] == right['board_contract']
-                    and left['source_sha256'] == right['source_sha256']
-                    and left['rust_compiler'] == right['rust_compiler'], 'unmatched build cohort')
+    paths = {('nuttx', 'std'): args.nuttx_build}
+    if getattr(args, 'nuttx_native_build', None) is not None:
+        paths['nuttx', 'native'] = args.nuttx_native_build
+    if getattr(args, 'zephyr_build', None) is not None:
+        paths['zephyr', 'native'] = args.zephyr_build
+    metrics.require(len(paths) > 1, 'comparison requires a native NuttX and/or Zephyr build')
+    receipts = {arm: build.receipt(path) for arm, path in paths.items()}
+    left = receipts['nuttx', 'std']
+    for arm, record in receipts.items():
+        metrics.require((record['runtime'], record['backend']) == arm, 'mismatched runtime/backend')
+        build.validate_cohort(left, record)
+    kernel_control = None
+    if ('nuttx', 'native') in receipts:
+        kernel_control = build.validate_nuttx_control(left, receipts['nuttx', 'native'])
     pairs = {}
     for directory in args.captures:
         run = read(directory / 'run.json')
-        runtime = run['expected']['runtime']
-        summary = replay(directory, args.nuttx_build if runtime == 'nuttx' else args.zephyr_build)
+        arm = run['expected']['runtime'], run['expected']['backend']
+        metrics.require(arm in paths, 'capture from an unselected runtime/backend')
+        summary = replay(directory, paths[arm])
         key = (summary['pass_number'], summary['case'])
-        metrics.require(runtime not in pairs.setdefault(key, {}), 'duplicate case/runtime in pass')
-        pairs[key][runtime] = summary
-    metrics.require(bool(pairs) and all(set(p) == {'nuttx', 'zephyr'} for p in pairs.values()), 'unpaired captures')
+        metrics.require(arm not in pairs.setdefault(key, {}), 'duplicate case/runtime/backend in pass')
+        pairs[key][arm] = summary
+    metrics.require(bool(pairs) and all(set(p) == set(paths) for p in pairs.values()), 'unpaired captures')
     result = []
     for (pass_number, case), pair in sorted(pairs.items()):
-        n, z = pair['nuttx'], pair['zephyr']
-        result.append(dict(pass_number=pass_number, case=case,
-                           nuttx_messages_s=n['delivered_per_nominal_second'],
-                           zephyr_messages_s=z['delivered_per_nominal_second'],
-                           nuttx_delivery_p99_us=None if n['delivery_ticks'] is None else n['delivery_ticks']['p99'] * 1e6 / n['clock_hz'],
-                           zephyr_delivery_p99_us=None if z['delivery_ticks'] is None else z['delivery_ticks']['p99'] * 1e6 / z['clock_hz'],
-                           nuttx_normal_loss_gate=n['normal_loss_gate_passed'], zephyr_normal_loss_gate=z['normal_loss_gate_passed']))
-    return dict(board=left['board'], samples_pooled=False, physical_timing_qualified=False, comparisons=result)
+        arms = []
+        for (runtime, backend), summary in pair.items():
+            arms.append(dict(runtime=runtime, backend=backend, build_id=summary['build_id'],
+                             messages_s=summary['delivered_per_nominal_second'],
+                             delivery_p99_us=None if summary['delivery_ticks'] is None else
+                             summary['delivery_ticks']['p99'] * 1e6 / summary['clock_hz'],
+                             offered=summary['offered'], admitted=summary['admitted'],
+                             delivered=summary['delivered'], rejected=summary['rejected'],
+                             normal_loss_gate=summary['normal_loss_gate_passed'],
+                             wait_observer=summary['wait_observer'],
+                             cpu_scope=summary['cpu_scope'],
+                             cpu_ns_per_delivered=summary['cpu_ns_per_delivered'],
+                             irq_observer=summary.get('irq_observer')))
+        result.append(dict(pass_number=pass_number, case=case, arms=arms))
+    return dict(schema='mpsc-comparison-cohort-v4', board=left['board'], observer=left['observer'],
+                samples_pooled=False, physical_timing_qualified=False,
+                matched_placement_qualified=False, product_qualified=False,
+                footprint_scope='complete diagnostic images, not a channel-object or minimum firmware cost',
+                cpu_charge_scopes_equal=None if left['observer']!='cpu' else len({metrics.cpu_scope(r['runtime'], r['observer']) for r in receipts.values()}) == 1,
+                cpu_scope_note='Participant thread charges only; NuttX includes attributed IRQ work, Zephyr Xtensa stops charging before ISR dispatch. Not total MCU active time or energy.',
+                nuttx_kernel_control=kernel_control, comparisons=result)

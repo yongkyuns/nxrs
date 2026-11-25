@@ -2,8 +2,10 @@
 #![deny(unsafe_code)]
 
 #[cfg(not(feature = "probe"))]
-use imu::Imu;
-use imu::{AccelRange, Config, DeviceError, Event, GyroRange};
+use imu::Device;
+#[cfg(not(feature = "probe"))]
+use imu::Session;
+use imu::{Config, DeviceError, Event};
 use messaging::{bounded, DeliveryError, Rejected};
 use std::{
     process::ExitCode,
@@ -30,8 +32,8 @@ const NO_STREAM: Duration = Duration::from_secs(3);
 const CONFIG: Config = Config {
     min_rate_millihz: 100_000,
     max_rate_millihz: 104_000,
-    accel_range: AccelRange::G4,
-    gyro_range: GyroRange::Dps2000,
+    accel_range_g: 4,
+    gyro_range_dps: 2000,
     max_delivery_interval_us: 10_000,
 };
 
@@ -215,14 +217,14 @@ fn main() -> ExitCode {
         let observer = timing.clone();
         let observe = move |event| observer.record(event);
         let opened = if sensor_reference {
-            imu::probe::open_sensor_reference_configured(CONFIG, sink, observe)
+            composition::probe::open_sensor_reference_configured(CONFIG, sink, observe)
         } else {
-            imu::probe::open_configured(CONFIG, sink, observe)
+            composition::probe::open_configured(CONFIG, sink, observe)
         };
         (timing, opened)
     };
     #[cfg(not(feature = "probe"))]
-    let opened = imu::open_configured(CONFIG, sink);
+    let opened = composition::imu::primary_imu().open(CONFIG, sink);
     let (mut device, applied) = match opened {
         Ok(opened) => opened,
         Err(error) => return report("open_failed", 0, Duration::ZERO, seen, 0, Some(error)),

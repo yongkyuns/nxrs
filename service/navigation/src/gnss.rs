@@ -1,6 +1,6 @@
 use std::f32::consts::PI;
 use std::io;
-use std::sync::mpsc::{sync_channel, SyncSender, TrySendError};
+use std::sync::mpsc::{sync_channel, SyncSender};
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,
@@ -8,7 +8,7 @@ use std::sync::{
 use std::thread::{self, JoinHandle};
 
 use crate::fusion::{GnssInput, Submit};
-use gnss::{DeliveryError, DeviceError, Gnss, GnssFix, Rejected};
+use gnss::{DeviceError, GnssFix, Session};
 use messaging::{bounded, Inbox, Sender};
 
 const INBOX_CAPACITY: usize = 32;
@@ -91,27 +91,16 @@ impl GnssService {
         self.processor = processor;
         self
     }
-    pub fn start(self) -> io::Result<GnssHandle> {
+    pub fn start_on(self, device: &'static impl gnss::Device) -> io::Result<GnssHandle> {
         let (control, inbox) = bounded(INBOX_CAPACITY);
-        let sender = control.clone();
         // This endpoint only admits messages; acquisition invokes it in task context.
-        let sink = move |value: gnss::Event| {
-            sender
-                .try_send(Event::Device(value))
-                .map_err(|error| Rejected {
-                    value,
-                    error: match error {
-                        TrySendError::Full(_) => DeliveryError::Full,
-                        TrySendError::Disconnected(_) => DeliveryError::Closed,
-                    },
-                })
-        };
-        let device = gnss::open(sink).map_err(hal_error)?;
+        let sink = crate::inbox_sink(control.clone(), |event| Some(Event::Device(event)));
+        let device = device.open(sink).map_err(hal_error)?;
         Self::start_device(self, device, control, inbox)
     }
 
     #[cfg(test)]
-    pub(super) fn start_with_test_device<D: Gnss + Send + 'static>(
+    pub(super) fn start_with_test_device<D: Session + Send + 'static>(
         self,
         device: D,
     ) -> io::Result<(GnssHandle, TestInput)> {
@@ -132,7 +121,7 @@ impl TestInput {
 }
 
 impl GnssService {
-    fn start_device<D: Gnss + Send + 'static>(
+    fn start_device<D: Session + Send + 'static>(
         self,
         device: D,
         control: Sender<Event>,
@@ -205,7 +194,7 @@ impl Drop for GnssHandle {
         self.request_stop();
     }
 }
-fn run<D: Gnss>(
+fn run<D: Session>(
     mut service: GnssService,
     mut device: D,
     inbox: Inbox<Event>,

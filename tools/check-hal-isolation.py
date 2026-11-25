@@ -11,8 +11,8 @@ import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
 HOST_PLATFORM = {"darwin": "macos", "win32": "windows"}.get(sys.platform, "linux")
-CAPABILITIES = ("camera", "storage", "transport", "led", "imu", "gnss", "wifi", "ble")
-EXAMPLE_FEATURES = {"camera": "replay", "storage": "recording", "transport": "udp"}
+CAPABILITIES = ("camera", "storage", "led", "imu", "gnss", "wifi", "ble")
+EXAMPLE_FEATURES = {"camera": "replay", "storage": "recording"}
 
 
 def host_dependencies(metadata, target_packages):
@@ -87,8 +87,7 @@ def check(text, names, expected, host, directory, target):
 def provider_cfgs(provider):
     if provider == "none":
         return []
-    mode = provider if provider in {"mock", "simulation"} else "hardware"
-    return [f'hal_provider="{mode}"']
+    return [f'platform="{provider}"']
 
 
 def check_selection(text, names, package, provider):
@@ -96,7 +95,7 @@ def check_selection(text, names, package, provider):
                if (r := json.loads(line)).get("reason") == "build-script-executed"
                and names.get(r["package_id"]) == package]
     assert len(reports) == 1, "missing/duplicate platform build-script evidence"
-    cfgs = [cfg for cfg in reports[0]["cfgs"] if cfg.startswith(("hal_", "nxrs_hal_"))]
+    cfgs = [cfg for cfg in reports[0]["cfgs"] if cfg.startswith(("platform=", "hal_", "nxrs_hal_"))]
     expected = provider_cfgs(provider)
     assert cfgs == expected, f"wrong capability selection: {cfgs} != {expected}"
 
@@ -110,7 +109,7 @@ def oracle(name):
 
 
 def self_test():
-    names = {"hal": "nxrs-camera", "common": "nxrs-hal-common", "bad": "retired-provider",
+    names = {"hal": "nxrs-camera", "radio-types": "nxrs-radio-types", "bad": "retired-provider",
              "registry-driver": "driver", "registry-build-dependency": "build-support"}
     directory = Path(tempfile.gettempdir()).resolve() / "hal-isolation-fixture"
     target = "fixture-target"
@@ -127,7 +126,7 @@ def self_test():
     actual = check(fixture(["hal"], host), names, expected, host, directory, target)
     assert actual["host"] == host, "host dependency was omitted from the evidence"
     check_selection(fixture(["hal"]), names, "nxrs-camera", "none")
-    for value in (fixture(["common"]), fixture(["hal", "common"]), fixture(["hal", "bad"]),
+    for value in (fixture(["radio-types"]), fixture(["hal", "radio-types"]), fixture(["hal", "bad"]),
                   fixture(["hal", "registry-driver"]), fixture(["hal", "registry-build-dependency"]),
                   fixture(["hal", "unknown"]), fixture(["hal"], ["registry-driver"]),
                   fixture(["hal"], success=False), ""):
@@ -154,6 +153,9 @@ def run(out, capabilities=CAPABILITIES):
         ["cargo", "metadata", "--locked", "--format-version=1"], cwd=ROOT, text=True))
     names = {p["id"]: p["name"] for p in metadata["packages"]}
     workspace = {names[identity]: identity for identity in metadata["workspace_members"]}
+    # All HAL selectors use this pinned macro dependency.
+    conditional, = (p["id"] for p in metadata["packages"]
+                    if p["name"] == "cfg-if" and p["version"] == "1.0.5")
     compiler = subprocess.check_output([os.environ.get("RUSTC", "rustc"), "-vV"], text=True)
     host_target = next(line.removeprefix("host: ") for line in compiler.splitlines()
                        if line.startswith("host: "))
@@ -168,28 +170,33 @@ def run(out, capabilities=CAPABILITIES):
         if capability in {"wifi", "ble", "imu", "gnss"}:
             expected.add("nxrs-messaging")
             if capability in {"wifi", "ble"}:
-                expected.add("nxrs-hal-common")
+                expected.add("nxrs-radio-types")
         if capability == "storage":
             expected.add("nxrs-camera")
+        if capability == "imu":
+            expected.add("nxrs-peripheral")
         base_expected = expected
-        cases = [("contract-core", None, "none", "thumbv6m-none-eabi", None),
+        # IMU and its drivers require std; preserve unbound isolation on the host.
+        contract = (("contract-host", None, "none", None, None) if capability == "imu"
+                    else ("contract-core", None, "none", "thumbv6m-none-eabi", None))
+        cases = [contract,
                  ("contract-wasm", None, "none", "wasm32-unknown-unknown", None)]
         if capability not in {"wifi", "ble"}:
             cases.append(("mock-wasm", "mock", "mock", "wasm32-unknown-unknown", None))
         if capability in {"imu", "gnss"}:
             cases.append(("simulation-host", "simulation", "simulation", None, None))
-        if capability in {"camera", "storage", "transport"}:
-            example = {"camera": "native_replay", "storage": "native_record", "transport": "native_send"}[capability]
-            cases.append((HOST_PLATFORM, HOST_PLATFORM, HOST_PLATFORM, None, example))
+        if capability in {"camera", "storage"}:
+            example = {"camera": "native_replay", "storage": "native_record"}[capability]
+            cases.append((HOST_PLATFORM, HOST_PLATFORM, "none", None, example))
         for label, profile, provider, target, example in cases:
             expected = set(base_expected)
-            # The sensor manifests declare their shared task owner on targets
-            # with std. The Cortex-M0 contract case must keep that crate out.
+            # GNSS retains a core-only contract; IMU's contract also uses std.
             if capability in {"imu", "gnss"} and target != "thumbv6m-none-eabi":
                 expected.add("nxrs-acquisition")
-            if label == "simulation-host":
+            if capability in {"imu", "gnss"} and target is None:
                 expected.add("nxrs-simulation")
             expected = {workspace[name] for name in expected}
+            expected.add(conditional)
             host = host_dependencies(metadata, expected)
             label = f"{capability}-{label}"
             target = target or host_target
@@ -217,14 +224,11 @@ def run(out, capabilities=CAPABILITIES):
                 if example:
                     executables = [r["executable"] for r in records if r.get("reason") == "compiler-artifact" and r.get("executable")]
                     assert len(executables) == 1
-                    if capability == "transport":
-                        oracle("transport").execute(executables[0], out)
-                    else:
-                        destination = source if capability == "camera" else out / "records"
-                        execution = subprocess.run([executables[0], str(destination)], check=True, capture_output=True, text=True, timeout=15)
-                        assert execution.stdout.strip() == capability.upper() + "_ONLY_PASS"
-                        if capability == "storage":
-                            oracle("storage").check_records(destination)
+                    destination = source if capability == "camera" else out / "records"
+                    execution = subprocess.run([executables[0], str(destination)], check=True, capture_output=True, text=True, timeout=15)
+                    assert execution.stdout.strip() == capability.upper() + "_ONLY_PASS"
+                    if capability == "storage":
+                        oracle("storage").check_records(destination)
                 report.append({"case": label, "platform": profile, "provider": provider, "target": target,
                                "features": [EXAMPLE_FEATURES[capability]] if example else [],
                                "compiled_packages": sorted({names[identity] for ids in compiled.values() for identity in ids}),
@@ -242,7 +246,7 @@ def run(out, capabilities=CAPABILITIES):
     # Reuse one Cargo cache: changing the environment must rerun selection, not
     # leave an old implementation active in a developer's incremental build.
     with tempfile.TemporaryDirectory(prefix="switch-", dir=out) as directory:
-        for profile, provider in [(HOST_PLATFORM, HOST_PLATFORM), ("mock", "mock"), (None, "none")]:
+        for profile, provider in [(HOST_PLATFORM, "none"), ("mock", "mock"), (None, "none")]:
             env = {**os.environ, "CARGO_TARGET_DIR": directory}
             env.pop("NXRS_PLATFORM", None)
             if profile:
@@ -252,7 +256,7 @@ def run(out, capabilities=CAPABILITIES):
                                     cwd=ROOT, env=env, capture_output=True, text=True, timeout=120)
             assert result.returncode == 0, result.stderr
             check_selection(result.stdout, names, "nxrs-camera", provider)
-        for selector in ('hal_mock', 'hal_provider="mock"'):
+        for selector in ('hal_mock', 'hal_provider="mock"', 'platform="mock"'):
             env["CARGO_ENCODED_RUSTFLAGS"] = "--cfg\x1f" + selector
             result = subprocess.run(["cargo", "check", "--locked", "-p", "nxrs-camera", "--lib"],
                                     cwd=ROOT, env=env, capture_output=True, text=True, timeout=120)

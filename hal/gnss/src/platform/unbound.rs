@@ -1,6 +1,7 @@
-use crate::{DeviceError, Event, Gnss};
+pub use crate::fixtures::devices;
+use crate::{DeviceError, Event, Session};
 struct Unconfigured;
-impl Gnss for Unconfigured {
+impl Session for Unconfigured {
     fn request_stop(&mut self) -> Result<(), DeviceError> {
         Ok(())
     }
@@ -16,6 +17,6 @@ impl Gnss for Unconfigured {
 }
 pub fn open<S: FnMut(Event) -> messaging::DeliveryResult<Event> + Send + 'static>(
     _: S,
-) -> Result<impl Gnss + Send + 'static, DeviceError> {
+) -> Result<impl Session + Send + 'static, DeviceError> {
     Err::<Unconfigured, _>(DeviceError::Unsupported)
 }

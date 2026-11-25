@@ -9,6 +9,7 @@ import json
 import os
 from pathlib import Path
 import secrets
+import re
 import shutil
 import signal
 import subprocess
@@ -17,6 +18,7 @@ import time
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]/'deploy'))
 import ingest_service
+import systemd_exec
 
 
 def require(condition, message):
@@ -32,10 +34,33 @@ def require_hosted():
     require(Path('/sys/fs/cgroup/cgroup.controllers').exists(), 'unified cgroup hierarchy required')
 
 
+def unit_start_diagnostics(arguments, exit_code):
+    """Only report allowlisted systemd status codes, never captured stderr or credentials."""
+    summary = [f'{arguments[0]} {arguments[1]} exited {exit_code}']
+    if len(arguments) == 3 and arguments[:2] == ['systemctl', 'start']:
+        for key in ('LoadState', 'Result', 'ExecMainCode', 'ExecMainStatus', 'StatusErrno', 'ExecStartPre'):
+            try:
+                detail = subprocess.run(['systemctl', 'show', arguments[2], '-p', key, '--value'],
+                                        capture_output=True, timeout=5)
+                if detail.returncode:
+                    continue
+                value = detail.stdout.decode(errors='replace').strip()
+                if key == 'ExecStartPre':
+                    codes = re.findall(r'\bstatus=(\d+)\b', value)
+                    if codes:
+                        summary.append(f'ExecStartPreStatus={",".join(codes[:16])}')
+                elif re.fullmatch(r'[A-Za-z0-9_.-]{1,64}', value):
+                    summary.append(f'{key}={value}')
+            except (OSError, subprocess.TimeoutExpired):
+                continue
+    return '; '.join(summary)
+
+
 def command(arguments, check=True):
     result = subprocess.run(arguments, capture_output=True, timeout=20)
     if check and result.returncode:
-        raise AssertionError('owned ingest unit command failed')
+        raise AssertionError('owned ingest unit command failed: '
+                             + unit_start_diagnostics(arguments, result.returncode))
     return result
 
 
@@ -49,13 +74,17 @@ class ManagedIngest:
         self.written = []
         self.group = None
         self.installed = False
-        (self.root/'bin').mkdir(mode=0o755)
-        shutil.copyfile(binary, self.root/'bin/ingest')
-        (self.root/'bin/ingest').chmod(0o755)
         config = json.loads((self.root/'ingest.json').read_text())
-        shutil.copyfile(config['publisher'], self.root/'bin/publisher')
-        (self.root/'bin/publisher').chmod(0o755)
-        config['publisher'] = str(self.root/'bin/publisher')
+        self.executables = systemd_exec.allocate(self.name)
+        try:
+            shutil.copyfile(binary, self.executables/'ingest')
+            (self.executables/'ingest').chmod(0o755)
+            shutil.copyfile(config['publisher'], self.executables/'publisher')
+            (self.executables/'publisher').chmod(0o755)
+        except BaseException:
+            shutil.rmtree(self.executables)
+            raise
+        config['publisher'] = str(self.executables/'publisher')
         self.tls_files = {}
         if config.get('camera_tls'):
             for field, name in ingest_service.TLS_FILES.items():
@@ -87,7 +116,7 @@ class ManagedIngest:
             text = text.replace('/etc/nxrs-monitor/publisher.token', str(self.root/'publisher.token'))
             for name, source in self.tls_files.items():
                 text = text.replace('/etc/nxrs-monitor/'+name, str(source))
-            text = text.replace('/usr/local/libexec/nxrs-camera-ingest', str(self.root/'bin/ingest'))
+            text = text.replace('/usr/local/libexec/nxrs-camera-ingest', str(self.executables/'ingest'))
             for unit in ['nxrs-control.service', 'nxrs-media.service', 'wg-quick@wg-nxrs.service',
                          'nxrs-firewall.service', 'nxrs-monitor.target']:
                 text = text.replace(unit, self.dependency+'.service')
@@ -167,4 +196,8 @@ class ManagedIngest:
             command(['systemctl', 'daemon-reload'])
         except Exception:
             failures.append('reload')
+        try:
+            shutil.rmtree(self.executables)
+        except Exception:
+            failures.append('executable fixture')
         require(not failures, 'owned ingest service cleanup incomplete')

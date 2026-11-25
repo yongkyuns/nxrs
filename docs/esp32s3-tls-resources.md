@@ -135,8 +135,9 @@ The original 16 MiB flash was restored and separately verified. Its camera
 supervisor resumed, and three advancing 320×240 source JPEGs decoded on the Mac;
 this recovery check does not qualify gateway or phone playback.
 
-The guarded RF source now admits TLS with active Wi-Fi, without SMP, PM or
-auto-sleep. A controlled physical camera run passed mutual TLS, rejection of
+The guarded RF source admits TLS with active Wi-Fi and with PM and auto-sleep
+disabled. On SMP the SDK sampler serializes calls and times each output word
+on its owning core. A controlled single-core run passed mutual TLS, rejection of
 unenrolled peers/plaintext, fresh-time loss, Rust gateway ingest, decoded WHEP
 playback and finalized H.264 recording. The original firmware was restored and
 independently verified afterward. [PR #197](https://github.com/yongkyuns/nxrs/pull/197)

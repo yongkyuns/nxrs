@@ -1,0 +1,2 @@
+# Pinned patch fixtures retain literal context whitespace and exact hashes.
+*.patch -text -whitespace

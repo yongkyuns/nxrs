@@ -1,4 +1,0 @@
-# Legacy core-only qualification uses test-local providers in tests/nuttx/support.
-execution = "core"
-
-[hal]

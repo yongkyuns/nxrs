@@ -1,0 +1,526 @@
+--- /dev/null
++++ b/examples/src/bin/ntp/mod.rs
+@@ -0,0 +1,131 @@
++//! Matter DefaultNTP configuration and the LAN-scoped gateway SNTP client.
++use std::{
++    cell::RefCell,
++    net::{Ipv6Addr, SocketAddrV6},
++};
++
++use nxrs_gateway_matter::{lan::Lan, ntp};
++use rand::RngExt;
++use rs_matter::{
++    dm::{
++        clusters::time_sync::{client::NtpFallback, NtpClient, SetDefaultNTPRequest},
++        LifecycleOp,
++    },
++    error::{Error, ErrorCode},
++    persist::{KvBlobStoreAccess, Persist},
++    tlv::Nullable,
++    utils::{storage::String, sync::Notification},
++    Matter,
++};
++
++use super::NTP_CONFIG_KEY;
++
++struct Server {
++    text: String<128>,
++    address: Ipv6Addr,
++}
++
++impl Server {
++    fn parse(value: &str) -> Result<Self, Error> {
++        let address = value
++            .parse::<Ipv6Addr>()
++            .map_err(|_| ErrorCode::InvalidCommand)?;
++        if address.is_unspecified() || address.is_multicast() || address.to_ipv4_mapped().is_some()
++        {
++            return Err(ErrorCode::InvalidCommand.into());
++        }
++        let text = String::try_from(value).map_err(|_| ErrorCode::InvalidCommand)?;
++        Ok(Self { text, address })
++    }
++}
++
++pub struct Provider<'a, S> {
++    matter: &'a Matter<'a>,
++    store: S,
++    lan: Lan,
++    server: RefCell<Option<Server>>,
++    changed: Notification,
++}
++
++impl<'a, S: KvBlobStoreAccess> Provider<'a, S> {
++    pub fn new(matter: &'a Matter<'a>, store: S, lan: Lan) -> Result<Self, Error> {
++        let server = Persist::new(&store)
++            .load_tlv::<String<128>>(NTP_CONFIG_KEY)?
++            .map(|value| Server::parse(value.as_str()))
++            .transpose()?;
++        Ok(Self {
++            matter,
++            store,
++            lan,
++            server: RefCell::new(server),
++            changed: Notification::new(),
++        })
++    }
++}
++
++impl<S: KvBlobStoreAccess> NtpClient for Provider<'_, S> {
++    fn default_ntp(&self) -> Result<Nullable<String<128>>, Error> {
++        Ok(Nullable::new(
++            self.server
++                .borrow()
++                .as_ref()
++                .map(|server| server.text.clone()),
++        ))
++    }
++
++    fn supports_dns_resolve(&self) -> Result<bool, Error> {
++        Ok(false)
++    }
++
++    fn set_default_ntp(&self, request: &SetDefaultNTPRequest<'_>) -> Result<(), Error> {
++        let next = request
++            .default_ntp()?
++            .into_option()
++            .map(Server::parse)
++            .transpose()?;
++        let mut persist = Persist::new(&self.store);
++        match &next {
++            Some(server) => persist.store_tlv(NTP_CONFIG_KEY, &server.text)?,
++            None => persist.remove(NTP_CONFIG_KEY)?,
++        }
++        persist.run()?;
++        self.server.replace(next);
++        self.changed.notify();
++        Ok(())
++    }
++
++    fn lifecycle(&self, op: LifecycleOp) -> Result<(), Error> {
++        if matches!(op, LifecycleOp::FactoryReset) {
++            let mut persist = Persist::new(&self.store);
++            persist.remove(NTP_CONFIG_KEY)?;
++            persist.run()?;
++        } else if !matches!(op, LifecycleOp::FabricRemoval { .. }) || self.matter.has_fabrics() {
++            return Ok(());
++        }
++        // Final fabric removal cleared the persistent record with its credentials.
++        self.server.replace(None);
++        self.changed.notify();
++        Ok(())
++    }
++}
++
++impl<S: KvBlobStoreAccess> NtpFallback for Provider<'_, S> {
++    fn configured(&self) -> bool {
++        self.server.borrow().is_some()
++    }
++
++    async fn changed(&self) {
++        self.changed.wait().await;
++    }
++
++    async fn query(&self) -> Option<u64> {
++        let addr = self.server.borrow().as_ref()?.address;
++        let peer = ntp::server_address(addr, self.lan.index());
++        let local = SocketAddrV6::new(Ipv6Addr::UNSPECIFIED, 0, 0, 0);
++        let socket = self.lan.bind_udp(local.into()).ok()?;
++        socket.set_nonblocking(true).ok()?;
++        let socket = tokio::net::UdpSocket::from_std(socket).ok()?;
++        let nonce = rand::rng().random::<u64>().to_be_bytes();
++        ntp::sample(socket, peer, nonce).await.ok()
++    }
++}
+--- a/examples/src/bin/persistence/mod.rs
++++ b/examples/src/bin/persistence/mod.rs
+@@ -9,7 +9,7 @@
+         VENDOR_KEYS_START,
+     },
+ };
+-use super::{AUDIO_ALLOCATIONS_KEY, CAMERA_PRIVACY_KEY, VIDEO_ALLOCATIONS_KEY};
++use super::{AUDIO_ALLOCATIONS_KEY, CAMERA_PRIVACY_KEY, NTP_CONFIG_KEY, VIDEO_ALLOCATIONS_KEY};
+ use std::path::Path;
+ 
+ pub struct StoreAdapter {
+@@ -79,7 +79,7 @@
+ // monotonic bookkeeping have a lifetime independent of Matter installation.
+ fn installation_record(key: u16) -> bool {
+     match key {
+-        CAMERA_PRIVACY_KEY | VIDEO_ALLOCATIONS_KEY | AUDIO_ALLOCATIONS_KEY => true,
++        CAMERA_PRIVACY_KEY | VIDEO_ALLOCATIONS_KEY | AUDIO_ALLOCATIONS_KEY | NTP_CONFIG_KEY => true,
+         EVENT_EPOCH_KEY | GROUP_DATA_COUNTER_KEY | LKG_UTC_KEY | NEXT_FABRIC_INDEX_KEY
+         | OPERATIONAL_HOURS_KEY | REBOOT_COUNT_KEY | RUNNING_VERSION_KEY => false,
+         key => key < VENDOR_KEYS_START,
+--- a/examples/src/bin/webrtc_camera.rs
++++ b/examples/src/bin/webrtc_camera.rs
+@@ -79,6 +79,7 @@
+ use rs_matter::VerifierCommData;
+ mod lan;
+ mod attestation;
++mod ntp;
+ mod persistence;
+ use nxrs_gateway_matter::privacy::{self, LiveView, Privacy, Setting};
+ use rs_matter::dm::clusters::app::cam_av_stream::AttributeId as CameraAttr;
+@@ -91,6 +92,7 @@
+ const ONBOARDING_ID_KEY: u16 = VENDOR_KEYS_START + 3;
+ const CAMERA_ID_KEY: u16 = VENDOR_KEYS_START + 4;
+ const ATTESTATION_ID_KEY: u16 = VENDOR_KEYS_START + 5;
++const NTP_CONFIG_KEY: u16 = VENDOR_KEYS_START + 6;
+ fn privacy_setting(id: CameraAttr) -> Result<Setting, Error> {
+     match id {
+         CameraAttr::MicrophoneMuted => Ok(Setting::MicrophoneMuted),
+@@ -1597,6 +1599,7 @@
+ 
+     // Re-hydrate the `Matter` instance (fabrics, basic info, RTC).
+     matter.startup(&kv)?;
++    let ntp = ntp::Provider::new(matter, &kv, lan)?;
+     if open_window && matter.has_fabrics() {
+         return Err(ErrorCode::InvalidInState.into());
+     }
+@@ -1691,6 +1694,7 @@
+             &camera_bindings,
+             &host_power,
+             &time_zones,
++            &ntp,
+             camera_id,
+             &sensor,
+             &occupancy,
+@@ -1758,7 +1762,8 @@
+             let driver = shared.drive();
+             let matter_core = select4(&mut transport, &mut mdns, &mut respond, &mut im_job).coalesce();
+             let time_client = TimeSyncClient::new(matter, &crypto).with_time_zone(&time_zones);
+-            let matter_core = select(matter_core, time_client.run(TIME_REFRESH, &kv, &im)).coalesce();
++            let matter_core =
++                select(matter_core, time_client.run_with_ntp(TIME_REFRESH, &kv, &im, &ntp)).coalesce();
+             let media = async { reader.run().await; Err(ErrorCode::StdIoError.into()) };
+             let all = select(select(matter_core, driver).coalesce(), media).coalesce();
+             let failed_store = async {
+@@ -1813,7 +1818,7 @@
+         Endpoint::new_with_clients(
+             0,
+             devices!(DEV_TYPE_ROOT_NODE, DEV_TYPE_POWER_SOURCE),
+-            clusters!(eth, time_sync(time_zone, time_sync_client); power_source::CLUSTER),
++            clusters!(eth, time_sync(time_zone, ntp_client, time_sync_client); power_source::CLUSTER),
+             &[time_sync::FULL_CLUSTER.id],
+         ),
+         Endpoint::new_with_clients(
+@@ -1855,6 +1860,7 @@
+     camera_bindings: &'a Bindings<CAMERA_BINDING_CAPACITY>,
+     host_power: &'a PowerSourceConfig<'a>,
+     time_zones: &'a TimeZoneStore,
++    ntp: &'a dyn time_sync::NtpClient,
+     camera_id: String,
+     sensor: &'a Bridged,
+     occupancy: &'a Occupancy,
+@@ -1873,7 +1879,9 @@
+                 DmAsync(
+                     TimeSyncHandler::new_with_time_zone(
+                         Dataver::new_rand(&mut rand), matter, time_zones,
+-                    ).adapt(),
++                    )
++                    .with_ntp_client(ntp)
++                    .adapt(),
+                 ),
+             )
+             .chain(
+--- a/rs-matter-dm/src/clusters/time_sync.rs
++++ b/rs-matter-dm/src/clusters/time_sync.rs
+@@ -260,7 +260,7 @@
+ pub trait NtpClient: MaybeSendSync {
+     /// Hostname or IP address of the default NTP server, or `Null` if
+     /// none is configured.
+-    fn default_ntp(&self) -> Result<Nullable<&str>, Error>;
++    fn default_ntp(&self) -> Result<Nullable<String<128>>, Error>;
+ 
+     /// Whether the device's NTP-client resolver supports DNS names
+     /// (vs. only literal IP addresses).
+@@ -285,7 +285,7 @@
+ where
+     T: NtpClient,
+ {
+-    fn default_ntp(&self) -> Result<Nullable<&str>, Error> {
++    fn default_ntp(&self) -> Result<Nullable<String<128>>, Error> {
+         (*self).default_ntp()
+     }
+ 
+@@ -1351,7 +1351,7 @@
+             .default_ntp()?
+             .into_option()
+         {
+-            Some(s) => builder.non_null()?.set(s),
++            Some(s) => builder.non_null()?.set(s.as_str()),
+             None => builder.null(),
+         }
+     }
+@@ -1658,12 +1658,14 @@
+ 
+     fn handle_set_default_ntp(
+         &self,
+-        _ctx: impl InvokeContext,
++        ctx: impl InvokeContext,
+         request: SetDefaultNTPRequest<'_>,
+     ) -> Result<(), Error> {
+         self.ntp_client
+             .ok_or(ErrorCode::CommandNotFound)?
+-            .set_default_ntp(&request)
++            .set_default_ntp(&request)?;
++        ctx.notify_own_attr_changed(AttributeId::DefaultNTP as _);
++        Ok(())
+     }
+ }
+ 
+--- a/rs-matter-dm/src/clusters/time_sync/client.rs
++++ b/rs-matter-dm/src/clusters/time_sync/client.rs
+@@ -56,7 +56,9 @@
+ use crate::utils::timers::{Duration, Instant, Timer};
+ use crate::Matter;
+ 
+-use super::{granularity_from_cluster, TimeSource, TimeZoneStore};
++use super::{
++    granularity_from_cluster, TimeGranularity, TimeSource, TimeZoneStore, TrustedTimeSource,
++};
+ 
+ /// How soon [`TimeSyncClient::run`] first retries a refresh getting no time;
+ /// each further retry waits twice as long.
+@@ -65,6 +67,27 @@
+ /// How often a failing time update emits `TimeFailure` and
+ /// `MissingTrustedTimeSource`, at most.
+ const TIME_EVENTS_INTERVAL: Duration = Duration::from_secs(60 * 60);
++
++/// A configured SNTP source to try when the trusted Matter peer cannot supply time.
++pub trait NtpFallback {
++    fn configured(&self) -> bool;
++    async fn changed(&self);
++    async fn query(&self) -> Option<u64>;
++}
++
++impl NtpFallback for () {
++    fn configured(&self) -> bool {
++        false
++    }
++
++    async fn changed(&self) {
++        core::future::pending().await
++    }
++
++    async fn query(&self) -> Option<u64> {
++        None
++    }
++}
+ 
+ /// Initiator-side TimeSync client. Periodically reads `UTCTime` from
+ /// the configured trusted source and stores it as the device's new
+@@ -118,17 +141,34 @@
+         S: KvBlobStoreAccess,
+         N: AttrChangeNotifier + EventEmitter,
+     {
++        self.run_with_ntp(period, kv, notify, &()).await
++    }
++
++    /// Run both clock sources in one loop. Trusted Matter samples take precedence.
++    pub async fn run_with_ntp<S, N>(
++        &self,
++        period: Duration,
++        kv: S,
++        notify: &N,
++        ntp: &impl NtpFallback,
++    ) -> Result<(), Error>
++    where
++        S: KvBlobStoreAccess,
++        N: AttrChangeNotifier + EventEmitter,
++    {
+         let first_retry = RETRY_MIN.min(period);
+         let mut retry = first_retry;
++        let changed = || async {
++            select(
++                self.matter.wait_trusted_time_source_changed(),
++                ntp.changed(),
++            )
++            .await;
++        };
+ 
+         loop {
+-            // The operator may replace or revoke trust while a CASE exchange is in flight.
+-            let mut wait = match select(
+-                self.matter.wait_trusted_time_source_changed(),
+-                self.attempt(&kv, notify),
+-            )
+-            .await
+-            {
++            // Reconfiguration cancels the current CASE exchange or SNTP socket.
++            let wait = match select(changed(), self.attempt(&kv, notify, ntp)).await {
+                 Either::First(()) | Either::Second(Ok(Refresh::SourceChanged)) => {
+                     retry = first_retry;
+                     continue;
+@@ -137,41 +177,22 @@
+                     retry = first_retry;
+                     Some(period)
+                 }
+-                Either::Second(Ok(Refresh::NoSource)) => None,
+-                Either::Second(Ok(Refresh::NoTime)) => Some(back_off(&mut retry, period)),
++                Either::Second(Ok(Refresh::NoSource)) if !ntp.configured() => None,
++                Either::Second(Ok(_)) => Some(back_off(&mut retry, period)),
+                 Either::Second(Err(e)) => {
+                     warn!("TimeSync client: refresh failed: {}", e);
+                     Some(back_off(&mut retry, period))
+                 }
+             };
+ 
+-            // A new source starts the retries over. A cleared one is waited
+-            // out: clearing it emitted `MissingTrustedTimeSource` already.
+-            while !self.wait_due(wait).await {
++            let scheduled = async {
++                match wait {
++                    Some(wait) => Timer::after(wait).await,
++                    None => core::future::pending().await,
++                }
++            };
++            if matches!(select(changed(), scheduled).await, Either::First(())) {
+                 retry = first_retry;
+-
+-                if self
+-                    .matter
+-                    .with_state(|state| state.rtc.trusted_time_source().is_some())
+-                {
+-                    break;
+-                }
+-
+-                wait = None;
+-            }
+-        }
+-    }
+-
+-    /// Wait for `wait` - forever if `None` - or until the Trusted Time
+-    /// Source changes; whether the wait was over.
+-    async fn wait_due(&self, wait: Option<Duration>) -> bool {
+-        let changed = self.matter.wait_trusted_time_source_changed();
+-
+-        match wait {
+-            Some(wait) => matches!(select(Timer::after(wait), changed).await, Either::First(_)),
+-            None => {
+-                changed.await;
+-                false
+             }
+         }
+     }
+@@ -199,22 +220,33 @@
+         S: KvBlobStoreAccess,
+         N: AttrChangeNotifier + EventEmitter,
+     {
+-        self.attempt(kv, notify).await.map(|_| ())
++        self.attempt(kv, notify, &()).await.map(|_| ())
+     }
+ 
+     /// [`Self::refresh_once`], answering what it got.
+-    async fn attempt<S, N>(&self, kv: S, notify: &N) -> Result<Refresh, Error>
++    async fn attempt<S, N>(
++        &self,
++        kv: S,
++        notify: &N,
++        ntp: &impl NtpFallback,
++    ) -> Result<Refresh, Error>
+     where
+         S: KvBlobStoreAccess,
+         N: AttrChangeNotifier + EventEmitter,
+     {
+-        let refreshed = self.refresh(kv, notify).await;
+-
+-        let (failed, no_source) = match &refreshed {
+-            Ok(Refresh::Applied | Refresh::SourceChanged) => (false, false),
+-            Ok(Refresh::NoTime) => (true, false),
+-            Ok(Refresh::NoSource) | Err(_) => (true, true),
+-        };
++        let mut refreshed = self.refresh(&kv, notify).await;
++        let no_source = matches!(refreshed, Ok(Refresh::NoSource) | Err(_));
++        if !matches!(refreshed, Ok(Refresh::Applied | Refresh::SourceChanged)) {
++            if let Some(utc_us) = ntp.query().await {
++                refreshed = self.apply_sample(
++                    &kv,
++                    notify,
++                    (utc_us, TimeGranularity::Seconds, TimeSource::NonMatterSNTP),
++                    None,
++                );
++            }
++        }
++        let failed = !matches!(refreshed, Ok(Refresh::Applied | Refresh::SourceChanged));
+         // A missing diagnostic event must not fail the refresh.
+         if no_source && hourly(&self.missing_source_at) {
+             let emitted =
+@@ -301,41 +333,49 @@
+         };
+ 
+         if let Some(utc_us) = utc_time.flatten() {
+-            let mut persist = Persist::new(kv);
+-
+-            let current = self.matter.with_state(|state| {
+-                if state.rtc.trusted_time_source() != Some(tts) {
+-                    return Ok(false);
+-                }
+-                state.rtc.set_utc_time_persist(
++            self.apply_sample(
++                kv,
++                notify,
++                (
+                     utc_us,
+                     granularity_from_cluster(granularity),
+                     TimeSource::NodeTimeCluster,
+-                    &mut persist,
+-                    notify,
+-                )?;
+-                Ok::<_, Error>(true)
+-            })?;
+-
+-            if !current {
+-                return Ok(Refresh::SourceChanged);
+-            }
+-            persist.run()?;
+-            if let Some(time_zones) = self.time_zones {
+-                time_zones.note_changed();
+-            }
+-
+-            info!(
+-                "TimeSync client: applied UTCTime = {} \u{00b5}s from trusted source",
+-                utc_us
+-            );
+-
+-            Ok(Refresh::Applied)
++                ),
++                Some(tts),
++            )
+         } else {
+             warn!("TimeSync client: trusted source returned null UTCTime");
+ 
+             Ok(Refresh::NoTime)
+         }
++    }
++
++    fn apply_sample<S: KvBlobStoreAccess, N: AttrChangeNotifier>(
++        &self,
++        kv: S,
++        notify: &N,
++        sample: (u64, TimeGranularity, TimeSource),
++        peer: Option<TrustedTimeSource>,
++    ) -> Result<Refresh, Error> {
++        let (utc_us, granularity, source) = sample;
++        let mut persist = Persist::new(kv);
++        let current = self.matter.with_state(|state| {
++            if peer.is_some() && state.rtc.trusted_time_source() != peer {
++                return Ok(false);
++            }
++            state
++                .rtc
++                .set_utc_time_persist(utc_us, granularity, source, &mut persist, notify)?;
++            Ok::<_, Error>(true)
++        })?;
++        if !current {
++            return Ok(Refresh::SourceChanged);
++        }
++        persist.run()?;
++        if let Some(time_zones) = self.time_zones {
++            time_zones.note_changed();
++        }
++        Ok(Refresh::Applied)
+     }
+ }
+ 

@@ -1,9 +1,9 @@
 //! NuttX acquisition and process-global scan lease.
 #![deny(unsafe_op_in_unsafe_fn)]
 
-use crate::worker::Lease;
+use crate::platform::runtime::worker::Lease;
 #[cfg(not(test))]
-use crate::worker::Worker;
+use crate::platform::runtime::worker::Worker;
 #[cfg(not(test))]
 use crate::Error;
 #[cfg(not(test))]
@@ -25,13 +25,24 @@ pub(crate) fn open<S: FnMut(Event) -> messaging::DeliveryResult<Event> + Send + 
 #[cfg(not(test))]
 pub(crate) mod gatt;
 
-#[cfg(hal_provider = "hardware")]
 pub(crate) fn gatt_driver<const N: usize>(
     wake: impl Fn() + Send + Sync + 'static,
 ) -> Result<impl crate::gatt::Driver<N>, crate::Error> {
     #[cfg(test)]
-    type Backend = crate::gatt_driver::tests::FakeBackend;
+    type Backend = crate::platform::runtime::gatt_driver::tests::FakeBackend;
     #[cfg(not(test))]
     type Backend = gatt::Executor;
-    crate::gatt_driver::open_with::<N, Backend, crate::gatt_driver::NativePeer, _>(wake)
+    crate::platform::runtime::gatt_driver::open_with::<
+        N,
+        Backend,
+        crate::platform::runtime::gatt_driver::NativePeer,
+        _,
+    >(wake)
 }
+
+#[cfg(all(feature = "peripheral", not(test)))]
+mod peripheral;
+#[cfg(all(feature = "peripheral", test))]
+pub(crate) use crate::platform::unavailable_peripheral::open as open_peripheral;
+#[cfg(all(feature = "peripheral", not(test)))]
+pub(crate) use peripheral::open_peripheral;

@@ -2,6 +2,12 @@
 #ifndef TLS_CRYPTO_CONFIG_H
 #define TLS_CRYPTO_CONFIG_H
 #define MBEDTLS_PLATFORM_C
+#define MBEDTLS_PLATFORM_MEMORY
+#include <stddef.h>
+void *tls_record_calloc(size_t count, size_t size);
+void tls_record_free(void *pointer);
+#define MBEDTLS_PLATFORM_CALLOC_MACRO tls_record_calloc
+#define MBEDTLS_PLATFORM_FREE_MACRO tls_record_free
 #include <time.h>
 time_t tls_platform_time(time_t *output);
 #define MBEDTLS_HAVE_TIME
@@ -20,6 +26,9 @@ time_t tls_platform_time(time_t *output);
 /* One identity plus the enrolled media and short bootstrap TLS contexts. */
 #define MBEDTLS_PSA_KEY_SLOT_COUNT 16
 #define PSA_WANT_ALG_SHA_256 1
+#ifdef NXRS_TLS_PAIRING
+#define PSA_WANT_ALG_TLS12_PSK_TO_MS 1
+#endif
 #define PSA_WANT_ALG_ECDSA 1
 #define PSA_WANT_ALG_ECDH 1
 #define PSA_WANT_ALG_GCM 1
@@ -31,6 +40,7 @@ time_t tls_platform_time(time_t *output);
 #define PSA_WANT_ECC_SECP_R1_256 1
 /* Upstream fast prime reduction for the selected P-256 curve. */
 #define MBEDTLS_ECP_NIST_OPTIM
+#define MBEDTLS_ECP_RESTARTABLE
 #define MBEDTLS_ASN1_PARSE_C
 #define MBEDTLS_ASN1_WRITE_C
 #define MBEDTLS_BASE64_C

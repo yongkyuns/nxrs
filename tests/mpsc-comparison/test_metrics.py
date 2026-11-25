@@ -39,6 +39,54 @@ class WorkAccountingTests(unittest.TestCase):
         def joined(r):next(x for x in r if x['record']=='result')['joined']=False
         for change in (cpu,joined):
             with self.subTest(change=change.__name__),self.assertRaises(ValueError):metrics.analyze(self.raw(change))
+    def test_unavailable_heap_and_cpu_are_null_not_measured_zero(self):
+        summary=metrics.analyze(self.raw(lambda rows: None))
+        self.assertFalse(summary['heap_available'])
+        self.assertEqual(summary['heap_scope'],'unavailable')
+        self.assertIsNone(summary['idle_owner_ns'])
+        self.assertTrue(all(p['cpu_ns'] is None for p in summary['participants']))
+        self.assertTrue(all(h['used'] is None and h['peak_since_boot'] is None for h in summary['heap']))
+        def zero(rows):next(r for r in rows if r['record']=='heap')['used']=0
+        def pretend(rows):next(r for r in rows if r['record']=='heap')['available']=True
+        def old_sentinel(rows):next(r for r in rows if r['record']=='participant')['cpu_ns']=metrics.MAX_U64
+        for change in (zero,pretend,old_sentinel):
+            with self.subTest(change=change.__name__),self.assertRaises(ValueError):metrics.analyze(self.raw(change))
+
+    @staticmethod
+    def native_cpu(rows,runtime='nuttx'):
+        m=next(r for r in rows if r['record']=='metadata')
+        m.update(runtime=runtime,native=True,backend='std' if runtime=='nuttx' else 'native',
+                 observer='cpu',cpu_scope=metrics.cpu_scope(runtime,'cpu'),idle_owner_ns=0,
+                 wait_observer='semaphore-state-and-phase' if runtime=='nuttx' else 'queue-object')
+        for row in rows:
+            if row['record']=='participant':
+                row.update(start_priority=180 if runtime=='nuttx' else 20,end_priority=180 if runtime=='nuttx' else 20,
+                           start_policy=1 if runtime=='nuttx' else 0,end_policy=1 if runtime=='nuttx' else 0,
+                           cpu_ns=1,stack_bytes=4096,stack_used=256,internal=1)
+            if row['record']=='heap' and runtime=='nuttx':
+                row.update(available=True,scope='nuttx-mallinfo-arena',used=100,peak_since_boot=200,free=1000,largest_free=900)
+        rows.append(dict(record='cpu-control',wall_ticks=4800000,cpu_ns=20000000))
+
+    def test_cpu_observer_requires_counter_control_scope_and_complete_data(self):
+        for runtime in ('nuttx','zephyr'):
+            summary=metrics.analyze(self.raw(lambda rows:self.native_cpu(rows,runtime)))
+            self.assertTrue(summary['accounting_available'])
+            self.assertEqual(summary['cpu_scope'],metrics.cpu_scope(runtime,'cpu'))
+            self.assertEqual(summary['heap_available'],runtime=='nuttx')
+            self.assertFalse(summary['physical_timing_qualified'])
+        def missing(rows):rows.remove(next(r for r in rows if r['record']=='cpu-control'))
+        def units(rows):next(r for r in rows if r['record']=='cpu-control')['cpu_ns']=20000
+        def null(rows):next(r for r in rows if r['record']=='participant')['cpu_ns']=None
+        def idle(rows):next(r for r in rows if r['record']=='metadata')['idle_owner_ns']=None
+        def scope(rows):next(r for r in rows if r['record']=='metadata')['cpu_scope']='total-system-cpu'
+        def zeros(rows):
+            for r in rows:
+                if r['record']=='participant':r['cpu_ns']=0
+        for change in (missing,units,null,idle,scope,zeros):
+            def alter(rows):self.native_cpu(rows);change(rows)
+            with self.subTest(change=change.__name__),self.assertRaises(ValueError):metrics.analyze(self.raw(alter))
+        with self.assertRaisesRegex(ValueError,'CPU image mismatch'):
+            metrics.analyze(self.raw(self.native_cpu),{'accounting':False})
     def test_host_cannot_claim_native_scheduling(self):
         def native(r):
             m=next(x for x in r if x['record']=='metadata');m['native']=True;m['runtime']='nuttx'

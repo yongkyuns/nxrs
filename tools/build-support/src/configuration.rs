@@ -1,0 +1,494 @@
+//! Fixed resource contracts for checked-in Rust constructors.
+//! Catalogs select one implementation; profiles supply values, never Rust syntax.
+use crate::{
+    composition::{Composition, Resource, Wake},
+    Result,
+};
+
+/// Emit one instance per selected device, with aliases borrowing the same object.
+pub(crate) fn render_instances(
+    graph: &Composition,
+    catalogs: &crate::bindings::Catalogs,
+    capability: &str,
+    stack: u64,
+) -> Result<String> {
+    graph.validate_instances(catalogs, &std::collections::BTreeMap::new())?;
+    let mut source = String::from("// Generated canonical device instances.\n");
+    let mut instances = std::collections::BTreeMap::new();
+    let primary = graph.aliases.get(capability);
+    for (id, device) in graph.devices_for(catalogs, capability) {
+        let irq = match &device.wake {
+            Some(Wake::Interrupt { resource }) => match graph.resources.get(resource) {
+                Some(Resource::GpioInterrupt { device, .. }) => Some(device.as_str()),
+                _ => return Err("wake requires an interrupt resource".into()),
+            },
+            Some(Wake::Periodic {}) | None => None,
+        };
+        let resource = graph
+            .resources
+            .get(&device.bus)
+            .ok_or_else(|| format!("device {id} requires a supported bus"))?;
+        let (adapter, arguments) = match resource {
+            Resource::I2c {
+                device: path,
+                frequency,
+            } => {
+                let address = device.address.ok_or("I2C device requires an address")?;
+                let config =
+                    format!("resource::Config {{ path: {path:?}, frequency: {frequency} }}");
+                ("resources::Bus", format!("resources::I2cResource, resources::open_i2c, ({config}, {address}), {irq:?}"))
+            }
+            Resource::Spi {
+                device: path,
+                frequency,
+            } => {
+                let chip_select = device
+                    .chip_select
+                    .ok_or("SPI device requires chip-select")?;
+                let mode = device.spi_mode.ok_or("SPI device requires spi-mode")?;
+                let config = format!(
+                    "spi_resource::Config {{ path: {path:?}, chip_select: {chip_select}, frequency: {frequency}, mode: {mode} }}"
+                );
+                (
+                    "resources::Spi",
+                    format!("resources::SpiResource, resources::open_spi, {config}, {irq:?}"),
+                )
+            }
+            Resource::Uart { device: path, baud } => ("Serial", format!("{path:?}, {baud}")),
+            _ => return Err(format!("device {id} requires a supported bus")),
+        };
+        let binding = catalogs.binding(capability, &device.compatible, resource.kind())?;
+        let implementation = binding["implementation"]
+            .as_str()
+            .ok_or("missing implementation")?;
+        crate::bindings::validate_implementation(implementation)?;
+        let driver = catalogs
+            .package(capability)
+            .and_then(|package| package.drivers.get(&device.compatible))
+            .ok_or_else(|| format!("{} has no Cargo driver registration", device.compatible))?;
+        let dependency = driver.dependency.replace('-', "_");
+        let delay = if driver.stores_delay {
+            ", resources::Delay"
+        } else {
+            ""
+        };
+        let driver_type = format!("::r#{dependency}::{implementation}<{adapter}{delay}>");
+        let name = if primary.is_some_and(|primary| primary == id) {
+            "PRIMARY_DEVICE".to_owned()
+        } else {
+            format!("DEVICE_{}", instances.len())
+        };
+        let reference = driver.sensor_reference;
+        let period = device
+            .navigation_period_ms
+            .map_or(String::new(), |period| format!(", {period}"));
+        source.push_str(&format!(
+            "declare_device!({name}, {id:?}, {driver_type}, {arguments}, {stack}, {reference}{period});\n"
+        ));
+        instances.insert(id, name);
+    }
+
+    source.push_str("pub mod devices {\n");
+    let accessors = graph.accessors(catalogs, capability)?;
+    // The SDK catalogue supplies this fallback. Product catalogues generate
+    // only the physical device and alias accessors they declare.
+    if capability == "imu"
+        && catalogs
+            .package(capability)
+            .is_some_and(|catalogue| catalogue.name == "nxrs-composition")
+        && !accessors.contains_key("secondary")
+    {
+        source.push_str("pub use super::unavailable_secondary as secondary;\n");
+    }
+    for (accessor, id) in accessors {
+        let instance = instances
+            .get(id)
+            .ok_or("accessor references an inactive device")?;
+        source.push_str(&format!(
+            "pub fn r#{accessor}() -> &'static impl super::Device {{ &super::{instance} }}\n"
+        ));
+    }
+    source.push_str("}\n");
+    Ok(source)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{bindings::Package, composition::Trigger, profile::Profile, TempDir};
+    use std::collections::BTreeMap;
+    use std::{fs, path::Path};
+
+    #[test]
+    fn another_capability_shares_identity_alias_and_resource_checks() {
+        // A build-only class exercises common machinery. It adds no production
+        // HAL, profile admission, acquisition contract or hardware support.
+        let sdk = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let mut unsupported =
+            Profile::from_data(serde_json::json!({"hal": {"fixture": "nuttx"}}), Vec::new());
+        assert!(unsupported
+            .load_catalogs(&sdk)
+            .unwrap_err()
+            .contains("unknown capability: fixture"));
+        let profile = Profile::resolve(&sdk, "m5stack-cores3-gnss").unwrap();
+        let mut graph = profile.composition().unwrap().unwrap();
+        let mut device = graph.devices["imu"].clone();
+        device.compatible = "fixture,probe".into();
+        device.address = Some(0x68);
+        let mut second = device.clone();
+        second.address = Some(0x69);
+        graph.devices = BTreeMap::from([("north".into(), device), ("south".into(), second)]);
+        graph.aliases = BTreeMap::from([
+            ("fixture".into(), "north".into()),
+            ("fixture_front".into(), "north".into()),
+            ("fixture_back".into(), "south".into()),
+        ]);
+
+        let temp = TempDir::new(&std::env::temp_dir()).unwrap();
+        let composition = temp.0.join("composition");
+        let driver = temp.0.join("driver");
+        fs::create_dir(&composition).unwrap();
+        fs::create_dir(&driver).unwrap();
+        fs::write(
+            composition.join("Cargo.toml"),
+            r#"
+            [package]
+            name = "fixture-composition"
+            [features]
+            fixture = []
+            [package.metadata.nxrs]
+            device-capabilities = ["fixture"]
+            [target.'cfg(target_os="nuttx")'.dependencies]
+            test-fixture = { package = "fixture-driver", path = "../driver", optional = true }
+            "#,
+        )
+        .unwrap();
+        fs::write(
+            driver.join("Cargo.toml"),
+            r#"
+            [package]
+            name = "fixture-driver"
+            [package.metadata.nxrs]
+            bindings = ["bindings.toml"]
+            [package.metadata.nxrs.device]
+            capability = "fixture"
+            "#,
+        )
+        .unwrap();
+        fs::write(
+            driver.join("bindings.toml"),
+            r#"
+            version = 2
+            [[binding]]
+            compatible = "fixture,probe"
+            bus = "i2c"
+            implementation = "Probe"
+            "#,
+        )
+        .unwrap();
+        let package = Package::load_capability(&composition, "fixture").unwrap();
+        let mut catalogs = crate::bindings::Catalogs::default();
+        catalogs.insert("fixture", package.clone()).unwrap();
+        let generated = render_instances(&graph, &catalogs, "fixture", 16384).unwrap();
+        assert_eq!(generated.matches("declare_device!(").count(), 2);
+        assert!(!generated.contains("imu"));
+        assert!(!generated.contains("gnss"));
+
+        // Compile and run the emitted declarations, not a parallel hand-built
+        // name map. Distinct aliases must share storage and its admission bit.
+        let witness = temp.0.join("identity.rs");
+        fs::write(
+            &witness,
+            format!(
+                r#"
+                #![allow(dead_code)]
+                extern crate self as test_fixture;
+                use std::{{marker::PhantomData, sync::atomic::{{AtomicBool, Ordering}}}};
+                pub struct Probe<B>(PhantomData<B>);
+                trait Device {{ fn acquire(&self) -> bool; fn release(&self); }}
+                struct Instance<S, R> {{ taken: AtomicBool, marker: PhantomData<(S, R)> }}
+                impl<S, R> Device for Instance<S, R> {{
+                    fn acquire(&self) -> bool {{ !self.taken.swap(true, Ordering::AcqRel) }}
+                    fn release(&self) {{ self.taken.store(false, Ordering::Release); }}
+                }}
+                mod resource {{ pub struct Config<'a> {{ pub path: &'a str, pub frequency: u32 }} }}
+                mod resources {{
+                    pub type Bus = ();
+                    pub type I2cResource = ();
+                    pub fn open_i2c(_: (super::resource::Config<'_>, u8), _: ()) -> I2cResource {{}}
+                }}
+                macro_rules! declare_device {{
+                    ($name:ident, $id:literal, $sensor:ty, $resource:ty, $open:path, $value:expr, $irq:expr, $stack:literal, $reference:tt) => {{
+                        const _: fn() = || {{ let _: $resource = $open($value, ()); let _: Option<&str> = $irq; }};
+                        static $name: Instance<$sensor, $resource> = Instance {{ taken: AtomicBool::new(false), marker: PhantomData }};
+                    }};
+                }}
+                {generated}
+                fn main() {{
+                    let primary = devices::primary_fixture();
+                    let front = devices::front();
+                    let back = devices::back();
+                    assert_eq!(primary as *const _ as *const (), front as *const _ as *const ());
+                    assert_eq!(primary as *const _ as *const (), devices::north() as *const _ as *const ());
+                    assert_ne!(primary as *const _ as *const (), back as *const _ as *const ());
+                    assert!(primary.acquire());
+                    assert!(!front.acquire());
+                    assert!(back.acquire());
+                    front.release();
+                    assert!(primary.acquire());
+                }}
+                "#
+            ),
+        )
+        .unwrap();
+        let executable = temp
+            .0
+            .join(format!("identity{}", std::env::consts::EXE_SUFFIX));
+        let result = std::process::Command::new("rustc")
+            .arg("--edition=2021")
+            .arg(&witness)
+            .arg("-o")
+            .arg(&executable)
+            .output()
+            .unwrap();
+        assert!(
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        let result = std::process::Command::new(executable).output().unwrap();
+        assert!(
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+
+        let render = |graph: &Composition| render_instances(graph, &catalogs, "fixture", 16384);
+        let mut invalid = graph.clone();
+        invalid
+            .aliases
+            .insert("fixture_north".into(), "south".into());
+        assert!(render(&invalid).unwrap_err().contains("accessor north"));
+        invalid = graph.clone();
+        invalid
+            .aliases
+            .insert("fixture_front".into(), "missing".into());
+        assert!(render(&invalid)
+            .unwrap_err()
+            .contains("must select a supported device"));
+        invalid = graph.clone();
+        invalid.devices.get_mut("south").unwrap().address = Some(0x68);
+        assert!(render(&invalid)
+            .unwrap_err()
+            .contains("conflicting physical device"));
+        invalid = graph.clone();
+        invalid.resources.insert(
+            "irq".into(),
+            Resource::GpioInterrupt {
+                device: "/dev/gpioirq0".into(),
+                trigger: Trigger::Rising,
+            },
+        );
+        for device in invalid.devices.values_mut() {
+            device.wake = Some(Wake::Interrupt {
+                resource: "irq".into(),
+            });
+        }
+        assert!(render(&invalid)
+            .unwrap_err()
+            .contains("conflicting exclusive IRQ"));
+
+        let mut mixed = catalogs.clone();
+        mixed
+            .insert(
+                "imu",
+                Package::load_capability(&sdk.join("platform"), "imu").unwrap(),
+            )
+            .unwrap();
+        invalid = graph.clone();
+        invalid.devices.insert(
+            "imu".into(),
+            profile.composition().unwrap().unwrap().devices["imu"].clone(),
+        );
+        assert!(render_instances(&invalid, &mixed, "fixture", 16384)
+            .unwrap_err()
+            .contains("conflicting physical device"));
+
+        // The same compatible cannot be instantiated independently by two HAL
+        // classes. Aliases, not duplicate capability registrations, share it.
+        catalogs.insert("other", package).unwrap();
+        assert!(render_instances(&graph, &catalogs, "fixture", 16384)
+            .unwrap_err()
+            .contains("multiple capability owners"));
+    }
+
+    #[test]
+    fn resources_compile_with_a_new_implementation_without_a_model_table() {
+        let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let profile = Profile::resolve(&source, "m5stack-cores3-gnss").unwrap();
+        let mut graph = profile.composition().unwrap().unwrap();
+        graph.devices.get_mut("imu").unwrap().compatible = "vendor,fixture".into();
+        let temp = TempDir::new(&std::env::temp_dir()).unwrap();
+        let composition = temp.0.join("composition");
+        let driver = temp.0.join("driver");
+        fs::create_dir(&composition).unwrap();
+        fs::create_dir(&driver).unwrap();
+        fs::write(
+            composition.join("Cargo.toml"),
+            r#"
+            [package]
+            name = "fixture-composition"
+            [features]
+            imu = []
+            [package.metadata.nxrs]
+            device-capabilities = ["imu"]
+            [target.'cfg(target_os="nuttx")'.dependencies]
+            test-imu = { package = "fixture-driver", path = "../driver", optional = true }
+        "#,
+        )
+        .unwrap();
+        fs::write(
+            driver.join("Cargo.toml"),
+            r#"
+            [package]
+            name = "fixture-driver"
+            [package.metadata.nxrs]
+            bindings = ["bindings.toml"]
+            [package.metadata.nxrs.device]
+            capability = "imu"
+        "#,
+        )
+        .unwrap();
+        fs::write(
+            driver.join("bindings.toml"),
+            r#"
+            version = 2
+            [[binding]]
+            compatible = "vendor,fixture"
+            bus = "i2c"
+            implementation = "AnotherSensor"
+        "#,
+        )
+        .unwrap();
+        let mut catalogs = crate::bindings::Catalogs::default();
+        catalogs
+            .insert(
+                "imu",
+                crate::bindings::Package::load_capability(&composition, "imu").unwrap(),
+            )
+            .unwrap();
+        catalogs
+            .insert(
+                "gnss",
+                crate::bindings::Package::load_capability(&source.join("platform"), "gnss")
+                    .unwrap(),
+            )
+            .unwrap();
+        let imu = render_instances(&graph, &catalogs, "imu", 16384).unwrap();
+        assert!(imu.contains("::r#test_imu::AnotherSensor<resources::Bus>"));
+        assert!(!imu.contains("unavailable_secondary"));
+        assert!(imu.contains(", 16384, false);"));
+        assert!(!imu.contains("peripheral::imu"));
+        assert!(imu
+            .contains("(resource::Config { path: \"/dev/i2c0\", frequency: 400000 }, 104), None"));
+        let gnss = render_instances(&graph, &catalogs, "gnss", 32768).unwrap();
+        assert!(gnss.contains("::r#ubx::NeoM9n<Serial>, \"/dev/ttyS1\", 38400, 32768"));
+        for invalid in [
+            "",
+            "Self",
+            "super::Sensor",
+            "Sensor;fn injected(){}",
+            "1Sensor",
+        ] {
+            assert!(crate::bindings::validate_implementation(invalid).is_err());
+        }
+
+        let manifest = composition.join("Cargo.toml");
+        let registration = fs::read_to_string(&manifest).unwrap();
+        for (contents, message) in [
+            (
+                registration.replace("test-imu =", "default ="),
+                "implicit Cargo feature",
+            ),
+            (
+                format!(
+                    "{registration}\n{}",
+                    registration
+                        .lines()
+                        .find(|line| line.contains("test-imu ="))
+                        .unwrap()
+                        .replace("test-imu", "test_imu")
+                ),
+                "collides",
+            ),
+        ] {
+            fs::write(&manifest, contents).unwrap();
+            assert!(
+                crate::bindings::Package::load_capability(&composition, "imu")
+                    .unwrap_err()
+                    .contains(message)
+            );
+        }
+
+        // Compile both output contracts without hardware or target dependencies.
+        let witness = temp.0.join("witness.rs");
+        fs::write(&witness, format!(r#"
+            #![allow(dead_code, unused_imports)]
+            extern crate self as peripheral;
+            extern crate self as test_imu;
+            extern crate self as ubx;
+            pub mod imu {{ pub struct Error; }}
+            pub struct AnotherSensor<B>(std::marker::PhantomData<B>);
+            pub struct NeoM9n<R>(std::marker::PhantomData<R>);
+            trait Device {{}}
+            mod imu_wiring {{
+                use crate::Device;
+                mod resource {{ pub struct Config<'a> {{ pub path: &'a str, pub frequency: u32 }} }}
+                mod resources {{
+                    pub type Bus = ();
+                    pub type I2cResource = ();
+                    pub fn open_i2c(_: (super::resource::Config<'_>, u8), _: ()) -> I2cResource {{}}
+                }}
+                struct Instance<S, R>(std::marker::PhantomData<(S, R)>);
+                impl<S, R> crate::Device for Instance<S, R> {{}}
+                macro_rules! declare_device {{
+                    ($name:ident, $id:literal, $sensor:ty, $resources:ty, $open:path, $value:expr, $irq:expr, $stack:literal, $reference:tt) => {{
+                        const _: fn() = || {{ let _: $resources = $open($value, ()); let _: Option<&str> = $irq; }};
+                        static $name: Instance<$sensor, $resources> = Instance(std::marker::PhantomData);
+                    }};
+                }}
+                {imu}
+            }}
+            mod gnss_wiring {{
+                use crate::Device;
+                type Serial = ();
+                struct Instance<R>(std::marker::PhantomData<R>);
+                impl<R> crate::Device for Instance<R> {{}}
+                macro_rules! declare_device {{
+                    ($name:ident, $id:literal, $receiver:ty, $path:literal, $baud:literal, $stack:literal, $reference:tt) => {{
+                        static $name: Instance<$receiver> = Instance(std::marker::PhantomData);
+                    }};
+                }}
+                {gnss}
+            }}
+            fn main() {{}}
+        "#)).unwrap();
+        let result = std::process::Command::new("rustc")
+            .args([
+                "--edition=2021",
+                "--emit=metadata",
+                "--cfg",
+                "feature=\"probe\"",
+            ])
+            .arg(&witness)
+            .arg("-o")
+            .arg(temp.0.join("witness.rmeta"))
+            .output()
+            .unwrap();
+        assert!(
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+    }
+}

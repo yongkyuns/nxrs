@@ -1,0 +1,12 @@
+[package]
+name = "nxrs-radio-types"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+name = "radio_types"
+
+[dependencies]
+
+[package.metadata.nxrs]
+mode = "portable"

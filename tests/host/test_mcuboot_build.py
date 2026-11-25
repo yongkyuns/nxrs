@@ -14,14 +14,14 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "tools"))
 from platform_config import resolve
 
-SPEC = importlib.util.spec_from_file_location("nuttx_mcuboot", ROOT / "platform/nuttx/mcuboot.py")
+SPEC = importlib.util.spec_from_file_location("nuttx_mcuboot", ROOT / "tools/build/nuttx/mcuboot.py")
 BOOT = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(BOOT)
 
 
 class BootWiringTests(unittest.TestCase):
     def test_direct_startup_requires_coherent_boot_and_bounded_native_args(self):
-        configure = runpy.run_path(str(ROOT / "platform/nuttx/init.py"))["application_config"]
+        configure = runpy.run_path(str(ROOT / "tools/build/nuttx/init.py"))["application_config"]
         profile = resolve("esp32s3-camera-stream-startup")
         config = configure(profile, "home_cam", 100, 32768)
         self.assertEqual(config["NETINIT_THREAD"], "n")
@@ -43,7 +43,7 @@ class BootWiringTests(unittest.TestCase):
         for changed in ({"scratch-offset": 0, "scratch-size": 0x1000},
                         {"scratch-offset": 0xfc0000},
                         {"scratch-offset": 0x10000, "scratch-size": 0x10000}):
-            with self.subTest(changed=changed), self.assertRaisesRegex(ValueError, "config partition"):
+            with self.subTest(changed=changed), self.assertRaisesRegex(ValueError, "settings partition"):
                 BOOT.application_config({**profile, "mcuboot": {**profile["mcuboot"], **changed}})
         self.assertFalse(BOOT.protected(profile))
         self.assertNotEqual(profile["image-class"], resolve("esp32s3-camera-stream-mcuboot")["image-class"])
@@ -51,6 +51,13 @@ class BootWiringTests(unittest.TestCase):
         for capability in ("boot", "watchdog"):
             with self.subTest(capability=capability), self.assertRaises(ValueError):
                 configure({**profile, "hal": {**profile["hal"], capability: "none"}}, "home_cam", 100, 32768)
+        runtime = {**profile, "watchdog": {**profile["watchdog"], "mode": "runtime"}}
+        with self.assertRaisesRegex(ValueError, "inherited boot watchdog"):
+            configure(runtime, "home_cam", 100, 32768)
+        with self.assertRaisesRegex(ValueError, "inherited boot watchdog"):
+            BOOT.bootloader_config(runtime, "/private/tmp/test-root.pem")
+        runtime.pop("boot-watchdog-ms")
+        self.assertNotIn("ESP32S3_RWDT_INHERIT", BOOT.application_config(runtime))
         for args in (None, "boot-tls", [True], ["x"] * 17, ["x" * 129], ['a"b'], ['a\\b'], ["a\nb"]):
             with self.subTest(args=args), self.assertRaises(ValueError):
                 configure({**profile, "init": {"args": args}}, "home_cam", 100, 32768)
@@ -63,7 +70,7 @@ class BootWiringTests(unittest.TestCase):
                 configure(bare_profile, command, priority, stack)
 
     def test_actual_nuttx_header_preserves_direct_entry_and_argument_boundaries(self):
-        configure = runpy.run_path(str(ROOT / "platform/nuttx/init.py"))["application_config"]
+        configure = runpy.run_path(str(ROOT / "tools/build/nuttx/init.py"))["application_config"]
         profile = resolve("esp32s3-camera-stream-startup")
         args = ["space test", "a,b", ""]
         profile["init"]["args"] = args

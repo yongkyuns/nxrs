@@ -12,7 +12,6 @@ mod model {
 #[cfg(target_os = "nuttx")]
 pub(crate) mod device {
     use camera::{Camera, JpegQuality};
-    use connectivity_service::Reconnector;
     use home_cam::{LiveCamera, StreamOutput, TlsOptions};
     use std::io::Read;
     use std::net::{Ipv4Addr, TcpListener};
@@ -22,7 +21,7 @@ pub(crate) mod device {
         Arc,
     };
     use std::time::{Duration, Instant};
-    use wifi::{Command, DeliveryError, Event, LinkState, ProviderStatus, Rejected};
+    use wifi::{Command, DeliveryError, Event, LinkState, ProviderStatus, Reconnector, Rejected};
 
     const BYTES: usize = 320 * 240 * 2;
     const STARTUP_HEALTH_AGE_MS: u64 = 5000;
@@ -313,14 +312,15 @@ pub(crate) mod device {
         let (width, height, port) = (options.width, options.height, options.port);
         let result: Result<(), String> = (|| {
             if detection_enabled {
-                use detection_service::{Error, Policy, Worker, WorkerOptions};
+                use detection_service::{Error, Policy, Session, WorkerOptions};
                 stage("detection_spawn");
-                let worker = Worker::spawn(
+                let detection = Session::start(
                     WorkerOptions {
                         frame_capacity: BYTES,
                         sample_interval_ms,
                         stack_bytes: super::model::STACK_BYTES,
                     },
+                    Policy::default(),
                     || {
                         execution::configure_current(execution::Priority::Normal)
                             .map_err(|_| Error::Worker)?;
@@ -361,8 +361,6 @@ pub(crate) mod device {
                     },
                 )
                 .map_err(|error| format!("detection worker {error:?}"))?;
-                let detection = home_cam::SecurityDetection::new(worker, Policy::default())
-                    .map_err(|error| format!("detection composition {error:?}"))?;
                 live.attach_detection(detection)
                     .map_err(|error| format!("detection attach {error:?}"))?;
                 println!("NXRS_DETECTION_ENABLED sample_ms={sample_interval_ms}");
@@ -622,7 +620,7 @@ pub(crate) mod device {
         };
         stage("credential_reader");
         let mut profile_store = if startup_mode {
-            Some(config::open().map_err(|error| format!("config open {error:?}"))?)
+            Some(settings::open().map_err(|error| format!("settings open {error:?}"))?)
         } else {
             None
         };

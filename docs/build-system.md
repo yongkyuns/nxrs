@@ -1,6 +1,6 @@
 # Build and platform selection
 
-`cargo nxrs` is the host-only Rust build controller in `platform/build`. It owns
+`cargo nxrs` is the host-only Rust build controller in `tools/build`. It owns
 profile resolution, SDK preparation, Cargo invocation, NuttX configuration and
 linking, artifact checks, signing and offline factory packaging. Its dependencies
 are build dependencies; they do not enter firmware.
@@ -27,16 +27,118 @@ The seven platform families are:
 | `windows` | Native Windows | `windows` |
 | `web` | Browser, `wasm32-unknown-emscripten` | `web` |
 
-`--profile` selects an explicit product or qualification configuration. With
-`--platform`, it must belong to that family. Qualification profiles such as
-`pico2-mock` and `mps2-an521-mock` are configurations, not additional public
-platform families. Native builds target the current host OS.
+`--platform` selects `platform/<platform>/profile.toml`. The file's `name`
+preserves its explicit `--profile` identifier.
+`cargo nxrs profile --platform wroom` shows the resolved WROOM default.
+`--profile` selects an explicit product or qualification configuration, which
+can inherit settings using `extends`. When you supply both options, the explicit
+profile must belong to the same board and target family. Native builds target
+the current host OS.
+
+Start with the platform default for ordinary builds. The seven defaults live
+in each platform directory. Named product variants live in its `profiles/` subdirectory.
+The configurations in `tests/profiles/` are explicit test inputs, such as
+`pico2-mock` for a sensor-free Pico 2 build. They do not add platform defaults.
+On a desktop, use `mock` for scripted providers and the navigation demo, or
+`simulation` for coordinated IMU/GNSS data. A build without a profile checks
+portable HAL contracts with hardware acquisition unbound.
+
+Use `--overlay` to adjust devices, resources, or aliases on a profile with
+[peripheral composition](peripheral-composition.md#bindings-and-overlays).
 
 Platform admission does not imply every HAL is implemented or physically
-qualified. CoreS3 sensor wiring still needs physical qualification. Windows has
-file-camera, storage, IP transport and detector bindings. Web currently builds
+qualified. CoreS3 sensor wiring still needs physical qualification. Desktop
+camera replay, recording, and UDP use portable Cargo features. The Windows
+profile admits detector acquisition. Web currently builds
 the Emscripten thread qualification; hardware HALs are unbound. Stock
 `wasm32-unknown-unknown` does not provide these std threads.
+
+## Accepted follow-up and current behavior
+
+The [declarative build/static-device decision](static-device-composition.md)
+moves HAL-local host work into shared build preparation. IMU and GNSS now use
+driver-owned catalogs, additive Cargo features, and canonical device instances.
+The full pre-Cargo configuration and native-helper handoff is tracked in
+[issue #246](https://github.com/yongkyuns/nxrs/issues/246).
+
+Extend the existing pre-Cargo preparation path. Package-owned catalogs declare supported implementations and resource
+constraints. Rust defines the configuration and constructor types. Shared resource
+rendering supplies validated configuration and
+concrete per-device declarations. There must be no chip-specific emitter,
+hardcoded sibling catalog inclusion, profile-provided Rust source or redundant
+`source` selector alongside ordinary feature-gated modules.
+
+Driver availability uses optional dependencies and additive Cargo features.
+Profiles choose physical instances; several instances may share one driver.
+Feature activation must use valid Cargo edges before target compilation and work
+for transitive/detached consumers without hardware choices in application or
+service source/manifests. Cargo remains the dependency resolver.
+
+Deleting HAL build scripts also requires replacing their `OUT_DIR` handoff,
+per-package provider flags, native compilation/link outputs and freshness
+tracking. Keep ABI source with its runtime owner and compile only consumed,
+feature-enabled helpers with the selected target context. One global provider
+flag cannot replace per-HAL selection.
+
+The [follow-up plan](peripheral-composition-plan.md#static-device-follow-up)
+requires a concrete generated-input contract for normal builds, plain Cargo
+build/check/test/doc, no-profile contracts and detached packages. Generated
+outputs stay outside source, carry target/configuration/schema/generator
+identity, and reject stale inputs and concurrent-build contamination. The
+existing native-header, helper-exclusion and incremental-evidence gates remain.
+
+## Shared declarative sensor preparation
+
+Each sensor catalogue imports its drivers' package-relative binding declarations
+through renamed optional NuttX dependencies. For example:
+
+```toml
+[package.metadata.nxrs]
+device-capabilities = ["gnss"]
+
+[features]
+gnss = ["dep:nxrs-gnss"]
+
+[target.'cfg(target_os = "nuttx")'.dependencies]
+ubx = { package = "nxrs-ubx-driver", path = "../driver/ubx", optional = true }
+```
+
+Catalog version 2 declares compatible devices, bus constraints and a single
+`implementation` identifier naming a type exported by the registered driver.
+The dependency alias qualifies that type and supplies its implicit Cargo feature.
+Composition profiles/overlays remain version 1.
+The renderer emits typed I²C, SPI, or UART bindings and one static instance per
+configured endpoint. Named accessors and aliases borrow that instance. The HAL
+owns acquisition and releases the instance only after delivery and cleanup retire.
+
+After Cargo resolves the production graph, the build controller renders the
+consumed path catalogues through shared binding validation. It publishes
+immutable configuration files and a handoff keyed by profile, compiler target,
+package inputs and generator revision. `provider-selection.json` records the
+handoff path. The common `configure_composition()` adapter verifies those inputs and
+output hashes before copying the files into its package's `OUT_DIR`.
+
+Explicit host fixtures use the same renderer through
+`nxrs-build-support::preparation::prepare_package`. NuttX product builds require
+the frontend's validated receipt and prepared inputs. Provider flags and
+simulation configuration continue through their generic package adapters.
+
+Profile resolution loads package declarations for explicit `[hal]` keys,
+including a provider of `"none"` when its unselected physical devices must be
+validated. It does not scan unrelated HAL catalogs. An isolated package without
+a selected profile can compile its contract without an SDK or sibling HAL
+directories. A selected complete profile may read its declared SDK metadata;
+that does not add packages to the consumer's Cargo graph.
+
+Manifest and catalog bytes participate in receipt dependencies,
+the input fingerprint and Cargo rebuild tracking. The report's
+`resolved-composition.binding-inputs` records their paths and hashes.
+`binding-sources` reports SDK-relative paths for contained catalogs and absolute
+paths for external catalogs. A copied consumer package must preserve binding
+contents, driver registrations and normalized `resource-features` mappings.
+Packaging-only manifest differences and TOML table order may differ; the actual
+manifest is also tracked. Generated files retain their timestamps when content is unchanged.
+An output ownership record removes an obsolete generated Rust file when configuration is removed, while preserving unrelated outputs and native archives.
 
 ## Configuration and ownership
 
@@ -48,8 +150,7 @@ manifests stay platform-free. Application-entry metadata under
 `qualification-only` fixture marker. Build planning and deployment preflight both
 validate this parent table and reject unknown fields, so misspelled metadata cannot
 silently select firmware defaults or skip capability admission. Other tools' metadata stays
-independent. Declarative profiles under `platform/profiles` and
-`platform/nuttx/platforms` select hardware
+independent. Declarative platform profiles select hardware
 resources, capabilities, execution/model budgets and OS build settings. HAL
 implementations stay in their owning HAL crates.
 
@@ -62,11 +163,10 @@ resolved graph and repeat `--overlay` on profile inspection or build commands
 to apply command-line overlays. Named profiles may also declare ordered
 overlays. The build frontend and direct Cargo consumers both use the versioned resolver.
 
-Each HAL owns its local `build.rs`; it depends on `platform/build-support`,
-which contains profile validation and native build utilities. The CLI depends on
-the same support package. A HAL never builds or depends on the deployment CLI.
-The detector's shared host SDK adapter is an ordinary detector-owned build-support
-package. The CLI and HAL build scripts share one Rust profile resolver. Model dependency
+Firmware manifests point to Cargo adapters under `tools/build-support/cargo`
+or `tools/detector-build-support` through declared build dependencies. Tooling
+owns profile validation, code generation, native compilation and SDK preparation.
+The CLI uses the same host support packages. Model dependency
 features follow the profile automatically. There is no shell environment-file
 interpreter or Python platform resolver. Existing qualification entry scripts
 are compatibility adapters; numerical reference/oracle tests remain independent.
@@ -110,8 +210,70 @@ marker and publishes its verified JS/WASM pair under `site/`.
 Relative build paths (`--manifest-path`, `--out`, `--html` and
 `--target-c-source`) are relative to the selected NXRS workspace root. The
 standalone controller accepts `--workspace-root <path>` before its subcommand;
-this also applies to `profile`. `--help` and `build --help` need no workspace.
+this also applies to `profile` and `config`. Command help, including
+`config check --help` and `config explain --help`, needs no workspace.
 Application discovery reports malformed app manifests instead of hiding them.
+
+## NuttX configuration
+
+Use `cargo nxrs config --app event-demo --platform cores3` to edit the native
+configuration for a selected build. The [configuration guide](../website/guide/profiles.md#configure-nuttx)
+documents prerequisites, native group browsing, search and dependency navigation,
+review, source ownership, repeat saves, and failure recovery. `config check`,
+`config show`, and `config explain CONFIG_SYMBOL` use the same native
+`olddefconfig` resolution with the same selection flags. Preparation validates
+the subsequent Make context, and the build checks configuration and header
+identities after linking.
+
+A profile's optional top-level `nuttx-config = "nuttx.conf"` points to a
+native fragment relative to the profile that declares it. An inherited
+reference keeps that location unless the child replaces it. If there is no
+reference, the review shows the new fragment and reference in the selected
+profile. The fragment stores explicit assignments such as
+`CONFIG_DEBUG_ASSERTIONS=y` or `# CONFIG_DEBUG_ASSERTIONS is not set`.
+Legacy `[kconfig]` settings supply defaults. The profile's fragment overrides
+those defaults. Pass `--overlay path/to/extra.conf` or include a `.conf` path in
+a profile's `overlays` list to apply additional NuttX settings. Declared fragments
+apply in inheritance order, followed by command-line overlays in argument
+order. Direct `--kconfig-*` requests apply last. Mandatory settings and BSP
+resources retain their ownership. The editor saves native changes in the
+profile's authored fragment.
+
+Save & sync prepares native headers and Rust inputs without compiling the
+firmware. It refreshes a Zed context already bound to the selected output.
+The next ordinary build reads the same sources; their content hashes participate
+in preparation and cache identity. Generated `resolved.config` and native
+headers are outputs, not configuration sources.
+
+## Native qualification settings
+
+NuttX uses a size-optimized Rust standard library and immediate panic abort by
+default. Use `cargo nxrs build --panic-diagnostics ...` for formatted panic
+reports and full backtrace support. An explicit trace-only setting retains
+panic reports unless immediate abort is also selected. When backtraces are
+enabled, trace-only reports show raw addresses. The effective settings are
+recorded in the build provenance.
+
+The ESP32-S3 RAM controls and CoreS3 sensor build check linked flash, unpadded
+image size, and static RAM in CI. Heap use and worker stacks are measured at
+runtime.
+
+NuttX builds accept repeated `--kconfig-enable SYMBOL`,
+`--kconfig-disable SYMBOL`, and `--kconfig-set NAME=VALUE` arguments. Use native
+symbol names without the `CONFIG_` prefix. Values are literal Kconfig booleans
+or tristates (`y`, `m`, `n`), decimal integers, hexadecimal integers, or quoted
+strings. Preserve the double quotes in a string value by quoting the complete
+assignment for your shell. These inputs are recorded in build evidence, so keep
+credentials and private keys out of them.
+
+Explicit settings override profile defaults, but cannot contradict a profile's
+required/forbidden settings, BSP resource wiring, generated init settings, or
+the builder's required ABI/runtime configuration. Conflicting repeated requests
+are rejected; repeating the same value is allowed. `--dry-run` reports the
+requested values as `kconfig_overrides`. A real build verifies them again after
+`olddefconfig` and retains the effective `resolved.config`; a dry run does not
+establish that the target's Kconfig admits a symbol or value. The requests also
+participate in native cache identity and build provenance.
 
 ## Cargo component selection
 
@@ -134,23 +296,92 @@ external transitive-only detector cannot be given a feature by Cargo and fails
 with a direct-dependency diagnostic.
 
 Dry runs reject backend-incompatible switches before any build starts. Their
-`dependency_resolution` is explicitly `pending` and `model_features` is null;
-resolving a NuttX custom target waits for its actual compiler and target spec.
-Completed builds record the Cargo-selected packages and verified model features.
+`dependency_resolution` is `pending`, with null `model_features` and `driver_features`.
+Resolving a NuttX custom target waits for its actual compiler and target spec.
+Completed builds record the Cargo-selected packages and the model and driver
+feature requests added by the frontend. The `driver_features` report includes
+the catalogue's required resource features as well as chip features.
 Dry runs do not claim compiler, SDK, binary-target or physical-resource qualification.
 
-IMU's BMI270 dependencies and GNSS's UBX dependencies are normal target
-dependencies only on NuttX. Host driver unit tests use dev-dependencies. Thus
-portable contract and host/WASM mock **library** builds omit those driver graphs;
-unit tests intentionally compile them. NuttX consumers include those ordinary
-NuttX driver dependencies even when a profile selects a mock. Profile admission
-is Rust module wiring, not an extra Cargo dependency resolver or provider feature.
+The IMU catalogue's `bmi270` and `lsm6dso` features and the GNSS catalogue's
+`ubx` feature enable optional NuttX drivers. `cargo nxrs build` requests the
+features for the configured devices in each consumed catalogue. For example,
+`cargo nxrs build --app event-demo --platform cores3` selects BMI270 and UBX.
+These are internal dependency switches; use `cargo nxrs build` for NuttX profile
+builds rather than setting chip features manually. Mixed IMU profiles select both
+drivers. Host driver tests compile the implementations through dev-dependencies.
+
+The composition package also maps bus kinds to declared features with
+`package.metadata.nxrs.resource-features`. Required resource features join the
+same Cargo feature proposal: I2C-only, SPI-only and mixed IMU profiles select the
+corresponding adapters. An unconsumed capability activates neither its drivers
+nor its resource features. Prepared native helpers follow the resulting graph;
+final linked code and data still require image-level evidence. Feature names
+belong to the catalogue, not a global allowlist.
 
 The isolation audit uses full Cargo package metadata and observed compiler
 artifacts. It checks target packages separately from host build tools, retains
 registry packages, rejects unknown artifact identities, and records the observed
 sets. `provider-selection.json` describes profile bindings, including available
 bindings that an application may not consume; it is not a compiled-package list.
+
+The event-demo workflow also checks its two existing CoreS3 images with the
+test-only `tools/check-device-closure.py` audit. After building the stock BMI270
+profile and `tests/host/fixtures/lsm6dso-overlay.toml` into their separate output
+directories, use the pinned target tools to inspect the completed pair:
+
+```sh
+source target/qemu-tools/environment.sh
+python3 tools/check-device-closure.py \
+  --bmi270-out target/firmware/event-demo/cores3 \
+  --lsm6dso-out target/firmware/event-demo/cores3-lsm6dso \
+  --revision "$(git rev-parse HEAD)" \
+  --report target/firmware/event-demo/device-closure.json
+```
+
+This audit binds the selected packages, prepared configuration and target Cargo
+artifacts to the successful build's hashes and actual Rust/final ELFs. Its
+report includes identifiable permanent device objects and their symbol sizes;
+it does not treat absent symbol names as sufficient driver-exclusion evidence.
+Evidence from both build directories and the report is retained in the
+`event-demo-esp32s3-nuttx` CI artifact. See the
+[D5 evidence scope](peripheral-composition-plan.md#paired-cores3-linked-device-evidence)
+for the limits of this paired witness.
+
+A separate job in the same workflow builds a finite composition matrix using
+the qualification-only consumers under
+[`tests/nuttx-std/device-composition`](../tests/nuttx-std/device-composition/README.md).
+Every case declares two IMUs and one GNSS receiver. The two IMU-only builds use
+two BMI270 instances and a BMI270/LSM6DSO pair respectively; the GNSS-only build
+uses the mixed profile with the IMU capability unconsumed. Separate packages
+keep the normal Cargo dependency graph specific to each capability.
+
+After the three builds, the same checker accepts the complete matrix as an
+alternative to its original pair:
+
+```sh
+source target/qemu-tools/environment.sh
+python3 tools/check-device-closure.py \
+  --same-model-out target/firmware/device-composition/two-bmi270 \
+  --mixed-out target/firmware/device-composition/mixed-imu \
+  --gnss-only-out target/firmware/device-composition/gnss-only \
+  --revision "$(git rev-parse HEAD)" \
+  --report target/firmware/device-composition/device-matrix.json
+```
+
+The matrix checks the exact selected driver packages and native helpers, alias
+accessors, and per-instance objects in both Rust and final NuttX ELFs. Final
+objects must occupy distinct, non-overlapping address ranges. An unconsumed
+capability must contribute no NXRS target packages, native helpers or device
+objects, even though its devices remain in the resolved profile. The CoreS3
+profile still configures native NuttX I2C/GPIO facilities; this check makes no
+claim that those OS facilities are removed.
+
+The `device-composition-esp32s3-nuttx` artifact retains all three evidence bundles
+and `device-matrix.json`. These sequential cross-links establish linked
+composition and storage evidence. Physical acquisition, complete allocation
+accounting and simultaneous builds using different profiles retain their
+separate qualification requirements.
 
 ## Incremental builds and evidence
 
@@ -178,21 +409,93 @@ again. A failed rebuild leaves no current success bundle. Web recreates `site/`
 and chooses its JS/WASM pair from the selected binary's Cargo artifact, so old
 outputs from another binary cannot become the new site.
 
-`platform/build/tests/nuttx_helper_ownership.rs` executes real Cargo and the host
+`tools/build/tests/nuttx_helper_ownership.rs` executes real Cargo and the host
 C compiler to check unchanged freshness, same-path header/source changes and
 exclusion of an unconsumed helper. `native_header_freshness.rs` retains the TLS
 and detector checks, including changed symlinked architecture headers. These are
 build ownership tests; target libc ABI and physical device behavior retain their
 separate qualification gates.
 
+### Concurrent profile qualification
+
+`tools/qualify-concurrent-builds.py` exercises two different resolved CoreS3
+configurations through the normal build frontend. The base profile selects a
+BMI270 at address `0x68` on `/dev/i2c0` at 400 kHz. The existing LSM6DSO overlay
+selects address `0x6a` on `/dev/i2c1` at 100 kHz. Both retain the UBX GNSS on
+`/dev/ttyS1` at 38400 baud. The firmware application and service code is identical.
+
+Prepare the pinned toolchain and NuttX submodules before starting the witness,
+using the prerequisites of the existing ESP32-S3 CI job. Run from a clean Linux
+x86-64 checkout at the revision to be qualified:
+
+```sh
+python3 tools/qualify-concurrent-builds.py \
+  --out target/firmware/event-demo/concurrent-profiles \
+  --revision "$(git rev-parse HEAD)"
+```
+
+The output parent must be fresh, ignored by Git and below this checkout's
+`target/`. The runner first compiles one source-bound frontend with native
+Rust/Cargo 1.90.0, then launches both builds with two Cargo jobs and two NuttX
+jobs per build. Both children use the installed host toolchain for Cargo
+catalogue discovery. Each child owns its NuttX/apps trees, patched Rust SDK, generated
+configuration, native helpers, Cargo output and firmware. The installed tool
+bundle and pinned upstream source remain shared inputs. Shared Cargo-target and
+patched-sysroot overrides are rejected. Install or update tools before the pair,
+never while either child is running.
+
+Qualification requires both child processes to remain alive before and after a
+complete observation of both prepared input sets. The checker compares each
+resolved graph and generated construction against fixed case expectations,
+checks native bus/pin configuration and helper ownership, and requires the
+observed inputs to remain unchanged after both builds succeed. It also checks the configuration actually
+consumed by Cargo, selected and excluded target drivers, private SDK and linker
+paths, source provenance, final ELF types and artifact digests. A shared path,
+wrong-profile configuration, early child exit, build failure or deadline expiry
+fails the witness. Failed or interrupted orchestration retires both process
+groups and retains logs plus an incomplete diagnostic record.
+
+Successful runs publish `concurrent-builds.json` and a finite `evidence/` bundle
+only after the checker has replayed a copy of that bundle. The bundle contains
+the required receipts, generated and consumed configurations, native archives,
+referenced native inputs, frontend, logs and final firmware. It excludes the
+full SDK and Cargo intermediates. To replay a downloaded or moved bundle, use a
+clean checkout of the report's exact source revision and give both relocated
+output roots:
+
+```sh
+python3 tools/check-concurrent-builds.py \
+  --report /path/to/evidence/concurrent-builds.json \
+  --repo "$PWD" \
+  --bmi270-out /path/to/evidence/bmi270 \
+  --lsm6dso-out /path/to/evidence/lsm6dso
+```
+
+The event-demo ESP32-S3 CI job runs both profiles concurrently, applies the
+existing firmware footprint limits to the BMI270 image and checks device closure
+on both linked images. The `event-demo-concurrent-profiles` artifact retains the
+qualification bundle and its output ownership receipts. The witness verifies
+that the builds overlap while their prepared inputs are isolated and that both
+link successfully. D5 and S8 cover CPU parallelism, speedup, static device
+sizes, runtime allocation and physical sensor concurrency separately.
+
 ## Native helper ownership
 
 The NuttX controller configures Make and generates target headers before invoking
-Cargo. A target in the ordinary application Makefile exports its selected C
-compiler, archiver and flags into `native-context.json`, including the target and
-configured-header digest. Each consumed HAL's local build script then compiles
-only that package's private ABI sources into its own archive. The native build
-continues to own OS drivers, registration and final image startup.
+Cargo. A Make target exports its C compiler, archiver and flags into
+`native-context.json`, with the target and configured-header digest.
+The controller precompiles consumed NuttX resource and HAL ABI archives according
+to profile admission and Cargo-selected features. Package adapters validate and
+link them; missing or stale preparation fails with a rebuild diagnostic. Native
+compiler environment variables must be exported before invoking the frontend,
+not set only in Cargo configuration. SDK preparation retains its own build path.
+NuttX owns OS drivers and registration. The low-level kernel ABI harness retains
+its partial HAL fixture without a board selection; it is not a product profile.
+
+The controller checks current compiler dependencies before reusing an archive,
+including headers that newly take precedence in the include search path.
+`provider-selection.json` records the prepared archive paths and hashes.
+Concurrent NuttX builds use separate output directories.
 
 Helpers for optional functionality follow the owning package's Cargo feature
 through `package.metadata.nxrs.platform.<os>.required-features`; the detector's
@@ -206,13 +509,29 @@ HAL helpers. Link maps and symbol checks still establish what the image retains.
 
 An external product has its own workspace, lockfile and handwritten `main()`.
 Pass its manifest to the same frontend and select the NXRS profile/SDK root
-explicitly with `--workspace-root`. For direct Cargo builds with a profile,
-`NXRS_SDK_ROOT` supplies that root; in-checkout builds can discover it. The SDK
+explicitly with `--workspace-root`. NuttX builds use this frontend, including
+external products and qualification apps. Portable library tests and explicit host
+fixtures may use Cargo directly; `NXRS_SDK_ROOT` supplies their profile root.
+In-checkout builds can discover it. The SDK
 root provides profiles and pinned native inputs and need not be the application's
 Cargo workspace. No source path outside an ordinary dependency package supplies
 its build script or production Rust modules.
 
-Shared acquisition/session code is the normal `nxrs-acquisition` dependency.
+The selected application's Cargo workspace may declare
+`workspace.metadata.nxrs.device-catalogue` to use a product-owned composition
+package instead of the SDK default. Driver discovery supports renamed optional
+NuttX path dependencies and Cargo-normalized workspace inheritance. Receipt
+revalidation retains the selected product manifest and workspace metadata, so
+all adapters resolve the same catalogue. Its manifest, inherited declarations,
+driver manifests and binding files are tracked inputs. See the
+[composition guide](../platform/README.md#own-the-catalogue-in-an-external-product)
+for the declaration and normal build command. Catalogue sources remain local
+path packages; remote driver sources need a future resolved-package integration,
+not a second Cargo resolver.
+
+Worker lifetimes and readiness come from the internal `nxrs-acquisition`
+dependency in `shared/acquisition`. Native preparation follows the consuming
+HAL's Cargo graph.
 Linux Wi-Fi and BLE share the `nxrs-linux-gio` package and one private GIO native
 archive; radio schemas and device policy stay in their HALs. Unbound and mock
 builds do not compile the GLib helper. `tests/host/test_external_consumers.py`
@@ -222,9 +541,3 @@ recording and UDP, mock sensor joins, and joint Linux radio linking. It also
 rejects profile use without an explicit SDK root in that detached location.
 This establishes external application/package composition, not a crates.io
 publication contract or new device qualification.
-
-Physical multi-device ownership is a separate HAL task. The current IMU lease
-is global; two physical devices require explicit provider resources and
-per-device ownership while preserving cleanup/quarantine. They do not require
-a generalized build-time resource graph. This work does not change the parallel
-channel/progress qualification in #252.

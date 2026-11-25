@@ -1,10 +1,14 @@
 # Buffer placement is a platform decision
 
+**Where should a large frame pool live?** Supply its backing storage when constructing the camera composition. Heap-backed buffers or platform-placed slices avoid requiring large inline values on a worker's stack. Boxing a value after construction may already be too late to avoid that temporary.
+
+The investigation below explains the failure that motivated this interface and its regression coverage. See [memory budgeting](rust-std-footprint.md) for the broader accounting and [native qualification](native-backend.md) for the fixture that uses it.
+
 The first real Windows CLI run found a startup stack overflow (0xC00000FD).
 The small mock fixtures passed, but the inline 3 x 65536-byte camera pool
 created large unoptimized constructor temporaries on the process stack.
 
-The fix does not enlarge the stack or reduce frame capacity. CameraService
+The fix does not enlarge the stack or reduce frame capacity. `camera::capture::Session`
 and CameraProduct now accept a backing type B through `with_buffers`. Standard
 AsRef<[u8]> / AsMut<[u8]> are sufficient; there is no custom allocator trait,
 service registry, unsafe initialization or std dependency in the portable code.

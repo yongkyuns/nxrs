@@ -135,7 +135,7 @@ fn invalid_limits_are_rejected_before_creating_a_directory() {
     assert!(!directory.exists());
 }
 
-#[cfg(not(all(hal_provider = "hardware", target_os = "nuttx")))]
+#[cfg(not(platform = "nuttx"))]
 #[test]
 fn unbound_record_file_acquisition_does_not_substitute_directory_recording() {
     let temp = Temp::new();

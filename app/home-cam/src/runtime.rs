@@ -2,20 +2,20 @@
 #![forbid(unsafe_code)]
 use crate::commissioning;
 use camera::{Camera, JpegQuality};
-use connectivity_service::Reconnector;
-use home_cam::{LiveCamera, TlsOptions, TlsOutput};
+use home_cam::{update::Update, LiveCamera, StreamOutput, TlsOptions};
 
 use std::{
     net::TcpListener,
     sync::mpsc::{sync_channel, Receiver, SyncSender, TrySendError},
     time::{Duration, Instant},
 };
-use wifi::{Command, DeliveryError, Event, LinkState, ProviderStatus, Rejected};
+use wifi::{Command, DeliveryError, Event, LinkState, ProviderStatus, Reconnector, Rejected};
 
 const BYTES: usize = 320 * 240 * 2;
 const HEALTH_AGE_MS: u64 = 5000;
-const RENEW_AFTER: Duration = Duration::from_secs(45 * 60);
 const DELIVERY_TIMEOUT: Duration = Duration::from_secs(30);
+const RECOVERY_RESET_FRAMES: u64 = 32;
+const MAX_RETRY_DELAY: u64 = 30;
 
 struct Sink {
     events: SyncSender<Event>,
@@ -93,59 +93,82 @@ fn retire_network<W: wifi::Wifi, F: FnMut() -> Result<Command, wifi::Error>>(
 enum Outcome {
     SaveWifi,
     Renew,
+    Retry,
     Update,
     Healthy(home_cam::startup::Health),
 }
 
-fn run_live<D: Camera, W: wifi::Wifi, F: FnMut() -> Result<Command, wifi::Error>>(
-    mut live: LiveCamera<D, BYTES, Vec<u8>, TlsOutput<Vec<u8>>>,
-    network: &mut Reconnector<W, F>,
-    events: &Receiver<Event>,
+fn camera_failure(stage: &str, error: camera::DeviceError) -> Result<Outcome, String> {
+    if matches!(
+        error,
+        camera::DeviceError::Io | camera::DeviceError::Timeout
+    ) {
+        eprintln!("CAMERA_RETRY stage={stage} error={error:?}");
+        Ok(Outcome::Retry)
+    } else {
+        Err(format!("camera {stage} {error:?}"))
+    }
+}
+
+fn run_live<D: Camera, O: StreamOutput>(
+    mut live: LiveCamera<D, BYTES, Vec<u8>, O>,
+    mut poll_network: impl FnMut(u64) -> Result<(bool, Option<u64>), String>,
     origin: Instant,
-    update: Option<&home_cam::update::Update>,
+    update: Option<&Update>,
     trial: bool,
     budget: Option<detector::ExecutionBudget>,
+    retry_delay: &mut u64,
 ) -> Result<Outcome, String> {
+    let mut restart = Outcome::Renew;
     let operation: Result<bool, String> = (|| {
         if let Some(budget) = budget {
-            let worker = detection_service::Worker::spawn(
+            let detection = detection_service::Session::start(
                 detection_service::WorkerOptions {
                     frame_capacity: BYTES,
                     sample_interval_ms: budget.sample_interval_ms,
                     stack_bytes: budget.stack_bytes,
                 },
+                detection_service::Policy::default(),
                 || {
-                    execution::configure_current(execution::Priority::Normal)
+                    // Keep synchronous inference below capture and video delivery.
+                    execution::configure_current(execution::Priority::Background)
                         .map_err(|_| detection_service::Error::Worker)?;
                     detector::open(detector::Config::default()).map_err(Into::into)
                 },
             )
             .map_err(|e| format!("detector startup {e:?}"))?;
-            live.attach_detection(
-                home_cam::SecurityDetection::new(worker, detection_service::Policy::default())
-                    .map_err(|e| format!("detection policy {e:?}"))?,
-            )
-            .map_err(|e| format!("detection attachment {e:?}"))?;
+            live.attach_detection(detection)
+                .map_err(|e| format!("detection attachment {e:?}"))?;
         }
-        live.start(320, 240)
-            .map_err(|e| format!("capture start {e:?}"))?;
-        let started = Instant::now();
+        match live.start(320, 240) {
+            Ok(_) => {}
+            Err(home_cam::Error::Camera(camera::capture::Error::Device(error))) => {
+                restart = camera_failure("start", error)?;
+                return Ok(false);
+            }
+            Err(error) => return Err(format!("capture start {error:?}")),
+        }
         let (mut delivered, mut captured) = (0, 0);
         let (mut last_delivery, mut last_capture) = (Instant::now(), Instant::now());
         loop {
             if update.is_some_and(home_cam::update::Update::ready) {
                 return Ok(false);
             }
-            if (started.elapsed() >= RENEW_AFTER || last_delivery.elapsed() >= DELIVERY_TIMEOUT)
+            if last_delivery.elapsed() >= DELIVERY_TIMEOUT
                 && update.is_none_or(home_cam::update::Update::retire_if_idle)
             {
                 return Ok(false);
             }
             let elapsed = now(origin);
-            network_poll(network, events, elapsed)?;
-            let online = network.link() == LinkState::Addressed;
-            live.poll(elapsed, online)
-                .map_err(|e| format!("stream {e:?}"))?;
+            let (online, network_deadline) = poll_network(elapsed)?;
+            match live.poll(elapsed, online) {
+                Ok(_) => {}
+                Err(home_cam::Error::Camera(camera::capture::Error::Device(error))) => {
+                    restart = camera_failure("read", error)?;
+                    return Ok(false);
+                }
+                Err(error) => return Err(format!("stream {error:?}")),
+            }
             if trial && online && home_cam::startup::healthy(&live, elapsed, HEALTH_AGE_MS) {
                 // Consuming retirement below joins before handing health to confirmation.
                 return Ok(true);
@@ -158,12 +181,15 @@ fn run_live<D: Camera, W: wifi::Wifi, F: FnMut() -> Result<Command, wifi::Error>
             if stats.captured > captured {
                 captured = stats.captured;
                 last_capture = Instant::now();
+                if captured == RECOVERY_RESET_FRAMES {
+                    *retry_delay = 0;
+                }
             }
             if last_capture.elapsed() > Duration::from_secs(5) {
-                return Err("camera stalled".into());
+                restart = camera_failure("capture", camera::DeviceError::Timeout)?;
+                return Ok(false);
             }
-            let wake = network
-                .next_deadline_ms()
+            let wake = network_deadline
                 .into_iter()
                 .chain(live.next_poll_at_ms())
                 .min()
@@ -180,13 +206,36 @@ fn run_live<D: Camera, W: wifi::Wifi, F: FnMut() -> Result<Command, wifi::Error>
             .map_err(|e| format!("startup retirement {e:?}"));
     }
     let stopped = live.stop().map_err(|e| format!("camera retirement {e:?}"));
-    operation?;
     stopped?;
+    operation?;
     Ok(if update.is_some_and(home_cam::update::Update::ready) {
         Outcome::Update
     } else {
-        Outcome::Renew
+        restart
     })
+}
+
+fn run_camera_sessions(
+    update: &mut Option<Update>,
+    mut run_session: impl FnMut(Option<&Update>, &mut u64, Duration) -> Result<Outcome, String>,
+) -> Result<Outcome, String> {
+    let mut retry_delay = 0;
+    let mut pause = Duration::ZERO;
+    loop {
+        match run_session(update.as_ref(), &mut retry_delay, pause)? {
+            Outcome::Retry => {
+                pause = Duration::from_secs(retry_delay);
+                retry_delay = (retry_delay * 2).clamp(1, MAX_RETRY_DELAY);
+            }
+            Outcome::Renew => pause = Duration::ZERO,
+            outcome => return Ok(outcome),
+        }
+        *update = update
+            .take()
+            .map(Update::renew)
+            .transpose()
+            .map_err(|e| format!("update renewal {e:?}"))?;
+    }
 }
 
 pub(crate) fn run() -> Result<(), String> {
@@ -196,14 +245,13 @@ pub(crate) fn run() -> Result<(), String> {
     let mut trial =
         home_cam::startup::Trial::begin(boot, watchdog).map_err(|e| format!("startup {e:?}"))?;
     let budget = detector::execution_budget();
-    let mut store = Some(config::open().map_err(|e| format!("config open {e:?}"))?);
+    let mut store = Some(settings::open().map_err(|e| format!("settings open {e:?}"))?);
     let mut settings = commissioning::load(store.as_mut().ok_or("missing store")?, console::open)?;
     if !settings.save_wifi {
         drop(store.take());
     }
     let origin = Instant::now();
     let mut listener = None;
-    let mut retry_delay = 1;
     loop {
         let mut update = if trial.is_none() {
             Some(
@@ -223,21 +271,44 @@ pub(crate) fn run() -> Result<(), String> {
         })
         .map_err(|e| format!("Wi-Fi open {e:?}"))?;
         let mut network = Reconnector::new(controller, || settings.wifi.command());
-        let mut retry_network = false;
+        let mut maintenance = None;
         let operation: Result<Outcome, String> = (|| {
             wait_addressed(&mut network, &events, origin)?;
             if settings.save_wifi {
                 return Ok(Outcome::SaveWifi);
             }
+            if trial.is_none() {
+                match ssh::start() {
+                    Ok(session) => maintenance = session,
+                    Err(error) => eprintln!("SSH unavailable: {error}"),
+                }
+            }
             if listener.is_none() {
                 listener =
                     Some(TcpListener::bind("0.0.0.0:8443").map_err(|e| format!("listener {e:?}"))?);
             }
-            loop {
-                let mut camera = camera::open().map_err(|e| format!("camera open {e:?}"))?;
-                camera
-                    .set_jpeg_quality(JpegQuality::new(81).map_err(|e| format!("quality {e:?}"))?)
-                    .map_err(|e| format!("quality setup {e:?}"))?;
+            run_camera_sessions(&mut update, |update, retry_delay, pause| {
+                let until = Instant::now() + pause;
+                loop {
+                    network_poll(&mut network, &events, now(origin))?;
+                    let remaining = until.saturating_duration_since(Instant::now());
+                    if remaining.is_zero() && network.link() == LinkState::Addressed {
+                        break;
+                    }
+                    std::thread::park_timeout(if remaining.is_zero() {
+                        Duration::from_millis(50)
+                    } else {
+                        remaining.min(Duration::from_millis(50))
+                    });
+                }
+                let mut camera = match camera::open() {
+                    Ok(camera) => camera,
+                    Err(error) => return camera_failure("open", error),
+                };
+                let quality = JpegQuality::new(81).map_err(|e| format!("quality {e:?}"))?;
+                if let Err(error) = camera.set_jpeg_quality(quality) {
+                    return camera_failure("quality", error);
+                }
                 let commission = settings.commission.clone();
                 let composed = LiveCamera::<_, BYTES, _>::new_tls(
                     camera,
@@ -253,56 +324,53 @@ pub(crate) fn run() -> Result<(), String> {
                         poll_interval: Duration::from_millis(2),
                     },
                     move || {
-                        execution::configure_current(execution::Priority::Background)
+                        execution::configure_current(execution::Priority::Normal)
                             .map_err(|_| home_cam::Error::Worker)?;
                         home_cam::bootstrap::initialize(commission)
                     },
                 );
                 let mut live = match composed {
                     Ok(live) => live,
-                    Err(error) => {
-                        retry_network = matches!(
-                            error,
-                            home_cam::Error::Tls(
-                                tls::Error::Io | tls::Error::Time | tls::Error::Authentication
-                            )
-                        );
-                        return Err(format!("TLS composition {error:?}"));
+                    Err(home_cam::Error::Tls(
+                        error @ (tls::Error::Io | tls::Error::Time | tls::Error::Authentication),
+                    )) => {
+                        eprintln!("CAMERA_RETRY stage=tls error={error:?}");
+                        return Ok(Outcome::Retry);
                     }
+                    Err(error) => return Err(format!("TLS composition {error:?}")),
                 };
-                if let Some(update) = &update {
+                if let Some(update) = update {
                     live.enable_updates(update.clone())
                         .map_err(|e| format!("update receiver {e:?}"))?;
                 }
-                match run_live(
+                if audio::AVAILABLE {
+                    live.enable_microphone(origin)
+                        .map_err(|e| format!("microphone authorization {e:?}"))?;
+                }
+                run_live(
                     live,
-                    &mut network,
-                    &events,
+                    |elapsed| {
+                        network_poll(&mut network, &events, elapsed)?;
+                        Ok((
+                            network.link() == LinkState::Addressed,
+                            network.next_deadline_ms(),
+                        ))
+                    },
                     origin,
-                    update.as_ref(),
+                    update,
                     trial.is_some(),
                     budget,
-                )? {
-                    Outcome::Renew => {
-                        update = update
-                            .take()
-                            .map(home_cam::update::Update::renew)
-                            .transpose()
-                            .map_err(|e| format!("update renewal {e:?}"))?;
-                    }
-                    outcome => return Ok(outcome),
-                }
-            }
+                    retry_delay,
+                )
+            })
         })();
-        let retired = retire_network(&mut network, &events, origin);
-        if retry_network && retired.is_ok() {
-            std::thread::sleep(Duration::from_secs(retry_delay));
-            retry_delay = (retry_delay * 2).min(30);
-            continue;
+        // Reap the maintenance task before releasing Wi-Fi or modifying flash.
+        if let Some(session) = maintenance {
+            session.stop().map_err(|e| format!("SSH stop {e:?}"))?;
         }
+        let retired = retire_network(&mut network, &events, origin);
         let outcome = operation?;
         retired?;
-        retry_delay = 1;
         match outcome {
             Outcome::SaveWifi => {
                 use wifi::QuiescenceControl;
@@ -321,12 +389,18 @@ pub(crate) fn run() -> Result<(), String> {
                 settings.save_wifi = false;
             }
             Outcome::Healthy(health) => {
+                use boot::Control;
                 let startup = trial.take().ok_or("missing trial owner")?;
                 let mut quiet = wifi::open_for_quiescence()
                     .map_err(|e| format!("confirmation maintenance {e:?}"))?;
                 startup
                     .complete(health, &mut quiet, || now(origin))
                     .map_err(|e| format!("trial confirmation {e:?}"))?;
+                drop(quiet);
+                let mut boot = boot::open().map_err(|e| format!("confirmed boot {e:?}"))?;
+                match boot
+                    .reboot_confirmed()
+                    .map_err(|e| format!("confirmed reboot {e:?}"))? {}
             }
             Outcome::Update => {
                 use boot::Control;
@@ -341,7 +415,7 @@ pub(crate) fn run() -> Result<(), String> {
                 drop(quiet);
                 match boot.reboot().map_err(|e| format!("update reboot {e:?}"))? {}
             }
-            Outcome::Renew => return Err("unretired renewal".into()),
+            Outcome::Renew | Outcome::Retry => return Err("unretired renewal".into()),
         }
     }
 }
@@ -353,4 +427,98 @@ fn update_capacity() -> Result<u32, String> {
     boot.update_capacity()
         .map(|bytes| bytes.min(2 * 1024 * 1024))
         .map_err(|e| format!("update capacity {e:?}"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use camera::{Capture, DeviceError, Format};
+    use std::cell::Cell;
+
+    struct FailingRead<'a> {
+        retired: &'a Cell<u32>,
+        stop: Result<(), DeviceError>,
+        frames: u64,
+        format: Option<Format>,
+    }
+
+    impl Camera for FailingRead<'_> {
+        fn start(&mut self, format: Format) -> Result<Format, DeviceError> {
+            self.format = Some(format);
+            Ok(format)
+        }
+
+        fn poll_frame(
+            &mut self,
+            now: u64,
+            bytes: &mut [u8],
+        ) -> Result<Option<Capture>, DeviceError> {
+            self.frames = self.frames.checked_sub(1).ok_or(DeviceError::Io)?;
+            bytes[..4].copy_from_slice(&[0xff, 0xd8, 0xff, 0xd9]);
+            Ok(Some(Capture {
+                format: self.format.unwrap(),
+                len: 4,
+                timestamp_ms: now,
+            }))
+        }
+
+        fn stop(&mut self) -> Result<(), DeviceError> {
+            self.stop?;
+            self.retired.set(self.retired.get() + 1);
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn repeated_read_errors_back_off_until_capture_recovers() {
+        for stop in [Ok(()), Err(DeviceError::Io)] {
+            let retired = Cell::new(0);
+            let mut pauses = Vec::new();
+            let mut update = Some(Update::new(1024, Duration::from_secs(1)).unwrap());
+            let result = run_camera_sessions(&mut update, |update, retry_delay, pause| {
+                assert_eq!(retired.get() as usize, pauses.len());
+                pauses.push(pause.as_secs());
+                if pauses.len() == 10 {
+                    return Ok(Outcome::Update);
+                }
+                let live = LiveCamera::new(
+                    FailingRead {
+                        retired: &retired,
+                        stop,
+                        frames: if pauses.len() == 8 {
+                            RECOVERY_RESET_FRAMES
+                        } else {
+                            0
+                        },
+                        format: None,
+                    },
+                    TcpListener::bind("127.0.0.1:0").unwrap(),
+                    vec![0; BYTES],
+                    vec![0; BYTES],
+                    vec![0; BYTES],
+                    stream_service::Options::default(),
+                )
+                .unwrap();
+                run_live(
+                    live,
+                    |_| Ok((false, None)),
+                    Instant::now(),
+                    update,
+                    false,
+                    None,
+                    retry_delay,
+                )
+            });
+            if stop.is_ok() {
+                assert!(matches!(result, Ok(Outcome::Update)));
+                assert_eq!(pauses, [0, 0, 1, 2, 4, 8, 16, 30, 0, 1]);
+            } else {
+                assert_eq!(
+                    result.err().as_deref(),
+                    Some("camera retirement Camera(Device(Io))")
+                );
+                assert_eq!(pauses, [0]);
+            }
+        }
+    }
 }

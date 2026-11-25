@@ -151,7 +151,7 @@ def validate_build_timer(checked_runs, configuration):
     return expected
 
 
-def validate_saturation_output(output, platform, layout, instrumentation="full"):
+def validate_saturation_output(output, platform, layout, instrumentation="full", *, stack_bytes=None):
     text = measure.normalize_output(output)
     measure.validate_instrumentation(text, instrumentation)
     if "ES_FAIL" in text or text.splitlines().count("ES_PASS") != 1:
@@ -165,7 +165,8 @@ def validate_saturation_output(output, platform, layout, instrumentation="full")
             raise ValueError(f"saturation must not emit {marker} rows")
 
     queues = 20 if layout == "one" else 60
-    stack_bytes = 8192 if platform == "embassy" else 81920
+    if stack_bytes is None:
+        stack_bytes = 8192 if platform == "embassy" else 81920
     resources = _rows(text, "ES_RESOURCES", 3)
     static_resources = [
         {key: value for key, value in row.items() if key != "heap_allocated"}

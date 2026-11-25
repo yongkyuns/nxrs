@@ -165,7 +165,7 @@ fn disconnect_after<T>(
 }
 
 #[cfg(target_os = "nuttx")]
-fn credentials() -> Result<Command, Error> {
+pub fn credentials() -> Result<(Ssid, Credentials), Error> {
     let mut ssid = [0; 32];
     let mut password = [0; 63];
     let (mut ssid_length, mut password_length) = (0, 0);
@@ -194,7 +194,7 @@ fn credentials() -> Result<Command, Error> {
                 std::str::from_utf8(bytes).map_err(|_| Error::InvalidConfig)?,
             )?)
         };
-        Ok(Command::Connect { ssid, credentials })
+        Ok((ssid, credentials))
     })();
     // Best-effort clearing of the fixture input copy; the native driver still
     // needs credentials in RAM. This is not a claim of whole-stack zeroization.
@@ -233,7 +233,8 @@ pub fn with_connection_observed<T>(
 pub fn with_connection_reactor<T>(
     traffic: impl FnOnce(Observation, &mut dyn FnMut() -> Result<(), Error>) -> Result<T, Error>,
 ) -> Result<T, Error> {
-    let command = credentials()?;
+    let (ssid, credentials) = credentials()?;
+    let command = Command::Connect { ssid, credentials };
     let (tx, rx) = bounded(8);
     let observation = Observation::new();
     let mut controller = wifi::open({

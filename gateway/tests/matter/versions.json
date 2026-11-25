@@ -1,0 +1,82 @@
+{
+  "rs_matter": {
+    "repository": "https://github.com/project-chip/rs-matter",
+    "revision": "a530a2972b860162527a9ec9df4ee62156b0ad69",
+    "patch": "rs-matter-camera.patch"
+  },
+  "rust": "1.98.1",
+  "controller": {
+    "package": "matter-server",
+    "version": "1.6.0",
+    "source_revision": "fc8aa79611aebbe3090a30813e7211f707b2131f"
+  },
+  "node": "24.22.3",
+  "python": "3.12.16",
+  "aiortc": "1.14.0",
+  "str0m": {
+    "version": "0.18.1",
+    "archive_url": "https://static.crates.io/crates/str0m/str0m-0.18.1.crate",
+    "archive_sha256": "853853eafde0493f1928bf8a658ac05d5605ead911643f4cc88432420b8898b5",
+    "source_revision": "5d23b8fe2f1884b1f49529c7c6024294e6412193",
+    "patch": "str0m-rejected-media.patch"
+  },
+  "astro_dnssd": {
+    "version": "0.3.10",
+    "archive_sha256": "661c82dba25552a2d5c0d0783d6161dfbe8c875fc734a7171bbef3882dbb7acc"
+  },
+  "sha256": {
+    "Cargo.lock": "7b3fbf4701de7df208c2f8ac1f418fccfe8bce0644090a05d417191d69c9fe06",
+    "package-lock.json": "8685a3c4409c5061ba21e2866a06e2b2ae23f3e440f016b46fdd9467c096d2be",
+    "receiver-constraints.txt": "334c3ad0b37ea081f476cdbac6d1363144f6d169697d4eddc49a3a6fd754e856",
+    "rs-matter-camera.patch": "e1ac54534aef1621df1014734c3cf3fce408c96206400cc72ba11d022d6031ab",
+    "str0m-rejected-media.patch": "80d8a616fba9b645ab9a059fcb4ea8da10d86e639be21c430a439045049ee11b",
+    "homeassistant-constraints.txt": "2cd619b73945ecac9a3f6c43944ce68970cc8a0bcb43ab27bdfecb5c952e7e9a",
+    "bridge-topology.patch": "39606efa6a4fd35840fbc38e03f3bbb12af02f84b6c9dc081e46e60d519d9a99",
+    "live-media.patch": "76daffe46f28bf551840032dc0cedd79b0aca5fbbc837ce882d5e352190ce9f0",
+    "audio-control.patch": "ba7e30e6137336a5342d1a506188b8988a2f0e848a7cc8dad1936c4eef3389e7",
+    "audio-playback.patch": "99346e7c698749a53c95dc56859dcc287ad011e7929db9ad7ceb5b322e72e5c8",
+    "str0m-sync.patch": "6c6fdbfc461fdd89beef56cafa1329894f76208799ce260b4cfb6ba57ca4c012",
+    "privacy.patch": "1b45e0a898c9d38fd831a9a504816d41d1cef6c046202972c83b9c6c16f83ef1",
+    "commissioning.patch": "044cb0cb563d44821922c4d06a5a9ae371b287d1834508c4b9a33e143f8974b3",
+    "viewer-permissions.patch": "a5b5d539c6733a56452bc1c8ff6b1eaa5d2d857594dba3abb17f88f5f09c2d76",
+    "source-admission.patch": "d7c96edd7d236fc6c0ade644728e205d060a18491302681ac5692f088be32a1e",
+    "catalogue.patch": "f11e19aa7f750413eb019f5be7e0214b1dbdd5a40105b3ac1d59f7b254e3bf94",
+    "sessions.patch": "ef295792ea924fc1dd55bb492b9eec9b9e957291e19ee8f62915e6f664d7b7f1",
+    "snapshots.patch": "30af589da63606a6944d16988b715d9c20589822f84dfb28b182151b1e292d4e",
+    "shutdown.patch": "63a62d901f5e637cf097f00a0e68c775824f1f46cf5e96d4a08246741844caf6",
+    "final-fabric.patch": "8929823be0fa777cb7d2f7da048b4f517173b66b24225ab14e0a8aa9f2ee3234",
+    "commissioning-recovery.patch": "87b12231653b1cb97f9a7441565bac2f6f9b3a07cd3d5806d9f701d32745b2f8",
+    "shutdown-drain.patch": "6e473990b2ae4a97b8c363b48763d233a0502d66353291efc9c93119a83fa89f",
+    "provisioned-attestation.patch": "c7002dacd95911abf729ec9fe148ce310bea4e33543880f1702b5c4429828607",
+    "stream-continuity.patch": "9c6515bade7778a513ccc039258c5db2a323107ff48269c797f71fc27dec87ea",
+    "lan-interface.patch": "3df0c25c848335678b182065050b39de99a4574a9a7ce670db162236d4823eee",
+    "astro-dnssd-interface.patch": "47d65ec5c7927efd72a6e9eeff23b413e33e37febec5dfa86a799a3ab2ec655b",
+    "camera-endpoints.patch": "da6e97be2d78abf0e99cfda4a293174f2e7d4e69f6623642371a5bf6ed0faa2e",
+    "root-power-time-zone.patch": "6c28b3da6881c7ee63bc4126c8f1eeac6e2c263ede8607ed8a090317dae7382b",
+    "trusted-matter-time.patch": "dc9b0d5384a132f69a0e400ccbd9429300f3936bdc7ae019dcdf95952c9eb50a",
+    "default-ntp.patch": "04aba5aa56d6597378fabc5c36076f7718e03790bfa73a93ab07982d682a6285",
+    "dns-sd-time.patch": "1226a01f9a27e71b591307e428473df2dc8b71b490d0ba543aeb9f30a51be249",
+    "dhcp-time.patch": "f6f3bd21adfe788eb8eb47aef7a5d5293539a0dbe15d5a162be8f7330683e609",
+    "h264-negotiation.patch": "97bdeedfde4ad613b3c001ec4472e0abb745252154c575ddf50a1cc954d6d07a",
+    "str0m-h264-sender.patch": "39b7fcfa1b4d72031c509b9f855b1ffb0bb898f63edfdfab9def596d6b62145c",
+    "capture-privacy.patch": "fb72ca6fa911d77243c9e8a265437a617f24e61a69bbafc563cf14a5c367e61a",
+    "capture-confirmation.patch": "7fb6efc2cc82e343d881219a3bd538d14106f3093d71b1d815047c0bbc40ba9c",
+    "recording-privacy.patch": "c35c93045fbc4cec8482d367d533b3e22c8e8e38db67be559d2d6d4aaeadee4c",
+    "tls-management.patch": "9a103c3eb7b1e86dcf4b19ed3254d524581d165c15d83c1702bbaab2c49ea537",
+    "udp-interaction-bounds.patch": "f2d38b799f988bc26b8ea98d0af2789f78fd15641d8e185b3818b029e0b01ba8"
+  },
+  "home_assistant": {
+    "version": "2026.11.2",
+    "source_revision": "ff5d56b825a0fb66b03d01bc297d49e206cdaba3",
+    "frontend": "20261028.6",
+    "python": "3.14.10",
+    "playwright": "1.65.2",
+    "chrome": "157.0.8103.79"
+  },
+  "rtsp": {
+    "reader": "retina",
+    "version": "0.4.21",
+    "server": "MediaMTX 1.21.2",
+    "macos_arm64_archive_sha256": "7d0d0c5c11527cbd10bde1c3d728864eb0334a9b653566cd73c0259750cbf093"
+  }
+}

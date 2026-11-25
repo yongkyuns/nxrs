@@ -1,12 +1,12 @@
 use super::*;
 
-#[cfg(not(any(hal_provider = "hardware", hal_provider = "mock")))]
+#[cfg(not(any(platform = "nuttx", platform = "mock")))]
 #[test]
 fn unconfigured_never_silently_selects_a_mock() {
     assert!(matches!(open(), Err(DeviceError::Unsupported)));
 }
 
-#[cfg(hal_provider = "mock")]
+#[cfg(platform = "mock")]
 #[test]
 fn portable_consumer_uses_only_the_capability() {
     let mut leds = open().unwrap();

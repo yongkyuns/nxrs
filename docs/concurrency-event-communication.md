@@ -37,15 +37,13 @@ The service owns application state, processing policy and HAL session lifecycle.
 The provider owns device resources and acquisition/parsing state. Owning a GNSS
 session does not mean reading a UART on the service thread.
 
-~~~text
-GNSS device -> HAL wait/read/parse/normalize -> typed delivery endpoint
-                                                     |
-commands / peer events ------------------------------+-> service queues
-                                                          |
-                                                  one selection point
-                                                          |
-                                       local calibration / fusion / health
-~~~
+<figure class="architecture-art">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/nxrs-acquisition-boundary-dark.svg">
+    <img src="assets/nxrs-acquisition-boundary.svg" alt="HAL acquisition waits, reads, parses and normalizes device data. A typed endpoint admits it to bounded service queues, where one owner selects inputs and runs local processing." loading="lazy">
+  </picture>
+  <figcaption>For GNSS, the provider owns UART parsing and coherent measurement assembly. Calibration, fusion and health policy run with the receiving service state. <a href="assets/nxrs-acquisition-boundary.svg">Open SVG</a>.</figcaption>
+</figure>
 
 GNSS HAL hides NMEA versus UBX, serial framing, checksums, partial input,
 receiver-specific configuration/recovery and coherent measurement assembly.
@@ -113,11 +111,13 @@ important and ordinary queues. A dedicated lifecycle-stop queue can additionally
 isolate shutdown from an important-event burst. This replaces the earlier rule
 of one physical queue for every source.
 
-~~~text
-lifecycle owner -> stop queue (reserved for stop) --+
-critical commands / terminal faults -> important -+-> one select -> one owner
-HAL solutions / ordinary peer events -> ordinary -+
-~~~
+<figure class="architecture-art">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/nxrs-priority-inboxes-dark.svg">
+    <img src="assets/nxrs-priority-inboxes.svg" alt="A reserved stop queue, an important queue for critical commands and terminal faults, and an ordinary queue for HAL data and peer events feed one selection point and one owner." loading="lazy">
+  </picture>
+  <figcaption>Separate capacity isolates admission classes. Selection preference does not preempt a handler or establish fairness by itself. <a href="assets/nxrs-priority-inboxes.svg">Open SVG</a>.</figcaption>
+</figure>
 
 All senders for a class fan into its queue. Separate capacity is not a reason to
 create one queue per producer, device, enum variant or processing module.
@@ -203,7 +203,19 @@ teardown after progress dependencies are resolved. Do not hide a blocking join
 in `Drop`. A retained HAL session whose worker retains a sender cannot rely on
 automatic inbox closure to start shutdown. [Join semantics][join]
 
-## Allocation policy: std and Crossbeam use the same acceptance test
+## Memory budgets for deadline-sensitive work
+
+Reserve bounded scratch, queue and buffer storage during construction or session
+setup. The owning component supplies and reuses it through the normal API.
+Keep capacity and exhaustion behavior explicit. Reject excess work or apply
+bounded backpressure using the capability's existing policy.
+
+On fixed-priority targets, qualify steady-state code for zero calls to the
+shared heap, including frees, first-use work, error paths and native SDK calls.
+Measure setup, reconfiguration and teardown separately. Exercise the full
+supported inputs when adding a reserve. Use priority inheritance for shared
+task-context locks where supported and qualify the resulting wait times.
+
 
 Use positive-capacity bounded channels with a fixed set of participants and
 selection arms. Do not create channels/selectors/threads during normal dispatch.
@@ -311,9 +323,9 @@ handling remains integrated into the service's one selection point.
 
 The [GNSS HAL](../hal/gnss/README.md#event-driven-session) implements bounded event
 delivery through `open(sink)` and a session with explicit `request_stop()` and
-`join()`. Its worker mechanics are shared through `driver/acquisition`. The
-existing event-demo topology remains portability/stress evidence, not the
-required product decomposition.
+`join()`. `shared/acquisition` supplies worker lifetimes and readiness; GNSS
+owns queue-full handling and terminal notification. The event demo exercises
+the topology under portable and stress workloads.
 See [architecture.md](architecture.md) and [event-driven-demo.md](event-driven-demo.md).
 
 Tests must cover typed multi-source delivery, isolated capacity, important-full

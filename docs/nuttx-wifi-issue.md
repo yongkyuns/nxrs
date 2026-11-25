@@ -7,11 +7,12 @@
 ## Resolution
 
 The issue was an incorrect passphrase. The working passphrase is intentionally not stored in this repository.
+Network-specific values in the excerpts below are redacted.
 
 ```
 esp_evt_work_cb: Wi-Fi station connected
-IP: 192.168.40.83 (via DHCP)
-Gateway: 192.168.40.1
+IP: <device-ip> (via DHCP)
+Gateway: <gateway-ip>
 Ping 8.8.8.8: 10-20ms, 0% packet loss
 ```
 

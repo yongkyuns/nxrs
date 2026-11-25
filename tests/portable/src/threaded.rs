@@ -4,8 +4,8 @@ use std::sync::mpsc::{sync_channel, Receiver, SyncSender};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
-use nxrs_applications::{Progress, ShutdownReport, TickReport};
-use camera_service::CaptureProgress;
+use camera_test_support::{Progress, ShutdownReport, TickReport};
+use camera::capture::Progress as CaptureProgress;
 
 use crate::mocks::{CameraAction, MockCamera, MockStorage, MockTransport, FORMAT};
 use crate::scenarios::Product;

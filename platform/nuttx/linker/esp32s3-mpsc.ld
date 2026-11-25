@@ -35,6 +35,8 @@
 *libsched.a:sem_timeout.o(.literal .text .literal.* .text.*)
 *libsched.a:sem_wait.o(.literal .text .literal.* .text.*)
 *libsched.a:sem_waitirq.o(.literal .text .literal.* .text.*)
+/* Reached by the semaphore wait's pending-signal scan. */
+*(.literal.nxsig_addset .text.nxsig_addset)
 *libsched.a:sig_allocpendingsigaction.o(.literal .text .literal.* .text.*)
 *libsched.a:sig_deliver.o(.literal .text .literal.* .text.*)
 *libsched.a:sig_dispatch.o(.literal .text .literal.* .text.*)

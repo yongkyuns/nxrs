@@ -32,11 +32,27 @@ pub enum Source { Synthetic, Physical }
 #[derive(Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Viewer {
+    /// Existing enrollments can access the camera catalogue, detections and playback.
+    #[serde(default)]
+    pub scope: ViewerScope,
     pub viewer_id: String,
     pub site_id: String,
     pub camera_ids: Vec<String>,
     /// SHA-256 of a generated 256-bit hex token, NOT a human password.
     pub token_sha256: String,
+}
+#[derive(Clone, Copy, Default, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum ViewerScope {
+    #[default]
+    Viewer,
+    Detections,
+    #[serde(rename = "camera_source")]
+    CameraSource,
+    #[serde(rename = "microphone_control")]
+    MicrophoneControl,
+    #[serde(rename = "recording_control")]
+    RecordingControl,
 }
 #[derive(Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -98,11 +114,23 @@ impl Config {
         }
         let mut principals = HashSet::new();
         let mut credentials = HashSet::new();
+        let mut microphone_controllers = HashSet::new();
+        let mut recording_controllers = HashSet::new();
         for v in &self.viewers {
             if !identifier(&v.viewer_id) || !identifier(&v.site_id) || !principals.insert(&v.viewer_id)
                 || !hex_token(&v.token_sha256) || !credentials.insert(&v.token_sha256)
                 || v.camera_ids.is_empty() || v.camera_ids.len() > 64 {
                 return Err("invalid viewer");
+            }
+            if v.scope == ViewerScope::MicrophoneControl
+                && (v.camera_ids.len() != 1 || !microphone_controllers.insert(&v.camera_ids[0]))
+            {
+                return Err("one microphone controller per camera");
+            }
+            if v.scope == ViewerScope::RecordingControl
+                && (v.camera_ids.len() != 1 || !recording_controllers.insert(&v.camera_ids[0]))
+            {
+                return Err("one recording controller per camera");
             }
             let mut visible = HashSet::new();
             for id in &v.camera_ids {

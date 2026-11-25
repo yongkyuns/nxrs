@@ -137,7 +137,7 @@ fn explicit_replay_and_compatibility_names_share_one_implementation() {
     assert_eq!(camera::camera(path, FORMAT, 10, 4).unwrap().1, 1);
 }
 
-#[cfg(all(not(hal_provider = "mock"), not(target_os = "nuttx")))]
+#[cfg(all(not(platform = "mock"), not(target_os = "nuttx")))]
 #[test]
 fn configured_acquisition_does_not_implicitly_become_replay() {
     assert!(matches!(camera::open(), Err(DeviceError::Unsupported)));

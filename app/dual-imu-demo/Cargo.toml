@@ -13,6 +13,7 @@ priority = 100
 stack-size = 65536
 
 [dependencies]
+nxrs-composition = { path = "../../platform", features = ["imu"] }
 nxrs-navigation-services = { path = "../../service/navigation" }
 
 [[bin]]

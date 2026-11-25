@@ -1,10 +1,7 @@
 #![allow(unsafe_code)]
-unsafe extern "C" {
-    fn tls_rng_admitted() -> bool;
-    fn tls_entropy_open_flags() -> i32;
-}
-#[path = "../../entropy.rs"]
-mod entropy;
+mod ffi;
+use self::ffi::{tls_entropy_open_flags, tls_rng_admitted};
+use crate::entropy;
 #[cfg(test)]
 pub(crate) use entropy::Source;
 
@@ -19,3 +16,7 @@ pub fn open() -> Result<crate::Identity, crate::Error> {
 }
 
 pub use crate::sdk::{Connection, Identity};
+
+// Close directly. Calling shutdown disables the callback that reclaims queued
+// TCP writes when the network device goes down.
+pub(crate) use std::mem::drop as retire_tcp;

@@ -59,6 +59,12 @@ impl<B: Backend> Control for Owner<B> {
         }
         self.backend.reboot()
     }
+    fn reboot_confirmed(&mut self) -> Result<core::convert::Infallible, DeviceError> {
+        if self.state()? != State::Stable {
+            return Err(DeviceError::Busy);
+        }
+        self.backend.reboot()
+    }
     fn update_capacity(&mut self) -> Result<u32, DeviceError> {
         self.state()?;
         self.backend.update_capacity()
@@ -121,7 +127,7 @@ mod tests {
         assert_eq!(control.state(), Ok(State::Stable));
     }
     #[test]
-    fn reset_is_admitted_only_after_pending_readback() {
+    fn reset_requires_the_requested_boot_state() {
         let mut owner = Owner::new(Fake {
             state: State::Stable,
             failure: None,
@@ -130,9 +136,15 @@ mod tests {
         })
         .unwrap();
         assert_eq!(owner.reboot(), Err(DeviceError::Busy));
+        assert_eq!(owner.reboot_confirmed(), Err(DeviceError::Unsupported));
         owner.stage_update(&mut &[0; 32][..], 32).unwrap();
         owner.request_trial().unwrap();
         assert_eq!(owner.reboot(), Err(DeviceError::Unsupported));
+        assert_eq!(owner.reboot_confirmed(), Err(DeviceError::Busy));
+        owner.backend.state = State::Trial;
+        assert_eq!(owner.reboot_confirmed(), Err(DeviceError::Busy));
+        owner.confirm().unwrap();
+        assert_eq!(owner.reboot_confirmed(), Err(DeviceError::Unsupported));
     }
     struct Fake {
         state: State,

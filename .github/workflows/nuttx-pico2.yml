@@ -19,10 +19,11 @@ on:
       - 'tools/apply-nuttx-patches.py'
       - 'hal/tls/**'
       - 'upstream/mbedtls/**'
-      - 'platform/nuttx/platforms/pico2*.toml'
-      - 'platform/build-support/**'
+      - 'tests/profiles/pico2-tls.toml'
+      - 'tests/profiles/pico2w-mpsc.toml'
+      - 'tools/build-support/**'
       - 'tools/build-nuttx-std-app.sh'
-      - 'platform/build/**'
+      - 'tools/build/**'
       - 'tools/platform_config.py'
   workflow_dispatch:
 permissions:

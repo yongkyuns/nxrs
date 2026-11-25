@@ -18,7 +18,7 @@ class CameraOrganizationTests(unittest.TestCase):
         self.assertNotRegex(source, r'\btarget_(?:os|arch|family|env|vendor)\b')
         self.assertNotRegex(source, r'pub\s+use\s+platform::\*')
         self.assertIn('pub fn open() -> Result<impl Camera, DeviceError>', source)
-        self.assertIn('#[cfg(feature = "replay")]\npub mod replay;', source)
+        self.assertRegex(source, r'if #\[cfg\(feature = "replay"\)\] \{\s*pub mod replay;\s*pub use replay::')
         self.assertIn('#![no_std]', source)
         self.assertIn('mod test_support;', source)
 
@@ -49,17 +49,13 @@ class CameraOrganizationTests(unittest.TestCase):
             self.assertEqual(target['required-features'], ['replay'])
         for path in (CAMERA / 'src/replay').rglob('*.rs'):
             with self.subTest(path=path):
-                self.assertNotRegex(code(path), r'\b(?:hal_provider|hal_enabled|hal_mock|target_os|NXRS_PLATFORM)\b')
+                self.assertNotRegex(code(path), r'\bplatform\s*=|\b(?:hal_enabled|hal_mock|target_os|NXRS_PLATFORM)\b')
 
-    def test_core_only_library_fixtures_do_not_enable_cli_replay(self):
-        for name in ('portable', 'nuttx'):
-            manifest = tomllib.loads((ROOT / 'tests' / name / 'Cargo.toml').read_text())
-            self.assertIs(manifest['dependencies']['nxrs-applications']['default-features'], False)
-        manifest = tomllib.loads((ROOT / 'app/nxrs/Cargo.toml').read_text())
-        self.assertEqual(manifest['features']['replay'], [
-            'nxrs-camera/replay', 'nxrs-storage/recording', 'nxrs-transport/udp',
-        ])
-        self.assertEqual(manifest['bin'][0]['required-features'], ['replay'])
+    def test_shared_qualification_composition_does_not_enable_software_io(self):
+        manifest = tomllib.loads((ROOT / 'tests/camera-support/Cargo.toml').read_text())
+        for name in ('nxrs-camera', 'nxrs-storage'):
+            self.assertFalse(manifest['dependencies'][name].get('features'))
+        self.assertEqual(manifest.get('features'), {'udp': []})
 
 
 if __name__ == '__main__':

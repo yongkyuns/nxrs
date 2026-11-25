@@ -1,8 +1,6 @@
-//! Trial and confirmation control. Image authentication and recovery belong to
-//! the bootloader; application health must be established before confirmation.
-#![no_std]
+//! Reset diagnostics, trial and confirmation control. The bootloader owns
+//! image authentication and recovery. Confirm only after application health checks.
 #![deny(unsafe_code)]
-extern crate std;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum State {
@@ -24,12 +22,30 @@ pub enum DeviceError {
     Capacity,
 }
 
+/// Hardware-reported cause of the most recent reset.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ResetCause {
+    /// The hardware may group power-on with other full chip resets.
+    ChipReset,
+    Brownout,
+    Software,
+    ExternalPin,
+    LowPower,
+    MainWatchdog,
+    RtcWatchdog,
+    Unknown,
+}
+
 /// One exclusive boot-control owner. Requests apply on the next reset, without
 /// asserting that the staged image is authentic; the bootloader checks that.
 pub trait Control {
     /// Reset only after a complete staged image has been admitted for trial.
     /// This never changes hardware protection or provisioning settings.
     fn reboot(&mut self) -> Result<core::convert::Infallible, DeviceError> {
+        Err(DeviceError::Unsupported)
+    }
+    /// Reset into the confirmed primary image only after reading Stable.
+    fn reboot_confirmed(&mut self) -> Result<core::convert::Infallible, DeviceError> {
         Err(DeviceError::Unsupported)
     }
     fn state(&mut self) -> Result<State, DeviceError>;
@@ -51,9 +67,11 @@ pub trait Control {
     fn confirm(&mut self) -> Result<(), DeviceError>;
 }
 
-#[cfg(any(hal_provider = "hardware", test))]
-mod control;
+cfg_if::cfg_if! {
+    if #[cfg(any(platform = "nuttx", test))] {
+        mod control;
+        mod staging;
+    }
+}
 mod platform;
-#[cfg(any(hal_provider = "hardware", test))]
-mod staging;
-pub use platform::open;
+pub use platform::{open, reset_cause};

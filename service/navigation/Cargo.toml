@@ -6,10 +6,15 @@ edition.workspace = true
 [lib]
 name = "navigation"
 
+[features]
+probe = ["dep:log"]
+
 [dependencies]
+log = { version = "0.4", optional = true }
 nxrs-messaging = { path = "../../shared/messaging" }
 nxrs-imu = { path = "../../hal/imu" }
 nxrs-gnss = { path = "../../hal/gnss" }
 
 [dev-dependencies]
+nxrs-composition = { path = "../../platform", features = ["imu", "gnss"] }
 nxrs-simulation = { path = "../../shared/simulation" }

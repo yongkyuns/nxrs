@@ -22,12 +22,14 @@ class ArchitectureTests(unittest.TestCase):
         self.packages = {}
         for name, location in [('app', 'app/demo'), ('service', 'service/demo'),
                                ('camera', 'hal/camera'), ('storage', 'hal/storage'),
-                               ('common', 'hal/common'), ('support', 'tests/nuttx/support'),
+                               ('radio-types', 'hal/radio-types'), ('support', 'tests/nuttx/support'),
                                ('messaging', 'shared/messaging'),
-                               ('driver', 'driver/demo'), ('platform', 'platform/build'),
+                               ('acquisition', 'shared/acquisition'),
+                               ('driver', 'driver/demo'), ('platform', 'tools/build'),
                                ('bmi270', 'driver/bmi270'), ('imu', 'hal/imu'),
-                               ('build-support', 'platform/build-support'),
-                               ('camera-build', 'hal/camera/build-support'),
+                               ('devices', 'platform'), ('platform-adapter', 'platform/adapter'),
+                               ('build-support', 'tools/build-support'),
+                               ('camera-build', 'tools/camera-build-support'),
                                ('test', 'tests/portable'), ('target', 'tests/nuttx')]:
             self.package(name, location)
         self.metadata = {'packages': list(self.packages.values()),
@@ -53,25 +55,86 @@ class ArchitectureTests(unittest.TestCase):
     def violations(self):
         return CHECK.inspect(self.metadata, self.root) + CHECK.inspect_sources(self.metadata, self.root)
 
+    def test_acquisition_is_internal_support(self):
+        self.add('imu', 'acquisition')
+        self.add('devices', 'acquisition')
+        self.add('acquisition', 'build-support', kind='build')
+        self.assertEqual(self.violations(), [])
+        for source in ('app', 'service'):
+            self.add(source, 'acquisition')
+            self.assertTrue(any(f'forbidden {source} -> support edge' in error
+                                for error in self.violations()))
+
+    def test_detection_owns_only_the_optional_detector_hal(self):
+        for name, path in [('detection', 'service/detection'), ('detector', 'hal/detector')]:
+            self.metadata['packages'].append(self.package(name, path))
+            self.metadata['workspace_members'].append(name)
+        self.add('detection', 'detector', optional=True)
+        self.assertEqual(CHECK.inspect(self.metadata, self.root), [])
+        for target, optional in [('camera', True), ('detector', False)]:
+            with self.subTest(target=target, optional=optional):
+                self.add('detection', target, optional=optional, rename='inference_backend')
+                self.assertTrue(any('only use the optional detector HAL' in error
+                                    for error in CHECK.inspect(self.metadata, self.root)))
+                self.packages['detection']['dependencies'].pop()
+
+    def test_catalogue_wires_drivers_but_only_apps_select_devices(self):
+        for source, target in [('app', 'devices'), ('devices', 'imu'), ('devices', 'bmi270')]:
+            self.add(source, target)
+        self.add('devices', 'build-support', kind='build')
+        self.assertEqual(self.violations(), [])
+        for source, target in [('service', 'devices'), ('imu', 'devices'), ('devices', 'app'), ('devices', 'service')]:
+            self.add(source, target)
+            self.assertTrue(self.violations())
+            self.packages[source]['dependencies'].pop()
+        for source in ['app', 'service']:
+            path = Path(self.packages[source]['manifest_path']).parent / 'src/entry.rs'
+            path.write_text('use imu::construction::Instance;')
+            self.assertTrue(any('platform knowledge' in error for error in self.violations()))
+            path.unlink()
+
     def test_hal_selector_exports_selected_items_without_implementation(self):
         directory = self.root / 'hal/camera/src/platform'
         directory.mkdir()
         selector = directory / 'mod.rs'
+        grouped = ('cfg_if::cfg_if! { if #[cfg(platform = "nuttx")] '
+                   '{ mod nuttx; use nuttx as selected; } else '
+                   '{ mod unbound; use unbound as selected; } }\n')
         for exports in ['pub(super) use selected::open;',
                         'pub use selected::{open, Camera};',
-                        'pub(super) use selected::open;\n#[cfg(hal_provider = "mock")] pub use selected::{CameraAction, MockCamera, FORMAT};']:
+                        'pub(super) use selected::open;\n#[cfg(platform = "mock")] pub use selected::{CameraAction, MockCamera, FORMAT};']:
             with self.subTest(exports=exports):
-                selector.write_text('#[path="unbound.rs"] mod selected;\n' + exports + '\n')
+                selector.write_text(grouped + exports + '\n')
                 self.assertEqual(CHECK.inspect_hal_boundaries(self.root), [])
-        valid = '#[path="unbound.rs"] mod selected;\npub use selected::open;\n'
+        valid = grouped + 'pub use selected::open;\n'
+        with (directory.parent / 'lib.rs').open('a') as source:
+            source.write('mod model; // mod missing;')
+        selector.write_text(valid.replace('mod nuttx; use nuttx as selected;', 'use crate::model as selected;'))
+        self.assertEqual(CHECK.inspect_hal_boundaries(self.root), [])
         for code in [valid + 'pub fn open() {}', valid + 'pub use other::Camera;',
+                     grouped.replace('mod nuttx;', 'mod nuttx; fn hidden() {}'),
+                     grouped.replace('use nuttx as selected;', 'use missing as selected;'),
+                     'use crate::missing as selected; pub use selected::open;',
                      'mod selected { pub fn open() {} } pub use selected::*;',
                      'mod selected;', 'mod selected; pub use selected::{open, other::Camera};',
-                     'mod selected; pub use selected::*;']:
+                     'mod selected; pub use selected::*;',
+                     'mod unbound; pub use missing as selected; pub use selected::open;']:
             with self.subTest(code=code):
                 selector.write_text(code)
                 self.assertTrue(any('select source modules' in error
                                     for error in CHECK.inspect_hal_boundaries(self.root)))
+        for invalid in ('#[path="unbound.rs"] mod selected; pub use selected::open;',
+                        'mod nuttx; use nuttx as selected; pub use selected::open;',
+                        'cfg_if::cfg_if! {} mod nuttx; use nuttx as selected; pub use selected::open;',
+                        grouped.replace('mod nuttx;', '#[path="nuttx.rs"] mod nuttx;') + 'pub use selected::open;'):
+            with self.subTest(selector=invalid):
+                selector.write_text(invalid)
+                self.assertTrue(any('one cfg_if::cfg_if! block' in error
+                                    for error in CHECK.inspect_hal_boundaries(self.root)))
+        selector.write_text(valid)
+        (directory / 'nuttx.rs').write_text('')
+        self.assertTrue(any('put provider nuttx in nuttx/mod.rs' in error
+                            for error in CHECK.inspect_hal_boundaries(self.root)))
 
     def test_hal_root_wildcard_exports_are_rejected(self):
         source = self.root / 'hal/camera/src/lib.rs'
@@ -154,13 +217,17 @@ class ArchitectureTests(unittest.TestCase):
                     self.assertTrue(self.violations())
                     self.packages[source]['dependencies'].pop()
 
-    def test_build_scripts_cannot_escape_their_package(self):
+    def test_firmware_build_scripts_use_declared_tooling_dependencies(self):
         manifest = self.root / 'hal/camera/Cargo.toml'
         original = manifest.read_text()
         manifest.write_text(original + 'build="build.rs"\n')
+        self.assertTrue(any('declared tooling build dependencies' in error for error in self.violations()))
+        manifest.write_text(original + 'build="../../tools/build-support/build.rs"\n')
+        self.assertTrue(any('declared tooling build dependencies' in error for error in self.violations()))
+        self.add('camera', 'build-support', kind='build')
         self.assertEqual(self.violations(), [])
-        manifest.write_text(original + 'build="../../platform/build-support/build.rs"\n')
-        self.assertTrue(any('build scripts must belong' in error for error in self.violations()))
+        (manifest.parent / 'build.rs').write_text('fn main() {}')
+        self.assertTrue(any('build helpers belong under tools' in error for error in self.violations()))
 
     def test_rust_sources_use_cargo_edges_instead_of_cross_package_includes(self):
         for name in ('camera', 'driver', 'build-support', 'platform'):
@@ -175,7 +242,7 @@ class ArchitectureTests(unittest.TestCase):
                     self.assertTrue(any('cross-package Rust source' in error for error in self.violations()))
             path.write_text(original)
         path = self.root / 'hal/camera/src/lib.rs'
-        path.write_text(path.read_text() + '#[path="../build-support/src/lib.rs"] mod nested;')
+        path.write_text(path.read_text() + '#[path="../../../tools/camera-build-support/src/lib.rs"] mod nested;')
         self.assertTrue(any('cross-package Rust source' in error for error in self.violations()))
 
     def test_local_sources_and_generated_outputs_remain_ordinary_rust(self):
@@ -206,13 +273,17 @@ class ArchitectureTests(unittest.TestCase):
                 self.assertTrue(any('cross-package Rust source' in error for error in self.violations()))
 
     def test_portability_boundary_has_no_app_or_target_exceptions(self):
-        for source, target in [('app', 'platform'), ('service', 'platform'), ('platform', 'app')]:
-            for extra in ({}, {'kind': 'dev'}, {'kind': 'build'}, {'target': 'cfg(target_os = "nuttx")'}):
-                self.add(source, target, **extra)
-                self.assertTrue(self.violations())
-                self.packages[source]['dependencies'].clear()
+        for source, target in [('app', 'platform'), ('service', 'platform'), ('platform', 'app'),
+                               ('platform-adapter', 'service'), ('devices', 'service')]:
+            for extra in ({}, {'kind': 'dev'}, {'kind': 'build'}, {'optional': True},
+                          {'target': 'cfg(target_os = "nuttx")'}):
+                with self.subTest(source=source, dependency=target, **extra):
+                    self.add(source, target, **extra)
+                    self.assertTrue(self.violations())
+                    self.packages[source]['dependencies'].pop()
         directory = Path(self.packages['app']['manifest_path']).parent
         for code in ['#[cfg(target_os = "nuttx")] fn f() {}', 'fn f() { cfg!(unix); }',
+                     '#[cfg(platform = "mock")] fn f() {}', 'fn f() { cfg!(platform = "simulation"); }',
                      'fn f() { let _ = std::env::consts::OS; }',
                      'fn f() { let _ = std::fs::File::open("/dev/ttyACM0"); }',
                      '#[path="../../platform/provider.rs"] mod hidden;']:
@@ -244,19 +315,22 @@ class ArchitectureTests(unittest.TestCase):
             (self.root / 'hal' / name / 'src/lib.rs').write_text('#![no_std]\n#![deny(unsafe_code)]\n')
             self.metadata['packages'].append(self.packages[name])
             self.metadata['workspace_members'].append(name)
-            self.add(name, 'common')
+            self.add(name, 'radio-types')
         self.assertEqual(self.violations(), [])
-        for name in ('camera', 'storage'):
+        for name in ('app', 'service', 'camera', 'storage'):
             with self.subTest(package=name):
-                self.add(name, 'common')
-                self.assertTrue(self.violations())
+                self.add(name, 'radio-types')
+                self.assertTrue(any('only Wi-Fi and BLE' in issue for issue in self.violations()))
                 self.packages[name]['dependencies'].clear()
+        self.add('radio-types', 'messaging', kind='dev')
+        self.assertTrue(any('radio types must remain dependency-free' in issue
+                            for issue in self.violations()))
 
     def test_messaging_is_portable_and_cannot_depend_on_upper_layers(self):
         for name in ('app', 'service', 'camera', 'driver'):
             self.add(name, 'messaging')
         self.assertEqual(self.violations(), [])
-        for name in ('app', 'service', 'camera', 'driver', 'platform', 'common'):
+        for name in ('app', 'service', 'camera', 'driver', 'platform', 'radio-types'):
             self.add('messaging', name)
             self.assertTrue(self.violations())
             self.packages['messaging']['dependencies'].clear()
@@ -274,7 +348,7 @@ class ArchitectureTests(unittest.TestCase):
         self.assertTrue(any('package omitted' in error for error in self.violations()))
 
     def test_reverse_edges_and_optional_build_target_backdoors(self):
-        for source, target in [('service', 'app'), ('camera', 'service'), ('common', 'camera'),
+        for source, target in [('service', 'app'), ('camera', 'service'), ('radio-types', 'camera'),
                                ('camera', 'support'), ('app', 'test'), ('driver', 'platform')]:
             for extra in ({}, {'optional': True}, {'kind': 'build'}, {'target': 'cfg(windows)'}, {'rename': 'innocent'}):
                 with self.subTest(edge=(source, target), extra=extra):
@@ -349,6 +423,14 @@ class ArchitectureTests(unittest.TestCase):
     def test_services_can_use_std_without_unsafe(self):
         (self.root / 'service/demo/src/lib.rs').write_text('#![forbid(unsafe_code)]\nuse std::thread;\n')
         self.assertEqual(self.violations(), [])
+
+    def test_hal_can_use_std_while_retaining_its_unsafe_boundary(self):
+        path = self.root / 'hal/imu/src/lib.rs'
+        path.write_text('#![deny(unsafe_code)]\nuse std::thread;\n')
+        self.assertEqual(self.violations(), [])
+        path.write_text('use std::thread;\n')
+        self.assertTrue(any('must retain #![deny(unsafe_code)]' in error
+                            for error in self.violations()))
 
     def test_diagnostic_switches_are_consolidated_under_probe(self):
         path = self.root / 'app/demo/Cargo.toml'
@@ -446,7 +528,7 @@ class PublicNamespaceTests(unittest.TestCase):
             self.assertNotIn(name, names)
             names.add(name)
             if path.parts[0] == 'hal' and len(path.parts) == 2:
-                self.assertEqual(name, 'hal_common' if path.name == 'common' else path.name)
+                self.assertEqual(name, path.name.replace('-', '_'))
 
 
 class DependencyCapsuleTests(unittest.TestCase):

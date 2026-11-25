@@ -32,6 +32,28 @@ def without_dev_dependencies(text):
     return "".join(result)
 
 
+def copy_dependency_closure(directory, pending):
+    """Copy only declared normal/build packages, preserving relative path edges."""
+    copied = set()
+    while pending:
+        source = pending.pop().resolve()
+        if source in copied:
+            continue
+        copied.add(source)
+        destination = directory / "deps" / source.relative_to(ROOT)
+        ignore = shutil.ignore_patterns("target", ".git")
+        if source == ROOT / "platform":
+            # Copy the target crate without SDK profiles or board inputs.
+            shutil.copytree(source / "src", destination / "src", ignore=ignore)
+        else:
+            shutil.copytree(source, destination, ignore=ignore)
+        text = without_dev_dependencies((source / "Cargo.toml").read_text())
+        (destination / "Cargo.toml").write_text(text)
+        pending.extend(source / dependency["path"] for dependency in dependencies(tomllib.loads(text))
+                       if isinstance(dependency, dict) and "path" in dependency)
+    return copied
+
+
 class ExternalConsumerTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -41,19 +63,7 @@ class ExternalConsumerTests(unittest.TestCase):
         pending = [ROOT / dependency["path"].removeprefix("deps/")
                    for dependency in dependencies(tomllib.loads((FIXTURE / "Cargo.toml").read_text()))
                    if isinstance(dependency, dict) and "path" in dependency]
-        copied = set()
-        while pending:
-            source = pending.pop().resolve()
-            if source in copied:
-                continue
-            copied.add(source)
-            destination = cls.directory / "deps" / source.relative_to(ROOT)
-            shutil.copytree(source, destination, ignore=shutil.ignore_patterns("target", ".git"))
-            manifest = source / "Cargo.toml"
-            text = without_dev_dependencies(manifest.read_text())
-            (destination / "Cargo.toml").write_text(text)
-            pending.extend(source / dependency["path"] for dependency in dependencies(tomllib.loads(text))
-                           if isinstance(dependency, dict) and "path" in dependency)
+        copy_dependency_closure(cls.directory, pending)
         cls.environment = os.environ.copy()
         for name in ("NXRS_PLATFORM", "NXRS_SDK_ROOT", "NXRS_RESOLVED_PROFILE",
                      "CARGO_BUILD_TARGET", "RUSTFLAGS",
@@ -78,9 +88,10 @@ class ExternalConsumerTests(unittest.TestCase):
         return result
 
     def test_detached_consumer_with_own_lock_and_renamed_dependencies(self):
-        self.assertFalse((self.directory / "deps/platform/build").exists())
-        self.assertFalse((self.directory / "deps/platform/profiles").exists())
-        self.assertFalse((self.directory / "deps/driver/acquisition.rs").exists())
+        self.assertFalse((self.directory / "deps/tools/build").exists())
+        self.assertFalse(any((self.directory / "deps/platform").glob("*/profile.toml")))
+        self.assertFalse((self.directory / "deps/driver/acquisition").exists())
+        self.assertTrue((self.directory / "deps/shared/acquisition/Cargo.toml").is_file())
         self.assertFalse((self.directory / "deps/platform/hal-build.rs").exists())
         native = {"linux": "linux", "darwin": "macos", "win32": "windows"}.get(sys.platform)
         for profile in dict.fromkeys((None, "mock", native)):
@@ -103,6 +114,56 @@ class ExternalConsumerTests(unittest.TestCase):
                 self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
                 self.assertIn("external consumer:", run.stdout)
         self.assertEqual((self.directory / "Cargo.lock").read_bytes(), self.lock)
+
+    def test_isolated_hal_packages_do_not_require_sibling_sensor_catalogs(self):
+        for capability in ("imu", "gnss", "camera"):
+            with self.subTest(capability=capability):
+                directory = self.directory / ("isolated-" + capability)
+                (directory / "src").mkdir(parents=True)
+                (directory / "Cargo.toml").write_text(
+                    '[package]\nname = "isolated-consumer"\nversion = "0.0.0"\nedition = "2021"\n'
+                    '[workspace]\nresolver = "2"\n'
+                    '[workspace.package]\nversion = "0.1.0"\nedition = "2021"\n'
+                    '[dependencies]\n'
+                    f'capability = {{ package = "nxrs-{capability}", path = "deps/hal/{capability}" }}\n')
+                (directory / "src/main.rs").write_text(
+                    'fn main() { assert!(std::mem::size_of::<capability::DeviceError>() > 0); }\n')
+                copied = copy_dependency_closure(directory, [ROOT / "hal" / capability])
+                if capability == "imu":
+                    for concrete in ("platform", "driver/bmi270", "driver/lsm6dso",
+                                     "driver/i2c", "driver/spi"):
+                        self.assertNotIn((ROOT / concrete).resolve(), copied)
+                for other in {"imu", "gnss", "camera"} - {capability}:
+                    self.assertNotIn((ROOT / "hal" / other).resolve(), copied)
+                    self.assertFalse((directory / "deps/hal" / other).exists())
+                self.assertFalse(any((directory / "deps/platform").glob("*/profile.toml")))
+                self.assertFalse((directory / "deps/tools/build").exists())
+
+                env = {**self.environment, "CARGO_TARGET_DIR": str(self.directory / "isolated-target")}
+                lock = subprocess.run(["cargo", "generate-lockfile", "--offline"], cwd=directory,
+                                      env=env, capture_output=True, text=True, timeout=180)
+                self.assertEqual(lock.returncode, 0, lock.stderr)
+                for profile in (None, "mock"):
+                    with self.subTest(capability=capability, profile=profile):
+                        selected = dict(env)
+                        if profile:
+                            # The explicit SDK provides the complete profile. Its
+                            # other HAL bindings must not add compiled packages.
+                            selected.update(NXRS_PLATFORM=profile, NXRS_SDK_ROOT=str(ROOT))
+                        result = subprocess.run(
+                            ["cargo", "build", "--offline", "--locked", "--message-format=json"],
+                            cwd=directory, env=selected, capture_output=True, text=True, timeout=180)
+                        self.assertEqual(result.returncode, 0, result.stderr)
+                        records = [json.loads(line) for line in result.stdout.splitlines() if line]
+                        compiled = {item["target"]["name"] for item in records
+                                    if item.get("reason") == "compiler-artifact"}
+                        self.assertIn(capability, compiled)
+                        if capability == "imu":
+                            self.assertTrue(compiled.isdisjoint({"composition", "nxrs_bmi270",
+                                                               "nxrs_lsm6dso", "i2c", "spi"}))
+                        for other in {"imu", "gnss", "camera"} - {capability}:
+                            self.assertNotIn(other, compiled)
+                        self.assertNotIn("nxrs_build", compiled)
 
     def test_product_frontend_builds_the_detached_mock_consumer(self):
         compiler_output = self.directory / "frontend"
@@ -167,9 +228,8 @@ class ExternalConsumerTests(unittest.TestCase):
     @unittest.skipUnless(sys.platform == "linux", "Linux GIO client selection")
     def test_unused_radio_binding_does_not_require_the_native_sdk(self):
         sdk = self.directory / "profile-sdk"
-        profiles = sdk / "platform/profiles"
+        profiles = sdk / "tests/profiles"
         profiles.mkdir(parents=True)
-        (sdk / "platform/nuttx/platforms").mkdir(parents=True)
         (sdk / "hal").symlink_to(self.directory / "deps/hal", target_is_directory=True)
         (sdk / "Cargo.toml").write_text("[workspace]\n")
         for used, unused in [("wifi", "ble"), ("ble", "wifi")]:

@@ -126,7 +126,7 @@ int main(void)
     }
   guard = 1; unsigned before = samples; tries = 0;
   assert(esp32s3_trng_read(&device, bytes, 0) == 0 && !tries);
-#if !defined(CONFIG_ESPRESSIF_WIFI) || defined(CONFIG_SMP) || defined(CONFIG_PM) || defined(CONFIG_ESP32S3_AUTO_SLEEP)
+#if !defined(CONFIG_ESPRESSIF_WIFI) || defined(CONFIG_ESPRESSIF_AUTO_SLEEP) || defined(CONFIG_PM) || defined(CONFIG_ESP32S3_AUTO_SLEEP)
   assert(esp32s3_trng_read(&device, bytes, 1) == -ENOTSUP);
 #else
   assert(esp32s3_trng_read(&device, bytes, 1) == -EAGAIN && !tries);
@@ -197,6 +197,7 @@ class EspRngTests(unittest.TestCase):
                      (read, trng.replace('!= 0)\n    {\n      ret = MIN', '== 0)\n    {\n      ret = MIN'), ['CONFIG_ESPRESSIF_WIFI'], False)]
             cases += [(read, trng, flags, True) for flags in
                       ([], ['CONFIG_ESPRESSIF_WIFI', 'CONFIG_SMP'],
+                       ['CONFIG_ESPRESSIF_WIFI', 'CONFIG_ESPRESSIF_AUTO_SLEEP'],
                        ['CONFIG_ESPRESSIF_WIFI', 'CONFIG_PM'],
                        ['CONFIG_ESPRESSIF_WIFI', 'CONFIG_ESP32S3_AUTO_SLEEP'])]
             cases = [(*case, power) for case in cases]

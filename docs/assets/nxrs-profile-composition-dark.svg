@@ -1,0 +1,85 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="664" viewBox="0 0 800 664" role="img" aria-labelledby="title description">
+  <title id="title">Profiles bind resources, devices and logical names</title>
+  <desc id="description">A base profile and ordered overlays resolve into resources, physical devices, and aliases. Shared tooling derives native configuration from resource bindings and generates canonical device instances and alias accessors. NuttX registers the resources. Multiple aliases borrow the same device identity instead of allocating another device. The figure describes composition; application behavior is separate.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 8 8" refX="6" refY="4" markerWidth="8" markerHeight="8" markerUnits="userSpaceOnUse" orient="auto">
+      <path d="M1 1 L6 4 L1 7" fill="none" stroke="#8199B1" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+    </marker>
+    <filter id="shadow" x="-10%" y="-20%" width="120%" height="145%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="3" result="blur"/>
+      <feOffset in="blur" dx="0" dy="3" result="offset-blur"/>
+      <feFlood flood-color="#000000" flood-opacity="0.055" result="shadow-color"/>
+      <feComposite in="shadow-color" in2="offset-blur" operator="in" result="card-shadow"/>
+      <feMerge><feMergeNode in="card-shadow"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <style>
+      text { font-family: Inter, "Helvetica Neue", Arial, sans-serif; }
+      .card { fill: #1A2533; stroke: #34465A; stroke-width: 1.2; }
+      .label { fill: #E5EDF5; font-weight: 500; letter-spacing: -0.4px; }
+      .subtitle { fill: #ACBDCE; font-size: 18px; }
+      .edge { fill: none; stroke: #8199B1; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; marker-end: url(#arrow); }
+      .edge-label { fill: #ACBDCE; font-size: 16px; }
+    </style>
+  </defs>
+  <rect width="800" height="664" rx="24" fill="#10161F"/>
+
+  <g id="node-profile" data-panel="true">
+    <rect x="160" y="24" width="480" height="88" rx="15" class="card" filter="url(#shadow)"/>
+
+    <text x="400" y="56" text-anchor="middle" class="label" font-size="22">Base profile + ordered overlays</text>
+    <text x="400" y="83" text-anchor="middle" class="subtitle">Resolve and validate at build time</text>
+  </g>
+  <g id="group-declarations"><rect x="24" y="160" width="752" height="182" rx="21" fill="#141E2B" stroke="#3B5066" stroke-width="1.2"/><text x="48" y="195" class="label" font-size="21">Resolved composition</text></g>
+  <g id="node-resource" data-panel="true">
+    <rect x="44" y="220" width="218" height="88" rx="15" class="card" filter="url(#shadow)"/>
+
+    <text x="153" y="252" text-anchor="middle" class="label" font-size="22">Resource</text>
+    <text x="153" y="279" text-anchor="middle" class="subtitle">Bus · endpoint · pins</text>
+  </g>
+  <g id="node-device" data-panel="true">
+    <rect x="290" y="220" width="218" height="88" rx="15" class="card" filter="url(#shadow)"/>
+    <rect x="305" y="240" width="4" height="48" rx="2" fill="#83C5EA"/>
+    <text x="399" y="252" text-anchor="middle" class="label" font-size="22">Device</text>
+    <text x="399" y="279" text-anchor="middle" class="subtitle">Part · bus · address</text>
+  </g>
+  <g id="node-alias" data-panel="true">
+    <rect x="536" y="220" width="218" height="88" rx="15" class="card" filter="url(#shadow)"/>
+
+    <text x="645" y="252" text-anchor="middle" class="label" font-size="22">Alias</text>
+    <text x="645" y="279" text-anchor="middle" class="subtitle">Logical product name</text>
+  </g>
+  <path id="edge-profile-declarations" data-from="profile" data-to="declarations" d="M400 112 V158" class="edge" stroke-dasharray="4 6"/>
+  <path id="edge-device-resource" data-from="device" data-to="resource" d="M290 264 H264" class="edge"/>
+  <path id="edge-alias-device" data-from="alias" data-to="device" d="M536 264 H510" class="edge"/>
+  <path id="edge-resource-bsp" data-from="resource" data-to="bsp" d="M153 308 V426" class="edge" stroke-dasharray="4 6"/>
+  <path id="edge-device-instance" data-from="device" data-to="instance" d="M399 308 V426" class="edge" stroke-dasharray="4 6"/>
+  <path id="edge-alias-accessor" data-from="alias" data-to="accessor" d="M645 308 V426" class="edge" stroke-dasharray="4 6"/>
+  <text x="169" y="388" text-anchor="start" class="edge-label">Native settings</text>
+  <text x="415" y="388" text-anchor="start" class="edge-label">Generated identity</text>
+  <text x="661" y="388" text-anchor="start" class="edge-label">Generated name</text>
+  <g id="node-bsp" data-panel="true">
+    <rect x="44" y="428" width="218" height="112" rx="15" class="card" filter="url(#shadow)"/>
+
+    <text x="153" y="460" text-anchor="middle" class="label" font-size="22">NuttX BSP</text>
+    <text x="153" y="487" text-anchor="middle" class="subtitle">Initializes hardware</text>
+    <text x="153" y="512" text-anchor="middle" class="subtitle">Registers resources</text>
+  </g>
+  <g id="node-instance" data-panel="true">
+    <rect x="290" y="428" width="218" height="112" rx="15" class="card" filter="url(#shadow)"/>
+    <rect x="305" y="448" width="4" height="72" rx="2" fill="#83C5EA"/>
+    <text x="399" y="460" text-anchor="middle" class="label" font-size="22">Device instance</text>
+    <text x="399" y="487" text-anchor="middle" class="subtitle">One opaque object</text>
+    <text x="399" y="512" text-anchor="middle" class="subtitle">Exclusive acquisition</text>
+  </g>
+  <g id="node-accessor" data-panel="true">
+    <rect x="536" y="428" width="218" height="112" rx="15" class="card" filter="url(#shadow)"/>
+
+    <text x="645" y="460" text-anchor="middle" class="label" font-size="22">Alias accessor</text>
+    <text x="645" y="487" text-anchor="middle" class="subtitle">Borrows the same</text>
+    <text x="645" y="512" text-anchor="middle" class="subtitle">device instance</text>
+  </g>
+  <path id="edge-accessor-instance" data-from="accessor" data-to="instance" d="M536 484 H510" class="edge"/>
+  <text x="400" y="586" text-anchor="middle" class="edge-label">Dashed: build-time configuration. Solid: refers to.</text>
+  <text x="400" y="616" text-anchor="middle" class="edge-label">One driver can serve multiple independently configured devices.</text>
+
+</svg>

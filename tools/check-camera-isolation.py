@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Camera qualification entry point; shared platform/build audit implementation."""
+"""Camera qualification entry point; shared tools/build audit implementation."""
 import argparse
 import importlib.util
 from pathlib import Path

@@ -14,7 +14,9 @@ import tomllib
 import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
-PLATFORMS = ROOT / "platform/nuttx/platforms"
+PLATFORMS = ROOT / "platform"
+WROOM = PLATFORMS / "wroom/profiles"
+FIXTURES = ROOT / "tests/profiles"
 _SPEC = importlib.util.spec_from_file_location('platform_config', ROOT / 'tools/platform_config.py')
 PLATFORM_CONFIG = importlib.util.module_from_spec(_SPEC)
 _SPEC.loader.exec_module(PLATFORM_CONFIG)
@@ -23,39 +25,19 @@ _SPEC.loader.exec_module(PLATFORM_CONFIG)
 # Keep exact equality so missing, duplicate and unexpected apps cannot pass.
 FIRMWARE_APPS = {
     "home-cam": ("nxrs-home-cam", "home-cam", "home_cam"),
+    "motion-tracker": ("nxrs-motion-tracker", "motion-tracker", "motion_tracker"),
     "event-demo": ("nxrs-event-demo", "event-demo", "event_demo"),
     "dual-imu-demo": ("nxrs-dual-imu-demo", "dual-imu-demo", "dual_imu_demo"),
     "std-demo": ("nxrs-std-demo", "std-demo", "std_demo"),
     "ao-stress": ("nxrs-ao-stress", "ao-stress", "ao_stress"),
 }
-PLATFORM_NAMES = {
-    "pico2-mock",
-    "pico2-tls",
-    "pico2w-wifi",
-    "pico2w-ble",
-    "pico2w-mpsc",
-    "mps2-an521-mock",
-    "esp32s3-qemu-mock",
-    "esp32s3-userled",
-    "esp32s3-service-footprint",
-    "esp32s3-sync-iram",
-    "esp32s3-mpsc",
-    "esp32s3-wifi",
-    "esp32s3-ble",
-    "esp32s3-radio",
-    "esp32s3-camera-stream-smp",
-    "esp32s3-camera",
-    "esp32s3-camera-stream",
-    "esp32s3-camera-stream-tls",
-    "esp32s3-camera-stream-mcuboot",
-    "esp32s3-camera-stream-startup",
-    "esp32s3-camera-stream-protected-build",
-    "esp32s3-camera-stream-vww",
-    "esp32s3-camera-stream-video",
-    "esp32s3-camera-tls",
-    "pico2w-radio",
-    "m5stack-cores3-gnss",
-}
+def firmware_profiles():
+    paths = [*PLATFORMS.glob("*/profile.toml"), *PLATFORMS.glob("*/profiles/*.toml"),
+             *FIXTURES.glob("*.toml")]
+    for path in sorted(paths):
+        name = tomllib.loads(path.read_text())["name"] if path.name == "profile.toml" else path.stem
+        if PLATFORM_CONFIG.resolve(name).get("board"):
+            yield name, path
 
 APP_OWNED = (
     "NXRS_DEPLOYMENT",
@@ -70,6 +52,15 @@ APP_OWNED = (
 
 
 class FirmwareFrontendTests(unittest.TestCase):
+    def test_native_ram_timer_profile_keeps_internal_memory_observation_controls(self):
+        profile = PLATFORM_CONFIG.resolve("esp32s3-ram-native-baseline")
+        self.assertEqual(profile["hal"], {})
+        required = set(profile["kconfig"]["require"])
+        self.assertTrue({"CONFIG_USEC_PER_TICK=1000", "CONFIG_RR_INTERVAL=10",
+                         "CONFIG_MQ_MAXMSGSIZE=248", "CONFIG_STACK_COLORATION=y",
+                         "CONFIG_ESP32S3_USBSERIAL=y", "CONFIG_BUILD_FLAT=y"} <= required)
+        self.assertTrue({"ESP32S3_SPIRAM", "SMP", "NET"} <= set(profile["kconfig"]["disable"]))
+
     def test_invalid_diagnostic_symbols_fail_before_build_inputs_are_touched(self):
         for option, symbol in product(
                 ("--kconfig-enable", "--kconfig-disable"),
@@ -140,37 +131,51 @@ class FirmwareFrontendTests(unittest.TestCase):
                 self.assertGreater(firmware.get("stack-size", 32768), 0)
 
     def test_platforms_are_declarative_and_own_hardware_not_app_policy(self):
-        profiles = sorted(PLATFORMS.glob("*.toml"))
+        profiles = list(firmware_profiles())
         self.assertTrue(profiles)
-        for platform in profiles:
-            with self.subTest(platform=platform.name):
-                data = PLATFORM_CONFIG.resolve(platform.stem)
+        for profile_name, platform in profiles:
+            with self.subTest(platform=profile_name):
+                data = PLATFORM_CONFIG.resolve(profile_name)
                 for key in ("board", "target", "crossdev", "machine", "image"):
                     self.assertIsInstance(data.get(key), str, f"{platform} missing {key}")
-                    self.assertTrue(data[key])
+                    if key == "crossdev" and data["board"] == "sim:nsh":
+                        self.assertEqual(data[key], "")
+                    else:
+                        self.assertTrue(data[key])
                 features = data.get("hal")
                 self.assertIsInstance(features, dict)
                 # Hardware qualification does not implicitly select sensor mocks.
                 expected = {"m5stack-cores3-gnss": {"gnss": "nuttx", "imu": "nuttx"},
+                            "m5stack-cores3-display": {"display": "nuttx"},
+                            "m5stack-cores3-dual-imu": dict.fromkeys(
+                                ("imu", "gnss", "display", "touch", "settings",
+                                 "ble", "tls", "battery", "execution", "boot", "watchdog"), "nuttx",
+                            ),
                             "cores3-imu-qualification": {"gnss": "nuttx", "imu": "nuttx"},
                             "cores3-protected-qualification": {"gnss": "nuttx", "imu": "nuttx"},
+                            "esp32s3-devkit-imu-qemu": {"imu": "nuttx", "gnss": "none"},
                             "esp32s3-devkit-imu-qualification": {"imu": "nuttx"},
                             "esp32s3-devkit-imu-protected-qualification": {"imu": "nuttx"},
                             "esp32s3-devkit-imu-sensor-reference": {"imu": "nuttx"},
                             "esp32s3-devkit-imu-protected-sensor-reference": {"imu": "nuttx"},
-                            "esp32s3-devkit-qemu": {"imu": "nuttx", "gnss": "none"},
                             "esp32s3-service-footprint": {},
+                            "esp32s3-ram-footprint": {},
+                            "esp32s3-ram-native-baseline": {},
                             "esp32s3-sync-iram": {},
                             "esp32s3-mpsc": {},
                             "pico2w-mpsc": {},
+                            "pico2w-std-qualification": {},
+                            "esp32s3-qemu-led-mock": {"imu": "mock", "gnss": "mock", "led": "mock"},
+                            "pico2w-peripherals": {"boot": "nuttx", "rtc": "nuttx", "watchdog": "nuttx", "flash": "nuttx"},
                             "esp32s3-userled": {"imu": "mock", "gnss": "mock", "led": "nuttx"},
+                            "esp32s3-peripherals": {"boot": "nuttx", "rtc": "nuttx", "watchdog": "nuttx", "flash": "nuttx"},
                             "pico2-tls": {"tls": "nuttx"},
                             "esp32s3-camera": {"camera": "nuttx"},
                             "esp32s3-camera-stream": {"camera": "nuttx", "wifi": "nuttx", "detector": "nuttx"},
-                            "esp32s3-camera-stream-smp": {"camera": "nuttx", "wifi": "nuttx", "detector": "nuttx"},
-                            "esp32s3-camera-stream-tls": {"camera": "nuttx", "wifi": "nuttx", "detector": "nuttx", "tls": "nuttx"},
+                            "esp32s3-camera-stream-single-core": {"camera": "nuttx", "wifi": "nuttx", "detector": "nuttx"},
                             "esp32s3-camera-stream-mcuboot": {"camera": "nuttx", "wifi": "nuttx", "detector": "nuttx", "tls": "nuttx", "boot": "nuttx"},
-                            "esp32s3-camera-stream-startup": {"camera": "nuttx", "wifi": "nuttx", "detector": "nuttx", "tls": "nuttx", "boot": "nuttx", "watchdog": "nuttx", "config": "nuttx", "console": "nuttx", "execution": "nuttx"},
+                            "esp32s3-camera-stream-startup": {"camera": "nuttx", "wifi": "nuttx", "detector": "nuttx", "tls": "nuttx", "boot": "nuttx", "watchdog": "nuttx", "settings": "nuttx", "console": "nuttx", "execution": "nuttx"},
+                            "esp32s3-camera-stream-ssh": {"camera": "nuttx", "wifi": "nuttx", "detector": "nuttx", "tls": "nuttx", "boot": "nuttx", "watchdog": "nuttx", "settings": "nuttx", "ssh": "nuttx"},
                             "esp32s3-camera-stream-protected-build": {"camera": "nuttx", "wifi": "nuttx", "detector": "nuttx", "tls": "nuttx", "boot": "none"},
                             "esp32s3-camera-stream-vww": {"camera": "nuttx", "wifi": "nuttx", "detector": "nuttx"},
                             "esp32s3-camera-stream-video": {"camera": "nuttx", "wifi": "nuttx", "detector": "none"},
@@ -184,7 +189,30 @@ class FirmwareFrontendTests(unittest.TestCase):
                 for name, bindings in expected.items():
                     if name.startswith("esp32s3-camera-stream") or name == "esp32s3-camera-tls":
                         bindings.update(console="nuttx", execution="nuttx")
-                self.assertEqual(features, expected.get(platform.stem,
+                expected["esp32s3-camera-microphone"] = {
+                    **expected["esp32s3-camera-stream-startup"], "audio": "nuttx",
+                }
+                expected["m5stack-cores3-stamp-catm"] = {
+                    **expected["m5stack-cores3-dual-imu"], "cellular": "nuttx",
+                }
+                expected["esp32s3-qemu-tracker"] = dict.fromkeys(
+                    ("battery", "cellular", "display", "gnss", "imu", "settings", "touch"), "nuttx",
+                )
+                expected["esp32s3-qemu-tracker-upload"] = {
+                    **expected["esp32s3-qemu-tracker"], "tls": "nuttx",
+                }
+                expected["esp32s3-qemu-tracker-coexist"] = {
+                    **expected["esp32s3-qemu-tracker-upload"], "ble": "nuttx", "execution": "nuttx",
+                    "boot": "nuttx", "watchdog": "nuttx",
+                }
+                tracker = dict.fromkeys(("battery", "display", "gnss", "imu", "settings", "touch"), "nuttx")
+                expected["esp32s3-qemu-tracker-devices"] = tracker
+                expected["esp32s3-qemu-tracker-dashboard"] = {**tracker, "ble": "nuttx", "tls": "nuttx"}
+                expected["esp32s3-esp-emu-tracker"] = expected["esp32s3-qemu-tracker-dashboard"]
+                expected["esp32s3-qemu-tracker-headless"] = {"imu": "nuttx"}
+                expected["esp32s3-qemu-tracker-logging"] = expected["esp32s3-qemu-tracker-headless"]
+                expected["nuttx-sim-tracker"] = expected["esp32s3-qemu-tracker-dashboard"]
+                self.assertEqual(features, expected.get(profile_name,
                                  {"imu": "mock", "gnss": "mock"}))
                 self.assertNotIn("hal-features", data)
                 if not features:
@@ -208,15 +236,15 @@ class FirmwareFrontendTests(unittest.TestCase):
                          {"kind": "uart", "device": "/dev/ttyS1", "baud": 38400})
         self.assertEqual(graph["resources"]["sensor_bus"],
                          {"kind": "i2c", "device": "/dev/i2c0", "frequency": 400000})
-        self.assertEqual(graph["devices"]["motion"]["address"], 0x68)
-        self.assertEqual(graph["devices"]["motion"]["wake"], {"kind": "periodic"})
+        self.assertEqual(graph["devices"]["imu"]["address"], 0x68)
+        self.assertEqual(graph["devices"]["imu"]["wake"], {"kind": "periodic"})
         self.assertEqual((graph["stack_bytes"], graph["gnss_stack_bytes"]), (16384, 16384))
         for path, value in (
                 (("resources", "receiver_uart", "baud"), True),
                 (("resources", "receiver_uart", "device"), "/dev/../ttyS1"),
-                (("devices", "motion", "address"), 0x70),
+                (("devices", "imu", "address"), 0x70),
                 (("resources", "sensor_bus", "frequency"), 0),
-                (("devices", "motion", "wake"), {"kind": "interrupt", "resource": "missing"}),
+                (("devices", "imu", "wake"), {"kind": "interrupt", "resource": "missing"}),
                 (("gnss", "stack-bytes"), 1),
                 (("hal", "gnss"), "mock"),
                 (("hal", "imu"), "mock")):
@@ -229,21 +257,52 @@ class FirmwareFrontendTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     PLATFORM_CONFIG.composition_config(invalid)
 
-    def test_detector_smp_experiment_keeps_product_single_core(self):
-        product = PLATFORM_CONFIG.resolve('esp32s3-camera-stream-startup')
-        experiment = PLATFORM_CONFIG.resolve('esp32s3-camera-stream-smp')
-        self.assertIn('# CONFIG_SMP is not set', product['kconfig']['require'])
-        self.assertNotIn('compute-core', product['detector'])
-        self.assertIn('SMP', experiment['kconfig']['enable'])
-        self.assertNotIn('SMP', experiment['kconfig']['disable'])
-        self.assertIn('CONFIG_SMP_NCPUS=2', experiment['kconfig']['require'])
-        for counter in ('ARCH_PERF_EVENTS', 'PERF_OVERFLOW_CORRECTION'):
-            self.assertNotIn(counter, experiment['kconfig']['enable'])
-            self.assertRegex('CONFIG_' + counter + '=y', experiment['kconfig']['forbid-regex'])
-        self.assertEqual(experiment['detector']['compute-core'], 1)
-        for core in (-1, 32, True):
-            with self.assertRaises(ValueError):
-                PLATFORM_CONFIG.detector_config({**experiment, 'detector': {**experiment['detector'], 'compute-core': core}})
+    def test_cores3_tracker_selects_distinct_devices_on_the_shared_bus(self):
+        data = PLATFORM_CONFIG.resolve("m5stack-cores3-dual-imu")
+        graph = data["resolved-composition"]["graph"]
+        primary = graph["devices"][graph["aliases"]["imu"]]
+        secondary = graph["devices"][graph["aliases"]["imu_secondary"]]
+        self.assertEqual((primary["address"], secondary["address"]), (0x69, 0x68))
+        self.assertEqual(primary["bus"], secondary["bus"])
+        gauge = graph["devices"][graph["aliases"]["battery"]]
+        self.assertEqual((gauge["bus"], gauge["address"]), ("sensor_bus", 0x34))
+        for address in (0x35, 0x69):
+            invalid = copy.deepcopy(data)
+            invalid["devices"][graph["aliases"]["battery"]]["address"] = address
+            with self.subTest(address=address), self.assertRaises(ValueError):
+                PLATFORM_CONFIG.composition_config(invalid)
+        self.assertEqual(graph["devices"][graph["aliases"]["gnss"]]["bus"], "receiver_uart")
+        self.assertEqual(data["display"]["device"], "/dev/spi2")
+        self.assertEqual(data["touch"]["device"], "/dev/input0")
+        self.assertIn("CONFIG_MTD_CONFIG_NAMED=y", data["kconfig"]["require"])
+
+    def test_camera_profiles_share_smp_budget_and_keep_a_single_core_control(self):
+        signed = PLATFORM_CONFIG.resolve('esp32s3-camera-stream-startup')
+        unsigned = PLATFORM_CONFIG.resolve('esp32s3-camera-stream')
+        maintenance = PLATFORM_CONFIG.resolve('esp32s3-camera-stream-ssh')
+        control = PLATFORM_CONFIG.resolve('esp32s3-camera-stream-single-core')
+        self.assertEqual(signed['cpus'], unsigned['cpus'])
+        self.assertEqual(signed['detector'], unsigned['detector'])
+        self.assertEqual(signed['detector']['sample-ms'], 500)
+        self.assertEqual(signed['detector']['compute-core'], 1)
+        self.assertEqual(maintenance['cpus'], signed['cpus'])
+        self.assertEqual(maintenance['detector']['compute-core'], signed['detector']['compute-core'])
+        for profile in (signed, unsigned, maintenance):
+            config = profile['kconfig']
+            self.assertIn('SMP', config['enable'])
+            self.assertNotIn('SMP', config['disable'])
+            self.assertIn('CONFIG_SMP_NCPUS=2', config['require'])
+            self.assertIn('ESP32S3_SYSTIMER_CLOCK', config['enable'])
+            self.assertIn('# CONFIG_ESP32S3_TICKLESS is not set', config['require'])
+            for setting in ('NET_TCP_WRITE_BUFFERS=y', 'NET_SEND_BUFSIZE=16384',
+                            'NET_MAX_SEND_BUFSIZE=16384', 'NET_TCP_NWRBCHAINS=16',
+                            'NET_TCP_ALLOC_WRBCHAINS=0'):
+                self.assertIn('CONFIG_' + setting, config['require'])
+            for counter in ('ARCH_PERF_EVENTS', 'PERF_OVERFLOW_CORRECTION'):
+                self.assertNotIn(counter, config['enable'])
+                self.assertRegex('CONFIG_' + counter + '=y', config['forbid-regex'])
+        self.assertIn('# CONFIG_SMP is not set', control['kconfig']['require'])
+        self.assertNotIn('compute-core', control['detector'])
 
     def test_cargo_frontend_help_is_successful(self):
         output = self.cargo_firmware("--help").stdout
@@ -252,7 +311,7 @@ class FirmwareFrontendTests(unittest.TestCase):
     def test_radio_profiles_keep_both_transports_and_station_requirements(self):
         for board in ("esp32s3", "pico2w"):
             with self.subTest(board=board):
-                config = tomllib.loads((PLATFORMS / f'{board}-radio.toml').read_text())['kconfig']
+                config = PLATFORM_CONFIG.resolve(f'{board}-radio')['kconfig']
                 self.assertFalse(set(config['enable']) & set(config['disable']))
                 for feature in ('NET_IPv4', 'NET_UDP', 'NET_BROADCAST',
                                 'WIRELESS_BLUETOOTH_HOST', 'NET_BLUETOOTH', 'NETUTILS_DHCPC'):
@@ -260,7 +319,7 @@ class FirmwareFrontendTests(unittest.TestCase):
                 for setting in ('BLUETOOTH_MAX_CONN=1', 'PREALLOC_MQ_MSGS=32'):
                     self.assertIn('CONFIG_' + setting, config['require'])
                 self.assertNotIn('IEEE80211_BROADCOM_FRAME_TRACE', config['enable'])
-        esp_profile = tomllib.loads((PLATFORMS / 'esp32s3-radio.toml').read_text())
+        esp_profile = PLATFORM_CONFIG.resolve('esp32s3-radio')
         self.assertEqual(esp_profile['image'], 'nuttx.bin')
         self.assertFalse(esp_profile['requires-qemu'])
         esp = esp_profile['kconfig']
@@ -272,7 +331,7 @@ class FirmwareFrontendTests(unittest.TestCase):
         self.assertIn('CONFIG_BOARD_INITTHREAD_STACKSIZE=8192', esp['require'])
 
     def test_wifi_scan_profile_has_driver_resources_but_no_boot_credentials(self):
-        data = tomllib.loads((PLATFORMS / 'esp32s3-wifi.toml').read_text())
+        data = PLATFORM_CONFIG.resolve('esp32s3-wifi')
         config = data['kconfig']
         for feature in ('SCHED_LPWORK', 'PTHREAD_MUTEX_TYPES', 'SYSLOG_CONSOLE',
                         'DRIVERS_WIRELESS', 'DRIVERS_IEEE80211',
@@ -305,7 +364,7 @@ class FirmwareFrontendTests(unittest.TestCase):
                              for value in config['set']))
 
     def test_camera_profile_selects_standard_capture_and_freenove_wiring(self):
-        data = tomllib.loads((PLATFORMS / 'esp32s3-camera.toml').read_text())
+        data = tomllib.loads((WROOM / 'esp32s3-camera.toml').read_text())
         self.assertEqual(data['hal'], {'camera': 'nuttx'})
         self.assertEqual(data['image'], 'nuttx.bin')
         config = data['kconfig']
@@ -326,8 +385,8 @@ class FirmwareFrontendTests(unittest.TestCase):
             self.assertIn('CONFIG_' + feature + '=y', config['require'])
 
     def test_stream_profile_preserves_camera_wiring_and_enables_only_station_radio(self):
-        base = tomllib.loads((PLATFORMS / 'esp32s3-camera.toml').read_text())
-        data = tomllib.loads((PLATFORMS / 'esp32s3-camera-stream.toml').read_text())
+        base = tomllib.loads((WROOM / 'esp32s3-camera.toml').read_text())
+        data = tomllib.loads((WROOM / 'esp32s3-camera-stream.toml').read_text())
         self.assertEqual(data['extends'], 'esp32s3-camera')
         self.assertEqual(data['hal'], {'wifi': 'nuttx', 'detector': 'nuttx',
                                        'console': 'nuttx', 'execution': 'nuttx'})
@@ -340,7 +399,7 @@ class FirmwareFrontendTests(unittest.TestCase):
         for feature in ('ESP32S3_CAM', 'VIDEO_OV3660', 'ESPRESSIF_WIFI',
                         'ESPRESSIF_WIFI_STATION', 'NET_TCP', 'NET_UDP',
                         'ESP32S3_SPIRAM_USER_HEAP', 'SCHED_CRITMONITOR',
-                        'ARCH_PERF_EVENTS', 'PERF_OVERFLOW_CORRECTION', 'NET_TCP_WRITE_BUFFERS',
+                        'ARCH_PERF_EVENTS', 'PERF_OVERFLOW_CORRECTION',
                         'ESP32S3_INSTRUCTION_CACHE_32KB', 'NET_TCP_SELECTIVE_ACK',
                         'ESP32S3_SPIRAM_SPEED_80M', 'ESP32S3_DATA_CACHE_64KB',
                         'ESP32S3_DATA_CACHE_LINE_64B', 'ESP32S3_SPIRAM_MEMTEST',
@@ -350,10 +409,8 @@ class FirmwareFrontendTests(unittest.TestCase):
         for feature in ('ESPRESSIF_BLE', 'NETINIT_DHCPC', 'ESP32S3_QEMU_IMAGE'):
             self.assertIn(feature, config['disable'])
         self.assertFalse(any('SSID' in value or 'PASSPHRASE' in value for value in config['set']))
-        for setting in ('NET_SEND_BUFSIZE=16384', 'NET_MAX_SEND_BUFSIZE=16384',
-                        'ESP32S3_CAM_XCLK_DRIVE_STRENGTH=0',
+        for setting in ('ESP32S3_CAM_XCLK_DRIVE_STRENGTH=0',
                         'NET_TCP_PREALLOC_CONNS=16', 'NET_TCP_ALLOC_CONNS=0',
-                        'NET_TCP_NWRBCHAINS=16', 'NET_TCP_ALLOC_WRBCHAINS=0',
                         'NET_PREALLOC_DEVIF_CALLBACKS=64', 'NET_ALLOC_DEVIF_CALLBACKS=0',
                         'NET_TCP_OUT_OF_ORDER_BUFSIZE=4096'):
             self.assertIn(setting, config['set'])
@@ -361,16 +418,20 @@ class FirmwareFrontendTests(unittest.TestCase):
         for derived in ('ESP32S3_SPIRAM_SPEED=80', 'ESP32S3_DATA_CACHE_SIZE=0x10000',
                         'ESP32S3_DATA_CACHE_LINE_SIZE=64'):
             self.assertIn('CONFIG_' + derived, config['require'])
+        maintenance = tomllib.loads((WROOM / 'esp32s3-camera-stream-ssh.toml').read_text())
+        ssh_native = (WROOM / maintenance['nuttx-config']).read_text().splitlines()
+        self.assertNotIn('# CONFIG_NET_TCP_WRITE_BUFFERS is not set', ssh_native)
 
     def test_cargo_frontend_lists_apps_and_platforms(self):
         apps = self.cargo_firmware("--list-apps").stdout.splitlines()
-        self.assertEqual(apps, sorted([*FIRMWARE_APPS,"nxrs"]))
+        self.assertEqual(apps, sorted(FIRMWARE_APPS))
 
         platforms = self.cargo_firmware("--list-platforms").stdout.splitlines()
-        self.assertEqual(platforms,["wroom","cores3","pico2w","linux","macos","windows","web"])
+        self.assertEqual(platforms, ["cores3", "linux", "macos", "pico2w", "web", "windows", "wroom"])
+        self.assertEqual(sorted(path.parent.name for path in PLATFORMS.glob("*/profile.toml")), platforms)
 
     def test_pico_radio_profile_excludes_gpio25_led_and_boot_credentials(self):
-        data = tomllib.loads((PLATFORMS / "pico2w-wifi.toml").read_text())
+        data = PLATFORM_CONFIG.resolve("pico2w-wifi")
         self.assertEqual(data["radio-firmware"], "cyw43439")
         self.assertFalse(data["requires-qemu"])
         config = data["kconfig"]
@@ -390,9 +451,10 @@ class FirmwareFrontendTests(unittest.TestCase):
                              "FIRMWARE_BIN_PATH" in setting for setting in config["set"]))
 
     def test_usb_bootloader_trigger_is_limited_to_pico_development(self):
-        for path in PLATFORMS.glob("*.toml"):
-            config = PLATFORM_CONFIG.resolve(path.stem)["kconfig"]
-            enabled = path.stem in ("pico2w-wifi", "pico2w-ble", "pico2w-radio", "pico2w-mpsc")
+        for name, _ in firmware_profiles():
+            config = PLATFORM_CONFIG.resolve(name)["kconfig"]
+            enabled = name in ("pico2w-wifi", "pico2w-ble", "pico2w-radio", "pico2w-mpsc",
+                               "pico2w-std-qualification", "pico2w-peripherals")
             self.assertEqual("CDCACM_1200BPS_BOOTLOADER" in config["enable"], enabled)
             if enabled:
                 for symbol in ("BOARD_USBDEV_BOOTLOADER", "CDCACM_1200BPS_BOOTLOADER"):
@@ -400,7 +462,7 @@ class FirmwareFrontendTests(unittest.TestCase):
 
     def test_radio_profiles_omit_retired_instrumentation_and_keep_bounded_logs(self):
         for platform in ("pico2w-radio", "esp32s3-radio"):
-            config = tomllib.loads((PLATFORMS / f"{platform}.toml").read_text())["kconfig"]
+            config = PLATFORM_CONFIG.resolve(platform)["kconfig"]
             for symbol in ("NET_STATISTICS", "NETDEV_STATISTICS",
                            "IEEE80211_BROADCOM_FRAME_TRACE"):
                 self.assertNotIn(symbol, config["enable"])
@@ -418,7 +480,7 @@ class FirmwareFrontendTests(unittest.TestCase):
     def test_station_profiles_accept_the_broadcast_dhcp_replies_they_request(self):
         for platform in ("esp32s3-wifi", "pico2w-wifi"):
             with self.subTest(platform=platform):
-                config = tomllib.loads((PLATFORMS / f"{platform}.toml").read_text())["kconfig"]
+                config = PLATFORM_CONFIG.resolve(platform)["kconfig"]
                 self.assertIn("NETUTILS_DHCPC_BOOTP_FLAGS=0x8000", config["set"])
                 self.assertIn("NET_BROADCAST", config["enable"])
                 self.assertIn("CONFIG_NET_BROADCAST=y", config["require"])
@@ -427,8 +489,14 @@ class FirmwareFrontendTests(unittest.TestCase):
                     self.assertIn("CONFIG_" + setting, config["require"])
 
     def test_cargo_frontend_resolves_app_and_profile_without_a_shell_backend(self):
+        profiles = {
+            "home-cam": "esp32s3-camera-stream-startup",
+            "motion-tracker": "m5stack-cores3-dual-imu",
+        }
         for app,(package,binary,command) in FIRMWARE_APPS.items():
-            output=json.loads(self.cargo_firmware("build","--app",app,"--profile",("esp32s3-camera-stream-startup" if app=="home-cam" else "pico2-mock"),"--dry-run").stdout)
+            output = json.loads(self.cargo_firmware(
+                "build", "--app", app, "--profile", profiles.get(app, "pico2-mock"), "--dry-run",
+            ).stdout)
             self.assertEqual(output["deployment"]["app_package"],package)
             self.assertEqual(output["bin"],binary)
             self.assertEqual(output["command"],command)

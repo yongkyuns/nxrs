@@ -1,280 +1,119 @@
-# nxrs
+<h1 align="center">
+  <img src="docs/assets/nxrs-logo.png" alt="NXRS" width="360">
+</h1>
 
-Portable Rust firmware apps composed from reusable services, with device and
-operating-system I/O behind common HAL contracts.
+<p align="center">
+  <a href="https://github.com/yongkyuns/nxrs/actions/workflows/portable.yml"><img src="https://github.com/yongkyuns/nxrs/actions/workflows/portable.yml/badge.svg?branch=main" alt="Portable services CI"></a>
+  <a href="https://github.com/yongkyuns/nxrs/actions/workflows/security.yml"><img src="https://github.com/yongkyuns/nxrs/actions/workflows/security.yml/badge.svg?branch=main" alt="Security checks"></a>
+  <a href="https://github.com/yongkyuns/nxrs/actions/workflows/website.yml"><img src="https://github.com/yongkyuns/nxrs/actions/workflows/website.yml/badge.svg?branch=main" alt="Website build and deployment"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-73B9E2" alt="MIT license"></a>
+</p>
 
-[Measuring Rust std in nxrs's event-driven core](docs/std-channel-performance.md)
-explains the bounded inbox architecture and its current timing and memory
-evidence on ESP32-S3.
+<p align="center">
+  <a href="https://yongkyuns.github.io/nxrs/">Website</a> ·
+  <a href="https://yongkyuns.github.io/nxrs/guide/getting-started/">Getting started</a> ·
+  <a href="https://yongkyuns.github.io/nxrs/guide/start-here/">User guide</a> ·
+  <a href="https://yongkyuns.github.io/nxrs/guide/motivation/">Why NXRS?</a> ·
+  <a href="https://yongkyuns.github.io/nxrs/reference/">Reference</a>
+</p>
 
-For measured platform tradeoffs on ESP32-S3, start with the independent
-[NuttX, Zephyr and Embassy analysis](docs/rtos-comparison.md). The secondary
-[Rust std footprint analysis](docs/rust-std-footprint.md) examines application
-costs. The [before/after demo](tests/service-footprint/README.md) provides build
-recipes. Other RTOSes remain isolated experiments, not production dependencies.
+**NXRS is an experimental, general-purpose Rust firmware development environment built on [Apache NuttX](https://nuttx.apache.org/).**
 
-## App-owned main
+NuttX supplies the RTOS and board support. NXRS brings together Rust standard-library integration, peripheral interfaces, reusable firmware components, and platform profiles. Applications use ordinary Rust `std`, threads, and synchronous functions, with event-driven services where independent execution is needed.
 
-`app/` contains alternative firmware apps. Each production MCU image selects
-exactly one app. The app owns its handwritten `src/main.rs`, service composition,
-workflows and lifecycle. One app may use several services and threads; Recorder
-and Monitor are workflows, not separate applications. There is no platform
-launcher, app registry, required App trait, or service-graph configuration language.
+## Why this project?
 
-Each HAL capability is one Cargo crate: for example, package `nxrs-camera` is
-imported as Rust crate `camera`. The crate reexports its contract and selected
-provider types; implementation modules remain private. One `NXRS_PLATFORM`
-profile selects all HAL bindings for a build. With no profile, only portable
-contracts are selected and no mock is implicit.
+Embedded projects often need similar software: device access, processing, communication, storage, and control. Hardware constraints and fragmented tooling make that software harder to reuse. Separating application behavior, hardware integration, and product configuration helps with testing and later hardware revisions.
 
-The desktop OS profiles acquire camera, storage and transport through those
-capability crates. `app/nxrs/src/main.rs` owns product composition, while
-concrete replay/file/UDP providers stay inside the HALs. Filesystem and socket
-construction remain inside providers; ordinary timekeeping uses `std::time`
-directly.
+NXRS uses NuttX's standards-oriented C/POSIX interfaces underneath the Rust standard library. This allows applications to use familiar Rust APIs while NuttX handles operating-system and board responsibilities. The component and profile design also borrows ideas from Zephyr's reusable subsystems and declarative device configuration.
 
-```sh
-NXRS_PLATFORM=linux cargo run --locked -p nxrs-applications \
-  \
-  --bin nxrs -- \
-  input.gray 2 2 gray8 10 new-recording-directory 127.0.0.1:9000
-```
+Concurrency uses ordinary threads rather than requiring an async runtime. Active components own their state and receive typed events; other behavior remains in regular functions and objects. Applications choose their communication and delivery policies.
 
-The app's `cli` feature admits the binary and its std-backed bounded owner wait
-transport. Select the actual OS with `NXRS_PLATFORM=linux`, `macos`, or
-`windows`; these HALs share the same Rust replay/file/socket behavior. The existing no_std library target selects
-neither the CLI runtime nor a provider unless a profile is explicitly supplied.
-It is a migration/testing compatibility target, not a mandatory app framework.
-The application package is named `nxrs-applications` under `app/nxrs`.
+Read [Why NXRS?](website/guide/motivation.md) for the reasoning and [Current status](website/guide/status.md) for the implementation and tests. NXRS is an independent project built on NuttX.
 
-This does **not** yet port the camera app binary to NuttX or the browser. The
-separate ordinary-main/std probes qualify those execution environments. The
-native app now has one app-owned wait point: replay advertises the next useful
-camera poll deadline, normal idle time blocks until that deadline, and Busy sink
-retries use an explicit bounded retry timer without re-polling the camera. The
-camera/recorder/monitor remain co-located so borrowed frames do not cross a
-thread boundary.
+## Getting started
 
-## Source ownership
-
-| Directory | Responsibility |
-| --- | --- |
-| `app/nxrs` | Normal binary, portable workflow modules and existing composition |
-| `service` | Reusable camera, recording and telemetry service modules |
-| `hal/<capability>` | One crate per capability; contracts in `src/api.rs`, private implementations in `src/platform/`, and minimal ABI glue beside each provider in its `ffi/` directory |
-| `hal/common` | Shared BLE/Wi-Fi request identities and bounded payload storage |
-| `shared/messaging` | Layer-neutral generic channels and owned delivery results |
-| `driver` | Repository-owned protocols; upstream drivers remain in `external/nuttx` |
-| `platform/build`, `platform/nuttx` | Cargo firmware frontend plus board/build profiles and target integration; not an app host |
-| [`upstream`](upstream/README.md) | Dependency patchsets, revision pins and upstreaming proposals; no vendored source trees |
-| [`tests`](tests/README.md) | Guide to portable scenarios, shared comparison tools and isolated qualification images |
-| `tools`, `docs`, `external` | Focused scripts, documentation and pinned upstream sources |
-
-The normative resource-ownership model is documented in
-[HAL capability architecture](docs/hal-platform-architecture.md). Applications
-normally compose services; services normally acquire the capabilities they own
-internally, while an app may access a capability directly when that is the
-simpler ownership boundary. A single profile selects providers for the whole
-build, such as `linux`, `mock`, or `host-demo`. There is no global `hal/platform`
-package, provider registry, giant HAL object, xtask, generated app manifest, or
-general runtime framework.
-
-The [peripheral composition design](docs/peripheral-composition.md) describes
-the implemented reusable Rust chip drivers, embedded-hal resource adapters,
-validated profile composition and ordered overlays. Its
-[implementation plan](docs/peripheral-composition-plan.md) records migration
-steps and acceptance evidence. Profile resolution is used by the build frontend
-and direct Cargo consumers. The `simulation` profile coordinates seeded IMU and
-GNSS sources. It generates deterministic observations and event keys, while
-application scheduling follows the wall clock.
-
-## Event-driven architecture demo
-
-`app/event-demo` is the reference app for service-owned execution **and
-service-owned HAL resources**. The app knows only services and their connections;
-it does not depend on IMU/GNSS HALs, mock providers, or concrete devices.
+With Git, Rust, and your host's native build tools installed:
 
 ```sh
-NXRS_PLATFORM=host-demo cargo build --locked \
-  -p nxrs-event-demo -p nxrs-imu -p nxrs-gnss \
-  --bin event-demo
-target/debug/event-demo --duration-ms 2000
+git clone https://github.com/yongkyuns/nxrs.git
+cd nxrs
+cargo run --locked --manifest-path website/examples/basic-firmware/Cargo.toml --bin hello
 ```
 
-The `host-demo` profile selects mock IMU and GNSS implementations alongside
-the native desktop bindings. `ImuService::start()` and `GnssService::start()`
-acquire those capabilities internally and move the resources into owner
-threads. Selecting future physical providers does not change app/service source.
+The program prints `Hello from NXRS`. It is an ordinary, self-contained Cargo application with no hardware dependencies. [Your first application](website/guide/first-application.md) explains its manifest and how to use it as a starting point.
 
-IMU, GNSS, and fusion use the shared std-backed `nxrs-messaging`
-transport: one bounded inbox and one wait point per active owner, cloned typed
-producers for fan-in, run-to-completion handlers, explicit overload behavior,
-and joined shutdown. `HealthService` remains synchronous. HAL contracts/facades remain `no_std`; active
-services use the qualified Rust `std` execution model. See
-[event-driven demo](docs/event-driven-demo.md).
+Follow [Getting started](website/guide/getting-started.md) for host setup and [Building for NuttX](website/guide/firmware.md) to boot your own application in QEMU. The [examples index](website/guide/examples.md) links runnable Rust recipes, a controller tutorial, and the simulated Matter light.
 
-### Multi-app / multi-instance proof
+## Architecture
 
-`app/dual-imu-demo` is a second ordinary firmware app that reuses the same
-`nxrs-navigation-services` package but composes a different product graph:
-two `ImuService` instances and two `FusionService` instances. Each IMU service
-independently calls the HAL acquisition path at `start()`; with the mock
-platform both instances begin at sequence 1, proving there is no shared singleton
-sensor state.
+<!-- Regenerate both themes with: node docs/assets/render-architecture.mjs -->
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/nxrs-architecture-dark.svg">
+  <img src="docs/assets/nxrs-architecture.svg" alt="NXRS architecture: reusable Rust firmware uses Rust std and peripheral interfaces above the NuttX RTOS and BSP. Platform profiles select hardware bindings at build time." width="1200">
+</picture>
 
-~~~sh
-NXRS_PLATFORM=host-imu cargo build --locked \
-  -p nxrs-dual-imu-demo -p nxrs-imu \
-  --bin dual-imu-demo
-target/debug/dual-imu-demo
-~~~
+- **NuttX** provides scheduling, board support, controller drivers, and native resources.
+- **Rust std and peripheral wrappers** expose OS facilities and hardware access to Rust.
+- **Drivers, HALs, services, and applications** separate device protocols, capabilities, reusable behavior, and product composition.
+- **Profiles and overlays** select devices, resources, and target configuration. NuttX retains native pin and controller setup.
 
-The `host-imu` profile selects native camera/storage/transport and a mock IMU;
-GNSS remains unbound. This qualifies synthetic sensor ownership without
-implying that other radios or sensors are implemented.
+Use `std` directly for operations it already describes. A handwritten Rust `main()` constructs the components needed by an application; there is no required generated application graph.
 
-The demo pauses one IMU while the other continues, then resumes it. CI also
-checks that the IMU-only image does not acquire the GNSS capability and that
-running without an IMU binding fails explicitly instead of silently selecting
-a mock.
+See the [architecture overview](website/guide/overview.md), [services guide](website/guide/services.md), and [hardware guide](website/guide/hardware.md).
 
-Together with `app/event-demo` already running unchanged across the
-ESP32-S3, MPS2/Cortex-M33 and Pico 2 product-platform profiles, this qualifies
-the intended multi-app/multi-instance configuration model without a registry,
-instance-ID framework, or generated service graph.
+## Building firmware
 
-## Cargo firmware builds
+The repository's `cargo nxrs` frontend selects the application and target configuration:
 
-Cargo is the canonical developer-facing firmware build interface. App execution
-metadata lives in the app's `Cargo.toml`; board/target/HAL bindings stay in the
-selected product-platform profile.
-
-~~~sh
-# Discover buildable firmware apps and platforms.
+```sh
 cargo nxrs apps
 cargo nxrs platforms
+cargo nxrs build --app std-demo --profile esp32s3-qemu-mock --dry-run
+```
 
-# Raspberry Pi Pico 2
-cargo nxrs build --app event-demo --profile pico2-mock
+After installing the target prerequisites, remove `--dry-run` to build the image. [Building for NuttX](website/guide/firmware.md) covers setup, outputs, and execution. [Profiles and overlays](website/guide/profiles.md) explains the configuration inputs.
 
-# ESP32-S3 QEMU profile (install the pinned ESP/QEMU tools once first)
-bash tools/install-qemu-tools.sh
-cargo nxrs build --app event-demo --profile esp32s3-qemu-mock
+Use `cargo nxrs config --app event-demo --platform cores3` to search, review, and save native NuttX settings for a selected build. The [configuration guide](website/guide/profiles.md#configure-nuttx) covers prerequisites, shared fragment ownership, Save & sync, and scriptable checks. The next ordinary build consumes the saved settings.
 
-# ARMv8-M / Cortex-M33 QEMU proxy
-cargo nxrs build --app event-demo --profile mps2-an521-mock
-~~~
+## Tests and evaluations
 
-The default artifacts are under:
-
-~~~text
-target/build/<binary>/<profile>/
-~~~
-
-For example:
-
-~~~text
-target/build/event-demo/pico2-mock/nuttx/nuttx.bin
-target/build/event-demo/esp32s3-qemu-mock/nuttx/nuttx.merged.bin
-target/build/event-demo/mps2-an521-mock/nuttx/nuttx
-~~~
-
-`cargo nxrs build` is a repository Cargo alias backed by the host-only
-`nxrs-build` Rust controller. It resolves:
-
-~~~text
-app Cargo metadata
-        +
-product platform
-        |
-        v
-common NuttX build backend
-        |
-        v
-Cargo Rust build + NuttX final image
-~~~
-
-The app's firmware metadata table owns binary name, NuttX command name, priority
-and stack size. Optional `required-capabilities` metadata supplies early admission
-checks; Cargo dependencies select components. The platform profile owns board,
-Rust target, toolchain, Kconfig and HAL bindings. Developers do not pass
-provider-specific Cargo features, target triples or Kconfig values.
-
-The Rust controller in `platform/build` owns NuttX configuration, Cargo/Make
-invocation, ABI inspection and final image linking. The common
-`tools/build-nuttx-std-app.sh` is a compatibility adapter to that controller;
-there are no per-app/per-target build wrapper scripts. Ordinary additive Cargo
-features select optional components. See [build and platform selection](docs/build-system.md)
-for feature controls and the remaining modularity, incremental-build and reuse work.
-
-The MPS2 profile remains a Cortex-M33 execution proxy rather than RP2350
-emulation. The Pico 2 profile separately builds and ABI-checks the actual
-`raspberrypi-pico-2:nsh` image. Current profiles still bind mock IMU/GNSS
-providers, so this is software/build portability rather than physical sensor
-qualification.
-
-For direct QEMU execution after a build:
-
-~~~sh
-source target/qemu-tools/environment.sh
-python3 tests/host/test-event-demo-nuttx.py "$(command -v qemu-system-xtensa)" \
-  --machine esp32s3 \
-  --image target/build/event-demo/esp32s3-qemu-mock/nuttx/nuttx.merged.bin \
-  --log target/build/event-demo/esp32s3-qemu-mock/console.log
-
-python3 tests/host/test-event-demo-nuttx.py "$(command -v qemu-system-arm)" \
-  --machine mps2-an521 \
-  --image target/build/event-demo/mps2-an521-mock/nuttx/nuttx \
-  --log target/build/event-demo/mps2-an521-mock/console.log
-~~~
-
-See [HAL capability architecture](docs/hal-platform-architecture.md),
-[build system](docs/build-system.md), and
-[event-driven demo](docs/event-driven-demo.md).
-
-## Development and qualification
-
-For Zed/clangd configuration, see [editor setup](docs/editor-setup.md).
-
-The root toolchain is Rust 1.90.0. Default workspace members are host-compatible;
-target-only fixtures require explicit selection. The destructive
-NuttX resource probe is a non-default workspace member and builds its own image.
+Basic validation includes host tests, target build and ABI checks, simulator/QEMU execution, and on-board performance and memory evaluations.
 
 ```sh
 cargo test --locked
-NXRS_PLATFORM=mock cargo test --locked -p nxrs-simulator
-NXRS_PLATFORM=mock cargo run --locked -p nxrs-simulator
 python3 tools/check-architecture.py
-NXRS_PLATFORM=linux python3 tests/host/test-native-runner.py
-cargo check --locked -p nxrs-applications --no-default-features --lib \
-  --target thumbv6m-none-eabi
 ```
 
-The independent native test invokes the actual app binary and decodes persisted
-records and UDP datagrams. Existing portable scenario, small-stack, storage
-failure, queue saturation and lifecycle assertions remain in place.
+Start with the [performance guide](website/guide/performance.md) to choose a measurement, or read the findings by question:
 
-```sh
-git submodule update --init
-bash tools/build-nuttx-sim.sh
-python3 tests/host/test-nuttx-sim.py target/nuttx-sim/nuttx/nuttx
+| Question | Read |
+| --- | --- |
+| How do delivery, RAM and deadlines compare with Zephyr and Embassy? | [RTOS comparison results](docs/rtos-comparison.md) |
+| What do bounded Rust channels cost and how do they wait? | [Channel behavior and performance](docs/std-channel-performance.md) |
+| What consumes RAM and flash as services are added? | [Memory and image size](docs/rust-std-footprint.md) |
+| Which tests can I run? | [Test and fixture index](tests/README.md) |
 
-bash tools/install-qemu-tools.sh
-bash tools/build-nuttx-qemu.sh
-source target/qemu-tools/environment.sh
-python3 tests/host/test-nuttx-sim.py "$(command -v qemu-system-xtensa)" \
-  --qemu-image target/nuttx-qemu/nuttx/nuttx.merged.bin \
-  --log target/nuttx-qemu/console.log
-```
+Each summary states the tested workload, useful conclusion and measurement limits. Detailed historical experiments remain linked as evidence.
 
-These core-only pipelines run real NuttX with synthetic sensors, tmpfs, loopback
-UDP and fault injection. They are distinct from the [ordinary-main/std tests](docs/nuttx-std.md),
-which use explicitly patched SDK copies: RV32 and ESP32-S3 execute under QEMU;
-Pico 2 currently has build/link/ABI evidence only. The [browser pthread probe](docs/browser-threads.md)
-runs in actual Chrome and Safari. Neither emulator nor browser results establish
-physical-device behavior, all libc APIs, production timing, or full app/HAL portability.
+## Documentation and examples
 
-See [source architecture](docs/architecture.md), [service contracts](docs/portable-services.md),
-[native I/O semantics](docs/native-backend.md), [buffer placement](docs/buffer-placement.md),
-[NuttX simulator](docs/nuttx-sim.md), [QEMU](docs/nuttx-qemu.md),
-[descriptor ownership](docs/nuttx-ownership.md), and [storage faults](docs/nuttx-storage.md).
+The [user guide](website/guide/start-here.md) covers general firmware development. [Examples](website/guide/examples.md) collects small learning programs and optional application-specific code, including IoT applications. These examples use the framework; they do not define its application domain.
+
+| Topic | Documentation |
+| --- | --- |
+| Project background | [Why NXRS?](website/guide/motivation.md) |
+| Application development | [Getting started](website/guide/getting-started.md), [Your first application](website/guide/first-application.md) |
+| Design and interfaces | [Designing an application](website/guide/designing-applications.md), [Interfaces and APIs](website/guide/interfaces.md) |
+| Standard APIs and execution | [Standard library](website/guide/standard-library.md), [Services](website/guide/services.md) |
+| Hardware and configuration | [Drivers and HALs](website/guide/hardware.md), [Profiles](website/guide/profiles.md) |
+| Build workflow | [From inputs to firmware](website/guide/build-system.md) |
+| Communication and files | [Networking and storage](website/guide/io.md) |
+| Tests and debugging | [Testing guide](website/guide/testing.md), [Troubleshooting](website/guide/troubleshooting.md) |
+| Implementation details | [Engineering reference](docs/README.md) |
+
+See [AGENTS.md](AGENTS.md) for implementation conventions, [SECURITY.md](SECURITY.md) for vulnerability reporting, and [website maintenance](website/README.md) for site changes.
+
+## License
+
+See [LICENSE](LICENSE).

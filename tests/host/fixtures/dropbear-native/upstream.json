@@ -1,0 +1,84 @@
+{
+  "repository": "mkj/dropbear",
+  "revision": "54ef47adf8c99b422be6a8f694f2866e62f88b9e",
+  "files": {
+    "src/chachapoly.c": {
+      "sha256": "cd282908ed3510a1a82dfdb2f0d7675e6ef8059db150246f7e5e9f6dd273438a"
+    },
+    "src/common-algo.c": {
+      "sha256": "c3b388c7f6c89b972253fbef7e2442f951276a2d280d46ba1c2837ed79bc42be"
+    },
+    "src/common-channel.c": {
+      "sha256": "bd9f962f969672f947456faf4e3a3dff0584035206d1d01226cad479b0f91b87"
+    },
+    "src/common-session.c": {
+      "sha256": "dc19e059cb085b661aa3c25d6d2936bfd885d3b67807a1fbd4facc27124f56f6"
+    },
+    "src/compat.c": {
+      "sha256": "8838de287645665289f85b56dfa933129386aa104eda947ee5b2533d0b8fc53a"
+    },
+    "src/dbmalloc.c": {
+      "sha256": "61a41bbfe46705d4c18d664e1f1e679afedcab31627d8652df51b48b834bc51d"
+    },
+    "src/dbrandom.c": {
+      "sha256": "a09cfe2cdcdfe642529e9385969e048834886e97ab4a28530fce699b4a7dfa04"
+    },
+    "src/dbutil.c": {
+      "sha256": "6dfff6c00add1e679d4addebafb215f51595f8089757f572a5557c1b4cf146ea"
+    },
+    "src/ecdsa.c": {
+      "sha256": "fee748267fbc0572d3a6da9a766262751bb470c292a82d64419e32e66c2c1016"
+    },
+    "src/ltc_prng.c": {
+      "sha256": "9912f07b2e173395c078d2d60ca56c741a55d6c3749a5f5a44250662d1372110"
+    },
+    "src/netio.c": {
+      "sha256": "b903685d1ce9384d809f4cacf9f92718b4fdd7c9f66612e96eccade983417366"
+    },
+    "src/packet.c": {
+      "sha256": "bc69e8742e1b20c3395360041699ce098f9224494bc9ded22cc67855664c0b06"
+    },
+    "src/session.h": {
+      "sha256": "95d2099430947d2e61cd70394b883116ee052cffacea1b4b651507bab511815d"
+    },
+    "src/signkey.h": {
+      "sha256": "dbdeaafbb54b6efe887630d456341906a3a633f89127307e48d5ff17e258cfcf"
+    },
+    "src/svr-authpasswd.c": {
+      "sha256": "4c8e5a7add68b9424df41a9a3adef43bc1318e8a0abd270c6a156c7357b55257"
+    },
+    "src/sysoptions.h": {
+      "sha256": "147d8e8c6a98043873868c597961c98501c4ce707161e56eb6044ec6b7ef636f"
+    }
+  },
+  "nuttx_apps_revision": "3c772ea35b9245972e18999828f7b533e6fc57cc",
+  "apps_preimages": {
+    "nshlib/nsh_builtin.c": "91024ea1486c284975161098f004797edb567f71132f2155e12ae1e5bb6c053b",
+    "netutils/dropbear/dropbear_nshsession.c": "2bf3d801dc4a9c4ca34976bc546e36da22686c9d205e1be2ba997fae1388f6be",
+    "netutils/dropbear/CMakeLists.txt": "2d4ae2fc82582afba637b1484946e6cb443fd6aecf66c09c7dff1a5168a63c7a",
+    "netutils/dropbear/dropbear_main.c": "ae721415f3630621e2a332feed898e2522f45d31357a9f771da997f0bf419431",
+    "netutils/dropbear/Kconfig": "35ed00850c3de6051cb82fee83a81b0903bc12f6b5d5d400e0ec4d09c1541660",
+    "netutils/dropbear/Makefile": "4aacdd14a4bc43b84ef1ee1531944dd1d4abfa2bb693aad6d6d80a570333e158",
+    "netutils/dropbear/port/localoptions.h": "d9e2cffdf95664737ab56167f077274c9aa581bdeab7f8b522d19b1a62ae82c3",
+    "netutils/dropbear/port/nuttx_auth.c": "bf80ad81244d769c98a3888742d4c8d829fc475593573f262e505db1477a3936",
+    "netutils/dropbear/port/dropbear_ltc_hmac_sha256.c": "7c0909b9df77232e38356615df245d4f819207810a9cc03cddc856efb9fe987c",
+    "netutils/dropbear/patch/0002-use-nuttx-passwd-auth.patch": "47f56660a9a2ef7fe1c1d218079e952c73d0ddd520ad6fc8eb1d49238bb93c47"
+  },
+  "apps_fixtures": {
+    "netutils/dropbear/patch/0001-guard-platform-declarations.patch": {
+      "sha256": "170e6a7ebbbcaaaf006b90bf00aab7be185fedb4262df40fc5b42949d046ec57"
+    },
+    "netutils/dropbear/patch/0003-allow-localoptions-to-override-tracking-malloc.patch": {
+      "sha256": "fcd29d7de2e8c16f29a01c12c410882c2506dc82fa32c5e753c4a99fe17e8c06"
+    },
+    "netutils/dropbear/patch/0004-use-nuttx-unused-macro.patch": {
+      "sha256": "2d4d8e41d7bd4f1d1babeb0f4d3ff3cb6da97e8d9d8b7227eb6b5257dc046018"
+    }
+  },
+  "misplaced_patch_sha256": "e19d89d4fa3547653682c3cd1996e83902787f530f6051a70b75fc52c4ee6e2a",
+  "support_files": {
+    "src/default_options.h": {
+      "sha256": "ff678fc3efd3d9b88c5d5bdb64bc272fed1af5aa504517b7ba710bd76b1ca9bb"
+    }
+  }
+}

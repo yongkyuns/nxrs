@@ -9,37 +9,17 @@ use std::os::unix::fs::OpenOptionsExt;
 use std::ptr::NonNull;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-unsafe extern "C" {
-    fn camera_open_flags() -> i32;
-    fn camera_format(
-        fd: i32,
-        w: u16,
-        h: u16,
-        pixels: u8,
-        actual_w: *mut u32,
-        actual_h: *mut u32,
-        actual_pixels: *mut u8,
-    ) -> i32;
-    fn camera_quality(fd: i32, quality: u8) -> i32;
-    fn camera_buffers(fd: i32, count: u32) -> i32;
-    fn camera_queue(fd: i32, index: u32, data: *mut u8, length: usize) -> i32;
-    fn camera_dequeue(
-        fd: i32,
-        index: *mut u32,
-        address: *mut usize,
-        capacity: *mut u32,
-        bytes: *mut u32,
-        flags: *mut u32,
-    ) -> i32;
-    fn camera_stream(fd: i32, on: i32) -> i32;
-    fn rc_nx_close(fd: i32) -> i32;
-}
+mod ffi;
+use self::ffi::{
+    camera_buffers, camera_dequeue, camera_format, camera_open_flags, camera_quality, camera_queue,
+    camera_stream, rc_nx_close,
+};
 
 static ACQUIRED: AtomicBool = AtomicBool::new(false);
 const BUFFER_COUNT: usize = 2;
 
 #[cfg(not(test))]
-const DEVICE_PATH: &str = "/dev/video0";
+const DEVICE_PATH: &str = env!("CAMERA_DEVICE");
 // Host tests exercise the production ownership code without camera hardware.
 #[cfg(test)]
 const DEVICE_PATH: &str = "/dev/null";

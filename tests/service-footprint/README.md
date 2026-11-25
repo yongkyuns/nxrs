@@ -81,8 +81,8 @@ python3 tests/service-footprint/run_transport_paired.py \
 
 Use fresh, serial output directories and matched C/Rust kernel inputs.
 The historical GCC/compiler identity is in the result record, and a different
-compiler needs new evidence. `panic-immediate-abort` is an explicit experiment
-policy, not the workspace default. The PSRAM-enabled board configuration does
+compiler needs new evidence. The explicit panic flags document the experiment's
+panic policy. The PSRAM-enabled board configuration does
 not stand in for a 250 kB product. Before explicitly adding `--measure`, make a
 private full-device backup, verify its hash and arrange to restore it; pass the
 backup credentials only through local arguments. Never publish the backup or

@@ -1,0 +1,19 @@
+# DevKit SPI2 wiring; physical SPI qualification remains pending.
+remove-devices = ["imu"]
+
+[resources.sensor_spi]
+binding = "spi2"
+kconfig = { ESP32S3_SPI2_CLKPIN = 4, ESP32S3_SPI2_MOSIPIN = 5, ESP32S3_SPI2_MISOPIN = 6, ESP32S3_SPI2_CSPIN = 10 }
+frequency = 4_000_000
+
+[devices.imu_spi]
+compatible = "bosch,bmi270"
+bus = "sensor_spi"
+chip-select = 0
+spi-mode = 3
+
+[devices.imu_spi.wake]
+kind = "periodic"
+
+[aliases]
+imu = "imu_spi"

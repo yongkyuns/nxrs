@@ -1,4 +1,4 @@
-//! Host-injected witnesses are separate from production module selection.
-#[cfg(unix)]
-#[path = "platform/nuttx/irq_tests.rs"]
-mod irq_tests;
+//! Exercise NuttX acquisition with fake resources on Unix hosts.
+#[cfg(all(unix, not(platform = "nuttx")))]
+#[path = "platform/nuttx/mod.rs"]
+mod nuttx;

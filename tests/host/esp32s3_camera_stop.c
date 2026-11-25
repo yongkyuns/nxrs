@@ -19,6 +19,7 @@
 #define LCD_CAM_CAM_VSYNC_INT_CLR_M 1
 #define LCD_CAM_CAM_HS_INT_ST_M 2
 #define LCD_CAM_CAM_HS_INT_CLR_M 2
+#define LCD_CAM_CAM_VSYNC_INT_ENA_M 1
 #define CONFIG_ESP32S3_CAM_VSYNC_PIN 1
 #define CONFIG_ESP32S3_CAM_HREF_PIN 2
 #define GPIO_MATRIX_CONST_ZERO_INPUT 0
@@ -26,6 +27,9 @@
 #define CAM_V_SYNC_IDX 1
 #define ESP32S3_IRQ_LCD_CAM 0
 #define ESP32S3_PERIPH_LCD_CAM 0
+#define ESP_IRQ_PRIORITY_DEFAULT 0
+#define ESP_IRQ_TRIGGER_LEVEL 0
+#define DEBUGASSERT assert
 #define GET_GDMA_CH_REG(reg, chan) read_dma(reg, chan)
 typedef unsigned irqstate_t;
 struct imgdata_s { int unused; };
@@ -38,6 +42,7 @@ struct hw_s {
 struct esp32s3_cam_s {
   struct imgdata_s data;
   struct hw_s *hw;
+  bool irq_registered;
   bool capturing, stop_pending;
   int cpuint, dma_channel, lock;
   struct esp32s3_dmadesc_s *dmadesc;
@@ -52,6 +57,9 @@ struct esp32s3_cam_s {
 };
 static unsigned park, fifo, reset_fifo, reads, resets, releases, frees;
 static unsigned callbacks, enables, irq_teardowns, stop_commands;
+static unsigned cpu, irq_registrations;
+static int irq_cpu = -1;
+static bool stop_from_callback;
 static uint32_t read_dma(uint32_t reg, int channel)
 {
   assert(channel == 2); assert(++reads <= 20);
@@ -60,6 +68,8 @@ static uint32_t read_dma(uint32_t reg, int channel)
 }
 static irqstate_t spin_lock_irqsave(int *lock) { (void)lock; return 0; }
 static void spin_unlock_irqrestore(int *lock, irqstate_t f) { (void)lock; (void)f; }
+static irqstate_t rspin_lock_irqsave(int *lock) { return spin_lock_irqsave(lock); }
+static void rspin_unlock_irqrestore(int *lock, irqstate_t f) { spin_unlock_irqrestore(lock, f); }
 static void cam_ll_stop(struct hw_s *hw) { (void)hw; }
 static void cam_ll_reset(struct hw_s *hw) { (void)hw; }
 static void cam_ll_fifo_reset(struct hw_s *hw) { (void)hw; }
@@ -69,6 +79,8 @@ static void esp32s3_dma_reset_channel(int ch, bool tx)
 static void esp32s3_dma_release(int ch) { assert(ch == 2); releases++; }
 static void cam_ll_clear_interrupt_status(struct hw_s *hw, unsigned s) { (void)hw; (void)s; }
 static void cam_ll_set_recv_data_bytelen(struct hw_s *hw, unsigned s) { (void)hw; (void)s; }
+static void cam_ll_enable_vsync_filter(struct hw_s *hw, bool v) { (void)hw; (void)v; }
+static void cam_ll_enable_rgb_yuv_convert(struct hw_s *hw, bool v) { (void)hw; (void)v; }
 static void cam_ll_enable_vsync_generate_eof(struct hw_s *hw, bool v) { (void)hw; (void)v; }
 static void cam_ll_start(struct hw_s *hw) { (void)hw; }
 static unsigned cam_ll_get_interrupt_status(struct hw_s *hw) { (void)hw; return 1; }
@@ -80,8 +92,26 @@ static void esp32s3_dma_enable(int ch, bool tx) { (void)ch; (void)tx; enables++;
 static bool esp32s3_ptr_extram(void *p) { (void)p; return false; }
 static void up_invalidate_dcache(uintptr_t p, uintptr_t end) { (void)p; (void)end; }
 static unsigned cam_jpeg_length(void *p, unsigned len) { (void)p; return len; }
+static int esp32s3_cam_dmasetup(struct esp32s3_cam_s *p) { p->dma_channel = 2; return 0; }
+static int esp_setup_irq(int source, int priority, int trigger,
+                         int (*handler)(int, void *, void *), void *arg)
+{
+  (void)source; (void)priority; (void)trigger; (void)handler; (void)arg;
+  if (irq_cpu >= 0) return -EINVAL;
+  irq_cpu = cpu;
+  irq_registrations++;
+  return 0;
+}
+static void up_enable_irq(int irq) { (void)irq; }
 static void up_disable_irq(int irq) { (void)irq; }
-static void esp_teardown_irq(int p, int irq) { (void)p; (void)irq; irq_teardowns++; }
+static void esp_teardown_irq(int p, int irq)
+{
+  (void)p; (void)irq;
+  if (irq_cpu == (int)cpu) {
+    irq_cpu = -1;
+    irq_teardowns++;
+  }
+}
 static void kmm_free(void *p) { assert(p); frees++; }
 static int esp32s3_cam_stop_capture(struct imgdata_s *data);
 #include "camera_stop.inc"
@@ -89,7 +119,9 @@ static void capture_done(int error, uint32_t len, const struct timeval *ts, void
 {
   (void)error; (void)len; (void)ts;
   struct esp32s3_cam_s *p = arg;
-  callbacks++; p->capturing = false;
+  callbacks++;
+  if (stop_from_callback) assert(esp32s3_cam_stop_capture(&p->data) == 0);
+  else p->capturing = false;
 }
 int main(int argc, char **argv)
 {
@@ -129,7 +161,7 @@ int main(int argc, char **argv)
       park = DMA_INLINK_PARK_CH0;
       assert(esp32s3_cam_uninit(&p.data) == 0);
       assert(!p.dmadesc && !p.fb && p.dma_channel == -1);
-      assert(frees == 2 && releases == 1 && irq_teardowns == 1);
+      assert(frees == 2 && releases == 1 && irq_teardowns == 0);
       break;
     case 3: /* An ISR cannot publish/rearm pending DMA storage. */
       assert(cam_interrupt(0, NULL, &p) == -EAGAIN);
@@ -140,8 +172,19 @@ int main(int argc, char **argv)
       break;
     case 4: /* Acknowledged frame still publishes once, without rearming after stop. */
       park = DMA_INLINK_PARK_CH0;
+      stop_from_callback = true;
       assert(cam_interrupt(0, NULL, &p) == 0);
       assert(callbacks == 1 && enables == 0 && !p.capturing);
+      break;
+    case 5: /* Closing on CPU 1 must leave a usable camera on CPU 0. */
+      park = DMA_INLINK_PARK_CH0;
+      assert(esp32s3_cam_config(&p) == 0);
+      cpu = 1;
+      assert(esp32s3_cam_uninit(&p.data) == 0);
+      cpu = 0;
+      assert(esp32s3_cam_config(&p) == 0);
+      assert(irq_registrations == 1 && releases == 1);
+      assert(hw.lc_dma_int_ena.val == 0);
       break;
     default: return 2;
   }

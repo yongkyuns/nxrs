@@ -1,0 +1,654 @@
+//! One host-only entry for Nxrs build orchestration.
+#![forbid(unsafe_code)]
+mod config_tui;
+mod editor;
+
+use nxrs_build::{
+    build::{self, App, Options},
+    profile::{platform_defaults, profile_or_default, Profile},
+    Result,
+};
+use std::{
+    env, fs,
+    path::{Path, PathBuf},
+    process::ExitCode,
+};
+fn workspace_root() -> Result<PathBuf> {
+    let mut directory = env::current_dir().map_err(|e| e.to_string())?;
+    loop {
+        if directory.join("Cargo.toml").is_file()
+            && nxrs_build::read(&directory.join("Cargo.toml"))?
+                .lines()
+                .any(|s| s.trim() == "[workspace]")
+        {
+            return directory.canonicalize().map_err(|e| e.to_string());
+        }
+        if !directory.pop() {
+            return Err("cannot locate Nxrs workspace".into());
+        }
+    }
+}
+fn usage() -> &'static str {
+    "usage:
+  cargo nxrs build --app <app> --platform <platform> [--profile <profile>] [--out <path>] [--dry-run]
+  cargo nxrs build --manifest-path <path> --profile <qualification-profile> [--bin <bin>]
+  cargo nxrs config [check | show | explain CONFIG_SYMBOL | recover] [selection flags]
+  cargo nxrs platforms
+  cargo nxrs apps
+  cargo nxrs profile --platform <profile> [--target-os <os>]
+  cargo nxrs editor <host | --build-dir path | status>
+  cargo nxrs fetch <tls|detector>
+
+Run cargo nxrs platforms to list platform defaults.
+Use --workspace-root <path> before a command to select an Nxrs checkout.
+Run cargo nxrs build --help for build options.
+Run cargo nxrs config --help to edit and check NuttX settings.
+NuttX signed profiles require the existing signing-key, verification-root, version and counter inputs."
+}
+fn config_usage() -> &'static str {
+    "usage:
+  cargo nxrs config [selection flags]
+  cargo nxrs config check [selection flags]
+  cargo nxrs config show [selection flags]
+  cargo nxrs config explain CONFIG_SYMBOL [selection flags]
+  cargo nxrs config recover
+
+Commands:
+  config                     Open the terminal editor; choose missing selections
+  check                      Check the effective native NuttX configuration
+  show                       Print the native configuration and explanations as JSON
+  explain CONFIG_SYMBOL      Explain one setting, its dependencies, and its owner
+  recover                    Finish an interrupted configuration-source publication
+
+Selection:
+  --app <app>                Select an application under app/
+  --manifest-path <path>     Select an external or qualification Cargo manifest
+  --bin <bin>                Select a binary target in that manifest
+  --platform <platform>     Select a platform family and its default profile
+  --profile <profile>       Select a specific product or qualification profile
+  --overlay <path>          Apply a device overlay or NuttX .conf; repeat as needed
+  --out <path>              Choose the build directory to prepare on Save & sync
+  --features <features>     Enable Cargo features; repeat as needed
+  --no-default-features     Disable the application's default Cargo features
+
+Examples:
+  cargo nxrs apps
+  cargo nxrs platforms
+  cargo nxrs config --app APP --platform PLATFORM
+  cargo nxrs config check --app APP --platform PLATFORM
+  cargo nxrs config explain CONFIG_DEBUG_ASSERTIONS --app APP --platform PLATFORM
+
+Run from the Nxrs checkout, or pass --workspace-root <path> before config.
+In an app/ directory, config can infer the application. Scripts must provide
+any ambiguous app/platform selections. Selection paths are relative to the root.
+
+Inspection needs the NuttX host tools and pinned kconfiglib==14.1.0. Save & sync
+also needs the target compiler/SDK; it writes the owning fragment or resource
+profile, then refreshes prepared build inputs. Firmware compilation is separate.
+Use the same selection with cargo nxrs build to build the saved configuration.
+See website/guide/profiles.md#configure-nuttx for editing and source ownership.
+Use cargo nxrs build --help for additional build and qualification options."
+}
+fn build_usage() -> &'static str {
+    "usage:
+  cargo nxrs build --app <app> --platform <platform> [options]
+  cargo nxrs build --manifest-path <path> --profile <profile> [options]
+
+Selection:
+  --app <app>                 Select an application under app/
+  --manifest-path <path>      Select a Cargo manifest; --app-manifest is an alias
+  --bin <bin>                 Select a binary target
+  --platform <platform>       Select a platform family and its default profile
+  --profile <profile>         Select a product or qualification profile
+  --overlay <path>            Apply a device overlay or NuttX .conf; repeat as needed
+  --features <features>       Enable Cargo features, separated by commas or spaces;
+                              repeat as needed; --feature is an alias
+  --no-default-features       Disable the application's default Cargo features
+  --out <path>                Override the build output directory
+  --clean                     Discard owned compilation caches before building
+  --dry-run                   Validate selection and print it without building
+
+Browser builds:
+  --html <path>               Supply an HTML template with one __NXRS_SCRIPT__ marker
+  --unmodified-browser-std    Use the unpatched browser standard library
+
+NuttX qualification:
+  --target-c-source <path>    Add a target C source; repeat as needed
+  --kconfig-enable <symbol>   Enable a Kconfig symbol; repeat as needed
+  --kconfig-disable <symbol>  Disable a Kconfig symbol; repeat as needed
+  --kconfig-set NAME=VALUE    Set a literal Kconfig value; repeat as needed
+  --abi-profile <profile>     Select active or minimal ABI checks
+  --size-optimized            Enable size qualification settings
+  --panic-diagnostics        Enable formatted panic reports and full backtraces
+  --trace-only-backtrace      Retain panic reporting with trace-only backtraces
+  --panic-immediate-abort     Abort immediately; requires --trace-only-backtrace
+  --app-package <package>     Check the selected package name
+  --command <command>         Override the firmware command name
+  --priority <priority>       Override the firmware task priority
+  --stack-size <bytes>        Override the firmware task stack size
+
+Paths are relative to the selected Nxrs workspace unless absolute.
+--profile selects an Nxrs configuration; builds use Cargo's release profile."
+}
+fn profile_usage() -> &'static str {
+    "usage:
+  cargo nxrs profile --platform <profile> [--manifest-path <product>] [--overlay <path>] [--target-os <os>]
+  cargo nxrs profile --platform <profile> --capability <capability> --target-os <os>
+
+Manifest paths are relative to the selected Nxrs workspace unless absolute."
+}
+fn applications(root: &Path) -> Result<()> {
+    let mut names = vec![];
+    for entry in fs::read_dir(root.join("app")).map_err(|e| e.to_string())? {
+        let entry = entry.map_err(|e| e.to_string())?;
+        let directory = entry.path();
+        if !fs::metadata(&directory)
+            .map_err(|e| format!("{}: {e}", directory.display()))?
+            .is_dir()
+        {
+            continue;
+        }
+        let manifest = directory.join("Cargo.toml");
+        if manifest
+            .try_exists()
+            .map_err(|e| format!("{}: {e}", manifest.display()))?
+        {
+            App::load(&manifest, None)
+                .map_err(|e| format!("invalid application {}: {e}", manifest.display()))?;
+            names.push(entry.file_name());
+        }
+    }
+    names.sort();
+    for name in names {
+        println!("{}", name.to_string_lossy());
+    }
+    Ok(())
+}
+enum Operation<'a> {
+    Build,
+    Config,
+    Check,
+    Show,
+    Explain(&'a str),
+}
+
+fn build_command(root: &Path, args: &[String]) -> Result<ExitCode> {
+    project_command(root, args, Operation::Build)
+}
+
+fn config_command(root: &Path, args: &[String]) -> Result<ExitCode> {
+    let (operation, flags) = match args {
+        [action, flags @ ..] if action == "check" => (Operation::Check, flags),
+        [action, flags @ ..] if action == "show" => (Operation::Show, flags),
+        [action, symbol, flags @ ..] if action == "explain" => (Operation::Explain(symbol), flags),
+        [action] if action == "explain" => {
+            return Err(format!(
+                "config explain requires a CONFIG_SYMBOL\n{}",
+                config_usage()
+            ));
+        }
+        [action] if action == "recover" => {
+            nxrs_build_support::source_transaction::recover(root)?;
+            return Ok(ExitCode::SUCCESS);
+        }
+        _ => (Operation::Config, args),
+    };
+    project_command(root, flags, operation)
+}
+
+fn nuttx_platforms(root: &Path) -> Result<Vec<String>> {
+    let mut choices = Vec::new();
+    for (platform, name) in platform_defaults(root)? {
+        let profile = Profile::resolve(root, &name)
+            .map_err(|error| format!("cannot inspect platform {platform}: {error}"))?;
+        if profile.data.get("board").is_some() {
+            choices.push(platform);
+        }
+    }
+    Ok(choices)
+}
+
+fn project_command(root: &Path, args: &[String], operation: Operation<'_>) -> Result<ExitCode> {
+    let (mut app, mut manifest, mut platform, mut profile, mut out, mut bin) =
+        (None, None, None, None, None, None);
+    let mut options = Options::default();
+    let mut overlays = Vec::new();
+    let mut html = None;
+    let mut web_fix = true;
+    let mut dry = false;
+    let mut args = args.iter();
+    let mut expected_package = None;
+    let mut command = None;
+    let mut priority = None;
+    let mut stack = None;
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "--html" => html = Some(root.join(args.next().ok_or("missing HTML template")?)),
+            "--unmodified-browser-std" => web_fix = false,
+            "--dry-run" => dry = true,
+            "--size-optimized" => options.size = true,
+            "--trace-only-backtrace" => options.trace = true,
+            "--panic-immediate-abort" => options.immediate = true,
+            "--panic-diagnostics" => options.panic_diagnostics = true,
+            "--app" => app = Some(args.next().ok_or("missing --app")?.clone()),
+            "--manifest-path" | "--app-manifest" => {
+                manifest = Some(PathBuf::from(args.next().ok_or("missing manifest path")?))
+            }
+            "--platform" => platform = Some(args.next().ok_or("missing --platform")?.clone()),
+            "--profile" => profile = Some(args.next().ok_or("missing --profile")?.clone()),
+            "--overlay" => overlays.push(PathBuf::from(args.next().ok_or("missing overlay path")?)),
+            "--out" => out = Some(root.join(args.next().ok_or("missing output path")?)),
+            "--bin" => bin = Some(args.next().ok_or("missing binary")?.clone()),
+            "--feature" | "--features" => {
+                let list = args.next().ok_or("missing Cargo feature list")?;
+                let features: Vec<_> = list
+                    .split(|c: char| c == ',' || c.is_whitespace())
+                    .filter(|feature| !feature.is_empty())
+                    .map(str::to_owned)
+                    .collect();
+                if features.is_empty() {
+                    return Err("missing Cargo feature list".into());
+                }
+                options.features.extend(features);
+            }
+            "--no-default-features" => options.no_default_features = true,
+            "--clean" => options.clean = true,
+            "--target-c-source" => options
+                .helpers
+                .push(root.join(args.next().ok_or("missing helper source")?)),
+            "--kconfig-enable" => options
+                .enable
+                .push(args.next().ok_or("missing symbol")?.clone()),
+            "--kconfig-disable" => options
+                .disable
+                .push(args.next().ok_or("missing symbol")?.clone()),
+            "--kconfig-set" => options
+                .set
+                .push(args.next().ok_or("missing Kconfig assignment")?.clone()),
+            "--abi-profile" => {
+                options.abi = Some(args.next().ok_or("missing ABI profile")?.clone())
+            }
+            "--app-package" => {
+                expected_package = Some(args.next().ok_or("missing package")?.clone())
+            }
+            "--command" => command = Some(args.next().ok_or("missing command")?.clone()),
+            "--priority" => {
+                priority = Some(
+                    args.next()
+                        .ok_or("missing priority")?
+                        .parse::<u32>()
+                        .map_err(|_| "invalid priority")?,
+                )
+            }
+            "--stack-size" => {
+                stack = Some(
+                    args.next()
+                        .ok_or("missing stack size")?
+                        .parse::<u32>()
+                        .map_err(|_| "invalid stack size")?,
+                )
+            }
+            _ => return Err(format!("unknown build argument {arg}")),
+        }
+    }
+    options.validate()?;
+    if !matches!(operation, Operation::Build) {
+        if app.is_none() && manifest.is_none() {
+            let cwd = env::current_dir().map_err(|e| e.to_string())?;
+            if let Ok(app_path) = cwd.strip_prefix(root.join("app")) {
+                if let Some(entry) = app_path.components().next() {
+                    app = entry.as_os_str().to_str().map(str::to_owned);
+                }
+            }
+            if app.is_none() {
+                let mut choices = fs::read_dir(root.join("app"))
+                    .map_err(|e| e.to_string())?
+                    .filter_map(|entry| entry.ok())
+                    .filter(|entry| entry.path().join("Cargo.toml").is_file())
+                    .filter_map(|entry| entry.file_name().into_string().ok())
+                    .collect::<Vec<_>>();
+                choices.sort();
+                app = Some(config_tui::select(
+                    "application",
+                    "--app",
+                    &choices,
+                    matches!(operation, Operation::Config),
+                )?);
+            }
+        }
+        if platform.is_none() && profile.is_none() {
+            let choices = nuttx_platforms(root)?;
+            platform = Some(config_tui::select(
+                "platform",
+                "--platform",
+                &choices,
+                matches!(operation, Operation::Config),
+            )?);
+        }
+    }
+    let path = match (app, manifest) {
+        (Some(name), None) if build::name(&name) => root.join("app").join(name).join("Cargo.toml"),
+        (None, Some(p)) => {
+            if p.is_absolute() {
+                p
+            } else {
+                root.join(p)
+            }
+        }
+        _ => return Err("choose one --app or --manifest-path".into()),
+    };
+    let mut app = App::load(&path, bin.as_deref())?;
+    if expected_package.is_some_and(|s| s != app.package) {
+        return Err("requested package differs from selected manifest".into());
+    }
+    if let Some(s) = command {
+        if !build::name(&s) {
+            return Err("invalid command".into());
+        }
+        app.command = s;
+    }
+    if let Some(n) = priority {
+        if n == 0 {
+            return Err("priority must be positive".into());
+        }
+        app.priority = n;
+    }
+    if let Some(n) = stack {
+        if n == 0 {
+            return Err("stack size must be positive".into());
+        }
+        app.stack = n;
+    }
+    let profile = if let Some(platform) = platform {
+        build::selection_for_manifest(
+            root,
+            &platform,
+            profile.as_deref(),
+            &overlays,
+            Some(&app.manifest),
+        )?
+    } else {
+        Profile::resolve_for_manifest(
+            root,
+            profile
+                .as_deref()
+                .ok_or("choose a --platform or explicit qualification --profile")?,
+            &overlays,
+            Some(&app.manifest),
+        )?
+    };
+    let os = if profile.data.get("board").is_some() {
+        "nuttx"
+    } else if profile.data["execution"] == "web" {
+        "emscripten"
+    } else {
+        env::consts::OS
+    };
+    options.validate_for_backend(os)?;
+    if os == "nuttx" {
+        nxrs_build::nuttx_config::validate_overrides(&profile, &app, &options)?;
+    }
+    if os != "emscripten" && (html.is_some() || !web_fix) {
+        return Err("browser switches require a web profile".into());
+    }
+    let evidence = nxrs_build::deployment::validate(root, &app.manifest, &profile, os)?;
+    let out = out.unwrap_or_else(|| {
+        root.join("target/build")
+            .join(&app.bin)
+            .join(profile.name())
+    });
+    if !matches!(operation, Operation::Build) {
+        if os != "nuttx" || dry {
+            return Err("config requires a NuttX profile and native resolution".into());
+        }
+        if matches!(operation, Operation::Config) {
+            let session = nxrs_build::config_edit::Session::new(
+                root.to_path_buf(),
+                app,
+                profile,
+                out,
+                options,
+            )?;
+            config_tui::run(session, |session| {
+                editor::refresh(&session.root, &session.out)
+            })?;
+            return Ok(ExitCode::SUCCESS);
+        }
+        let report = nxrs_build::nuttx::inspect_config(root, &app, &profile, &options)?;
+        match operation {
+            Operation::Check => {
+                nxrs_build::nuttx_config::check_report(&report)?;
+                println!(
+                    "{}: {} passes native olddefconfig ({})",
+                    app.bin,
+                    profile.name(),
+                    report["backend"].as_str().unwrap_or("Kconfig")
+                );
+            }
+            Operation::Show => {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&report).map_err(|e| e.to_string())?
+                );
+                nxrs_build::nuttx_config::check_report(&report)?;
+            }
+            Operation::Explain(name) => {
+                let key = name.strip_prefix("CONFIG_").unwrap_or(name);
+                let symbol = report["symbols"]
+                    .get(key)
+                    .ok_or_else(|| format!("unknown Kconfig symbol {name}"))?;
+                println!("{}", config_tui::describe(key, symbol));
+                nxrs_build::nuttx_config::check_report(&report)?;
+            }
+            Operation::Build | Operation::Config => unreachable!(),
+        }
+        return Ok(ExitCode::SUCCESS);
+    }
+    if dry {
+        println!("{}",serde_json::to_string_pretty(&serde_json::json!({"deployment":evidence,"output":out,"backend":os,"bin":app.bin,"command":app.command,"kconfig_overrides":options.kconfig()?})).unwrap());
+        return Ok(ExitCode::SUCCESS);
+    }
+    match os {
+        "nuttx" => nxrs_build::nuttx::build(root, &app, &profile, &out, &options)?,
+        "emscripten" => nxrs_build::web::build(
+            root,
+            &app,
+            &profile,
+            &out,
+            &options,
+            html.as_deref(),
+            web_fix,
+        )?,
+        _ => build::host(root, &app, &profile, &out, &options)?,
+    };
+    Ok(ExitCode::SUCCESS)
+}
+fn profile_command(root: &Path, args: &[String]) -> Result<ExitCode> {
+    let mut name = None;
+    let mut os = None;
+    let mut capability = None;
+    let mut overlays = Vec::new();
+    let mut manifest = None;
+    let mut args = args.iter();
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "--platform" => name = Some(args.next().ok_or("missing --platform value")?),
+            "--target-os" => os = Some(args.next().ok_or("missing --target-os value")?),
+            "--capability" => capability = Some(args.next().ok_or("missing --capability value")?),
+            "--overlay" => overlays.push(PathBuf::from(args.next().ok_or("missing overlay path")?)),
+            "--manifest-path" => {
+                manifest = Some(root.join(args.next().ok_or("missing --manifest-path value")?));
+            }
+            _ => return Err(format!("unknown profile argument {arg}")),
+        }
+    }
+    let name = profile_or_default(root, name.ok_or("profile requires --platform")?)?;
+    let profile = Profile::resolve_for_manifest(root, &name, &overlays, manifest.as_deref())?;
+    if let Some(os) = os {
+        profile.validate_target(os)?;
+    }
+    if let Some(capability) = capability {
+        for line in profile.cargo_output(
+            root,
+            capability,
+            os.ok_or("--capability requires --target-os")?,
+        )? {
+            println!("{line}");
+        }
+    } else {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&profile.json()?).map_err(|error| error.to_string())?
+        );
+    }
+    Ok(ExitCode::SUCCESS)
+}
+
+fn run() -> Result<ExitCode> {
+    let mut raw = env::args_os()
+        .skip(1)
+        .map(|arg| {
+            arg.into_string()
+                .map_err(|_| "arguments must be valid UTF-8".to_owned())
+        })
+        .collect::<Result<Vec<_>>>()?;
+    if env::current_exe()
+        .map_err(|e| e.to_string())?
+        .file_stem()
+        .is_some_and(|s| s == "nxrs-nuttx-link")
+    {
+        nxrs_build::linker::link(&raw)?;
+        return Ok(ExitCode::SUCCESS);
+    }
+    if raw.first().is_some_and(|s| s == "nuttx-link") {
+        nxrs_build::linker::link(&raw[1..])?;
+        return Ok(ExitCode::SUCCESS);
+    }
+    let requested_root = if raw.first().is_some_and(|s| s == "--workspace-root") {
+        let path = raw.get(1).ok_or("missing workspace root")?;
+        let root = PathBuf::from(path);
+        raw.drain(..2);
+        Some(root)
+    } else {
+        None
+    };
+    let command = raw.first().map(String::as_str).unwrap_or("--help");
+    let help = match command {
+        "-h" | "--help" => Some(usage()),
+        "build" | "nuttx-build" if raw[1..].iter().any(|s| s == "-h" || s == "--help") => {
+            Some(build_usage())
+        }
+        "profile" if raw[1..].iter().any(|s| s == "-h" || s == "--help") => Some(profile_usage()),
+        "config"
+            if raw[1..].iter().any(|s| s == "-h" || s == "--help")
+                || raw.get(1).is_some_and(|s| s == "help") =>
+        {
+            Some(config_usage())
+        }
+        _ => None,
+    };
+    if let Some(help) = help {
+        println!("{help}");
+        return Ok(ExitCode::SUCCESS);
+    }
+    let root = match requested_root {
+        Some(path) => path.canonicalize().map_err(|e| e.to_string())?,
+        None => workspace_root()?,
+    };
+    match command {
+        "platforms" | "--list-platforms" => {
+            for name in platform_defaults(&root)?.keys() {
+                println!("{name}");
+            }
+        }
+        "apps" | "--list-apps" => applications(&root)?,
+        "inspect-profile" => {
+            let request =
+                nxrs_build::json::from_reader(std::io::stdin()).map_err(|e| e.to_string())?;
+            println!("{}", nxrs_build::inspect::query(request)?);
+        }
+        "profile" => return profile_command(&root, &raw[1..]),
+        "editor" => editor::select(&root, &raw[1..])?,
+        "build" => return build_command(&root, &raw[1..]),
+        "config" => return config_command(&root, &raw[1..]),
+        "nuttx-build" => {
+            let args: Vec<_> = raw[1..]
+                .iter()
+                .map(|s| {
+                    if s == "--platform" {
+                        "--profile".into()
+                    } else {
+                        s.clone()
+                    }
+                })
+                .collect();
+            return build_command(&root, &args);
+        }
+        "check"
+        | "prepare-std"
+        | "patch-source"
+        | "stamp-version"
+        | "sign"
+        | "prepare-radio"
+        | "hal-native"
+        | "copy-hal-cache"
+        | "build-loader"
+        | "detector-sdk"
+        | "patch-file"
+        | "factory"
+        | "prepare-browser-std" => nxrs_build::commands::run(&root, command, &raw[1..])?,
+        "fetch" if raw.get(1).map(String::as_str) == Some("detector") => {
+            let mut destination = root.join("target/pico-sdk");
+            let mut checkout = None;
+            let mut args = raw[2..].iter();
+            while let Some(arg) = args.next() {
+                match arg.as_str() {
+                    "--out" => {
+                        destination = PathBuf::from(args.next().ok_or("missing SDK destination")?)
+                    }
+                    "--checkout" => {
+                        checkout = Some(PathBuf::from(args.next().ok_or("missing SDK checkout")?))
+                    }
+                    _ => return Err(format!("unknown fetch argument {arg}")),
+                }
+            }
+            nxrs_build::source::prepare_inventory(
+                &root.join("upstream/esp-dl/source.json"),
+                &root.join("upstream/esp-dl/port.patch"),
+                &destination,
+                checkout.as_deref(),
+            )?;
+        }
+        "fetch" if raw.get(1).map(String::as_str) == Some("tls") => {
+            let pin = nxrs_build::read_json(&root.join("upstream/mbedtls/source.json"))?;
+            let default = root.join("target").join(format!(
+                "mbedtls-{}.tar.bz2",
+                pin["version"].as_str().ok_or("invalid TLS version")?
+            ));
+            let path = match &raw[2..] {
+                [] => default,
+                [flag, path] if flag == "--out" => PathBuf::from(path),
+                _ => return Err("usage: cargo nxrs fetch tls [--out path]".into()),
+            };
+            nxrs_build::fetch_verified(
+                pin["url"].as_str().ok_or("invalid source URL")?,
+                pin["sha256"].as_str().ok_or("invalid source hash")?,
+                pin["size"].as_u64().ok_or("invalid source size")?,
+                &path,
+            )?;
+            println!("{}", path.display());
+        }
+        _ if command.starts_with("--") => return build_command(&root, &raw),
+        _ => return Err(format!("unknown command {command}\n{}", usage())),
+    }
+    Ok(ExitCode::SUCCESS)
+}
+fn main() -> ExitCode {
+    match run() {
+        Ok(code) => code,
+        Err(e) => {
+            eprintln!("cargo nxrs: {e}");
+            ExitCode::FAILURE
+        }
+    }
+}

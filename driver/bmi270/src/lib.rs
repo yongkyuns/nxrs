@@ -1,21 +1,25 @@
 //! Reusable BMI270 protocol driver. No OS, device paths or service scheduling.
-#![no_std]
 #![forbid(unsafe_code)]
-#[cfg(test)]
-extern crate std;
 
-use bmi2::{types::*, Bmi2, I2cAddr};
+mod imu;
 
-use embedded_hal::{delay::DelayNs, i2c::I2c};
+use bmi2::types::*;
+mod transport;
+use transport::Registers;
+pub use transport::{I2cBus, SpiBus};
 
-const BURST: u16 = 32;
+use embedded_hal::{delay::DelayNs, i2c::I2c, spi::SpiDevice};
+
+const CONFIG_CHUNK: usize = 30;
 const FRAME_BYTES: u16 = 12;
 // One complete frame is enough to raise a FIFO watermark interrupt.
 const WATERMARK_BYTES: u16 = FRAME_BYTES;
-pub struct Bmi270<B: I2c, D: DelayNs> {
-    bus: B,
+pub type Bmi270<B, D> = Device<I2cBus<B>, D>;
+pub type Bmi270Spi<S, D> = Device<SpiBus<S>, D>;
+
+pub struct Device<T, D> {
+    io: T,
     delay: D,
-    address: I2cAddr,
     config: Config,
     reference_enabled: bool,
 }
@@ -26,6 +30,15 @@ pub struct Config {
     pub rate: Rate,
     pub accel_range: AccelRange,
     pub gyro_range: GyroRange,
+}
+
+impl Config {
+    fn counts_scale(self) -> [f32; 2] {
+        [
+            9.80665 * self.accel_range.full_scale_g() / 32768.0,
+            core::f32::consts::PI / 180.0 * self.gyro_range.full_scale_dps() / 32768.0,
+        ]
+    }
 }
 
 impl Default for Config {
@@ -47,6 +60,18 @@ pub enum Rate {
 }
 
 impl Rate {
+    /// Paired accelerometer/gyroscope rates supported by this driver's FIFO setup.
+    pub const SUPPORTED: [Self; 4] = [Self::Hz25, Self::Hz50, Self::Hz100, Self::Hz200];
+
+    pub const fn milli_hz(self) -> u32 {
+        match self {
+            Self::Hz25 => 25_000,
+            Self::Hz50 => 50_000,
+            Self::Hz100 => 100_000,
+            Self::Hz200 => 200_000,
+        }
+    }
+
     const fn odr(self) -> Odr {
         match self {
             Self::Hz25 => Odr::Odr25,
@@ -66,6 +91,17 @@ pub enum AccelRange {
 }
 
 impl AccelRange {
+    /// Resolve an exact full scale in multiples of standard gravity.
+    pub const fn from_g(value: u16) -> Option<Self> {
+        match value {
+            2 => Some(Self::G2),
+            4 => Some(Self::G4),
+            8 => Some(Self::G8),
+            16 => Some(Self::G16),
+            _ => None,
+        }
+    }
+
     const fn register(self) -> AccRange {
         match self {
             Self::G2 => AccRange::Range2g,
@@ -95,6 +131,18 @@ pub enum GyroRange {
 }
 
 impl GyroRange {
+    /// Resolve an exact full scale in degrees per second.
+    pub const fn from_dps(value: u16) -> Option<Self> {
+        match value {
+            125 => Some(Self::Dps125),
+            250 => Some(Self::Dps250),
+            500 => Some(Self::Dps500),
+            1000 => Some(Self::Dps1000),
+            2000 => Some(Self::Dps2000),
+            _ => None,
+        }
+    }
+
     const fn register(self) -> GyrRangeVal {
         match self {
             Self::Dps125 => GyrRangeVal::Range125,
@@ -116,9 +164,6 @@ impl GyroRange {
     }
 }
 
-// Retained for consumers that use the driver's established default cadence.
-// BMI270 ODR codes double the rate per step (code 8 = 100 Hz).
-pub const SAMPLE_INTERVAL_US: u32 = 2_560_000 >> (Odr::Odr100 as u8);
 /// Failures from BMI270 protocol operations, independent of any capability HAL.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Error {
@@ -128,160 +173,127 @@ pub enum Error {
     Overflow,
 }
 
-/// One decoded physical observation. Timing and delivery sequence belong to the consumer.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct Sample {
-    pub accel_mps2: [f32; 3],
-    pub gyro_rps: [f32; 3],
-}
+/// One decoded physical observation, without host timing or delivery metadata.
+pub use peripheral::imu::Measurement as Sample;
 
-fn error<E>(error: bmi2::types::Error<E>) -> Error {
-    match error {
-        bmi2::types::Error::Comm(_) => Error::Bus,
-        _ => Error::InvalidData,
-    }
-}
 impl<B: I2c, D: DelayNs> Bmi270<B, D> {
     pub fn open(bus: B, address: u8, delay: D) -> Result<Self, Error> {
         Self::open_configured(bus, address, delay, Config::default())
     }
-
-    pub fn open_configured(
-        mut bus: B,
-        address: u8,
-        mut delay: D,
-        config: Config,
-    ) -> Result<Self, Error> {
-        let address = match address {
-            0x68 => I2cAddr::Default,
-            0x69 => I2cAddr::Alternative,
-            _ => return Err(Error::InvalidData),
+    pub fn open_configured(bus: B, address: u8, delay: D, config: Config) -> Result<Self, Error> {
+        Self::from_interface(I2cBus::new(bus, address)?, delay, config)
+    }
+}
+impl<S: SpiDevice, D: DelayNs> Bmi270Spi<S, D> {
+    pub fn open_spi(device: S, delay: D, config: Config) -> Result<Self, Error> {
+        Self::from_interface(SpiBus::new(device), delay, config)
+    }
+}
+impl<T: Registers, D: DelayNs> Device<T, D> {
+    pub fn from_interface(io: T, delay: D, config: Config) -> Result<Self, Error> {
+        let mut sensor = Self {
+            io,
+            delay,
+            config,
+            reference_enabled: false,
         };
-        {
-            let mut setup =
-                Bmi2::<_, _, 64>::new_i2c(&mut bus, &mut delay, address, Burst::new(BURST));
-            if setup.get_chip_id().map_err(error)? != 0x24 {
-                return Err(Error::InvalidData);
-            }
-            setup
-                .init(&bmi2::config::BMI270_CONFIG_FILE)
-                .map_err(error)?;
+        sensor.initialize()?;
+        Ok(sensor)
+    }
+    fn write(&mut self, register: u8, bytes: &[u8]) -> Result<(), Error> {
+        self.io.write(register, bytes)?;
+        // SPI requires a write-to-next-access gap even with power save disabled.
+        if T::WRITE_DELAY_NS != 0 {
+            self.delay.delay_ns(T::WRITE_DELAY_NS);
         }
-        // bmi2 0.1.2 checks only INTERNAL_STATUS bit0 in init(). Require the
-        // exact InitOk byte; avoid its enum decoders, which panic on reserved data.
-        let mut status = [0];
-        bus.write_read(address.addr(), &[0x21], &mut status)
-            .map_err(|_| Error::Bus)?;
-        if status != [1] {
+        Ok(())
+    }
+    fn write_reg(&mut self, register: u8, value: u8) -> Result<(), Error> {
+        self.write(register, &[value])
+    }
+    fn initialize(&mut self) -> Result<(), Error> {
+        self.io.initialize()?;
+        if self.io.read_reg(0)? != 0x24 {
             return Err(Error::InvalidData);
         }
-        let mut driver =
-            Bmi2::<_, _, 64>::new_i2c(&mut bus, &mut delay, address, Burst::new(BURST));
-        driver.disable_power_save().map_err(error)?;
-        driver
-            .set_acc_range(config.accel_range.register())
-            .map_err(error)?;
-        driver
-            .set_gyr_range(GyrRange {
-                range: config.gyro_range.register(),
-                ois_range: OisRange::Range2000,
-            })
-            .map_err(error)?;
-        driver
-            .set_acc_conf(AccConf {
-                odr: config.rate.odr(),
-                bwp: AccBwp::NormAvg4,
-                filter_perf: PerfMode::Perf,
-            })
-            .map_err(error)?;
-        driver
-            .set_gyr_conf(GyrConf {
-                odr: config.rate.odr(),
-                bwp: GyrBwp::Norm,
-                noise_perf: PerfMode::Perf,
-                filter_perf: PerfMode::Perf,
-            })
-            .map_err(error)?;
-        driver
-            .set_pwr_ctrl(PwrCtrl {
-                aux_en: false,
-                gyr_en: true,
-                acc_en: true,
-                temp_en: false,
-            })
-            .map_err(error)?;
-        // Startup is bounded initialization, not a periodic acquisition path.
-        // Different accel/gyro startup times must not enter a headerless FIFO.
+        self.write_reg(0x7e, 0xb6)?;
+        self.delay.delay_us(2_000);
+        self.io.initialize()?; // Soft reset also resets SPI selection.
+        let power = self.io.read_reg(0x7c)? & !1;
+        self.write_reg(0x7c, power)?;
+        self.delay.delay_us(450);
+        self.write_reg(0x59, 0)?;
+        // Keep the pinned Bosch image and bounded, even-sized chunks. Wire
+        // framing is ours; bmi2 0.1.2's SPI read/write framing is not used.
+        for (index, chunk) in bmi2::config::BMI270_CONFIG_FILE
+            .chunks(CONFIG_CHUNK)
+            .enumerate()
+        {
+            let word = (index * CONFIG_CHUNK / 2) as u16;
+            self.write(0x5b, &[(word & 0x0f) as u8, (word >> 4) as u8])?;
+            self.write(0x5e, chunk)?;
+            self.delay.delay_us(2);
+        }
+        self.write_reg(0x59, 1)?;
+        self.delay.delay_us(20_000);
+        if self.io.read_reg(0x21)? != 1 {
+            return Err(Error::InvalidData);
+        }
+        let config = self.config;
+        for (register, value) in [
+            (0x41, config.accel_range.register() as u8),
+            (0x43, config.gyro_range.register() as u8 | 0x08),
+            (
+                0x40,
+                AccConf {
+                    odr: config.rate.odr(),
+                    bwp: AccBwp::NormAvg4,
+                    filter_perf: PerfMode::Perf,
+                }
+                .to_reg(),
+            ),
+            (
+                0x42,
+                GyrConf {
+                    odr: config.rate.odr(),
+                    bwp: GyrBwp::Norm,
+                    noise_perf: PerfMode::Perf,
+                    filter_perf: PerfMode::Perf,
+                }
+                .to_reg(),
+            ),
+            (0x7d, 0x06),
+        ] {
+            self.write_reg(register, value)?;
+        }
         let mut ready = false;
         for _ in 0..100 {
-            let mut startup =
-                Bmi2::<_, _, 64>::new_i2c(&mut bus, &mut delay, address, Burst::new(BURST));
-            let status = startup.get_status().map_err(error)?;
-            if status.acc_data_ready && status.gyr_data_ready {
+            if self.io.read_reg(0x03)? & 0xc0 == 0xc0 {
                 ready = true;
                 break;
             }
-            delay.delay_ms(1);
+            self.delay.delay_ms(1);
         }
         if !ready {
             return Err(Error::Timeout);
         }
-        let mut driver =
-            Bmi2::<_, _, 64>::new_i2c(&mut bus, &mut delay, address, Burst::new(BURST));
-        driver
-            .set_fifo_downs(FifoDowns {
-                gyr_downs: 0,
-                gyr_filt_data: FilterData::Filtered,
-                acc_downs: 0,
-                acc_filt_data: FilterData::Filtered,
-            })
-            .map_err(error)?;
-        driver
-            .set_fifo_conf(FifoConf {
-                stop_on_full: true,
-                time_enable: false,
-                tag_int1_en: FifoTagIntEnable::IntEdge,
-                tag_int2_en: FifoTagIntEnable::IntEdge,
-                header_enable: false,
-                aux_enable: false,
-                acc_enable: true,
-                gyr_enable: true,
-            })
-            .map_err(error)?;
-        driver.set_fifo_wtm(WATERMARK_BYTES).map_err(error)?;
-        driver.send_cmd(Cmd::FifoFlush).map_err(error)?;
-        driver.set_int_latch(IntLatch::None).map_err(error)?;
-        driver
-            .set_int1_io_ctrl(IntIoCtrl {
-                level: OutputLevel::ActiveHigh,
-                od: OutputBehavior::PushPull,
-                output_en: true,
-                input_en: false,
-            })
-            .map_err(error)?;
-        driver
-            .set_int_map_data(IntMapData {
-                int1: MapData {
-                    ffull: true,
-                    fwm: true,
-                    drdy: false,
-                    err: true,
-                },
-                int2: MapData {
-                    ffull: false,
-                    fwm: false,
-                    drdy: false,
-                    err: false,
-                },
-            })
-            .map_err(error)?;
-        // Decoder assumptions must match the configuration actually accepted.
+        for (register, value) in [
+            (0x45, 0x88),
+            (0x48, 1),
+            (0x49, 0xc0),
+            (0x46, WATERMARK_BYTES as u8),
+            (0x47, (WATERMARK_BYTES >> 8) as u8),
+            (0x7e, 0xb0),
+            (0x55, 0),
+            (0x53, 0x0a),
+            (0x58, 0x0b),
+        ] {
+            self.write_reg(register, value)?;
+        }
         for (register, expected, mask) in [
             (0x40, config.rate.odr() as u8, 0x0f),
             (0x42, config.rate.odr() as u8, 0x0f),
             (0x41, config.accel_range.register() as u8, 0x03),
-            // The pinned bmi2 decoder masks away the valid 125 dps code (4).
-            // Read the physical range and unchanged OIS setting from the register.
             (0x43, config.gyro_range.register() as u8 | 0x08, 0x0f),
             (0x45, 0x88, 0xff),
             (0x46, WATERMARK_BYTES as u8, 0xff),
@@ -292,109 +304,48 @@ impl<B: I2c, D: DelayNs> Bmi270<B, D> {
             (0x55, 0, 1),
             (0x58, 0x0b, 0xff),
         ] {
-            let mut value = [0];
-            bus.write_read(address.addr(), &[register], &mut value)
-                .map_err(|_| Error::Bus)?;
-            if value[0] & mask != expected {
+            if self.io.read_reg(register)? & mask != expected {
                 return Err(Error::InvalidData);
             }
         }
-        Ok(Self {
-            bus,
-            delay,
-            address,
-            config,
-            reference_enabled: false,
-        })
+        Ok(())
     }
 
     /// Route the shared accelerometer and gyroscope data-ready signal to INT2.
     /// Call `stop` if setup fails after accessing the sensor.
     pub fn enable_sensor_reference(&mut self) -> Result<(), Error> {
-        // Once the first write is attempted, the ordinary stop path owns cleanup.
         self.reference_enabled = true;
-        let mut driver = Bmi2::<_, _, 64>::new_i2c(
-            &mut self.bus,
-            &mut self.delay,
-            self.address,
-            Burst::new(BURST),
-        );
-        let map = driver.get_int_map_data().map_err(error)?.to_reg() | IntMapDataMask::DRDY_INT2;
-        driver
-            .set_int_map_data(IntMapData::from_reg(map))
-            .map_err(error)?;
-        let pin = IntIoCtrl {
-            level: OutputLevel::ActiveHigh,
-            od: OutputBehavior::PushPull,
-            output_en: true,
-            input_en: false,
-        };
-        let pin_config = pin.to_reg();
-        driver
-            .set_int2_io_ctrl(IntIoCtrl::from_reg(pin_config))
-            .map_err(error)?;
-        if driver.get_int_map_data().map_err(error)?.to_reg() != map
-            || driver.get_int2_io_ctrl().map_err(error)?.to_reg() != pin_config
-        {
+        let map = self.io.read_reg(0x58)? | 0xc0;
+        self.write_reg(0x58, map)?;
+        self.write_reg(0x54, 0x0a)?;
+        if self.io.read_reg(0x58)? != map || self.io.read_reg(0x54)? != 0x0a {
             return Err(Error::InvalidData);
         }
         Ok(())
     }
     pub fn stop(&mut self) -> Result<(), Error> {
-        let reference_enabled = self.reference_enabled;
-        let mut driver = Bmi2::<_, _, 64>::new_i2c(
-            &mut self.bus,
-            &mut self.delay,
-            self.address,
-            Burst::new(BURST),
-        );
-        let reference_stopped = if reference_enabled {
-            let stopped = driver
-                .set_int2_io_ctrl(IntIoCtrl {
-                    level: OutputLevel::ActiveHigh,
-                    od: OutputBehavior::PushPull,
-                    output_en: false,
-                    input_en: false,
-                })
-                .map_err(error)
-                .and_then(|()| {
-                    let pin = driver.get_int2_io_ctrl().map_err(error)?;
-                    if pin.output_en || pin.input_en {
-                        return Err(Error::InvalidData);
-                    }
+        let reference = self.reference_enabled;
+        let reference_stopped = if reference {
+            self.write_reg(0x54, 0x02).and_then(|()| {
+                if self.io.read_reg(0x54)? & 0x18 != 0 {
+                    Err(Error::InvalidData)
+                } else {
                     Ok(())
-                });
-            if stopped.is_ok() {
-                self.reference_enabled = false;
-            }
-            stopped
+                }
+            })
         } else {
             Ok(())
         };
-        driver
-            .set_int_map_data(IntMapData::from_reg(0))
-            .map_err(error)?;
-        driver
-            .set_int1_io_ctrl(IntIoCtrl {
-                level: OutputLevel::ActiveHigh,
-                od: OutputBehavior::PushPull,
-                output_en: false,
-                input_en: false,
-            })
-            .map_err(error)?;
-        driver
-            .set_pwr_ctrl(PwrCtrl {
-                aux_en: false,
-                gyr_en: false,
-                acc_en: false,
-                temp_en: false,
-            })
-            .map_err(error)?;
-        let state = driver.get_pwr_ctrl().map_err(error)?;
-        if state.aux_en || state.gyr_en || state.acc_en || state.temp_en {
+        if reference_stopped.is_ok() {
+            self.reference_enabled = false;
+        }
+        self.write_reg(0x58, 0)?;
+        self.write_reg(0x53, 0x02)?;
+        self.write_reg(0x7d, 0)?;
+        if self.io.read_reg(0x7d)? & 0x0f != 0 {
             return Err(Error::Bus);
         }
-        if reference_enabled && driver.get_int_map_data().map_err(error)?.to_reg() != 0 {
+        if reference && self.io.read_reg(0x58)? != 0 {
             return Err(Error::InvalidData);
         }
         reference_stopped
@@ -403,9 +354,7 @@ impl<B: I2c, D: DelayNs> Bmi270<B, D> {
     /// Drain after an IRQ or ODR-derived wake. FIFO contents alone admit samples.
     pub fn drain(&mut self, mut emit: impl FnMut(Sample) -> bool) -> Result<Option<usize>, Error> {
         let mut status = [0];
-        self.bus
-            .write_read(self.address.addr(), &[0x1d], &mut status)
-            .map_err(|_| Error::Bus)?;
+        self.io.read(0x1d, &mut status)?;
         if status[0] & 1 != 0 {
             return Err(Error::Overflow);
         }
@@ -413,9 +362,7 @@ impl<B: I2c, D: DelayNs> Bmi270<B, D> {
             return Err(Error::Bus);
         }
         let mut length = [0; 2];
-        self.bus
-            .write_read(self.address.addr(), &[0x24], &mut length)
-            .map_err(|_| Error::Bus)?;
+        self.io.read(0x24, &mut length)?;
         let count = usize::from(u16::from_le_bytes(length));
         // Headerless frames contain gyro XYZ followed by accel XYZ (12 bytes).
         // Equal ODR, no auxiliary data/tags/time, and no downsampling are required.
@@ -424,14 +371,10 @@ impl<B: I2c, D: DelayNs> Bmi270<B, D> {
         }
         let mut remaining = count;
         let mut bytes = [0; 60];
-        let accel = 9.80665 * self.config.accel_range.full_scale_g() / 32768.0;
-        let gyro =
-            core::f32::consts::PI / 180.0 * self.config.gyro_range.full_scale_dps() / 32768.0;
+        let [accel, gyro] = self.config.counts_scale();
         while remaining != 0 {
             let n = remaining.min(bytes.len());
-            self.bus
-                .write_read(self.address.addr(), &[0x26], &mut bytes[..n])
-                .map_err(|_| Error::Bus)?;
+            self.io.read(0x26, &mut bytes[..n])?;
             for frame in bytes[..n].chunks_exact(12) {
                 let axis = |i| f32::from(i16::from_le_bytes([frame[i], frame[i + 1]]));
                 if !emit(Sample {
@@ -451,6 +394,7 @@ impl<B: I2c, D: DelayNs> Bmi270<B, D> {
 mod tests {
     use super::*;
     use embedded_hal::i2c::{ErrorKind, ErrorType, Operation};
+    use peripheral::imu::Imu as _;
     use std::vec::Vec;
     struct Delay {
         startup_waits: u8,
@@ -560,62 +504,76 @@ mod tests {
         }
         let mut sensor = Bmi270::<_, Delay>::open(Bus::new(), 0x68, Delay::new()).unwrap();
         assert_eq!(sensor.delay.startup_waits, 3);
-        assert_eq!(sensor.bus.registers[0x40] & 0x0f, Odr::Odr100 as u8);
-        assert_eq!(sensor.bus.registers[0x42] & 0x0f, Odr::Odr100 as u8);
-        assert_eq!(sensor.bus.registers[0x41] & 0x03, AccRange::Range4g as u8);
-        assert_eq!(sensor.bus.registers[0x43] & 0x0f, 0x08);
-        assert_eq!(&sensor.bus.registers[0x46..0x48], &[12, 0]);
-        assert_eq!(sensor.bus.registers[0x49], 0xc0);
-        assert_eq!(sensor.bus.registers[0x58], 0x0b); // WM/full/error; no DRDY polling.
+        assert_eq!(sensor.io.bus.registers[0x40] & 0x0f, Odr::Odr100 as u8);
+        assert_eq!(sensor.io.bus.registers[0x42] & 0x0f, Odr::Odr100 as u8);
+        assert_eq!(
+            sensor.io.bus.registers[0x41] & 0x03,
+            AccRange::Range4g as u8
+        );
+        assert_eq!(sensor.io.bus.registers[0x43] & 0x0f, 0x08);
+        assert_eq!(&sensor.io.bus.registers[0x46..0x48], &[12, 0]);
+        assert_eq!(sensor.io.bus.registers[0x49], 0xc0);
+        assert_eq!(sensor.io.bus.registers[0x58], 0x0b); // WM/full/error; no DRDY polling.
         sensor.stop().unwrap();
-        assert_eq!(sensor.bus.registers[0x58], 0);
-        assert_eq!(sensor.bus.registers[0x7d], 0);
+        assert_eq!(sensor.io.bus.registers[0x58], 0);
+        assert_eq!(sensor.io.bus.registers[0x7d], 0);
     }
 
     #[test]
     fn optional_shared_drdy_reference_uses_int2_and_cleans_up() {
         let mut sensor = Bmi270::<_, Delay>::open(Bus::new(), 0x68, Delay::new()).unwrap();
-        assert_eq!(sensor.bus.registers[0x58], 0x0b);
-        assert_eq!(sensor.bus.registers[0x54], 0);
-        sensor.bus.registers[0x58] |= 0x80;
+        assert_eq!(sensor.io.bus.registers[0x58], 0x0b);
+        assert_eq!(sensor.io.bus.registers[0x54], 0);
+        sensor.io.bus.registers[0x58] |= 0x80;
         sensor.enable_sensor_reference().unwrap();
-        assert_eq!(sensor.bus.registers[0x58], 0xcb);
-        assert_eq!(sensor.bus.registers[0x54], 0x0a);
+        assert_eq!(sensor.io.bus.registers[0x58], 0xcb);
+        assert_eq!(sensor.io.bus.registers[0x54], 0x0a);
         sensor.stop().unwrap();
-        assert_eq!(sensor.bus.registers[0x58], 0);
-        assert_eq!(sensor.bus.registers[0x54], 0x02);
+        assert_eq!(sensor.io.bus.registers[0x58], 0);
+        assert_eq!(sensor.io.bus.registers[0x54], 0x02);
     }
 
     #[test]
     fn optional_shared_drdy_reference_readback_failure_is_cleaned_by_stop() {
         let mut sensor = Bmi270::<_, Delay>::open(Bus::new(), 0x68, Delay::new()).unwrap();
-        sensor.bus.mismatch_read = Some((0x58, 0x40));
+        sensor.io.bus.mismatch_read = Some((0x58, 0x40));
         assert_eq!(sensor.enable_sensor_reference(), Err(Error::InvalidData));
-        sensor.bus.mismatch_read = None;
+        sensor.io.bus.mismatch_read = None;
         sensor.stop().unwrap();
-        assert_eq!(sensor.bus.registers[0x58], 0);
-        assert_eq!(sensor.bus.registers[0x54], 0x02);
+        assert_eq!(sensor.io.bus.registers[0x58], 0);
+        assert_eq!(sensor.io.bus.registers[0x54], 0x02);
     }
 
     #[test]
     fn configured_rate_and_ranges_are_read_back_and_used_for_conversion() {
-        let config = Config {
-            rate: Rate::Hz50,
-            accel_range: AccelRange::G8,
-            gyro_range: GyroRange::Dps125,
-        };
+        let (config, applied) = Bmi270::<Bus, Delay>::resolve(peripheral::imu::Config {
+            min_rate_millihz: 30_000,
+            max_rate_millihz: 60_000,
+            accel_range_g: 8,
+            gyro_range_dps: 125,
+            max_delivery_interval_us: 20_000,
+        })
+        .unwrap();
+        assert_eq!(applied.rate_millihz, 50_000);
+        assert_eq!(
+            Bmi270::<Bus, Delay>::BUFFERING,
+            peripheral::imu::Buffering::Fifo
+        );
         let mut sensor =
             Bmi270::<_, Delay>::open_configured(Bus::new(), 0x68, Delay::new(), config).unwrap();
-        assert_eq!(sensor.bus.registers[0x40] & 0x0f, Odr::Odr50 as u8);
-        assert_eq!(sensor.bus.registers[0x42] & 0x0f, Odr::Odr50 as u8);
-        assert_eq!(sensor.bus.registers[0x41] & 0x03, AccRange::Range8g as u8);
-        assert_eq!(sensor.bus.registers[0x43] & 0x0f, 0x0c);
+        assert_eq!(sensor.io.bus.registers[0x40] & 0x0f, Odr::Odr50 as u8);
+        assert_eq!(sensor.io.bus.registers[0x42] & 0x0f, Odr::Odr50 as u8);
+        assert_eq!(
+            sensor.io.bus.registers[0x41] & 0x03,
+            AccRange::Range8g as u8
+        );
+        assert_eq!(sensor.io.bus.registers[0x43] & 0x0f, 0x0c);
         for axis in [0_i16, 0, 16384, 16384, 0, 0] {
-            sensor.bus.fifo.extend_from_slice(&axis.to_le_bytes());
+            sensor.io.bus.fifo.extend_from_slice(&axis.to_le_bytes());
         }
         let mut sample = None;
         assert_eq!(
-            sensor.drain(|value| {
+            sensor.read_available(|value| {
                 sample = Some(value);
                 true
             }),
@@ -644,13 +602,13 @@ mod tests {
             Err(Error::Timeout)
         ));
         let sensor = Bmi270::<_, Delay>::open(Bus::new(), 0x68, Delay::new()).unwrap();
-        assert_eq!(sensor.bus.startup_reads, 4);
+        assert_eq!(sensor.io.bus.startup_reads, 4);
     }
     #[test]
     fn each_available_frame_is_delivered_without_waiting_for_a_batch() {
         let mut sensor = Bmi270::<_, Delay>::open(Bus::new(), 0x68, Delay::new()).unwrap();
         for _ in 1..=3 {
-            sensor.bus.fifo.extend_from_slice(&[0; 12]);
+            sensor.io.bus.fifo.extend_from_slice(&[0; 12]);
             let mut samples = Vec::new();
             assert_eq!(
                 sensor.drain(|sample| {
@@ -672,7 +630,7 @@ mod tests {
         let mut sensor = Bmi270::<_, Delay>::open(Bus::new(), 0x68, Delay::new()).unwrap();
         for _ in 0..7 {
             for axis in [0_i16, 0, 16384, 8192, -8192, 0] {
-                sensor.bus.fifo.extend_from_slice(&axis.to_le_bytes());
+                sensor.io.bus.fifo.extend_from_slice(&axis.to_le_bytes());
             }
         }
         let mut samples = Vec::new();
@@ -694,15 +652,25 @@ mod tests {
     #[test]
     fn overflow_partial_frames_io_and_closed_consumers_are_explicit() {
         let mut sensor = Bmi270::<_, Delay>::open(Bus::new(), 0x68, Delay::new()).unwrap();
-        sensor.bus.registers[0x1d] = 1;
-        assert_eq!(sensor.drain(|_| true), Err(Error::Overflow));
-        sensor.bus.registers[0x1d] = 0;
-        sensor.bus.fifo.push(0);
-        assert_eq!(sensor.drain(|_| true), Err(Error::InvalidData));
-        sensor.bus.fifo.resize(24, 0);
-        sensor.bus.fail_data = true;
-        assert_eq!(sensor.drain(|_| true), Err(Error::Bus));
-        sensor.bus.fail_data = false;
-        assert_eq!(sensor.drain(|_| false), Ok(None));
+        sensor.io.bus.registers[0x1d] = 1;
+        assert_eq!(
+            sensor.read_available(|_| true),
+            Err(peripheral::imu::Error::Overflow)
+        );
+        sensor.io.bus.registers[0x1d] = 0;
+        sensor.io.bus.fifo.push(0);
+        assert_eq!(
+            sensor.read_available(|_| true),
+            Err(peripheral::imu::Error::InvalidData)
+        );
+        sensor.io.bus.fifo.resize(24, 0);
+        sensor.io.bus.fail_data = true;
+        assert_eq!(
+            sensor.read_available(|_| true),
+            Err(peripheral::imu::Error::Io)
+        );
+        sensor.io.bus.fail_data = false;
+        assert_eq!(sensor.read_available(|_| false), Ok(None));
     }
+    include!("spi_tests.rs");
 }

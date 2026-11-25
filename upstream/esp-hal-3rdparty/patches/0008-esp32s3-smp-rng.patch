@@ -1,0 +1,79 @@
+From: nxrs contributors
+Subject: [PATCH] esp32s3: serialize shared RNG sampling across CPUs
+
+The cycle counter is CPU-local. Use an IRQ-safe lock around each SMP
+esp_random() word and wait from the acquiring core's cycle counter. Use a static
+PHY mutex so first-use initialization cannot split RF power and sampling
+across two mutexes.
+
+--- a/components/esp_hw_support/hw_random.c
++++ b/components/esp_hw_support/hw_random.c
+@@ -21,6 +21,11 @@
+ #endif
+ 
+ #include "hal/rtc_timer_hal.h"
++
++#if defined(__NuttX__) && CONFIG_IDF_TARGET_ESP32S3 && defined(CONFIG_SMP)
++#include <nuttx/spinlock.h>
++static DRAM_ATTR spinlock_t s_random_lock = SP_UNLOCKED;
++#endif
+ 
+ #if SOC_RNG_CLOCK_IS_INDEPENDENT
+ #include "hal/lp_clkrst_ll.h"
+@@ -82,7 +87,14 @@
+      */
+     uint32_t cpu_to_apb_freq_ratio = esp_clk_cpu_freq() / esp_clk_apb_freq();
+ 
++#if defined(__NuttX__) && CONFIG_IDF_TARGET_ESP32S3 && defined(CONFIG_SMP)
++    /* CCOUNT is CPU-local. Serialize SDK sampler calls and
++     * start the vendor wait on the CPU that owns this sample. */
++    irqstate_t flags = spin_lock_irqsave_notrace(&s_random_lock);
++    uint32_t last_ccount = esp_cpu_get_cycle_count();
++#else
+     static uint32_t last_ccount = 0;
++#endif
+     uint32_t ccount;
+     uint32_t result = 0;
+     for (size_t i = 0; i < sizeof(result); i++) {
+@@ -95,8 +107,13 @@
+         result ^= (current_rtc_timer_counter << (i * 8));
+ #endif
+     }
++    result ^= REG_READ(WDEV_RND_REG);
++#if defined(__NuttX__) && CONFIG_IDF_TARGET_ESP32S3 && defined(CONFIG_SMP)
++    spin_unlock_irqrestore_notrace(&s_random_lock, flags);
++#else
+     last_ccount = ccount;
+-    return result ^ REG_READ(WDEV_RND_REG);
++#endif
++    return result;
+ #endif // CONFIG_ESP_BRINGUP_BYPASS_RANDOM_SETTING
+ }
+ 
+
+--- a/components/esp_phy/src/phy_init.c
++++ b/components/esp_phy/src/phy_init.c
+@@ -26,6 +26,9 @@
+ #include "esp_private/critical_section.h"
+ #include "esp_check.h"
+ #include "sdkconfig.h"
++#if defined(__NuttX__) && CONFIG_IDF_TARGET_ESP32S3 && defined(CONFIG_SMP)
++#include <nuttx/mutex.h>
++#endif
+ #include "platform/os.h"
+ #include "endian.h"
+ #include "esp_private/phy.h"
+@@ -73,7 +76,13 @@
+ 
+ static const char* TAG = "phy_init";
+ 
++#if defined(__NuttX__) && CONFIG_IDF_TARGET_ESP32S3 && defined(CONFIG_SMP)
++/* NuttX's lazy _lock_acquire can initialize two locks on concurrent entry. */
++static mutex_t s_phy_mutex = NXMUTEX_INITIALIZER;
++static _lock_t s_phy_access_lock = (_lock_t)&s_phy_mutex;
++#else
+ static _lock_t s_phy_access_lock;
++#endif
+ 
+ #if SOC_PM_SUPPORT_MODEM_PD || SOC_PM_SUPPORT_WIFI_PD
+ #if SOC_PM_MODEM_PD_BY_SW // TODO: [ESP32C5] IDF-8667

@@ -3,26 +3,22 @@
 #[cfg(not(test))]
 use super::peers;
 #[cfg(not(test))]
-use crate::worker::{ScanReport, Scanner};
+use crate::platform::runtime::worker::{ScanReport, Scanner};
 #[cfg(not(test))]
 use crate::Error;
 use crate::Uuid;
 #[cfg(not(test))]
-use std::ffi::c_int;
+use core::ffi::c_int;
 #[cfg(not(test))]
 use std::io;
 #[cfg(not(test))]
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
 
 #[cfg(not(test))]
-unsafe extern "C" {
-    fn ble_scan_open() -> c_int;
-    fn ble_scan_check(fd: c_int) -> c_int;
-    fn ble_scan_start(fd: c_int) -> c_int;
-    fn ble_scan_get(fd: c_int, records: *mut RawRecord, capacity: u8, count: *mut u8) -> c_int;
-    fn ble_scan_stop(fd: c_int) -> c_int;
-
-}
+#[path = "ffi/scan.rs"]
+mod ffi;
+#[cfg(not(test))]
+use self::ffi::{ble_scan_check, ble_scan_get, ble_scan_open, ble_scan_start, ble_scan_stop};
 
 /// Fixed width bridge layout is private to the NuttX adapter.
 #[repr(C)]

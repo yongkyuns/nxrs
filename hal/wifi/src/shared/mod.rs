@@ -1,6 +1,6 @@
 //! Shared Rust station ownership; SDK acquisition stays on the blocking worker.
 #![deny(unsafe_code)]
-use crate::worker::Driver;
+use crate::platform::worker::Driver;
 use crate::{AccessPoint, Capabilities, CredentialStorage, Credentials, Error, LinkState, Ssid};
 mod station;
 pub(crate) use station::Station;
@@ -57,17 +57,17 @@ impl<B: Station> Drop for Native<B> {
 pub(crate) fn open<B: Station, S>(
     sink: S,
     storage: CredentialStorage,
-) -> Result<crate::worker::Worker, Error>
+) -> Result<crate::platform::worker::Worker, Error>
 where
     S: FnMut(crate::Event) -> messaging::DeliveryResult<crate::Event> + Send + 'static,
 {
-    crate::worker::Worker::start_with_stack(
+    crate::platform::worker::Worker::start_with_stack(
         Native::<B> {
             state: None,
             storage,
         },
         sink,
-        crate::worker::Lease::acquire()?,
+        crate::platform::worker::Lease::acquire()?,
         128 * 1024,
     )
 }

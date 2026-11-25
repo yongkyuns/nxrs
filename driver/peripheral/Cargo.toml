@@ -1,0 +1,7 @@
+[package]
+name = "nxrs-peripheral"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+name = "peripheral"

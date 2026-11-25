@@ -3,9 +3,8 @@
 
 use archive::{recording::FileRecorder, recording::StorageLimits, Storage};
 use frames::{Camera, Format, Frame, PixelFormat};
-use motion::Imu;
-use packets::PacketSink;
-use position::Gnss;
+use motion::{Device, Session};
+use position::{Device as _, Session as _};
 use std::{fs, net::UdpSocket, path::PathBuf, sync::mpsc, time::Duration};
 
 fn main() {
@@ -51,8 +50,8 @@ fn main() {
     receiver
         .set_read_timeout(Some(Duration::from_secs(3)))
         .unwrap();
-    let mut sender = packets::udp::UdpTransport::connect(receiver.local_addr().unwrap()).unwrap();
-    sender.send(&bytes).unwrap();
+    let sender = UdpSocket::bind("127.0.0.1:0").unwrap();
+    assert_eq!(sender.send_to(&bytes, receiver.local_addr().unwrap()).unwrap(), bytes.len());
     let mut received = [0; 4];
     assert_eq!(receiver.recv(&mut received).unwrap(), 4);
     assert_eq!(received, bytes);
@@ -60,11 +59,12 @@ fn main() {
 
     if std::env::args().any(|argument| argument == "--sensors") {
         let (send, receive) = mpsc::channel();
-        let mut imu = motion::open(move |event| {
-            send.send(event).unwrap();
-            Ok(())
-        })
-        .unwrap();
+        let mut imu = composition::imu::primary_imu()
+            .open_default(move |event| {
+                send.send(event).unwrap();
+                Ok(())
+            })
+            .unwrap();
         assert!(matches!(
             receive.recv_timeout(Duration::from_secs(3)).unwrap(),
             motion::Event::Sample(_)
@@ -74,11 +74,12 @@ fn main() {
         assert!(imu.is_finished());
 
         let (send, receive) = mpsc::channel();
-        let mut gnss = position::open(move |event| {
-            send.send(event).unwrap();
-            Ok(())
-        })
-        .unwrap();
+        let mut gnss = composition::gnss::primary_gnss()
+            .open(move |event| {
+                send.send(event).unwrap();
+                Ok(())
+            })
+            .unwrap();
         assert!(matches!(
             receive.recv_timeout(Duration::from_secs(3)).unwrap(),
             position::Event::Fix(_)

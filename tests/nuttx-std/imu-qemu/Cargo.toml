@@ -5,6 +5,7 @@ edition.workspace = true
 publish = false
 
 [dependencies]
+nxrs-composition = { path = "../../../platform", features = ["imu"] }
 nxrs-imu = { path = "../../../hal/imu" }
 nxrs-messaging = { path = "../../../shared/messaging" }
 

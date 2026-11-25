@@ -1,0 +1,7 @@
+# Full tracker with the simulated Stamp on UART2 and real NuttX TCP/TLS.
+extends = "esp32s3-qemu-tracker"
+nuttx-config = "esp32s3-qemu-tracker-upload.conf"
+hal = { tls = "nuttx" }
+
+[build]
+trace-only-backtrace = true

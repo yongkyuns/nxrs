@@ -1,6 +1,14 @@
 use crate::{check, engine, platform};
 pub trait Channel<const W: usize>: Sync {
     const NAME: &'static str;
+    const WAIT_OBSERVER: &'static str = if platform::NATIVE {
+        "semaphore-state-and-phase"
+    } else {
+        "host-phase-only"
+    };
+    fn waiting(tid: usize, _sending: bool) -> bool {
+        platform::waiting(tid)
+    }
     fn create(capacity: usize, producers: usize) -> Self;
     fn send(&self, role: usize, payload: [u32; W], blocking: bool) -> Result<(), [u32; W]>;
     /// # Safety
@@ -11,6 +19,10 @@ pub trait Channel<const W: usize>: Sync {
 pub struct Native<const W: usize>;
 impl<const W: usize> Channel<W> for Native<W> {
     const NAME: &'static str = "native";
+    const WAIT_OBSERVER: &'static str = "queue-object";
+    fn waiting(tid: usize, sending: bool) -> bool {
+        platform::queue_waiting(tid, sending)
+    }
     fn create(capacity: usize, _: usize) -> Self {
         platform::queue_create(capacity, W * 4);
         Self

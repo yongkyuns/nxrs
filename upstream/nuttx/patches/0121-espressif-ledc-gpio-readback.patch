@@ -1,0 +1,52 @@
+Subject: [PATCH] espressif: preserve GPIO input on selected LEDC builds
+
+Allow the GPIO input and interrupt to observe a pad driven by LEDC. An
+opt-in build keeps the existing GPIO interrupt configuration when opening
+the PWM endpoint. The default uses the existing output-only configuration.
+
+diff --git a/arch/xtensa/src/common/espressif/Kconfig b/arch/xtensa/src/common/espressif/Kconfig
+--- a/arch/xtensa/src/common/espressif/Kconfig
++++ b/arch/xtensa/src/common/espressif/Kconfig
+@@ -196,6 +196,14 @@
+ 	depends on ARCH_CHIP_ESP32S2 || ARCH_CHIP_ESP32S3
+ 	select PWM
+ 
++config ESPRESSIF_LEDC_GPIO_READBACK
++	bool "Enable input on LEDC output pads"
++	depends on ESPRESSIF_LEDC
++	default n
++	---help---
++		Allow GPIO to sample the driven pads and preserve their configured
++		interrupt modes when LEDC takes over the output signals.
++
+ config ESPRESSIF_SHA_ACCELERATOR
+ 	bool "SHA Accelerator"
+ 	depends on !ARCH_CHIP_ESP32
+diff --git a/arch/xtensa/src/common/espressif/esp_ledc.c b/arch/xtensa/src/common/espressif/esp_ledc.c
+--- a/arch/xtensa/src/common/espressif/esp_ledc.c
++++ b/arch/xtensa/src/common/espressif/esp_ledc.c
+@@ -54,6 +54,10 @@
+ #include "esp_clk_tree.h"
+ #include "esp_attr.h"
+ 
++#ifdef CONFIG_ESPRESSIF_LEDC_GPIO_READBACK
++#  include "driver/gpio.h"
++#endif
++
+ /****************************************************************************
+  * Pre-processor Definitions
+  ****************************************************************************/
+@@ -1476,6 +1480,13 @@
+               priv->chans[i].pin);
+ 
++#ifdef CONFIG_ESPRESSIF_LEDC_GPIO_READBACK
++      /* Keep the GPIO interrupt type and pulls while assigning the output. */
++
++      gpio_set_direction(priv->chans[i].pin, GPIO_MODE_INPUT_OUTPUT);
++#else
+       esp_configgpio(priv->chans[i].pin, OUTPUT | PULLUP);
++#endif
++
+       esp_gpio_matrix_out(priv->chans[i].pin,
+                           LEDC_LS_SIG_OUT0_IDX + priv->chans[i].num,
+                           0, 0);

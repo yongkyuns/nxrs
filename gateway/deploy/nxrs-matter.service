@@ -1,0 +1,27 @@
+[Unit]
+Description=Nxrs Matter camera bridge
+Wants=network-online.target
+After=network-online.target nxrs-control.service nxrs-media.service
+
+[Service]
+Type=exec
+User=nxrs-matter
+Group=nxrs-matter
+UMask=0077
+StateDirectory=nxrs-matter
+StateDirectoryMode=0700
+ExecStart=/usr/local/libexec/nxrs-matter-camera --config /etc/nxrs-matter/config.json
+Restart=no
+KillMode=mixed
+TimeoutStopSec=30s
+LimitCORE=0
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+
+[Install]
+WantedBy=multi-user.target

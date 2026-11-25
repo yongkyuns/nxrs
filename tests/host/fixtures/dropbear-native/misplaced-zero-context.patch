@@ -1,0 +1,106 @@
+diff --git a/src/common-session.c b/src/common-session.c
+--- a/src/common-session.c
++++ b/src/common-session.c
+@@ -37,0 +38,3 @@
++#if DROPBEAR_NUTTX
++#include "dropbear_control.h"
++#endif
+@@ -97,0 +101,6 @@
++#if DROPBEAR_NUTTX
++	if (fcntl(ses.signal_pipe[0], F_SETFD, FD_CLOEXEC) < 0 ||
++		fcntl(ses.signal_pipe[1], F_SETFD, FD_CLOEXEC) < 0) {
++		dropbear_exit("Signal pipe descriptor flags failed");
++	}
++#endif
+@@ -545,0 +555,5 @@
++#if DROPBEAR_NUTTX
++	if (dropbear_service_stopping()) {
++		dropbear_close("Service stopped");
++	}
++#endif
+@@ -643,0 +658,3 @@
++#if DROPBEAR_NUTTX
++	timeout = MIN(timeout, 1);
++#endif
+diff --git a/src/common-channel.c b/src/common-channel.c
+--- a/src/common-channel.c
++++ b/src/common-channel.c
+@@ -34,0 +35,3 @@
++#if DROPBEAR_NUTTX
++#include "dropbear_control.h"
++#endif
+@@ -113,0 +117,6 @@
++#if DROPBEAR_NUTTX
++	/* Bound resources before allocating a channel buffer or NSH task. */
++	if (ses.chancount >= 1) {
++		return NULL;
++	}
++#endif
+@@ -618,0 +628,6 @@
++#if DROPBEAR_NUTTX
++	/* A transport owns exactly one channel.  A client close must retire its
++	 * NSH task even if the task is still waiting for input or a builtin.
++	 * Session cleanup cancels, closes the PTY and joins before reuse. */
++	dropbear_close("Channel closed");
++#else
+@@ -619,0 +635 @@
++#endif
+@@ -625,0 +642,3 @@
++#if DROPBEAR_NUTTX
++	dropbear_nuttx_channel_cancel(channel);
++#endif
+diff --git a/src/dbrandom.c b/src/dbrandom.c
+--- a/src/dbrandom.c
++++ b/src/dbrandom.c
+@@ -30,0 +31,3 @@
++#if DROPBEAR_NUTTX
++#include "dropbear_control.h"
++#endif
+@@ -51,0 +55 @@
++#if !DROPBEAR_NUTTX
+@@ -111,0 +116,2 @@
++#endif
++
+@@ -131,0 +138 @@
++#if !DROPBEAR_NUTTX
+@@ -150,0 +158,2 @@
++
++#endif
+@@ -165 +174 @@
+-#ifdef HAVE_GETRANDOM
++#if defined(HAVE_GETRANDOM) && !DROPBEAR_NUTTX
+@@ -223,0 +233,17 @@
++#if DROPBEAR_NUTTX
++	unsigned char seed[INIT_SEED_SIZE];
++	hash_state hs;
++	int result = dropbear_entropy_read(seed, sizeof(seed));
++	if (result < 0) {
++		m_burn(seed, sizeof(seed));
++		dropbear_exit("Qualified entropy unavailable: %s", strerror(-result));
++	}
++	sha256_init(&hs);
++	sha256_process(&hs, hashpool, sizeof(hashpool));
++	sha256_process(&hs, seed, sizeof(seed));
++	sha256_done(&hs, hashpool);
++	m_burn(seed, sizeof(seed));
++	counter = 0;
++	donerandinit = 1;
++#else
++
+@@ -310 +336,10 @@
+-}
++#endif
++}
++
++#if DROPBEAR_NUTTX
++void dropbear_random_cleanup(void) {
++	m_burn(hashpool, sizeof(hashpool));
++	counter = 0;
++	donerandinit = 0;
++}
++#endif
+diff --git a/src/dbmalloc.c b/src/dbmalloc.c
+--- a/src/dbmalloc.c
++++ b/src/dbmalloc.c
+@@ -163,0 +164 @@
++        put_alloc(header);

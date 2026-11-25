@@ -1,5 +1,7 @@
 # Nxrs: portable embedded architecture and roadmap
 
+> **Design history.** These stages preserve earlier decisions and migration scope. Start with [architecture and source ownership](architecture.md) for the implemented boundaries and [current status](../website/guide/status.md) for validation.
+
 **Revision:** 10 — product-platform selection plus qualified multi-app/multi-instance composition.
 **Updated:** September 29, 2026.
 **Documentation baseline:** `686d59c46484a66d12085ab946e6a882970a869f` (merged PR #2).
@@ -95,10 +97,10 @@ The review's main implementation gaps remain:
   packaging remain separate work. [R11], [R13], [R14]
 - IMU/GNSS demonstrate service-owned HAL acquisition: app/event-demo creates
   services only and those services acquire their capabilities internally.
-  The native camera/storage/transport profile now demonstrates the other valid
-  case: app/nxrs acquires portable HAL capabilities directly, then transfers
-  ownership into the generic services. Neither app path names concrete provider
-  packages, and the former checker exception has been removed. [R01], [R12]
+  The former replay demo demonstrated direct capability ownership and transfer
+  into generic services. That composition now lives only in
+  `tests/camera-support`; `app/home-cam` is the camera product. Neither app path
+  names concrete provider packages. [R01], [R12]
 
 Retain the existing lifetime checks, staging isolation, sequence-gap reporting,
 independent byte/ABI oracles, target link checks, and failure tests. Full current
@@ -109,32 +111,20 @@ and current checker rules belong in [architecture.md](architecture.md).
 
 This is the target structure, not a claim that these packages already exist:
 
-```text
-app/
-  nxrs/
-    Cargo.toml
-    src/main.rs             This firmware's construction and entry
-  <another-app>/            A different binary and firmware image
-service/
-  <domain>/                 Reusable functionality; private modules as needed
-hal/
-  imu/                      Public nxrs-imu facade
-    api/                    Common contract, no backend dependencies
-    nuttx/                  Physical/OS provider where implemented
-    native/
-    web/
-    mock/
-  gnss/                     Same pattern
-  camera/
-  storage/
-  transport/
-driver/                     Repository-owned device protocols when needed
-platform/                   Board configuration, target startup/link integration
-  nuttx/
-tools/                      Existing focused build and validation scripts
-tests/                      Portable, native, browser, and NuttX tests
-external/                   Pinned NuttX sources
-```
+| Historical target path | Responsibility in this design stage |
+| --- | --- |
+| `app/nxrs/Cargo.toml`, `app/nxrs/src/main.rs` | This firmware's package, construction and entry |
+| `app/<another-app>/` | A different binary and firmware image |
+| `service/<domain>/` | Reusable functionality, with private modules as needed |
+| `hal/imu/` | Public `nxrs-imu` facade |
+| `hal/imu/api/` | Common contract without backend dependencies |
+| `hal/imu/nuttx/`, `hal/imu/native/`, `hal/imu/web/`, `hal/imu/mock/` | Physical, OS and qualification providers where implemented |
+| `hal/gnss/`, `hal/camera/`, `hal/storage/` | The same capability-local organization |
+| `driver/` | Repository-owned device protocols when needed |
+| `platform/`, `platform/nuttx/` | Board configuration and target startup/link integration |
+| `tools/` | Focused build and validation scripts |
+| `tests/` | Portable, native, browser and NuttX tests |
+| `external/` | Pinned NuttX sources |
 
 Keep today's small `service` crate until separate dependencies or consumers
 justify splitting it. For HALs, the API/backend package split provides real
@@ -142,14 +132,13 @@ build isolation. Do not create empty backends, one crate per small type, or
 mandatory `runtime/{api,threaded,web,test}` packages. Shared execution helpers
 can start as modules and become a library when actual reuse justifies it.
 
-```text
-app main -> reusable services
-         -> capability facade when directly useful
-
-service -> capability facade + required data contracts
-capability facade -> selected provider
-provider -> domain API + required driver/OS support
-```
+<figure class="architecture-art">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/nxrs-interface-boundaries-dark.svg">
+    <img src="assets/nxrs-interface-boundaries.svg" alt="An application constructs services. Application and service code can use capability contracts or ordinary Rust APIs. Capability providers use the required driver and operating-system support." loading="lazy">
+  </picture>
+  <figcaption>Dependencies follow the capability boundary. This figure shows the embedded NuttX path; native and browser providers retain the same application-facing boundary. The historical staging details below retain their original scope. <a href="assets/nxrs-interface-boundaries.svg">Open SVG</a>.</figcaption>
+</figure>
 
 Handwritten app/service policy may use portable HAL contracts/facades, but does
 not call NuttX/browser/register/bus APIs or concrete provider packages. Concrete
@@ -231,12 +220,13 @@ event enum, cloneable senders, one unique bounded inbox, and one canonical wait
 operation backed by `std::sync::mpsc::sync_channel`.
 The intended threaded loop is conceptually:
 
-```text
-wait for an input or the next deadline       <- one logical wait point
-handle the event with bounded work
-submit outputs without an unbounded wait
-repeat, or perform explicit shutdown
-```
+<figure class="architecture-art">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/nxrs-owner-event-loop-dark.svg">
+    <img src="assets/nxrs-owner-event-loop.svg" alt="An owner waits for an input or deadline, handles one event with bounded work, submits outputs without an unbounded wait, and returns to the same wait." loading="lazy">
+  </picture>
+  <figcaption>Each active owner has one logical wait point. A stop or failure enters explicit shutdown instead of beginning another iteration. <a href="assets/nxrs-owner-event-loop.svg">Open SVG</a>.</figcaption>
+</figure>
 
 Use a blocking receive/timed receive on the owner thread for NuttX/native and
 the selected pthread-enabled browser profile. The same ordinary std thread/channel
@@ -363,7 +353,7 @@ cargo nxrs build --app event-demo --profile pico2-mock
 ~~~
 
 The repository alias invokes the narrowly scoped host-side
-`platform/build` package. It reads firmware-entry metadata from the selected
+`tools/build` package. It reads firmware-entry metadata from the selected
 app's existing `Cargo.toml`, validates the product-platform selection, and
 runs the shared Rust controller for SDK preparation, Cargo and native OS
 build/link/package steps. See [the build interface](build-system.md).
@@ -505,10 +495,8 @@ deployment binds IMU/GNSS to mock implementations for the current
 event-demo qualification profiles. This is the preferred ownership model for
 sensor services, not a rule that apps can never use HAL facades directly.
 
-The native nxrs app acquires camera/storage/transport through
-`nxrs-camera`, `nxrs-storage`, and `nxrs-transport`. The build
-selects those bindings through the actual `linux`, `macos` or `windows` OS
-profile, reusing shared Rust file/socket code. Neither app nor service manifest
+The native camera qualification uses `nxrs-camera` and `nxrs-storage`
+for replay and recording. UDP uses `std::net::UdpSocket`. Neither app nor service manifest
 names concrete provider packages.
 
 Product-facing build selection is now `cargo firmware --app <app> --platform

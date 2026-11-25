@@ -1,21 +1,71 @@
+# Service ownership and footprint
+
+For service changes, read [Service boundaries and footprint](docs/architecture.md#service-boundaries-and-footprint)
+and use the `nxrs-service-boundaries` skill in `.agents/skills/`.
+Identify the existing owner and production callers before adding a crate. Keep
+reusable capability policy, lifecycle and state together behind a small typed API.
+Keep device-specific waits, retries and shutdown with the HAL. Extract a service
+for an independent, reusable contract. Apps construct and connect capabilities,
+coordinate startup and shutdown, and own product-specific workflows and policy.
+
+- Use the fewest threads that satisfy blocking, timing and isolation needs.
+  Prefer synchronous helpers and existing workers. Give each active owner one
+  logical wait point. Justify a new thread and its stack with an independent
+  progress requirement. Set priorities only as part of a target-qualified
+  scheduling policy. Fix contention and blocking at their source.
+- Connect producers directly to consumers through narrow, typed, bounded
+  event endpoints injected at composition time. Keep routine data, state changes
+  and requests off the app's event loop unless the app owns the interaction.
+  Define overload and retain terminal state even if notification fails.
+- Use shared memory sparingly when large payloads make event transfer costly.
+  Bound the storage, define write ownership and reader lifetime, and use a
+  qualified synchronization primitive. Publish before notifying. Keep rendering
+  and I/O outside shared locks and bound contention on time-sensitive paths.
+
+Keep fixture-only helpers under `tests/`, and keep service policy and runtime
+adapters out of the root `platform/` tree. Reuse the portable operation, inbox,
+and owner where their contracts match. Budget new workers, queues, retained
+buffers, allocations, dependencies, and linked bytes against the existing
+product path.
+
 # HAL architecture rules
 
 Read `docs/hal-platform-architecture.md` and `docs/nuttx-device-access.md` before
 changing a HAL, its platform wiring, or a native bridge. These are implementation
 requirements, not aspirational guidance.
 
+For the accepted declarative-build/static-device follow-up, also read
+`docs/static-device-composition.md` and the follow-up section of
+`docs/peripheral-composition-plan.md`. They define the target for issue #246:
+shared host preparation, additive driver features and canonical static physical
+instances. Existing local emitters, global sensor guards and audit expectations
+are migration baselines, not requirements to reproduce them. Replace affected
+checks with the new invariants in the implementation PR while preserving
+portability, dependency, native-boundary and lifecycle coverage. The OS/provider
+`selected` module convention below is separate from additive chip modules.
+
+- Keep host build tooling and Cargo adapter source under `tools/`. Firmware
+  manifests may reference adapters through declared build dependencies.
+  Platform directories hold declarative profiles, BSP inputs and device
+  construction. Drivers and HALs retain their runtime and native ABI sources.
 - For peripheral composition work, also read `docs/peripheral-composition.md`
   and `docs/peripheral-composition-plan.md`. Composition version 1, ordered
   overlays, resolved-profile build wiring, and the migrated IMU/GNSS bindings
   are implemented. Use the profile resolver and normal build/inspection entry
   points. Keep retired sensor selectors and their translation paths out of new wiring.
-- Keep each capability's API, normalization and acquisition implementations in
-  its HAL crate. Reusable chip protocols belong in `driver/<device>` packages
-  with sensor-specific APIs and existing Rust bus traits. Drivers must not depend
-  on capability HALs, applications or services. HALs translate driver types and
-  errors into their own contract. Use `hal/<capability>/src/platform/` for OS
+- Keep managed capability APIs and acquisition implementations in their HALs.
+  HALs are capability/subsystem boundaries, not vendor register HALs. Reuse Rust
+  `std` directly; do not add a mandatory driver layer for ordinary OS operations.
+  Capability-specific native adapters stay with their owning HAL. Threads,
+  queues and executors require an execution need, not merely another component.
+  Reusable chip protocols belong in `driver/<device>` with sensor-specific APIs
+  over existing Rust bus traits. Shared synchronous device contracts belong in
+  `driver/peripheral`; chip drivers implement them directly. The IMU contract
+  owns device configuration, physical measurements and device errors; its HAL
+  adds stream metadata, resource ownership and delivery/lifecycle policy.
+  Drivers must not depend on capability HALs, applications or services. Use `hal/<capability>/src/platform/` for OS
   implementations; the root
-  `platform/` tree owns product profiles and build wiring, not HAL code.
+  `platform/` tree owns product profiles and concrete device composition, not HAL runtime code.
   Profile bindings name actual operating systems: `linux`, `macos`, `windows`,
   or `nuttx`. The coordinated host `simulation` binding is available to IMU
   and GNSS only through a distinct simulation profile. `mock` is an explicit
@@ -25,11 +75,56 @@ requirements, not aspirational guidance.
   OS-specific code stays under its actual OS directory. Do not copy std code
   into OS folders or reintroduce `std`/`native` pseudo-platforms.
 
-- Product profiles own device/resource composition. NuttX BSP/configuration owns
-  MCU wiring and registration. A resolved hardware profile must select concrete
+- Reusable hardware resource access belongs in `driver/<resource>`. `driver/i2c`
+  and `driver/gpio` support NuttX only and own their descriptors and embedded-hal
+  implementations. GPIO owns registration/rollback and reports teardown failures
+  through a task-context hook; the consuming HAL retains quarantine policy.
+  `shared/acquisition` supplies task lifetimes, cancellation and one NuttX
+  poll/pipe binding for IMU, GNSS and audio. It has no profile binding. The
+  owning HAL defines event admission, overload, terminal delivery and cleanup.
+  Applications use the owning capability API. `imu::Session` and `gnss::Session`
+  describe acquisition lifetimes; synchronous chip operations remain driver
+  contracts.
+  `hal/settings` is settings storage for small persistent application records.
+  Applications own their record formats; build settings live in product profiles.
+  Catalogues supply concrete resource configuration; sensor HALs own acquisition policy; chip drivers
+  consume bus traits without depending on the concrete adapter. Do not add speculative OS
+  backends, host stubs or another logical profile alias. Host witnesses inject
+  test-only bus bindings. IMU and GNSS drivers own their `bindings.toml` declarations;
+  the composition crate in `platform/` or a product-owned catalogue imports them
+  through normal Cargo path dependencies, including workspace inheritance.
+  Product workspace metadata may select that catalogue without an SDK registry edit.
+  Sensor HALs must not depend on concrete sensors or composition.
+  A renamed optional NuttX dependency registers a driver and supplies its
+  Cargo feature. Shared tooling generates the driver's typed construction from
+  its binding and the selected resource. Catalogue-owned `resource-features`
+  maps bus kinds to ordinary declared features; select only the resources of
+  consumed capabilities through Cargo's resolved graph. Keep common instance,
+  alias and endpoint-claim validation independent of capability acquisition policy.
+  NuttX profile builds use
+  `cargo nxrs build`. Internal Cargo adapters and editor checks consume its
+  validated receipt and prepared native resources. Portable library tests and
+  explicit host fixtures may use Cargo directly. Product
+  profiles select BSP resources, native pin settings and peripheral addresses. The BSP mapping
+  derives NuttX Kconfig and endpoint paths together; reject conflicting overrides
+  and unsupported registrations. Shared tooling emits fixed
+  typed resource bindings and checked-in factory selections. Acquisition consumes
+  constructed devices through the shared contract, without chip constructor traits.
+  Do not restore per-field Rust schemas or model-enum mappings.
+
+- Product profiles are the single source for device/resource composition and
+  supported pin selections. Reuse native NuttX Kconfig, board headers and
+  initialization for MCU pins and electrical behavior. Resource `kconfig` tables
+  name the binding's admitted native pin symbols; mappings identify their native
+  numbering namespace and fixed reservations for conflict checks. Do not maintain
+  a second GPIO/pinctrl catalogue or infer native port/mux encoding. NuttX checks
+  ranges/dependencies; verify its effective configuration against requested values.
+  Checked BSP mappings under `platform/nuttx/resources/`
+  derive NuttX configuration and Rust endpoints together. NuttX owns actual MCU
+  initialization and registration; declarations cannot invent missing BSP support. A resolved hardware profile must select concrete
   supported devices; simulation uses a separate explicit profile and coordinated
   session. Use mock bindings in explicit test and qualification profiles.
-  Physical IMU and GNSS roles select supported hardware bindings.
+  Physical IMU and GNSS aliases select supported hardware bindings.
   Generate only validated constants and checked-in factory selections. Cargo
   dependencies must be declared before build scripts run. Keep runtime policy
   out of build support and preserve detached-consumer qualification.
@@ -45,6 +140,13 @@ requirements, not aspirational guidance.
   transport uses one shared Rust socket implementation. Wi-Fi/BLE
   control still needs native radio APIs. Share identical Rust protocol/resource
   helpers (such as Linux GIO); keep radio schemas and device policy local.
+  For each NuttX endpoint, prefer qualified std operations first: UART data uses
+  `File` and `Read`/`Write`; termios, readiness and device controls may need thin
+  native bindings. Use embedded-hal adapters for transaction/pin semantics std
+  cannot express, and chip/protocol drivers where Nxrs owns that behavior.
+  Profiles borrow declarative bindings, overlays and aliases from Zephyr; NuttX
+  retains MCU wiring and VFS registration. Resource/device/alias records describe
+  composition, not mandatory runtime layers or a replacement for std handles.
 - Private C/Objective-C is allowed only for target-header ABI translation and
   native SDK operations that Rust/std cannot directly express. Keep bindings
   mechanical. A scalar ABI does not make a C state machine a thin binding.
@@ -54,16 +156,21 @@ requirements, not aspirational guidance.
   C exports needed only by SDK witnesses belong under `tests/`, enabled only
   for those tests. Actual SDK callbacks still use the required native ABI.
 - Keep private ABI glue beside its owning Rust provider in that provider's
-  `ffi/` directory. Do not create a parallel `hal/<capability>/ffi/<platform>`
+  `ffi/` directory, including the Rust foreign declarations. Shared SDK bindings
+  keep those declarations beside their shared native adapter. Do not create a
+  parallel `hal/<capability>/ffi/<platform>`
   tree or impose one C HAL API across platforms. Each provider consumes only
   the SDK/target operations it needs; shared behavior and contracts stay in Rust.
 - Avoid redundant `nxrs_` prefixes on private functions, native ABI symbols,
   internal cfg names and files. Retain namespacing only where an external
   interface or global symbol collision makes it necessary.
 - App and service source, manifests and build scripts must contain no OS/board
-  cfg, native imports, device paths, platform inspection or platform dependencies.
-  Platform code must be application-agnostic: accept the selected entry as input,
-  never name an application or provide an app-specific runtime crate. No exceptions.
+  cfg, native imports, device paths or platform inspection. Apps may use the portable `nxrs-composition` capability modules to select named devices.
+  Services receive normalized HAL references from callers. Other app/service platform dependencies remain forbidden. Only catalogue
+  wiring and qualification may use `imu::construction`; apps/services cannot create
+  a second instance for an endpoint. Catalogues contain no acquisition/runtime policy.
+  Platform code stays application-agnostic; build frontends accept the selected entry
+  as input and never name an app or add an app-specific runtime crate.
 
 - Platform/provider selection belongs in crate/module wiring and platform-local
   factories. Shared APIs, controllers, workers, and I/O algorithms must not use
@@ -71,16 +178,29 @@ requirements, not aspirational guidance.
   configuration and provider-reported capabilities instead. Use Rust's
   `target_os` only at OS module/factory boundaries; profiles enable capabilities
   and select explicit simulation or qualification fixtures. HALs use one
-  internal `hal_provider` value at their module boundary.
-- Cargo manifests own component dependencies. Ordinary additive features may
-  select optional functionality, formats, algorithms and driver code at their
-  owning module boundary. Do not maintain a global feature-name allowlist.
-  Keep OS selection in target configuration and physical resource instances in
-  explicit configuration/ownership. Diagnostics still use the explicit `probe`
-  feature, and the detector product/model rules below still apply.
-- Group capability admission and acquisition selection in each HAL's
-  `src/platform/mod.rs`. Select source modules as `selected`; keep constructors
-  and unavailable stubs in those implementations, and host source-injection
+  internal `platform` value at their module boundary. It names the exact
+  validated binding (`nuttx`, `linux`, `macos`, `windows`, `mock` or `simulation`),
+  with no selector for unbound capabilities; do not collapse OS names to `hardware`.
+- Cargo manifests declare component dependencies. The product profile selects
+  hardware, providers and hardware-dependent build inputs. Use one app entry
+  path and use portable capability results to handle absent optional hardware.
+  Declare required capabilities and surface genuine initialization errors.
+  Keep Cargo features to a minimum. Reserve additive features for independent
+  software functionality, formats, algorithms, driver implementations and
+  diagnostics at the owning module boundary. Product-controlled implementation
+  features are derived from the profile. Do not add app features for selecting
+  hardware or product build dependencies. Do not maintain a global feature-name
+  allowlist. Keep optional instrumentation under `probe`. The detector
+  product/model rules below still apply.
+- Use one `cfg_if::cfg_if!` block for provider selection in each HAL's
+  `src/platform/mod.rs`. Declare named provider modules and alias the active
+  module as `selected`. Keep local providers, including mock and simulation,
+  under `src/platform/<binding>/mod.rs` and the unavailable fallback in
+  `src/platform/unbound.rs`.
+  BLE and Wi-Fi keep every `platform` condition in that selector, including the
+  admission of shared Rust support modules. `hal/radio-types` is dependency-free
+  and used directly only by BLE and Wi-Fi.
+  Keep constructors and unavailable stubs in those implementations, and host source-injection
   witnesses in separate test wiring. Prefer fixed named exports. The selector
   must not contain implementation bodies or force its entire public namespace
   into the crate root. A crate's public API should be explicit in `lib.rs`;
@@ -88,23 +208,24 @@ requirements, not aspirational guidance.
   Gate a coherent module once instead of repeating its condition on each type,
   implementation and constructor. All HAL selectors must name their exports;
   wildcard re-exports in selectors or crate roots are forbidden by the audit.
-  Storage recording and transport UDP are explicitly accessible as
-  `storage::recording` and `transport::udp` through the additive, nondefault
-  `recording` and `udp` Cargo features, regardless of hardware admission. Use
-  their explicit constructors; do not restore profile-dependent root factories
-  or OS whitelists. The distinct synchronous `create_record_file` acquisition
+  Use `std::net` directly for TCP and UDP. Keep packet adapters used only by
+  qualification in its fixtures. Storage recording is `storage::recording`
+  through the additive, nondefault `recording` Cargo feature, independent of
+  hardware admission. The distinct synchronous `create_record_file` acquisition
   keeps one signature and an explicit unavailable result.
   Shared file replay is explicit functionality, not a platform backend:
   `nxrs-camera` exposes it through its additive `replay` Cargo feature, with no
-  default and no hardware-profile requirement. Its native CLI forwards that
-  functionality normally; core-only library fixtures disable the CLI defaults.
+  default and no hardware-profile requirement. Native qualification enables it
+  directly; shared test support and core-only fixtures do not enable software I/O.
   Do not reintroduce OS whitelists or unavailable replay stubs. See
   `hal/camera/README.md` for the public API and compatibility aliases.
   Keep model features in the detector HAL; services consume `detector::Detector`
   directly, without model feature forwarding or compatibility facades.
   Qualification controls belong in fixtures and named experiment cases, not
   production platform APIs. Use one `probe` feature for optional diagnostics
-  and test witnesses. Ordinary tests and executables need no diagnostic feature.
+  and test witnesses. Select coherent tracing implementations at a module boundary;
+  keep cfg conditions out of acquisition logic and individual tracing fields/methods.
+  Ordinary tests and executables need no diagnostic feature.
   Product profiles select a detector model and execution budget; build frontends
   derive its internal dependency features automatically when the product consumes
   detection. Do not add manual model switches, a second model-selection
@@ -112,6 +233,10 @@ requirements, not aspirational guidance.
   model features are for HAL qualification only. Model dependencies remain
   explicit in the detector HAL; benchmark choices use typed cases, never boolean
   cfg aliases or a feature for each measurement axis.
+- Deadline-sensitive paths on fixed-priority targets reserve workspace during
+  setup and reuse it through the owning component's normal API. Qualify shared
+  heap access across Rust and native calls. See
+  `docs/concurrency-event-communication.md`.
 - Hardware acquisition is event-driven. GNSS UART reads and IMU FIFO
   draining belong to HAL providers, never service polling timers. Services receive
   normalized typed messages through bounded channels. ISRs and interrupt-context callbacks only
@@ -198,3 +323,23 @@ alternating-pixel witness before changes; the SDK texture path is not qualified.
 Run the shared core/native suites and `clients/tests/multicamera_reference.py` with
 the relevant native runner. Report actual rendered FPS separately from codec and
 source FPS, and label emulator/simulator results separately from physical devices.
+
+# Repository skills
+
+Use the matching repository skill for substantial work; load only the workflow
+needed for the task. These skills supplement this operating contract and the
+existing architecture documents.
+
+| Task | Skill |
+| --- | --- |
+| Design or review service ownership and firmware footprint | [nxrs-service-boundaries](.agents/skills/nxrs-service-boundaries/SKILL.md) |
+| Reproduce a bug or performance regression | [nxrs-debug](.agents/skills/nxrs-debug/SKILL.md) |
+| Review a change against its requirements and repository rules | [nxrs-change-review](.agents/skills/nxrs-change-review/SKILL.md) |
+| Compare interfaces or record a consequential design decision | [nxrs-design](.agents/skills/nxrs-design/SKILL.md) |
+| Improve the development workflow after an observed problem | [nxrs-retro](.agents/skills/nxrs-retro/SKILL.md) |
+| Write documentation or improve the documentation website | [nxrs-documentation](.agents/skills/nxrs-documentation/SKILL.md) |
+
+Keep durable project facts in their existing source documents and link to them
+from skills. Choose routine implementation details within the authorized scope;
+ask when an unresolved requirement or consequential tradeoff needs the user's
+decision. See [skill attribution](.agents/skills/ATTRIBUTION.md) for upstream sources.

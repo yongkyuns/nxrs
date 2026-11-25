@@ -1,5 +1,5 @@
 //! Exercise the production NuttX IMU provider through the test-owned devices.
-use imu::{DeviceError, Event, Imu, ImuSample};
+use imu::{Device as _, DeviceError, Event, ImuSample, Session};
 use messaging::{bounded, DeliveryError, Inbox, Rejected};
 use std::{
     sync::mpsc::TrySendError,
@@ -17,22 +17,23 @@ unsafe extern "C" {
 const DEADLINE: Duration = Duration::from_secs(3);
 const FRAMES: u64 = 6;
 
-fn open() -> (impl Imu, Inbox<Event>) {
+fn open() -> (impl Session, Inbox<Event>) {
     let (sender, inbox) = bounded(FRAMES as usize);
-    let device = imu::open(move |event| {
-        sender.try_send(event).map_err(|error| match error {
-            TrySendError::Full(value) => Rejected {
-                value,
-                error: DeliveryError::Full,
-            },
-            TrySendError::Disconnected(value) => Rejected {
-                value,
-                error: DeliveryError::Closed,
-            },
+    let session = composition::imu::primary_imu()
+        .open_default(move |event| {
+            sender.try_send(event).map_err(|error| match error {
+                TrySendError::Full(value) => Rejected {
+                    value,
+                    error: DeliveryError::Full,
+                },
+                TrySendError::Disconnected(value) => Rejected {
+                    value,
+                    error: DeliveryError::Closed,
+                },
+            })
         })
-    })
-    .expect("open NuttX BMI270");
-    (device, inbox)
+        .expect("open NuttX BMI270");
+    (session, inbox)
 }
 
 fn publish(overflow: bool) {
@@ -68,15 +69,15 @@ fn check_sample(sample: ImuSample, index: u64) {
     }
 }
 
-fn finish(device: &mut impl Imu, expected: Result<(), DeviceError>) {
-    assert_eq!(device.join(), expected);
-    assert_eq!(device.dropped(), 0);
+fn finish(session: &mut impl Session, expected: Result<(), DeviceError>) {
+    assert_eq!(session.join(), expected);
+    assert_eq!(session.dropped(), 0);
     // SAFETY: The joined worker can no longer access the fixture.
     assert!(unsafe { bmi270_fixture_idle() });
 }
 
 fn sample_burst() {
-    let (mut device, inbox) = open();
+    let (mut session, inbox) = open();
     publish(false);
     for index in 0..FRAMES {
         let Event::Sample(sample) = inbox.wait(Some(DEADLINE)).expect("FIFO sample") else {
@@ -84,7 +85,8 @@ fn sample_burst() {
         };
         check_sample(sample, index);
     }
-    finish(&mut device, Ok(()));
+    session.request_stop().expect("request IMU stop");
+    finish(&mut session, Ok(()));
     assert!(
         inbox.try_recv().is_err(),
         "unexpected event after the FIFO burst"
@@ -96,14 +98,14 @@ fn main() {
     assert_eq!(unsafe { bmi270_fixture_install() }, 0);
 
     sample_burst();
-    let (mut device, inbox) = open();
+    let (mut session, inbox) = open();
     publish(true);
     assert_eq!(
         inbox.wait(Some(DEADLINE)),
         Ok(Event::Failed(DeviceError::Full))
     );
-    finish(&mut device, Err(DeviceError::Full));
-    assert_eq!(device.join(), Err(DeviceError::Full));
+    finish(&mut session, Err(DeviceError::Full));
+    assert_eq!(session.join(), Err(DeviceError::Full));
     sample_burst();
 
     println!("IMU_QEMU PASS samples=12 overflow=1 reopens=2");

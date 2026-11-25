@@ -1,22 +1,36 @@
 # Credentialed RTSP publisher
 
 This single-use Rust helper separates image encoding from authenticated
-publication (#37). The encoder sends compressed MPEG-TS or Annex-B to ingest;
+publication (#37). The encoder sends compressed MPEG-TS, Annex-B or Matroska to ingest;
 ingest relays it through bounded storage to this helper. Only the helper's stdin
 receives the 64-byte lowercase-hex token preamble. Its arguments are public:
 
 ```sh
-nxrs-rtsp-publisher 127.0.0.1:8554 publisher_reference reference [annexb]
+nxrs-rtsp-publisher 127.0.0.1:8554 publisher_reference reference [annexb|mpegts-av|matroska-av]
 ```
 
 The default input is H264 in MPEG-TS. The optional `annexb` mode uses a monotonic
 receipt clock in the output time base; frame identity remains in the unchanged
-SEI payload. Regular-file stdin, invalid credentials/targets and non-H264 media
+SEI payload. The opt-in `mpegts-av` input requires exactly one H.264 track
+and one mono Opus track. Either can appear first. Supply timestamps from a
+common source clock in MPEG-TS. The helper rescales each packet to its own
+RTSP track clock and shares a single publication. Regular-file stdin, invalid credentials/targets and unsupported media
 are refused. The helper consumes exactly the preamble without buffered prefetch.
 It uses the installed FFmpeg SDK for demuxing and RTSP-over-TCP remuxing. An empty
 decoder whitelist prevents image decoding during stream probing. Native logs
 are disabled before credential handling; only fixed errors and numeric packet
-progress leave the helper.
+progress leave the helper. [Generated audio/video qualification](../tests/matter/README.md#timestamped-audiovideo-publication).
+
+`matroska-av` accepts the output of the authenticated A/V ingest encoder. An
+internal text track carries bounded frame annotations. A missing, repeated or
+mismatched timestamp retires the publication. The publisher inserts the matched
+annotation as H.264 SEI, omits the text track from RTSP and reports packet progress
+independently for H.264 and Opus.
+
+FFmpeg can report the ingest encoder's 16 kHz input rate in its Matroska
+Opus track. The publisher accepts that rate for this track and advertises
+the required 48 kHz Opus RTP clock, preserving the packet timestamps through
+rescaling. [Opus RTP clock](https://www.rfc-editor.org/rfc/rfc7587.html#section-4.1).
 
 Build explicitly from `gateway/` with installed FFmpeg development headers,
 libraries, libclang and pkg-config:

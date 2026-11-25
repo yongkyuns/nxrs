@@ -1,0 +1,63 @@
+Subject: [PATCH] esp32s3: honor disabled SPI pins and short PIO transfers
+
+Pin settings admit -1 for disconnected signals. Preserve that sentinel.
+An SPI transfer can end with fewer than four bytes in the FIFO word.
+Copy only the remaining bytes so command and RGB565 buffers are safe.
+
+diff --git a/arch/xtensa/src/esp32s3/esp32s3_spi.c b/arch/xtensa/src/esp32s3/esp32s3_spi.c
+--- a/arch/xtensa/src/esp32s3/esp32s3_spi.c
++++ b/arch/xtensa/src/esp32s3/esp32s3_spi.c
+@@ -124,9 +124,9 @@ struct esp32s3_spi_config_s
+   enum spi_mode_e mode;       /* SPI default mode */
+ 
+   uint8_t id;                 /* ESP32-S3 SPI device ID: SPIx {2,3} */
+-  uint8_t cs_pin;             /* GPIO configuration for CS */
+-  uint8_t mosi_pin;           /* GPIO configuration for MOSI */
+-  uint8_t miso_pin;           /* GPIO configuration for MISO */
++  int8_t cs_pin;              /* GPIO configuration for CS */
++  int8_t mosi_pin;            /* GPIO configuration for MOSI */
++  int8_t miso_pin;            /* GPIO configuration for MISO */
+   uint8_t clk_pin;            /* GPIO configuration for CLK */
+ #ifdef CONFIG_ESP32S3_SPI_DMA
+   uint8_t periph;             /* Peripheral ID */
+@@ -1114,15 +1114,15 @@ static void esp32s3_spi_poll_exchange(struct esp32s3_spi_priv_s *priv,
+        * SPI peripheral contains 16 registers (W0 - W15).
+        */
+ 
+-      for (int i = 0 ; i < transfer_size; i += sizeof(uintptr_t))
++      for (size_t i = 0; i < transfer_size; i += sizeof(uint32_t))
+         {
+           uint32_t w_wd = UINT32_MAX;
+ 
+           if (tp != NULL)
+             {
+-              memcpy(&w_wd, tp, sizeof(uintptr_t));
+-
+-              tp += sizeof(uintptr_t);
++              size_t size = MIN(sizeof(w_wd), transfer_size - i);
++              memcpy(&w_wd, tp, size);
++              tp += size;
+             }
+ 
+           putreg32(w_wd, data_buf_reg);
+@@ -1181,16 +1181,16 @@ static void esp32s3_spi_poll_exchange(struct esp32s3_spi_priv_s *priv,
+ 
+           /* Read received data words from SPI data buffer registers. */
+ 
+-          for (int i = 0 ; i < transfer_size; i += sizeof(uintptr_t))
++          for (size_t i = 0; i < transfer_size; i += sizeof(uint32_t))
+             {
+               uint32_t r_wd = getreg32(data_buf_reg);
+ 
+               spiinfo("recv=0x%" PRIx32 " data_reg=0x%" PRIxPTR "\n",
+                       r_wd, data_buf_reg);
+ 
+-              memcpy(rp, &r_wd, sizeof(uintptr_t));
+-
+-              rp += sizeof(uintptr_t);
++              size_t size = MIN(sizeof(r_wd), transfer_size - i);
++              memcpy(rp, &r_wd, size);
++              rp += size;
+ 
+               /* Update data_buf_reg to point to the next data buffer
+                * register.

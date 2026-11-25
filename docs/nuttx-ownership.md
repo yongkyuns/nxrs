@@ -1,5 +1,9 @@
 # NuttX descriptor ownership and failed close
 
+**Can a failed close be retried safely?** At the inspected NuttX boundary, the descriptor number has already been consumed when the lower driver reports an error. Retrying that number can close an unrelated resource that reused it. Consume Rust ownership once, retain the error, and handle uncertain device cleanup separately.
+
+This note explains the specific native lifetime rule and its regression witness. It is not a general close rule for every OS. See [NuttX device access](nuttx-device-access.md) for current provider design.
+
 ## The reviewed bug
 
 The initial Rust OwnedFd retained its descriptor number when close returned

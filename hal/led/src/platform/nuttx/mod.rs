@@ -10,12 +10,8 @@ use std::fs::{File, OpenOptions};
 use std::io;
 use std::os::fd::AsRawFd;
 
-unsafe extern "C" {
-    // 0 = success; otherwise the positive errno captured by the C helper.
-    // The helpers never close/retain fd and never retain output pointers.
-    fn userled_supported(fd: c_int, supported: *mut u32) -> c_int;
-    fn userled_set(fd: c_int, index: u8, on: c_int) -> c_int;
-}
+mod ffi;
+use self::ffi::{userled_set, userled_supported};
 
 pub struct UserLeds {
     file: File,
@@ -25,10 +21,7 @@ pub struct UserLeds {
 impl UserLeds {
     /// The selected profile binds the device through NXRS_USERLED_PATH;
     /// portable callers never supply a device path.
-    #[cfg_attr(
-        all(test, not(all(hal_provider = "hardware", target_os = "nuttx"))),
-        allow(dead_code)
-    )]
+    #[cfg_attr(all(test, not(platform = "nuttx")), allow(dead_code))]
     pub fn open() -> Result<Self, DeviceError> {
         Self::open_path(option_env!("NXRS_USERLED_PATH").unwrap_or("/dev/userleds"))
     }

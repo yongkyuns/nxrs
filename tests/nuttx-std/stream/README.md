@@ -28,7 +28,9 @@ or an autonomous trusted clock. Preserve and verify the original firmware before
 temporary flashing, and restore it after qualification.
 
 For continuous TLS **with the existing detector**, build with
-`build.sh --platform esp32s3-camera-stream-tls`, then run
+`build.sh --platform esp32s3-camera-stream-mcuboot` and the
+[signing inputs](../../../docs/build-system.md#inputs-and-outputs). Boot the
+signed artifact with its matching [MCUboot loader](../../../docs/firmware-updates.md), then run
 `stream_test tls continuous 0 320 240 81`. This uses the same capture,
 detector, reconnect and shutdown loop as HTTP. TLS owns the sole UART reader;
 sequence-bound USB control requests joined TLS renewal or full shutdown.
@@ -80,7 +82,7 @@ for its RAM bound, prerequisites and receipt semantics.
 
 [`app/home-cam`](../../../app/home-cam) composes the camera service
 and caller-polled [`service/stream`](../../../service/stream) server.
-[`service/connectivity`](../../../service/connectivity) owns reconnect policy.
+The [Wi-Fi reconnector](../../../hal/wifi/src/reconnect.rs) owns retry and rejoin.
 These components contain no ESP pins, NuttX headers or platform feature flags.
 The fixture supplies HALs, runtime credentials and measurements. Camera and
 streaming services create no threads; Wi-Fi retains its provider worker.
@@ -245,8 +247,8 @@ Builds use at most two workers and patch isolated dependency copies, not the
 installed SDK or tracked checkouts.
 
 ```sh
-cargo test --locked -p nxrs-camera -p nxrs-camera-service \
-  -p nxrs-home-cam -p nxrs-stream-service -p nxrs-connectivity-service
+cargo test --locked -p nxrs-camera \
+  -p nxrs-home-cam -p nxrs-stream-service -p nxrs-wifi
 bash tests/nuttx-std/stream/build.sh --platform esp32s3-camera-stream
 ```
 

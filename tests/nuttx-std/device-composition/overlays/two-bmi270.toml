@@ -1,0 +1,15 @@
+# Link qualification only: two sensors on the supported CoreS3 I2C0 endpoint.
+# Keep the base profile's navigation receiver, even for the IMU-only consumer.
+[devices.secondary]
+compatible = "bosch,bmi270"
+bus = "sensor_bus"
+address = 0x69
+
+[devices.secondary.wake]
+kind = "periodic"
+
+[aliases]
+imu = "imu"
+imu_primary_alias = "imu"
+imu_secondary = "secondary"
+gnss_primary_alias = "navigation"

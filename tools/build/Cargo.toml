@@ -1,0 +1,35 @@
+[package]
+name = "nxrs-build"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[[bin]]
+name = "nxrs-build"
+path = "src/main.rs"
+
+[dependencies]
+nxrs-build-support = { path = "../build-support" }
+nxrs-detector-build-support = { path = "../detector-build-support" }
+serde_json = "1.0"
+regex = "1"
+dunce = "=1.0.5"
+# Keep the input API aligned with Ratatui's backend and preserve layout caching.
+crossterm = { version = "0.29", default-features = false, features = ["events", "windows"] }
+ratatui = { version = "0.30.2", default-features = false, features = ["crossterm", "layout-cache", "unstable-rendered-line-info"] }
+toml_edit = "0.24.1"
+
+[dev-dependencies]
+# The detached factory witness runs offline; declare its source dependencies so
+# Cargo fetches their registry dependencies before starting the test on a clean host.
+nxrs-messaging = { path = "../../shared/messaging" }
+nxrs-acquisition = { path = "../../shared/acquisition" }
+nxrs-i2c = { path = "../../driver/i2c" }
+nxrs-gpio = { path = "../../driver/gpio" }
+nxrs-bmi270 = { path = "../../driver/bmi270" }
+nxrs-lsm6dso = { path = "../../driver/lsm6dso" }
+nxrs-ubx-driver = { path = "../../driver/ubx" }
+embedded-hal = "=1.0.0"
+# Offline NuttX graph queries also inspect tar/filetime's Unix dependency when
+# the test host is Windows, where normal host builds do not fetch its source.
+libc = "=0.2.191"

@@ -1,6 +1,7 @@
 //! Task-context admission/lifecycle witnesses; not IRQ or hardware qualification.
+use crate::{session, Event};
 use crate::{DeliveryError, DeviceError, Rejected};
-use acquisition::{Wake, Worker};
+use acquisition::Wake;
 use std::{
     io,
     sync::{
@@ -21,21 +22,22 @@ impl Wake for Cancel {
 #[test]
 fn full_measurements_do_not_block_acquisition_and_loss_is_visible_after_join() {
     let (ready, received) = sync_channel(1);
-    let mut worker = Worker::start(
-        "full-sink",
+    let mut worker = session::start(
         16384,
         Cancel,
-        move |event: u8| {
-            let _ = ready.try_send(());
-            Err(Rejected {
-                value: event,
-                error: DeliveryError::Full,
-            })
-        },
-        |_| 255,
+        (
+            move |event| {
+                let _ = ready.try_send(());
+                Err(Rejected {
+                    value: event,
+                    error: DeliveryError::Full,
+                })
+            },
+            (),
+        ),
         |_, emit| {
-            for value in 0..100 {
-                assert!(emit(value));
+            for _ in 0..100 {
+                assert!(emit(Event::InvalidFrame));
             }
             Ok(())
         },
@@ -48,29 +50,30 @@ fn full_measurements_do_not_block_acquisition_and_loss_is_visible_after_join() {
         std::thread::yield_now();
     }
     assert_eq!(worker.join(DeviceError::Io), Ok(()));
-    assert_eq!(worker.dropped(), 100);
+    assert_eq!(crate::Session::dropped(&worker), 100);
 }
 #[test]
 fn fault_survives_full_sink_and_repeated_join_even_when_stop_cancels_notification() {
     let (ready, received) = sync_channel(1);
     let admit = Arc::new(AtomicBool::new(false));
     let sink_admit = admit.clone();
-    let mut worker = Worker::start(
-        "fault-sink",
+    let mut worker = session::start(
         16384,
         Cancel,
-        move |event: u8| {
-            let _ = ready.try_send(());
-            if sink_admit.load(Ordering::Acquire) {
-                Ok(())
-            } else {
-                Err(Rejected {
-                    value: event,
-                    error: DeliveryError::Full,
-                })
-            }
-        },
-        |_| 255,
+        (
+            move |event| {
+                let _ = ready.try_send(());
+                if sink_admit.load(Ordering::Acquire) {
+                    Ok(())
+                } else {
+                    Err(Rejected {
+                        value: event,
+                        error: DeliveryError::Full,
+                    })
+                }
+            },
+            (),
+        ),
         |_, _| Err(DeviceError::InvalidData),
     )
     .unwrap();
@@ -83,7 +86,7 @@ fn fault_survives_full_sink_and_repeated_join_even_when_stop_cancels_notificatio
 }
 #[test]
 fn mock_stop_wakes_its_wait_and_no_delivery_outlives_join() {
-    use crate::Gnss;
+    use crate::Session;
     let (sender, receiver) = sync_channel(1);
     let mut session = crate::mock_tests::open(move |event| {
         sender.try_send(event).map_err(|error| Rejected {
@@ -109,30 +112,34 @@ fn mock_stop_wakes_its_wait_and_no_delivery_outlives_join() {
 #[test]
 fn retained_terminal_event_is_delivered_when_capacity_returns() {
     let (sender, receiver) = sync_channel(1);
-    sender.send(0_u8).unwrap();
+    sender.send(Event::InvalidFrame).unwrap();
     let (attempt, attempted) = sync_channel(1);
-    let mut worker = Worker::start(
-        "fault-retry",
+    let mut worker = session::start(
         16384,
         Cancel,
-        move |event| {
-            sender.try_send(event).map_err(|error| {
-                let _ = attempt.try_send(());
-                Rejected {
-                    value: match error {
-                        std::sync::mpsc::TrySendError::Full(value)
-                        | std::sync::mpsc::TrySendError::Disconnected(value) => value,
-                    },
-                    error: DeliveryError::Full,
-                }
-            })
-        },
-        |_| 255,
+        (
+            move |event| {
+                sender.try_send(event).map_err(|error| {
+                    let _ = attempt.try_send(());
+                    Rejected {
+                        value: match error {
+                            std::sync::mpsc::TrySendError::Full(value)
+                            | std::sync::mpsc::TrySendError::Disconnected(value) => value,
+                        },
+                        error: DeliveryError::Full,
+                    }
+                })
+            },
+            (),
+        ),
         |_, _| Err(DeviceError::Io),
     )
     .unwrap();
     attempted.recv_timeout(Duration::from_secs(1)).unwrap();
-    assert_eq!(receiver.recv().unwrap(), 0);
-    assert_eq!(receiver.recv_timeout(Duration::from_secs(1)).unwrap(), 255);
+    assert!(matches!(receiver.recv().unwrap(), Event::InvalidFrame));
+    assert!(matches!(
+        receiver.recv_timeout(Duration::from_secs(1)).unwrap(),
+        Event::Failed(DeviceError::Io)
+    ));
     assert_eq!(worker.join(DeviceError::Io), Err(DeviceError::Io));
 }

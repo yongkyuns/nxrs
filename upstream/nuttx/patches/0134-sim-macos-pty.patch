@@ -1,0 +1,55 @@
+Subject: [PATCH] sim: open a private UART pseudoterminal on macOS
+
+Flush the endpoint advertisement so test peers can attach when stdout is a pipe.
+
+diff --git a/arch/sim/Kconfig b/arch/sim/Kconfig
+--- a/arch/sim/Kconfig
++++ b/arch/sim/Kconfig
+@@ -807,7 +807,7 @@
+ config SIM_UART_PTY
+ 	bool "Create host pseudoterminals for simulated UART ports"
+ 	default n
+-	depends on HOST_LINUX && SIM_UART_NUMBER >= 1
++	depends on (HOST_LINUX || HOST_MACOS) && SIM_UART_NUMBER >= 1
+ 	---help---
+ 		Open a new host pseudoterminal for each simulated UART
+ 		instead of opening an existing host serial device.  The
+diff --git a/arch/sim/src/sim/posix/sim_hostuart.c b/arch/sim/src/sim/posix/sim_hostuart.c
+--- a/arch/sim/src/sim/posix/sim_hostuart.c
++++ b/arch/sim/src/sim/posix/sim_hostuart.c
+@@ -181,12 +181,35 @@
+   setrawmode(fd);
+ 
+   printf("%s connected to pseudotty: /dev/pts/%u\n", name, ptyno);
++  fflush(stdout);
+ 
+   return fd;
+ 
+ errout:
+   close(fd);
+   return ret;
++#elif defined(CONFIG_HOST_MACOS)
++  const char *slave;
++  int ret;
++  int fd;
++
++  fd = posix_openpt(O_RDWR | O_NOCTTY | O_NONBLOCK | O_CLOEXEC);
++  if (fd < 0)
++    {
++      return -errno;
++    }
++
++  if (grantpt(fd) < 0 || unlockpt(fd) < 0 || (slave = ptsname(fd)) == NULL)
++    {
++      ret = -errno;
++      close(fd);
++      return ret;
++    }
++
++  setrawmode(fd);
++  printf("%s connected to pseudotty: %s\n", name, slave);
++  fflush(stdout);
++  return fd;
+ #else
+   (void)name;
+   return -ENOSYS;

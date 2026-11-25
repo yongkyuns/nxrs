@@ -1,0 +1,321 @@
+diff --git a/examples/src/bin/topology/mod.rs b/examples/src/bin/topology/mod.rs
+new file mode 100644
+index 0000000..f90fa26
+--- /dev/null
++++ b/examples/src/bin/topology/mod.rs
+@@ -0,0 +1,159 @@
++//! Generated-source bridge qualification. The private datagram socket lets a
++//! test drive Matter attribute reports independently of camera playback.
++use async_io::Async;
++use nxrs_gateway_matter::occupancy::{Feed, Presence};
++use rs_matter::dm::clusters::decl::{
++    bridged_device_basic_information as bridge, occupancy_sensing as occ,
++};
++use rs_matter::dm::{AttrChangeNotifier, Cluster, Dataver, InvokeContext, ReadContext};
++use rs_matter::error::{Error, ErrorCode};
++use rs_matter::tlv::{TLVBuilderParent, Utf8StrBuilder};
++use rs_matter::with;
++use std::cell::Cell;
++use std::os::unix::net::UnixDatagram;
++use std::path::Path;
++
++pub struct Bridged {
++    version: Dataver,
++    id: &'static str,
++    pub reachable: Cell<bool>,
++}
++impl Bridged {
++    pub fn new(version: Dataver, id: &'static str, reachable: bool) -> Self {
++        Self {
++            version,
++            id,
++            reachable: Cell::new(reachable),
++        }
++    }
++}
++impl bridge::ClusterHandler for Bridged {
++    const CLUSTER: Cluster<'static> = bridge::FULL_CLUSTER
++        .with_features(0)
++        .with_attrs(with!(required; bridge::AttributeId::UniqueID))
++        .with_cmds(with!());
++    fn dataver(&self) -> u32 {
++        self.version.get()
++    }
++    fn dataver_changed(&self) {
++        self.version.changed();
++    }
++    fn reachable(&self, _: impl ReadContext) -> Result<bool, Error> {
++        Ok(self.reachable.get())
++    }
++    fn unique_id<P: TLVBuilderParent>(
++        &self,
++        _: impl ReadContext,
++        b: Utf8StrBuilder<P>,
++    ) -> Result<P, Error> {
++        b.set(self.id)
++    }
++    fn handle_keep_active(
++        &self,
++        _: impl InvokeContext,
++        _: bridge::KeepActiveRequest<'_>,
++    ) -> Result<(), Error> {
++        Err(ErrorCode::CommandNotFound.into())
++    }
++}
++
++pub struct Occupancy {
++    version: Dataver,
++    occupied: Cell<bool>,
++}
++impl Occupancy {
++    pub fn new(version: Dataver) -> Self {
++        Self {
++            version,
++            occupied: Cell::new(false),
++        }
++    }
++}
++impl occ::ClusterHandler for Occupancy {
++    const CLUSTER: Cluster<'static> = occ::FULL_CLUSTER
++        .with_features(occ::Feature::VISION.bits())
++        .with_attrs(with!(required))
++        .with_cmds(with!());
++    fn dataver(&self) -> u32 {
++        self.version.get()
++    }
++    fn dataver_changed(&self) {
++        self.version.changed();
++    }
++    fn occupancy(&self, _: impl ReadContext) -> Result<occ::OccupancyBitmap, Error> {
++        Ok(if self.occupied.get() {
++            occ::OccupancyBitmap::OCCUPIED
++        } else {
++            occ::OccupancyBitmap::empty()
++        })
++    }
++    fn occupancy_sensor_type(
++        &self,
++        _: impl ReadContext,
++    ) -> Result<occ::OccupancySensorTypeEnum, Error> {
++        Ok(occ::OccupancySensorTypeEnum::PIR)
++    }
++    fn occupancy_sensor_type_bitmap(
++        &self,
++        _: impl ReadContext,
++    ) -> Result<occ::OccupancySensorTypeBitmap, Error> {
++        Ok(occ::OccupancySensorTypeBitmap::empty())
++    }
++}
++
++pub async fn drive(
++    notifier: &impl AttrChangeNotifier,
++    status: &Bridged,
++    occupancy: &Occupancy,
++) -> Result<(), Error> {
++    let publish = |state: Presence| {
++        let state = match state {
++            Presence::Person => Some(true),
++            Presence::Clear => Some(false),
++            Presence::Unavailable => None,
++        };
++        if let Some(value) = state {
++            if value != occupancy.occupied.replace(value) {
++                occupancy.version.changed();
++                notifier.notify_cluster_changed(3, occ::FULL_CLUSTER.id);
++            }
++        }
++        if state.is_some() != status.reachable.replace(state.is_some()) {
++            status.version.changed();
++            notifier.notify_cluster_changed(3, bridge::FULL_CLUSTER.id);
++        }
++    };
++    let trial = std::env::var_os("WEBRTC_CAMERA_TRIAL_DIR");
++    let control = std::env::var_os("WEBRTC_CAMERA_CONTROL");
++    match (trial, control) {
++        (None, Some(addr)) => {
++            let addr = addr
++                .to_str()
++                .and_then(|s| s.parse().ok())
++                .ok_or(ErrorCode::Invalid)?;
++            let camera = std::env::var("WEBRTC_CAMERA_ID").map_err(|_| ErrorCode::Invalid)?;
++            let token = std::env::var_os("WEBRTC_CAMERA_TOKEN_FILE").ok_or(ErrorCode::Invalid)?;
++            let feed =
++                Feed::open(addr, &camera, Path::new(&token)).map_err(|_| ErrorCode::Invalid)?;
++            feed.run(publish).await;
++            Ok(())
++        }
++        (Some(directory), None) => {
++            let socket = Async::new(UnixDatagram::bind(
++                Path::new(&directory).join("occupancy.sock"),
++            )?)?;
++            let mut bytes = [0; 16];
++            loop {
++                let size = socket.recv(&mut bytes).await?;
++                let state = match &bytes[..size] {
++                    b"person" => Presence::Person,
++                    b"clear" => Presence::Clear,
++                    b"unavailable" => Presence::Unavailable,
++                    _ => continue,
++                };
++                publish(state);
++            }
++        }
++        _ => Err(ErrorCode::Invalid.into()),
++    }
++}
+diff --git a/examples/src/bin/webrtc_camera.rs b/examples/src/bin/webrtc_camera.rs
+index 6b1f83d..51da73a 100644
+--- a/examples/src/bin/webrtc_camera.rs
++++ b/examples/src/bin/webrtc_camera.rs
+@@ -67,6 +67,8 @@
+ //!   cargo run -p rs-matter-examples --bin webrtc_camera --features webrtc
+ //! ```
+ 
++#![recursion_limit = "256"]
++
+ use core::cell::RefCell;
+ use core::pin::pin;
+ 
+@@ -113,6 +115,17 @@ use rs_matter::im::{InteractionModel, InteractionModelState};
+ use rs_matter::pairing::qr::QrTextType;
+ use rs_matter::pairing::DiscoveryCapabilities;
+ mod persistence;
++mod topology;
++use bridge::ClusterHandler as _;
++use occ::ClusterHandler as _;
++use rs_matter::dm::clusters::{
++    decl::{bridged_device_basic_information as bridge, occupancy_sensing as occ},
++    identify,
++};
++use rs_matter::dm::devices::{
++    DEV_TYPE_AGGREGATOR, DEV_TYPE_BRIDGED_NODE, DEV_TYPE_OCCUPANCY_SENSOR,
++};
++use rs_matter::dm::Async as DmAsync;
+ use rs_matter::respond::DefaultResponder;
+ use rs_matter::sc::pase::MAX_COMM_WINDOW_TIMEOUT_SECS;
+ use rs_matter::tlv::TLVArray;
+@@ -121,6 +134,7 @@ use rs_matter::transport::MATTER_SOCKET_BIND_ADDR;
+ use rs_matter::utils::futures::{select, select4, Coalesce};
+ use rs_matter::utils::init::InitMaybeUninit;
+ use rs_matter::{clusters, devices, root_endpoint, Matter, MATTER_PORT};
++use topology::{Bridged, Occupancy};
+ 
+ use static_cell::StaticCell;
+ 
+@@ -1506,11 +1520,26 @@ fn main() -> Result<(), Error> {
+         DemoZoneHooks,
+     ));
+ 
++    let occupancy = Occupancy::new(Dataver::new_rand(&mut rand));
++    let sensor = Bridged::new(
++        Dataver::new_rand(&mut rand),
++        "nxrs-fixture-occupancy",
++        false,
++    );
+     let im = InteractionModel::new(
+         matter,
+         &crypto,
+         buffers,
+-        data_model(matter, rand, webrtc, cam_av, cam_av_settings, zone_mgmt),
++        data_model(
++            matter,
++            rand,
++            webrtc,
++            cam_av,
++            cam_av_settings,
++            zone_mgmt,
++            &sensor,
++            &occupancy,
++        ),
+         &kv,
+         state,
+     );
+@@ -1579,7 +1608,11 @@ fn main() -> Result<(), Error> {
+         let _ = persistence_failure.recv().await;
+         Err(Error::from(ErrorCode::StdIoError))
+     };
+-    futures_lite::future::block_on(select(all, failed_store).coalesce())
++    let controls = topology::drive(&im, &sensor, &occupancy);
++    tokio::runtime::Builder::new_current_thread()
++        .enable_all()
++        .build()?
++        .block_on(select(select(all, failed_store).coalesce(), controls).coalesce())
+ }
+ 
+ // ---------------------------------------------------------------------------
+@@ -1593,14 +1626,30 @@ const NODE: Node<'static> = Node {
+         root_endpoint!(eth),
+         Endpoint::new(
+             1,
+-            devices!(DEV_TYPE_CAMERA),
++            devices!(DEV_TYPE_CAMERA, DEV_TYPE_BRIDGED_NODE),
+             clusters!(
+                 desc::DescHandler::CLUSTER,
+                 groups::GroupsHandler::CLUSTER,
+                 CameraAvStreamHandler::<Str0mCamHooks, CAM_AV_NV>::CLUSTER,
+                 rs_matter::dm::clusters::app::cam_av_settings::CLUSTER_DPTZ_ONLY,
+                 ZoneMgmtHandler::<DemoZoneHooks, ZONE_NZ, ZONE_NV, ZONE_NT>::CLUSTER,
+-                WebRtc::CLUSTER
++                WebRtc::CLUSTER,
++                Bridged::CLUSTER
++            ),
++        ),
++        Endpoint::new(
++            2,
++            devices!(DEV_TYPE_AGGREGATOR),
++            clusters!(desc::DescHandler::CLUSTER),
++        ),
++        Endpoint::new(
++            3,
++            devices!(DEV_TYPE_OCCUPANCY_SENSOR, DEV_TYPE_BRIDGED_NODE),
++            clusters!(
++                desc::DescHandler::CLUSTER,
++                Occupancy::CLUSTER,
++                identify::CLUSTER,
++                Bridged::CLUSTER
+             ),
+         ),
+     ],
+@@ -1617,12 +1666,42 @@ fn data_model<'a>(
+         CAM_AV_SETTINGS_NS,
+     >,
+     zone_mgmt: &'a ZoneMgmtHandler<DemoZoneHooks, ZONE_NZ, ZONE_NV, ZONE_NT>,
++    sensor: &'a Bridged,
++    occupancy: &'a Occupancy,
+ ) -> impl DataModel + 'a {
+     (
+         NODE,
+         endpoints::EthSysHandlerBuilder::new()
+             .netif_diag(&UnixNetifs)
+             .build(matter, rand)
++            .chain(
++                |e, c| e == 2 && c == desc::DescHandler::CLUSTER.id,
++                DmAsync(desc::DescHandler::new_aggregator(Dataver::new_rand(&mut rand)).adapt()),
++            )
++            .chain(
++                |e, c| e == 3 && c == desc::DescHandler::CLUSTER.id,
++                DmAsync(desc::DescHandler::new(Dataver::new_rand(&mut rand)).adapt()),
++            )
++            .chain(
++                |e, c| e == 3 && c == identify::CLUSTER.id,
++                DmAsync(identify::IdentifyHandler::new(Dataver::new_rand(&mut rand)).adapt()),
++            )
++            .chain(
++                |e, c| e == 1 && c == Bridged::CLUSTER.id,
++                DmAsync(bridge::HandlerAdaptor(Bridged::new(
++                    Dataver::new_rand(&mut rand),
++                    "nxrs-fixture-camera",
++                    true,
++                ))),
++            )
++            .chain(
++                |e, c| e == 3 && c == Bridged::CLUSTER.id,
++                DmAsync(bridge::HandlerAdaptor(sensor)),
++            )
++            .chain(
++                |e, c| e == 3 && c == Occupancy::CLUSTER.id,
++                DmAsync(occ::HandlerAdaptor(occupancy)),
++            )
+             .chain(
+                 |e, c| e == 1 && c == desc::DescHandler::CLUSTER.id,
+                 rs_matter::dm::Async(desc::DescHandler::new(Dataver::new_rand(&mut rand)).adapt()),
