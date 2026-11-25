@@ -61,7 +61,7 @@ CONFIG_DEBUG_ASSERTIONS=y
 
 Disabled boolean settings use `# CONFIG_SYMBOL is not set`. Existing `[kconfig]` settings supply defaults; the fragment stores explicit choices. Mandatory build requirements and BSP resource settings retain their ownership.
 
-An inherited fragment keeps its original owner, so editing it affects every profile that uses it. Review the destination before saving. To give a variant its own settings, copy the shared fragment and declare the new path in that variant first. A child `nuttx-config` **replaces** the inherited reference; fragments are not automatically combined. When no fragment exists, review shows the new fragment and reference to be added to the selected profile.
+An inherited fragment keeps its original owner, so editing it affects every profile that uses it. Review the destination before saving. To give a variant its own settings, copy the shared fragment and declare the new path in that variant first. A child `nuttx-config` **replaces** the inherited reference. Use a `.conf` overlay to add settings on top. When no fragment exists, review shows the new fragment and reference to be added to the selected profile.
 
 ### Check, build, and recover
 
@@ -234,7 +234,7 @@ Profile inspection uses `--platform` even when the argument is an explicit profi
 
 ## Apply an overlay
 
-An overlay changes devices, resources, or aliases in a base composition. The frontend applies repeated `--overlay` arguments in order. Keep product overlays in version control and review the resolved configuration after changing them.
+A TOML overlay changes devices, resources, or aliases in a base composition. A `.conf` overlay adds native Kconfig settings to a NuttX build after the profile's `nuttx-config` fragment. Use either file type with `--overlay` or the profile's `overlays` list. Run `cargo nxrs config check` with the same overlay arguments to validate the effective Kconfig.
 
 Resolution applies inherited profile values, the child profile, declared overlays from ancestor to child, and finally command-line overlays in their supplied order. Declared overlay paths are relative to the declaring profile; command-line overlay paths are relative to the selected NXRS root.
 

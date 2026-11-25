@@ -58,11 +58,17 @@ struct Request {
     value: String,
     source: String,
     command_line: bool,
+    fragment_order: usize,
 }
 
 impl Request {
     fn json(&self) -> Value {
-        json!({"value":self.value,"source":self.source,"command_line":self.command_line})
+        json!({
+            "value": self.value,
+            "source": self.source,
+            "command_line": self.command_line,
+            "fragment_order": self.fragment_order,
+        })
     }
 }
 
@@ -71,8 +77,9 @@ fn explicit_requests(
     options: &Options,
 ) -> Result<BTreeMap<String, Vec<Request>>> {
     let mut history = BTreeMap::<String, Vec<Request>>::new();
-    if let Some(fragment) = profile.native_config() {
-        for (index, raw) in fragment.contents.lines().enumerate() {
+    for (index, (path, contents)) in profile.native_config_fragments().enumerate() {
+        let fragment_order = index + 1;
+        for (index, raw) in contents.lines().enumerate() {
             let raw = raw.trim();
             if raw.is_empty() || (raw.starts_with('#') && !raw.starts_with("# CONFIG_")) {
                 continue;
@@ -84,7 +91,7 @@ fn explicit_requests(
                 // Comments mentioning a symbol need not be assignments.
                 continue;
             }
-            let source = format!("{}:{}", fragment.path.display(), index + 1);
+            let source = format!("{}:{}", path.display(), index + 1);
             let (key, value) = assignment(raw)
                 .ok_or_else(|| format!("{source}: expected a native Kconfig assignment"))?;
             if key.is_empty()
@@ -94,18 +101,19 @@ fn explicit_requests(
                 return Err(format!("{source}: malformed Kconfig assignment for {key}"));
             }
             let entries = history.entry(key.into()).or_default();
-            if let Some(previous) = entries.last() {
-                if previous.value != value {
-                    return Err(format!(
-                        "{source}: contradictory CONFIG_{key} request from {}",
-                        previous.source
-                    ));
-                }
+            if let Some(previous) = entries.last().filter(|previous| {
+                previous.fragment_order == fragment_order && previous.value != value
+            }) {
+                return Err(format!(
+                    "{source}: contradictory CONFIG_{key} request from {}",
+                    previous.source
+                ));
             }
             entries.push(Request {
                 value: value.into(),
                 source,
                 command_line: false,
+                fragment_order,
             });
         }
     }
@@ -114,6 +122,7 @@ fn explicit_requests(
             value,
             source: "command line".into(),
             command_line: true,
+            fragment_order: 0,
         });
     }
     Ok(history)
@@ -147,19 +156,19 @@ fn configure_in_order(
             result.push('\n');
         }
     }
-    // Kconfiglib picks the last enabled member of a choice. Write ordinary
-    // requests after defaults so the result does not depend on symbol names.
-    for priority in 0..=2 {
-        for (key, value) in values.iter().filter(|(key, _)| {
-            requests
-                .get(*key)
-                .and_then(|entries| entries.last())
-                .map_or(0, |request| 1 + u8::from(request.command_line))
-                == priority
-        }) {
-            result.push_str(&line(key, value));
-            result.push('\n');
-        }
+    // Kconfiglib picks the last enabled member of a choice. Write requests
+    // after defaults, ordered by fragment and then by direct CLI overrides.
+    let mut ordered: Vec<_> = values.iter().collect();
+    ordered.sort_by_key(|(key, _)| {
+        requests
+            .get(*key)
+            .and_then(|entries| entries.last())
+            .map(|request| (request.command_line, request.fragment_order))
+            .unwrap_or_default()
+    });
+    for (key, value) in ordered {
+        result.push_str(&line(key, value));
+        result.push('\n');
     }
     fs::write(path, result).map_err(|e| e.to_string())
 }
@@ -743,6 +752,58 @@ impl Finalized {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn native_overlays_are_applied_after_the_profile_config() {
+        let temp = crate::TempDir::new(&std::env::temp_dir()).unwrap();
+        let root = temp.0.canonicalize().unwrap();
+        let profile_dir = root.join("tests/profiles");
+        fs::create_dir_all(&profile_dir).unwrap();
+        fs::write(root.join("Cargo.toml"), "[workspace]\n").unwrap();
+        fs::write(
+            profile_dir.join("base.toml"),
+            "board='test:nsh'\nnuttx-config='base.conf'\noverlays=['declared.conf']\n",
+        )
+        .unwrap();
+        for (path, contents) in [
+            (profile_dir.join("base.conf"), "CONFIG_MODE=1\nCONFIG_Z_BASE=y\n"),
+            (profile_dir.join("declared.conf"), "CONFIG_MODE=2\nCONFIG_Y_DECLARED=y\n"),
+            (root.join("extra.conf"), "CONFIG_MODE=3\nCONFIG_X_EXTRA=y\n"),
+        ] {
+            fs::write(path, contents).unwrap();
+        }
+        let resolve =
+            || Profile::resolve_with_overlays(&root, "base", &["extra.conf".into()]).unwrap();
+        let profile = resolve();
+        assert!(profile.native_config().unwrap().path.ends_with("base.conf"));
+        let options = Options {
+            set: vec!["MODE=4".into()],
+            ..Options::default()
+        };
+        let requests = explicit_requests(&profile, &options).unwrap();
+        let history: Vec<_> = requests["MODE"]
+            .iter()
+            .map(|request| request.value.as_str())
+            .collect();
+        assert_eq!(history, ["1", "2", "3", "4"]);
+        assert!(requests["MODE"][1].source.ends_with("declared.conf:1"));
+        assert!(requests["MODE"][2].source.ends_with("extra.conf:1"));
+        let values = requests
+            .iter()
+            .map(|(name, history)| (name.clone(), history.last().unwrap().value.clone()))
+            .collect();
+        let config = root.join(".config");
+        fs::write(&config, "").unwrap();
+        configure_in_order(&config, &values, &requests).unwrap();
+        assert_eq!(
+            read(&config).unwrap(),
+            "CONFIG_Z_BASE=y\nCONFIG_Y_DECLARED=y\nCONFIG_X_EXTRA=y\nCONFIG_MODE=4\n"
+        );
+
+        fs::write(root.join("extra.conf"), "CONFIG_MODE=3\nCONFIG_MODE=4\n").unwrap();
+        let error = explicit_requests(&resolve(), &Options::default()).unwrap_err();
+        assert!(error.contains("extra.conf:2: contradictory CONFIG_MODE"), "{error}");
+    }
 
     #[test]
     fn olddefconfig_preserves_python_virtualenv_entry() {

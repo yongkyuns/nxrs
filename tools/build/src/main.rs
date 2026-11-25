@@ -66,7 +66,7 @@ Selection:
   --bin <bin>                Select a binary target in that manifest
   --platform <platform>     Select a platform family and its default profile
   --profile <profile>       Select a specific product or qualification profile
-  --overlay <path>          Apply an ordered peripheral overlay; repeat as needed
+  --overlay <path>          Apply a device overlay or NuttX .conf; repeat as needed
   --out <path>              Choose the build directory to prepare on Save & sync
   --features <features>     Enable Cargo features; repeat as needed
   --no-default-features     Disable the application's default Cargo features
@@ -100,7 +100,7 @@ Selection:
   --bin <bin>                 Select a binary target
   --platform <platform>       Select a platform family and its default profile
   --profile <profile>         Select a product or qualification profile
-  --overlay <path>            Apply an ordered overlay; repeat as needed
+  --overlay <path>            Apply a device overlay or NuttX .conf; repeat as needed
   --features <features>       Enable Cargo features, separated by commas or spaces;
                               repeat as needed; --feature is an alias
   --no-default-features       Disable the application's default Cargo features
