@@ -71,41 +71,81 @@ impl<I: Interface> Panel<I> {
         height: u16,
         pixels: &[u16],
     ) -> Result<(), Error<I::Error>> {
-        let right = x
-            .checked_add(width)
-            .filter(|&edge| edge <= WIDTH && width != 0);
-        let bottom = y
-            .checked_add(height)
-            .filter(|&edge| edge <= HEIGHT && height != 0);
-        let (Some(right), Some(bottom)) = (right, bottom) else {
-            return Err(Error::InvalidRegion);
-        };
+        let (right, bottom) = bounds(x, y, width, height, pixels.len())?;
         let row_pixels = usize::from(width);
-        if pixels.len() != row_pixels * usize::from(height) {
-            return Err(Error::InvalidPixelCount);
-        }
         let mut bytes = [0; WIDTH as usize * 2];
         let row = &mut bytes[..row_pixels * 2];
 
         // Open a separate window per row. The complete RAMWR command and row
         // remain under one chip-select assertion even when the controller splits
         // the payload into FIFO transfers.
-        let [x_hi, x_lo] = x.to_be_bytes();
-        let [right_hi, right_lo] = (right - 1).to_be_bytes();
         self.0
-            .write(0x2a, &[x_hi, x_lo, right_hi, right_lo])
+            .write(0x2a, &address(x, right - 1))
             .map_err(Error::Transport)?;
         for (y, pixels) in (y..bottom).zip(pixels.chunks_exact(row_pixels)) {
-            let [hi, lo] = y.to_be_bytes();
             self.0
-                .write(0x2b, &[hi, lo, hi, lo])
+                .write(0x2b, &address(y, y))
                 .map_err(Error::Transport)?;
-            for (value, output) in pixels.iter().zip(row.chunks_exact_mut(2)) {
-                output.copy_from_slice(&value.to_be_bytes());
-            }
+            encode(pixels, row);
             self.0.write(0x2c, row).map_err(Error::Transport)?;
         }
         Ok(())
+    }
+
+    /// Write one complete window from tightly packed, MSB-first RGB565 bytes.
+    pub fn draw_packed(
+        &mut self,
+        x: u16,
+        y: u16,
+        width: u16,
+        height: u16,
+        pixels: &[u8],
+    ) -> Result<(), Error<I::Error>> {
+        let (right, bottom) = bounds(x, y, width, height, pixels.len() / 2)?;
+        if pixels.len() % 2 != 0 {
+            return Err(Error::InvalidPixelCount);
+        }
+        self.0
+            .write(0x2a, &address(x, right - 1))
+            .map_err(Error::Transport)?;
+        self.0
+            .write(0x2b, &address(y, bottom - 1))
+            .map_err(Error::Transport)?;
+        self.0.write(0x2c, pixels).map_err(Error::Transport)
+    }
+}
+
+fn address(first: u16, last: u16) -> [u8; 4] {
+    let [a, b] = first.to_be_bytes();
+    let [c, d] = last.to_be_bytes();
+    [a, b, c, d]
+}
+
+fn bounds<E>(
+    x: u16,
+    y: u16,
+    width: u16,
+    height: u16,
+    count: usize,
+) -> Result<(u16, u16), Error<E>> {
+    let right = x
+        .checked_add(width)
+        .filter(|&edge| edge <= WIDTH && width != 0);
+    let bottom = y
+        .checked_add(height)
+        .filter(|&edge| edge <= HEIGHT && height != 0);
+    let (Some(right), Some(bottom)) = (right, bottom) else {
+        return Err(Error::InvalidRegion);
+    };
+    if count != usize::from(width) * usize::from(height) {
+        return Err(Error::InvalidPixelCount);
+    }
+    Ok((right, bottom))
+}
+
+fn encode(pixels: &[u16], bytes: &mut [u8]) {
+    for (value, output) in pixels.iter().zip(bytes.chunks_exact_mut(2)) {
+        output.copy_from_slice(&value.to_be_bytes());
     }
 }
 
@@ -159,5 +199,25 @@ mod tests {
             Err(Error::InvalidPixelCount)
         );
         assert!(panel.0.writes.is_empty());
+    }
+
+    #[test]
+    fn packed_pixels_use_one_address_window() {
+        let mut panel = Panel(Trace::default());
+        assert_eq!(
+            panel.draw_packed(318, 238, 2, 2, &[0; 9]),
+            Err(Error::InvalidPixelCount)
+        );
+        assert!(panel.0.writes.is_empty());
+        let pixels = [0xf8, 0, 0x07, 0xe0, 0, 0x1f, 0xff, 0xff];
+        panel.draw_packed(318, 238, 2, 2, &pixels).unwrap();
+        assert_eq!(
+            panel.0.writes,
+            [
+                (0x2a, vec![1, 62, 1, 63]),
+                (0x2b, vec![0, 238, 0, 239]),
+                (0x2c, pixels.to_vec()),
+            ]
+        );
     }
 }

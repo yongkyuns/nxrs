@@ -13,6 +13,7 @@
 
 #define CHIP_ID         0x00
 #define STATUS          0x03
+#define SENSOR_TIME     0x18
 #define INT_STATUS      0x1d
 #define INTERNAL_STATUS 0x21
 #define FIFO_LENGTH     0x24
@@ -33,12 +34,14 @@
 #define UPLOAD_BYTES 8192
 #define FRAME_BYTES  12
 #define FRAMES       6
+#define SAMPLE_TICKS 256 /* 25.6 kHz sensor clock at 100 Hz ODR. */
 
 static uint8_t registers[128];
 static uint8_t fifo[FRAMES * FRAME_BYTES];
 static size_t uploaded;
 static size_t fifo_offset;
 static size_t fifo_count;
+static uint32_t sensor_ticks;
 static bool uploading;
 static bool overflow;
 static bool bus_open;
@@ -54,6 +57,7 @@ static void reset_sensor(void)
   uploading = false;
   fifo_offset = 0;
   fifo_count = 0;
+  sensor_ticks = 0;
   overflow = false;
 }
 
@@ -131,6 +135,12 @@ static int read_registers(uint8_t reg, uint8_t *data, size_t len)
   if (reg == STATUS && len == 1)
     {
       *data = (registers[POWER_CTRL] & 6) == 6 ? 0xc0 : 0;
+    }
+  else if (reg == SENSOR_TIME && len == 3)
+    {
+      data[0] = sensor_ticks & 255;
+      data[1] = (sensor_ticks >> 8) & 255;
+      data[2] = (sensor_ticks >> 16) & 255;
     }
   else if (reg == INT_STATUS && len == 1)
     {
@@ -317,6 +327,7 @@ int bmi270_fixture_push(bool full)
         }
 
       fifo_count = sizeof(fifo);
+      sensor_ticks += FRAMES * SAMPLE_TICKS;
     }
 
   /* Same callback the NuttX upper half installs on a physical pin. */

@@ -79,11 +79,16 @@ fn finish(session: &mut impl Session, expected: Result<(), DeviceError>) {
 fn sample_burst() {
     let (mut session, inbox) = open();
     publish(false);
+    let mut previous = None;
     for index in 0..FRAMES {
         let Event::Sample(sample) = inbox.wait(Some(DEADLINE)).expect("FIFO sample") else {
             panic!("unexpected IMU fault");
         };
         check_sample(sample, index);
+        assert!(sample.is_capture_time);
+        if let Some(timestamp) = previous.replace(sample.timestamp_us) {
+            assert_eq!(sample.timestamp_us - timestamp, 10_000);
+        }
     }
     session.request_stop().expect("request IMU stop");
     finish(&mut session, Ok(()));
