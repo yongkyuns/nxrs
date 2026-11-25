@@ -28,7 +28,32 @@ pub struct GnssFix {
     /// Movement course, absent when the receiver cannot determine it.
     pub course_rad: Option<f32>,
     /// Receiver-provided accuracy and satellite data when available.
-    pub quality: Option<crate::FixQuality>,
+    pub quality: Option<FixQuality>,
+}
+
+/// Receiver estimates and satellite usage at the solution epoch.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct FixQuality {
+    pub satellites_used: u8,
+    pub horizontal_accuracy_m: f32,
+    pub vertical_accuracy_m: f32,
+    pub speed_accuracy_mps: f32,
+    /// Position dilution of precision (PDOP), a dimensionless factor.
+    pub position_dop: Option<f32>,
+    pub satellites: Option<SatelliteStatus>,
+}
+
+/// Summary of a recent satellite report.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SatelliteStatus {
+    /// Satellites the receiver reports as visible or tracked.
+    pub visible: u8,
+    /// Satellites with a synchronized code or carrier lock.
+    pub tracked: u8,
+    /// Mean C/N₀ in dB-Hz among tracked satellites with a signal reading.
+    pub mean_cn0_db_hz: Option<f32>,
+    /// Milliseconds from the satellite report's receiver epoch to this fix.
+    pub age_ms: u32,
 }
 
 /// Normalized task-context delivery. Faults also remain observable through join().

@@ -1,5 +1,4 @@
 //! Synchronous GNSS receiver protocol, without acquisition or host timestamps.
-#[cfg(not(target_os = "none"))]
 use std::time::Instant;
 
 /// Accuracy estimates and satellite usage at the solution epoch.
@@ -63,7 +62,6 @@ pub enum Report {
 
 /// Bounded, synchronous operations on an already opened byte stream.
 /// Failed configuration must retain enough state for `restore` to roll back.
-#[cfg(not(target_os = "none"))]
 pub trait Receiver {
     fn configure(&mut self, deadline: Instant) -> Result<(), Error>;
     fn enable_time_pulse(&mut self, _: Instant) -> Result<(), Error> {
