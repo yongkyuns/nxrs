@@ -174,8 +174,9 @@ python3 tests/nuttx-std/tracker-sim/upload.py \
 The first dial is rejected. The runner then closes the collector socket and
 terminates PPP. It checks that both IMUs and GNSS keep producing fresh USB
 reports between the PPP termination acknowledgement and modem redial. The
-collector compares its decrypted records byte for byte with the app’s USB
-output and requires a newer snapshot after recovery in the same app run. A
+collector and USB output take snapshots independently. The runner checks
+live sensor values and aligns the reports by acquisition time to verify
+fresh uploads after recovery in the same app run. A
 fresh boot with a wrong pin exercises repeated TLS attempts and requires zero
 uploaded records.
 

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Run the full tracker against an independent local TLS collector over PPP."""
+from bisect import bisect_left
 from contextlib import contextmanager
 import hashlib
 import json
@@ -26,6 +27,7 @@ from sensors import NeoM9n, check_live, check_progress
 COLLECTOR = '192.0.2.3'
 MAC = bytes.fromhex('525400000002')
 ROUTER_MAC = bytes.fromhex('5255c0000203')
+REPORT_INTERVAL_MS = 200
 
 
 class Collector(socketserver.ThreadingTCPServer):
@@ -174,6 +176,10 @@ def is_live(sample):
     return sample['gnss']['state'] == 'live' and all(imu['state'] == 'live' for imu in sample['imu'])
 
 
+def imu_time(sample):
+    return sample['imu'][0].get('received_ms', 0)
+
+
 def qualify(process, modem, gnss_wire, transcript, log, ethernet, server, pin, reject, timeout):
     stamp = TcpStamp(modem, ethernet, server.server_address[1])
     gnss = NeoM9n(gnss_wire)
@@ -214,9 +220,10 @@ def qualify(process, modem, gnss_wire, transcript, log, ethernet, server, pin, r
                 if line.startswith(b'{"v":1,'):
                     usb.append(bytes(line) + b'\n')
                     if gnss.rate == 1 and len(usb) % 4 == 1:
-                        gnss_wire.sendall(gnss.fix_packet(len(usb) * 200))
+                        gnss_wire.sendall(gnss.fix_packet(len(usb) * REPORT_INTERVAL_MS))
             if not started and b'nsh> ' in transcript:
-                send(f'motion_tracker --frames 160 --stream-usb --cellular-apn nxrs.test '
+                send(f'motion_tracker --frames 160 --interval-ms {REPORT_INTERVAL_MS} --stream-usb '
+                     f'--cellular-apn nxrs.test '
                      f'--collector {COLLECTOR}:{stamp.port} --collector-pin {pin}')
                 started = True
             if not reached_shell and b'nsh> ' in transcript[transcript.find(b'nsh> ') + 5:]:
@@ -241,14 +248,14 @@ def qualify(process, modem, gnss_wire, transcript, log, ethernet, server, pin, r
                 collector_closures.append((connection, value))
             elif event == 'frame':
                 assert not reject, 'a wrong pin let telemetry reach the collector'
-                raw, sample = value
-                records.append(raw)
+                _, sample = value
                 if is_live(sample):
                     check_live(sample)
+                    records.append(sample)
                     if connection == 3:
                         last_recovered = sample
                     if not any(previous == connection for previous, _ in received):
-                        received.append((connection, raw))
+                        received.append((connection, sample))
                         if connection == 2:
                             assert stamp.dials == 2, stamp.commands
                             dropped_at_usb = len(usb)
@@ -272,12 +279,17 @@ def qualify(process, modem, gnss_wire, transcript, log, ethernet, server, pin, r
         print('PASS: wrong pin rejected across concurrent sensor updates and repeated TLS attempts')
     else:
         assert [connection for connection, _ in received] == [1, 2, 3], (received, secure_connections, collector_closures)
-        assert set(records) <= set(usb), "collector received a frame absent from USB"
-        positions = [usb.index(raw) for _, raw in received]
+        # Both outputs sample the same acquisition clock on their own deadlines.
+        usb_samples = [json.loads(raw) for raw in usb]
+        usb_times = [imu_time(sample) for sample in usb_samples]
+        upload_times = [imu_time(sample) for sample in records]
+        assert usb_times == sorted(usb_times) and upload_times == sorted(upload_times)
+        assert usb_times[0] <= upload_times[0] <= upload_times[-1] <= usb_times[-1] + REPORT_INTERVAL_MS
+        positions = [bisect_left(usb_times, imu_time(sample)) for _, sample in received]
         assert positions[0] < positions[1] < positions[2], positions
         assert offline_from is not None and redial_at_usb is not None
         assert dropped_at_usb <= offline_from and positions[2] >= redial_at_usb, positions
-        offline = [json.loads(raw) for raw in usb[offline_from:redial_at_usb]]
+        offline = usb_samples[offline_from:redial_at_usb]
         # The model sends a GNSS fix every four reports. Observe at least one
         # new fix, with both IMUs live, while the modem is still offline.
         assert len(offline) >= 5, f'only {len(offline)} USB reports while PPP was down'
@@ -289,7 +301,8 @@ def qualify(process, modem, gnss_wire, transcript, log, ethernet, server, pin, r
         check_progress([offline[0], offline[-1], last_recovered])
         assert transcript.count(b'motion-tracker collector TLS online') == 3
         print(f'PASS: {len(offline)} live USB reports while PPP was down, with advancing IMU and GNSS samples')
-        print(f'PASS: TLS 1.3 uploads matched console frames {positions} before and after collector/PPP loss '
+        print(f'PASS: TLS 1.3 uploads aligned with USB acquisition times at reports {positions} '
+              'before and after collector/PPP loss '
               f'({time.monotonic() - started_at:.2f} s host time)')
 
 
