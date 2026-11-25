@@ -130,7 +130,8 @@ class Witness:
             "imu": "// Generated canonical device instances.\n"
                 f'declare_device!(PRIMARY_DEVICE, "imu", {driver}, resources::I2cResource, resources::open_i2c, '
                 f'(resource::Config {{ path: "{device}", frequency: {frequency} }}, {address}), None, 16384, true);\n'
-                "pub mod devices {\npub fn r#imu() -> &'static impl super::Device { &super::PRIMARY_DEVICE }\n"
+                "pub mod devices {\npub use super::unavailable_secondary as secondary;\n"
+                "pub fn r#imu() -> &'static impl super::Device { &super::PRIMARY_DEVICE }\n"
                 "pub fn r#primary_imu() -> &'static impl super::Device { &super::PRIMARY_DEVICE }\n}\n",
             "gnss": '// Generated canonical device instances.\ndeclare_device!(PRIMARY_DEVICE, "navigation", '
                 '::r#ubx::NeoM9n<Serial>, "/dev/ttyS1", 38400, 16384, false);\npub mod devices {\n'

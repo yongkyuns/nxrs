@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import importlib.util
 import json
 from pathlib import Path
 import re
@@ -25,7 +26,8 @@ OVERLAY = "tests/host/fixtures/lsm6dso-overlay.toml"
 BSP = "platform/nuttx/resources/esp32s3-m5-cores3.toml"
 SOURCE_INPUTS = (
     "Cargo.toml", "Cargo.lock", "tools/qualify-concurrent-builds.py",
-    "tools/check-concurrent-builds.py", ".github/workflows/event-demo-self-hosted.yml",
+    "tools/check-concurrent-builds.py", "tools/check-device-closure.py",
+    ".github/workflows/event-demo-self-hosted.yml",
     *(f"tools/build/src/{name}.rs" for name in
       ("main", "build", "nuttx", "cargo_graph", "deployment", "sdk", "source")),
     *(f"tools/build-support/src/{name}.rs" for name in
@@ -143,25 +145,13 @@ def expected_graph(case: str) -> dict:
     }
 
 
-def expected_generated(case: str, capability: str) -> str:
-    if capability == "imu":
-        if case == "bmi270":
-            driver, device, frequency, address = (
-                "::r#bmi270::Bmi270<resources::Bus, resources::Delay>", "/dev/i2c0", 400000, 104)
-        else:
-            driver, device, frequency, address = (
-                "::r#lsm6dso::Lsm6dso<resources::Bus>", "/dev/i2c1", 100000, 106)
-        arguments = (f'resources::I2cResource, resources::open_i2c, '
-                     f'(resource::Config {{ path: "{device}", frequency: {frequency} }}, {address}), None')
-        identifier, reference, accessors = "imu", "true", ("imu", "primary_imu")
-    else:
-        driver, arguments = '::r#ubx::NeoM9n<Serial>', '"/dev/ttyS1", 38400'
-        identifier, reference, accessors = "navigation", "false", ("navigation", "primary_gnss")
-    return ("// Generated canonical device instances.\n"
-            f'declare_device!(PRIMARY_DEVICE, "{identifier}", {driver}, {arguments}, 16384, {reference});\n'
-            "pub mod devices {\n" + "".join(
-                f"pub fn r#{name}() -> &'static impl super::Device {{ &super::PRIMARY_DEVICE }}\n"
-                for name in accessors) + "}\n")
+# Share the fixed test contract with the linked-device checker. Neither
+# checker generates expectations from the outputs it is validating.
+_device_spec = importlib.util.spec_from_file_location(
+    "nxrs_linked_device_checker", Path(__file__).with_name("check-device-closure.py"))
+_device_checker = importlib.util.module_from_spec(_device_spec)
+_device_spec.loader.exec_module(_device_checker)
+GENERATED = {case: _device_checker.expected_case(case)["generated"] for case in CASES}
 
 
 def _prepared(case: str, ctx: Context) -> tuple[dict[str, str], dict]:
@@ -234,7 +224,7 @@ def _prepared(case: str, ctx: Context) -> tuple[dict[str, str], dict]:
         generated = handoff.parent / record["identity"] / record["output"]["file"]
         ctx.evidence(generated, hashes)
         require(digest(generated) == record["output"]["sha256"]
-                and generated.read_text() == expected_generated(case, capability),
+                and generated.read_text() == GENERATED[case][capability],
                 "incorrect generated device construction")
     context_path = ctx.out / "native-context.json"
     ctx.evidence(context_path, hashes)
@@ -465,7 +455,7 @@ def _finished(case: str, ctx: Context, revision: str) -> tuple[dict[str, str], d
                 for capability in ("imu", "gnss"):
                     path = directory / f"{capability}_config.rs"
                     ctx.evidence(path, hashes)
-                    require(capability not in consumed and path.read_text() == expected_generated(case, capability),
+                    require(capability not in consumed and path.read_text() == GENERATED[case][capability],
                             "wrong/duplicate consumed configuration")
                     receipt = directory / f"nxrs-composition-{capability}.configuration.json"
                     ctx.evidence(receipt, hashes)
