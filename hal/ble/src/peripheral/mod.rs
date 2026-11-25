@@ -2,6 +2,7 @@
 //! identify the transport, while authentication belongs to the consumer.
 use crate::{Error, Uuid};
 use std::io::{Read, Write};
+use std::time::Instant;
 
 pub trait Link: Read + Write {
     fn abort(&mut self);
@@ -18,6 +19,10 @@ pub trait Listener {
     /// this listener. The owner still drives retry deadlines.
     fn take_ready(&self) -> bool {
         false
+    }
+    /// The next retry needed while no accepted connection is active.
+    fn idle_retry_at(&self) -> Option<Instant> {
+        None
     }
     /// Progress bounded transport work from the owner's existing wait loop.
     fn service(&mut self) -> std::io::Result<()> {

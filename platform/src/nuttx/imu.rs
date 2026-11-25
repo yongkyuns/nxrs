@@ -3,6 +3,11 @@
 use super::resource;
 #[cfg(feature = "spi")]
 use super::spi_resource;
+#[allow(
+    unused_imports,
+    reason = "The generated accessor uses this only without a secondary IMU."
+)]
+pub use ::imu::construction::unavailable_secondary;
 use ::imu::construction::Instance;
 #[cfg(feature = "probe")]
 use ::imu::{AppliedConfig, Config, Event, Session};

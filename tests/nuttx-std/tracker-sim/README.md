@@ -74,13 +74,13 @@ RUNSTALL patch before the UART receive-timeout patch was added.
 
 ## Headless one-IMU tracker
 
-Use the production app with its dashboard feature disabled. The qualification
-profile registers one modeled BMI270 on NuttX's I²C driver and exposes NSH over
-UART0. The headless JSON stream is version 2 with one IMU entry. The verifier
-checks live readings, a successful exit, and reacquisition in the same boot.
+The acquisition fixture registers one modeled BMI270 on NuttX's I²C driver
+and exposes NSH over UART0. It exercises the same observation service used in
+the tracker. The verifier checks live readings, a clean exit and reacquisition
+in the same boot.
 
 ```sh
-cargo nxrs build --app motion-tracker --no-default-features \
+cargo nxrs build --manifest-path tests/nuttx-std/tracker-sim/logging/Cargo.toml \
   --profile esp32s3-qemu-tracker-headless \
   --target-c-source tests/nuttx-std/tracker-sim/devices.c \
   --target-c-source tests/nuttx-std/tracker-sim/native_init.c \
@@ -174,8 +174,9 @@ python3 tests/nuttx-std/tracker-sim/upload.py \
 The first dial is rejected. The runner then closes the collector socket and
 terminates PPP. It checks that both IMUs and GNSS keep producing fresh USB
 reports between the PPP termination acknowledgement and modem redial. The
-collector compares its decrypted records byte for byte with the app’s USB
-output and requires a newer snapshot after recovery in the same app run. A
+collector and USB output take snapshots independently. The runner checks
+live sensor values and aligns the reports by acquisition time to verify
+fresh uploads after recovery in the same app run. A
 fresh boot with a wrong pin exercises repeated TLS attempts and requires zero
 uploaded records.
 

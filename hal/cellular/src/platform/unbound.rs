@@ -12,3 +12,10 @@ pub fn connect(_: &str) -> Result<impl Session, Error> {
     }
     Err::<Unavailable, _>(Error::Unsupported)
 }
+
+pub fn connect_managed(
+    apn: &str,
+    _: impl Fn(Status) + Send + Sync + 'static,
+) -> Result<impl Session, Error> {
+    connect(apn)
+}

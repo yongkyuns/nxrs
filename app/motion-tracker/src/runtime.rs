@@ -1,16 +1,15 @@
-use crate::{charts, communications, screen, tracker, wire, ReportOptions};
+use crate::{communications, screen, tracker, ReportOptions};
 use battery::Device as _;
-use charts::{History, SAMPLE_INTERVAL};
 use communications::{
-    Capture, CellularConfig, Communications, Endpoint, LinkStatus, Pairing, View,
+    Capture, CellularConfig, Communications, Endpoint, Pairing, Telemetry, View, Zoom,
 };
 use messaging::bounded;
-use navigation::observations::{Measurement, Observation, ObservationService};
-use screen::{Action, Dashboard, Screen};
+use navigation::observations::{Observation, ObservationService};
+use screen::{Action, Screen};
 use std::io::{self, Write};
 use std::sync::{
     mpsc::{RecvTimeoutError, TrySendError},
-    Arc, Mutex,
+    Arc,
 };
 use std::time::Instant;
 use touch::Session as _;
@@ -22,7 +21,7 @@ struct Options {
     battery: bool,
     cellular: Option<CellularConfig>,
     tile_relay: Option<Endpoint>,
-    zoom: Option<crate::map::Zoom>,
+    zoom: Option<Zoom>,
 }
 
 impl Options {
@@ -59,7 +58,7 @@ impl Options {
                         value(&mut args)?
                             .parse()
                             .ok()
-                            .and_then(crate::map::Zoom::new)
+                            .and_then(Zoom::new)
                             .ok_or_else(|| {
                                 io::Error::new(
                                     io::ErrorKind::InvalidInput,
@@ -112,7 +111,7 @@ impl Options {
 }
 
 enum Event {
-    Sensor(Observation),
+    SensorChanged,
     LinksUpdated,
     Touch { event: touch::Event, missed: bool },
 }
@@ -132,11 +131,13 @@ fn track(
     mut timer: Option<&mut dyn watchdog::RuntimeWatchdog>,
 ) -> io::Result<()> {
     let interval = crate::preferences(options.reports.interval)?.duration();
-    let mut screen = Screen::new(display::open().map_err(display_error)?).map_err(display_error)?;
-    let mut dashboard = Dashboard::default();
-    let zoom = options.zoom.unwrap_or_default();
-    let mut history = History::new(zoom);
-    let mut map = crate::map::View::default();
+    let mut screen = match display::open() {
+        Ok(display) => {
+            Some(Screen::new(display, options.zoom.unwrap_or_default()).map_err(display_error)?)
+        }
+        Err(display::Error::Unsupported) => None,
+        Err(error) => return Err(display_error(error)),
+    };
     let (events, inbox) = bounded(32);
     let notify_links = {
         let events = events.clone();
@@ -151,29 +152,33 @@ fn track(
     let primary_scale = primary
         .default_config()
         .and_then(|config| primary.resolve(config));
-    let secondary_scale = secondary
-        .default_config()
-        .and_then(|config| secondary.resolve(config));
+    let secondary_config = secondary.default_config();
+    let secondary_present = !matches!(&secondary_config, Err(imu::DeviceError::Unsupported));
+    let secondary_scale = secondary_config.and_then(|config| secondary.resolve(config));
     let capture = Arc::new(Capture::new(
         [primary_scale, secondary_scale]
             .map(|applied| applied.ok().and_then(|config| config.counts_scale)),
     ));
-    let latest = Arc::new(Mutex::new([None, None, None]));
+    let (mut sensors, readings) = ObservationService::new_shared(IMU_FRESH, Some(FIX_FRESH));
     let sensor_event = {
         let capture = capture.clone();
-        let latest = latest.clone();
+        let readings = readings.clone();
         move |event: Observation| {
-            let Some(sample) = event.measurement() else {
-                return Some(Event::Sensor(event));
-            };
-            capture.record(sample);
-            let index = match sample {
-                Measurement::Imu(index, _) => index,
-                Measurement::Gnss(_) => 2,
-            };
-            latest.lock().unwrap()[index] = Some(event);
+            match readings.record(&event) {
+                Ok(Some(sample)) => capture.record(sample),
+                Ok(None) => {}
+                Err(_) => {
+                    capture.sensor_failed();
+                    return Some(Event::SensorChanged);
+                }
+            }
             None
         }
+    };
+    let telemetry = Telemetry {
+        readings,
+        capture,
+        interval,
     };
     let mut communications =
         (options.ble || options.cellular.is_some() || options.tile_relay.is_some())
@@ -182,16 +187,15 @@ fn track(
                     options.ble,
                     options.cellular,
                     options.tile_relay,
-                    capture.clone(),
+                    telemetry.clone(),
                     notify_links.clone(),
                 )
             })
             .transpose()?;
     let mut view = View::default();
-    let mut sensors = ObservationService::<2>::new(IMU_FRESH, Some(FIX_FRESH));
+    let mut required = Ok(());
     for result in [
         sensors.start_imu_with(0, primary, events.clone(), sensor_event.clone()),
-        sensors.start_imu_with(1, secondary, events.clone(), sensor_event.clone()),
         sensors.start_gnss_with(
             composition::gnss::primary_gnss(),
             events.clone(),
@@ -200,204 +204,186 @@ fn track(
     ] {
         if let Err(fault) = result {
             report_fault(fault);
+            required = Err(io::Error::other(format!("open required sensor: {fault:?}")));
+        }
+    }
+    if required.is_ok() && secondary_present {
+        if let Err(fault) = sensors.start_imu_with(1, secondary, events.clone(), sensor_event) {
+            report_fault(fault);
         }
     }
     let mut missed = false;
-    let mut touch = touch::open(move |event| {
-        match events.try_send(Event::Touch { event, missed }) {
-            Ok(()) => missed = false,
-            Err(TrySendError::Full(_)) => missed = true,
-            Err(TrySendError::Disconnected(_)) => return false,
-        }
-        true
-    })
-    .inspect_err(|error| log::warn!("motion-tracker touch: {error:?}"))
-    .ok();
+    let mut touch = screen
+        .is_some()
+        .then(|| {
+            touch::open(move |event| {
+                match events.try_send(Event::Touch { event, missed }) {
+                    Ok(()) => missed = false,
+                    Err(TrySendError::Full(_)) => missed = true,
+                    Err(TrySendError::Disconnected(_)) => return false,
+                }
+                true
+            })
+        })
+        .and_then(|session| match session {
+            Ok(touch) => Some(touch),
+            Err(touch::Error::Unsupported) => None,
+            Err(error) => {
+                log::warn!("motion-tracker touch: {error:?}");
+                None
+            }
+        });
 
     let mut serial = options.reports.usb_stream.then(io::stdout);
     let mut reported_drops = [0; 3];
     let mut rendered = 0_u32;
     let mut next = Instant::now();
-    let mut next_plot = next;
     let mut redraw = true;
     let mut links_changed = false;
-    let result = loop {
-        let now = Instant::now();
-        let report_due = now >= next;
-        let plot_due = now >= next_plot;
-        if links_changed || report_due || plot_due {
-            links_changed = false;
-            if let Some(links) = &communications {
-                let update = links.view(view);
-                if update != view {
-                    redraw = true;
-                    if let Some(key) = update.key {
-                        if let Err(error) = dashboard.show_code(&key) {
-                            break Err(display_error(error));
-                        }
-                    } else {
-                        dashboard.hide_code();
-                        if update.link == LinkStatus::Paired {
-                            dashboard.open_menu();
+    let result = (|| {
+        required?;
+        // Keep synchronous SPI transfers on the existing display owner at a
+        // fixed priority. Acquisition and transport have their own deadlines.
+        match screen
+            .as_ref()
+            .map(|_| execution::configure_current(execution::Priority::Background))
+        {
+            None | Some(Ok(()) | Err(execution::Error::Unsupported)) => {}
+            Some(Err(error)) => {
+                return Err(io::Error::other(format!(
+                    "tracker display priority: {error:?}"
+                )));
+            }
+        }
+        loop {
+            let now = Instant::now();
+            let report_due = now >= next;
+            let plot_due = screen
+                .as_ref()
+                .is_some_and(|screen| now >= screen.deadline());
+            if links_changed || report_due || plot_due {
+                links_changed = false;
+                if let Some(links) = &communications {
+                    let update = links.view(view);
+                    if update != view {
+                        if let Some(screen) = &mut screen {
+                            screen.update_link(update).map_err(display_error)?;
+                            redraw = true;
                         }
                     }
                     view = update;
                 }
             }
-        }
-        if report_due || plot_due || redraw {
-            let current = std::mem::take(&mut *latest.lock().unwrap());
-            for event in current.into_iter().flatten() {
-                if let Some(fault) = sensors.observe(event) {
-                    report_fault(fault);
-                }
-            }
-        }
-        if report_due {
-            if serial.is_some() {
-                let ([primary, secondary], gnss) = sensors.dropped();
-                for ((name, count), reported) in ["IMU 1", "IMU 2", "GNSS"]
-                    .into_iter()
-                    .zip([primary, secondary, gnss])
-                    .zip(&mut reported_drops)
-                {
-                    if let Some(count) = count.filter(|count| *count > *reported) {
-                        log::warn!("motion-tracker {name} queue drops: {count}");
-                        *reported = count;
+            if report_due {
+                if serial.is_some() {
+                    let ([primary, secondary], gnss) = sensors.dropped();
+                    for ((name, count), reported) in ["IMU 1", "IMU 2", "GNSS"]
+                        .into_iter()
+                        .zip([primary, secondary, gnss])
+                        .zip(&mut reported_drops)
+                    {
+                        if let Some(count) = count.filter(|count| *count > *reported) {
+                            log::warn!("motion-tracker {name} queue drops: {count}");
+                            *reported = count;
+                        }
                     }
                 }
-            }
-            sensors.reap_finished(report_fault);
-            if touch.as_ref().is_some_and(touch::Session::is_finished) {
-                let mut finished = touch.take().unwrap();
-                let result = finished.join();
-                log::warn!("motion-tracker touch stopped: {result:?}");
-            }
-        }
-        if report_due {
-            let mut snapshot = Snapshot::from(sensors.snapshot(now));
-            snapshot.clock = capture.clock();
-            if let Some(serial) = &mut serial {
-                let mut writer = serial.lock();
-                let written = wire::frame(&snapshot)
-                    .and_then(|frame| writer.write_all(frame.bytes()))
-                    .and_then(|()| writer.flush());
-                if let Err(error) = written {
-                    break Err(error);
+                sensors.reap_finished(report_fault);
+                if touch.as_ref().is_some_and(touch::Session::is_finished) {
+                    let mut finished = touch.take().unwrap();
+                    let result = finished.join();
+                    log::warn!("motion-tracker touch stopped: {result:?}");
                 }
             }
-            if let Some(links) = &communications {
-                links.offer(snapshot);
-            }
-            if options.reports.frames.is_some() {
-                rendered += 1;
-                if options.reports.frames == Some(rendered) {
-                    let _ = writeln!(
+            if report_due {
+                let snapshot = telemetry.snapshot(now);
+                if let Some(serial) = &mut serial {
+                    communications::write_usb(&mut serial.lock(), &snapshot)?;
+                }
+                if options.reports.frames.is_some() {
+                    rendered += 1;
+                    if options.reports.frames == Some(rendered) {
+                        let _ = writeln!(
                         io::stderr().lock(),
                         "motion-tracker: {rendered} frames, interval={} ms, IMU 1 {}, IMU 2 {}, GNSS {}",
                         interval.as_millis(),
                         tracker::reading_status(&snapshot.imu[0]),
-                        tracker::reading_status(&snapshot.imu[1]),
+                        if secondary_present { tracker::reading_status(&snapshot.imu[1]) } else { "unavailable" },
                         tracker::reading_status(&snapshot.gnss),
                     );
-                    // Preserve a failing status for bring-up scripts.
-                    use tracker::Reading::{Fault, Live};
-                    break if !matches!(snapshot.imu[0], Live(_))
-                        || !matches!(snapshot.imu[1], Live(_))
-                        || matches!(snapshot.gnss, Fault)
+                        // Preserve a failing status for bring-up scripts.
+                        use tracker::Reading::{Fault, Live};
+                        break if !matches!(snapshot.imu[0], Live(_))
+                            || (secondary_present && !matches!(snapshot.imu[1], Live(_)))
+                            || matches!(snapshot.gnss, Fault)
+                        {
+                            Err(io::Error::other(
+                                "sensor acquisition failed or an IMU never reported",
+                            ))
+                        } else {
+                            Ok(())
+                        };
+                    }
+                }
+                next = now + interval;
+            }
+            if let Some(screen) = screen.as_mut().filter(|_| plot_due || redraw) {
+                let snapshot = Snapshot::from(sensors.snapshot(now));
+                screen
+                    .draw(view.link, &snapshot, now, |wanted| {
+                        communications.as_ref().and_then(|links| links.map(wanted))
+                    })
+                    .map_err(display_error)?;
+                redraw = false;
+            }
+            if report_due {
+                if let Err(error) = crate::health::progress(&mut timer) {
+                    break Err(error);
+                }
+            }
+            let wake = screen
+                .as_ref()
+                .map_or(next, |screen| next.min(screen.deadline()));
+            match inbox.wait(Some(wake.saturating_duration_since(Instant::now()))) {
+                Ok(Event::LinksUpdated) => {
+                    links_changed = true;
+                    redraw = true;
+                }
+                Ok(Event::SensorChanged) => redraw = true,
+                Ok(Event::Touch { event, missed }) => {
+                    match screen
+                        .as_mut()
+                        .and_then(|screen| screen.input(view.link, event, missed))
                     {
-                        Err(io::Error::other(
-                            "sensor acquisition failed or an IMU never reported",
-                        ))
-                    } else {
-                        Ok(())
-                    };
-                }
-            }
-            next = now + interval;
-        }
-        if plot_due || redraw {
-            let snapshot = Snapshot::from(sensors.snapshot(now));
-            if plot_due {
-                history.record(&snapshot, now);
-                next_plot = now + SAMPLE_INTERVAL;
-            }
-            let viewport = map.select(dashboard.map_position(view.link, &snapshot, zoom));
-            if let Some(links) = &communications {
-                if let Some(tile) = links.map(viewport.and_then(|viewport| map.wanted(viewport))) {
-                    if let Some(viewport) = viewport {
-                        map.accept(viewport, tile);
-                    }
-                }
-            }
-            if let Err(error) = render(view.link, || {
-                screen.render(
-                    &dashboard,
-                    view.link,
-                    &snapshot,
-                    &history,
-                    now,
-                    viewport.map(|viewport| (viewport, &map)),
-                )
-            }) {
-                break Err(error);
-            }
-            redraw = false;
-            let finished = Instant::now();
-            if finished >= next_plot {
-                // Skip the missed paint and leave time to receive sensor and touch events.
-                next_plot = finished + SAMPLE_INTERVAL;
-            }
-        }
-        if report_due {
-            if let Err(error) = crate::health::progress(&mut timer) {
-                break Err(error);
-            }
-        }
-        let wake = next.min(next_plot);
-        match inbox.wait(Some(wake.saturating_duration_since(Instant::now()))) {
-            Ok(Event::LinksUpdated) => {
-                links_changed = true;
-                redraw = true;
-            }
-            Ok(Event::Sensor(event)) => {
-                if let Some(fault) = sensors.observe(event) {
-                    report_fault(fault);
-                }
-            }
-            Ok(Event::Touch { event, missed }) => {
-                if missed {
-                    dashboard.cancel_touch();
-                }
-                match screen.input(&mut dashboard, view.link, event) {
-                    Some(Action::Pair) => match &communications {
-                        Some(links) => links.pair(Pairing::Start),
-                        None => match Communications::start(
-                            true,
-                            None,
-                            None,
-                            capture.clone(),
-                            notify_links.clone(),
-                        ) {
-                            Ok(links) => communications = Some(links),
-                            Err(error) => log::warn!("motion-tracker pairing: {error}"),
+                        Some(Action::Pair) => match &communications {
+                            Some(links) => links.pair(Pairing::Start),
+                            None => match Communications::start(
+                                true,
+                                None,
+                                None,
+                                telemetry.clone(),
+                                notify_links.clone(),
+                            ) {
+                                Ok(links) => communications = Some(links),
+                                Err(error) => log::warn!("motion-tracker pairing: {error}"),
+                            },
                         },
-                    },
-                    Some(Action::CancelPairing) => {
-                        if let Some(links) = &communications {
-                            links.pair(Pairing::Cancel);
+                        Some(Action::CancelPairing) => {
+                            if let Some(links) = &communications {
+                                links.pair(Pairing::Cancel);
+                            }
                         }
+                        Some(Action::Redraw) => redraw = true,
+                        None => {}
                     }
-                    Some(Action::Redraw) => redraw = true,
-                    None => {}
+                }
+                Err(RecvTimeoutError::Timeout) => {}
+                Err(RecvTimeoutError::Disconnected) => {
+                    break Err(io::Error::other("tracker event inbox closed"));
                 }
             }
-            Err(RecvTimeoutError::Timeout) => {}
-            Err(RecvTimeoutError::Disconnected) => {
-                break Err(io::Error::other("tracker event inbox closed"));
-            }
         }
-    };
+    })();
 
     // Ask all workers to stop before waiting for any one join.
     let mut sensor_failed = false;
@@ -434,27 +420,6 @@ fn failed<T>(result: Option<Result<(), T>>) -> bool {
 
 fn display_error(error: display::Error) -> io::Error {
     io::Error::other(format!("tracker display: {error:?}"))
-}
-
-fn render(link: LinkStatus, paint: impl FnOnce() -> Result<(), display::Error>) -> io::Result<()> {
-    if link != LinkStatus::Connected {
-        return paint().map_err(display_error);
-    }
-    // The display provider's synchronous SPI draws run at the product's
-    // background priority, below acquisition and Bluetooth host workers.
-    match execution::configure_current(execution::Priority::Background) {
-        Ok(()) => {}
-        Err(execution::Error::Unsupported) => return paint().map_err(display_error),
-        Err(error) => {
-            return Err(io::Error::other(format!(
-                "tracker display priority: {error:?}"
-            )))
-        }
-    }
-    let painted = paint().map_err(display_error);
-    let restored = execution::configure_current(execution::Priority::Normal)
-        .map_err(|error| io::Error::other(format!("tracker restore priority: {error:?}")));
-    painted.and(restored)
 }
 
 fn report_battery() -> io::Result<()> {

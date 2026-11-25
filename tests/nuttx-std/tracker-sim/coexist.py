@@ -30,7 +30,7 @@ TCP_HOLD_MS = 3200
 SPACED_NOTIFICATION_LOSSES = 10
 EXPORT_SAMPLES_PER_MINUTE = 6_000
 STACK_TASKS = {
-    'motion_tracker': 1, 'tracker-links': 1, 'tracker-modem': 1,
+    'motion_tracker': 1, 'tracker-links': 1, 'tracker-collector': 1,
     'imu-acquire': 2, 'gnss-acquire': 1, 'cellular': 1, 'touch': 1,
 }
 STACK_WARNING_PERCENT = 20
@@ -49,7 +49,10 @@ EXPORT_FAULTS = (
 )
 
 
-def check_stack_headroom(console):
+def check_stack_headroom(console, *, collector=True):
+    expected = STACK_TASKS.copy()
+    if not collector:
+        del expected['tracker-collector']
     peaks = {}
     complete = False
     for snapshot in re.split(rb'(?m)^PID +SIZE +USED +THREAD NAME\n', console)[1:]:
@@ -65,7 +68,7 @@ def check_stack_headroom(console):
             assert size == capacity, f'{name}: stack size changed for TID {int(pid)}'
             peaks[key] = size, max(peak, used)
             tasks[name] += 1
-        complete |= tasks == STACK_TASKS
+        complete |= tasks == expected
     assert complete, 'stack monitor never observed all tracker tasks in one sample'
 
     for (pid, name), (size, used) in peaks.items():
@@ -148,8 +151,9 @@ async def check_heap_recovery(guest, panel, phone, previous_key):
         received = len(guest.samples)
         guest.command(f'motion_tracker --frames {frames} --interval-ms {INTERVAL_MS} --stream-usb --ble')
         await wait_until(lambda: len(guest.samples) > received, 'restarted tracker sensor report')
-        key = await panel.pairing_key()
-        assert key != previous_key, 'the restarted tracker must advertise a freshly generated key'
+        # The panel can still show the last run's frame before the background
+        # display task has painted the new pairing code.
+        key = await panel.pairing_key(previous=previous_key)
         previous_key = key
         connection, stream, _ = await authenticated_link(phone, key)
         await asyncio.wait_for(stream.sample(), 5)
@@ -591,7 +595,7 @@ class Scenario:
         exit_offset = len(guest.buffer)
         guest.command('echo tile-exit:$?')
         await guest.wait_text(b'tile-exit:0', exit_offset)
-        check_stack_headroom(bytes(guest.buffer[offset:]))
+        check_stack_headroom(bytes(guest.buffer[offset:]), collector=False)
 
     async def exercise(self, guest, panel, phone, args):
         stamp = self.stamp
@@ -648,7 +652,7 @@ class Scenario:
         before = len(timestamps)
         outage_offset = len(guest.buffer)
         stamp.terminate_link()
-        await guest.wait_text(b'cellular Failed(LinkLost)', outage_offset)
+        await guest.wait_text(b'cellular Retrying(LinkLost)', outage_offset)
         lost = timestamps[-1]
         # Exclude a record already buffered by the BLE client at the moment of loss.
         floor = guest.samples[-1]['imu'][0].get('received_ms', lost)
