@@ -25,6 +25,7 @@ _SPEC.loader.exec_module(PLATFORM_CONFIG)
 # Keep exact equality so missing, duplicate and unexpected apps cannot pass.
 FIRMWARE_APPS = {
     "home-cam": ("nxrs-home-cam", "home-cam", "home_cam"),
+    "motion-tracker": ("nxrs-motion-tracker", "motion-tracker", "motion_tracker"),
     "event-demo": ("nxrs-event-demo", "event-demo", "event_demo"),
     "dual-imu-demo": ("nxrs-dual-imu-demo", "dual-imu-demo", "dual_imu_demo"),
     "std-demo": ("nxrs-std-demo", "std-demo", "std_demo"),
@@ -137,11 +138,19 @@ class FirmwareFrontendTests(unittest.TestCase):
                 data = PLATFORM_CONFIG.resolve(profile_name)
                 for key in ("board", "target", "crossdev", "machine", "image"):
                     self.assertIsInstance(data.get(key), str, f"{platform} missing {key}")
-                    self.assertTrue(data[key])
+                    if key == "crossdev" and data["board"] == "sim:nsh":
+                        self.assertEqual(data[key], "")
+                    else:
+                        self.assertTrue(data[key])
                 features = data.get("hal")
                 self.assertIsInstance(features, dict)
                 # Hardware qualification does not implicitly select sensor mocks.
                 expected = {"m5stack-cores3-gnss": {"gnss": "nuttx", "imu": "nuttx"},
+                            "m5stack-cores3-display": {"display": "nuttx"},
+                            "m5stack-cores3-dual-imu": dict.fromkeys(
+                                ("imu", "gnss", "display", "touch", "settings",
+                                 "ble", "tls", "battery", "execution", "boot", "watchdog"), "nuttx",
+                            ),
                             "cores3-imu-qualification": {"gnss": "nuttx", "imu": "nuttx"},
                             "cores3-protected-qualification": {"gnss": "nuttx", "imu": "nuttx"},
                             "esp32s3-devkit-imu-qualification": {"imu": "nuttx"},
@@ -156,13 +165,16 @@ class FirmwareFrontendTests(unittest.TestCase):
                             "pico2w-mpsc": {},
                             "pico2w-std-qualification": {},
                             "esp32s3-qemu-led-mock": {"imu": "mock", "gnss": "mock", "led": "mock"},
+                            "pico2w-peripherals": {"boot": "nuttx", "rtc": "nuttx", "watchdog": "nuttx", "flash": "nuttx"},
                             "esp32s3-userled": {"imu": "mock", "gnss": "mock", "led": "nuttx"},
+                            "esp32s3-peripherals": {"boot": "nuttx", "rtc": "nuttx", "watchdog": "nuttx", "flash": "nuttx"},
                             "pico2-tls": {"tls": "nuttx"},
                             "esp32s3-camera": {"camera": "nuttx"},
                             "esp32s3-camera-stream": {"camera": "nuttx", "wifi": "nuttx", "detector": "nuttx"},
                             "esp32s3-camera-stream-single-core": {"camera": "nuttx", "wifi": "nuttx", "detector": "nuttx"},
                             "esp32s3-camera-stream-mcuboot": {"camera": "nuttx", "wifi": "nuttx", "detector": "nuttx", "tls": "nuttx", "boot": "nuttx"},
-                            "esp32s3-camera-stream-startup": {"camera": "nuttx", "wifi": "nuttx", "detector": "nuttx", "tls": "nuttx", "boot": "nuttx", "watchdog": "nuttx", "config": "nuttx", "console": "nuttx", "execution": "nuttx"},
+                            "esp32s3-camera-stream-startup": {"camera": "nuttx", "wifi": "nuttx", "detector": "nuttx", "tls": "nuttx", "boot": "nuttx", "watchdog": "nuttx", "settings": "nuttx", "console": "nuttx", "execution": "nuttx"},
+                            "esp32s3-camera-stream-ssh": {"camera": "nuttx", "wifi": "nuttx", "detector": "nuttx", "tls": "nuttx", "boot": "nuttx", "watchdog": "nuttx", "settings": "nuttx", "ssh": "nuttx"},
                             "esp32s3-camera-stream-protected-build": {"camera": "nuttx", "wifi": "nuttx", "detector": "nuttx", "tls": "nuttx", "boot": "none"},
                             "esp32s3-camera-stream-vww": {"camera": "nuttx", "wifi": "nuttx", "detector": "nuttx"},
                             "esp32s3-camera-stream-video": {"camera": "nuttx", "wifi": "nuttx", "detector": "none"},
@@ -176,6 +188,29 @@ class FirmwareFrontendTests(unittest.TestCase):
                 for name, bindings in expected.items():
                     if name.startswith("esp32s3-camera-stream") or name == "esp32s3-camera-tls":
                         bindings.update(console="nuttx", execution="nuttx")
+                expected["esp32s3-camera-microphone"] = {
+                    **expected["esp32s3-camera-stream-startup"], "audio": "nuttx",
+                }
+                expected["m5stack-cores3-stamp-catm"] = {
+                    **expected["m5stack-cores3-dual-imu"], "cellular": "nuttx",
+                }
+                expected["esp32s3-qemu-tracker"] = dict.fromkeys(
+                    ("battery", "cellular", "display", "gnss", "imu", "settings", "touch"), "nuttx",
+                )
+                expected["esp32s3-qemu-tracker-upload"] = {
+                    **expected["esp32s3-qemu-tracker"], "tls": "nuttx",
+                }
+                expected["esp32s3-qemu-tracker-coexist"] = {
+                    **expected["esp32s3-qemu-tracker-upload"], "ble": "nuttx", "execution": "nuttx",
+                    "boot": "nuttx", "watchdog": "nuttx",
+                }
+                tracker = dict.fromkeys(("battery", "display", "gnss", "imu", "settings", "touch"), "nuttx")
+                expected["esp32s3-qemu-tracker-devices"] = tracker
+                expected["esp32s3-qemu-tracker-dashboard"] = {**tracker, "ble": "nuttx", "tls": "nuttx"}
+                expected["esp32s3-esp-emu-tracker"] = expected["esp32s3-qemu-tracker-dashboard"]
+                expected["esp32s3-qemu-tracker-headless"] = {"imu": "nuttx"}
+                expected["esp32s3-qemu-tracker-logging"] = expected["esp32s3-qemu-tracker-headless"]
+                expected["nuttx-sim-tracker"] = expected["esp32s3-qemu-tracker-dashboard"]
                 self.assertEqual(features, expected.get(profile_name,
                                  {"imu": "mock", "gnss": "mock"}))
                 self.assertNotIn("hal-features", data)
@@ -221,19 +256,47 @@ class FirmwareFrontendTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     PLATFORM_CONFIG.composition_config(invalid)
 
+    def test_cores3_tracker_selects_distinct_devices_on_the_shared_bus(self):
+        data = PLATFORM_CONFIG.resolve("m5stack-cores3-dual-imu")
+        graph = data["resolved-composition"]["graph"]
+        primary = graph["devices"][graph["aliases"]["imu"]]
+        secondary = graph["devices"][graph["aliases"]["imu_secondary"]]
+        self.assertEqual((primary["address"], secondary["address"]), (0x69, 0x68))
+        self.assertEqual(primary["bus"], secondary["bus"])
+        gauge = graph["devices"][graph["aliases"]["battery"]]
+        self.assertEqual((gauge["bus"], gauge["address"]), ("sensor_bus", 0x34))
+        for address in (0x35, 0x69):
+            invalid = copy.deepcopy(data)
+            invalid["devices"][graph["aliases"]["battery"]]["address"] = address
+            with self.subTest(address=address), self.assertRaises(ValueError):
+                PLATFORM_CONFIG.composition_config(invalid)
+        self.assertEqual(graph["devices"][graph["aliases"]["gnss"]]["bus"], "receiver_uart")
+        self.assertEqual(data["display"]["device"], "/dev/spi2")
+        self.assertEqual(data["touch"]["device"], "/dev/input0")
+        self.assertIn("CONFIG_MTD_CONFIG_NAMED=y", data["kconfig"]["require"])
+
     def test_camera_profiles_share_smp_budget_and_keep_a_single_core_control(self):
         signed = PLATFORM_CONFIG.resolve('esp32s3-camera-stream-startup')
         unsigned = PLATFORM_CONFIG.resolve('esp32s3-camera-stream')
+        maintenance = PLATFORM_CONFIG.resolve('esp32s3-camera-stream-ssh')
         control = PLATFORM_CONFIG.resolve('esp32s3-camera-stream-single-core')
         self.assertEqual(signed['cpus'], unsigned['cpus'])
         self.assertEqual(signed['detector'], unsigned['detector'])
         self.assertEqual(signed['detector']['sample-ms'], 500)
         self.assertEqual(signed['detector']['compute-core'], 1)
-        for profile in (signed, unsigned):
+        self.assertEqual(maintenance['cpus'], signed['cpus'])
+        self.assertEqual(maintenance['detector']['compute-core'], signed['detector']['compute-core'])
+        for profile in (signed, unsigned, maintenance):
             config = profile['kconfig']
             self.assertIn('SMP', config['enable'])
             self.assertNotIn('SMP', config['disable'])
             self.assertIn('CONFIG_SMP_NCPUS=2', config['require'])
+            self.assertIn('ESP32S3_SYSTIMER_CLOCK', config['enable'])
+            self.assertIn('# CONFIG_ESP32S3_TICKLESS is not set', config['require'])
+            for setting in ('NET_TCP_WRITE_BUFFERS=y', 'NET_SEND_BUFSIZE=16384',
+                            'NET_MAX_SEND_BUFSIZE=16384', 'NET_TCP_NWRBCHAINS=16',
+                            'NET_TCP_ALLOC_WRBCHAINS=0'):
+                self.assertIn('CONFIG_' + setting, config['require'])
             for counter in ('ARCH_PERF_EVENTS', 'PERF_OVERFLOW_CORRECTION'):
                 self.assertNotIn(counter, config['enable'])
                 self.assertRegex('CONFIG_' + counter + '=y', config['forbid-regex'])
@@ -335,7 +398,7 @@ class FirmwareFrontendTests(unittest.TestCase):
         for feature in ('ESP32S3_CAM', 'VIDEO_OV3660', 'ESPRESSIF_WIFI',
                         'ESPRESSIF_WIFI_STATION', 'NET_TCP', 'NET_UDP',
                         'ESP32S3_SPIRAM_USER_HEAP', 'SCHED_CRITMONITOR',
-                        'ARCH_PERF_EVENTS', 'PERF_OVERFLOW_CORRECTION', 'NET_TCP_WRITE_BUFFERS',
+                        'ARCH_PERF_EVENTS', 'PERF_OVERFLOW_CORRECTION',
                         'ESP32S3_INSTRUCTION_CACHE_32KB', 'NET_TCP_SELECTIVE_ACK',
                         'ESP32S3_SPIRAM_SPEED_80M', 'ESP32S3_DATA_CACHE_64KB',
                         'ESP32S3_DATA_CACHE_LINE_64B', 'ESP32S3_SPIRAM_MEMTEST',
@@ -345,10 +408,8 @@ class FirmwareFrontendTests(unittest.TestCase):
         for feature in ('ESPRESSIF_BLE', 'NETINIT_DHCPC', 'ESP32S3_QEMU_IMAGE'):
             self.assertIn(feature, config['disable'])
         self.assertFalse(any('SSID' in value or 'PASSPHRASE' in value for value in config['set']))
-        for setting in ('NET_SEND_BUFSIZE=16384', 'NET_MAX_SEND_BUFSIZE=16384',
-                        'ESP32S3_CAM_XCLK_DRIVE_STRENGTH=0',
+        for setting in ('ESP32S3_CAM_XCLK_DRIVE_STRENGTH=0',
                         'NET_TCP_PREALLOC_CONNS=16', 'NET_TCP_ALLOC_CONNS=0',
-                        'NET_TCP_NWRBCHAINS=16', 'NET_TCP_ALLOC_WRBCHAINS=0',
                         'NET_PREALLOC_DEVIF_CALLBACKS=64', 'NET_ALLOC_DEVIF_CALLBACKS=0',
                         'NET_TCP_OUT_OF_ORDER_BUFSIZE=4096'):
             self.assertIn(setting, config['set'])
@@ -356,6 +417,9 @@ class FirmwareFrontendTests(unittest.TestCase):
         for derived in ('ESP32S3_SPIRAM_SPEED=80', 'ESP32S3_DATA_CACHE_SIZE=0x10000',
                         'ESP32S3_DATA_CACHE_LINE_SIZE=64'):
             self.assertIn('CONFIG_' + derived, config['require'])
+        maintenance = tomllib.loads((WROOM / 'esp32s3-camera-stream-ssh.toml').read_text())
+        ssh_native = (WROOM / maintenance['nuttx-config']).read_text().splitlines()
+        self.assertNotIn('# CONFIG_NET_TCP_WRITE_BUFFERS is not set', ssh_native)
 
     def test_cargo_frontend_lists_apps_and_platforms(self):
         apps = self.cargo_firmware("--list-apps").stdout.splitlines()
@@ -389,7 +453,7 @@ class FirmwareFrontendTests(unittest.TestCase):
         for name, _ in firmware_profiles():
             config = PLATFORM_CONFIG.resolve(name)["kconfig"]
             enabled = name in ("pico2w-wifi", "pico2w-ble", "pico2w-radio", "pico2w-mpsc",
-                               "pico2w-std-qualification")
+                               "pico2w-std-qualification", "pico2w-peripherals")
             self.assertEqual("CDCACM_1200BPS_BOOTLOADER" in config["enable"], enabled)
             if enabled:
                 for symbol in ("BOARD_USBDEV_BOOTLOADER", "CDCACM_1200BPS_BOOTLOADER"):
@@ -424,8 +488,14 @@ class FirmwareFrontendTests(unittest.TestCase):
                     self.assertIn("CONFIG_" + setting, config["require"])
 
     def test_cargo_frontend_resolves_app_and_profile_without_a_shell_backend(self):
+        profiles = {
+            "home-cam": "esp32s3-camera-stream-startup",
+            "motion-tracker": "m5stack-cores3-dual-imu",
+        }
         for app,(package,binary,command) in FIRMWARE_APPS.items():
-            output=json.loads(self.cargo_firmware("build","--app",app,"--profile",("esp32s3-camera-stream-startup" if app=="home-cam" else "pico2-mock"),"--dry-run").stdout)
+            output = json.loads(self.cargo_firmware(
+                "build", "--app", app, "--profile", profiles.get(app, "pico2-mock"), "--dry-run",
+            ).stdout)
             self.assertEqual(output["deployment"]["app_package"],package)
             self.assertEqual(output["bin"],binary)
             self.assertEqual(output["command"],command)

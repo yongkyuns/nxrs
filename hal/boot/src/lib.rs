@@ -1,5 +1,5 @@
-//! Trial and confirmation control. Image authentication and recovery belong to
-//! the bootloader; application health must be established before confirmation.
+//! Reset diagnostics, trial and confirmation control. The bootloader owns
+//! image authentication and recovery. Confirm only after application health checks.
 #![deny(unsafe_code)]
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -20,6 +20,20 @@ pub enum DeviceError {
     InvalidState,
     InvalidInput,
     Capacity,
+}
+
+/// Hardware-reported cause of the most recent reset.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ResetCause {
+    /// The hardware may group power-on with other full chip resets.
+    ChipReset,
+    Brownout,
+    Software,
+    ExternalPin,
+    LowPower,
+    MainWatchdog,
+    RtcWatchdog,
+    Unknown,
 }
 
 /// One exclusive boot-control owner. Requests apply on the next reset, without
@@ -60,4 +74,4 @@ cfg_if::cfg_if! {
     }
 }
 mod platform;
-pub use platform::open;
+pub use platform::{open, reset_cause};

@@ -29,6 +29,8 @@ parses correctly can still contain overlapping text or ambiguous connections.
 
 | Figure | What it explains |
 | --- | --- |
+| [Latency boundaries](nxrs-latency-boundaries.svg) | Acquisition, queue delivery and useful output; elapsed time versus CPU time |
+| [Message comparison](nxrs-message-comparison.svg) | Same-board stream p99, generated from the recorded physical results |
 | [Architecture overview](nxrs-architecture.svg) | Profiles, reusable firmware and the parallel std/peripheral routes to NuttX |
 | [Application interfaces](nxrs-interface-boundaries.svg) | Public capability contracts, private providers and ordinary Rust APIs |
 | [Build workflow](nxrs-build-workflow.svg) | Source inputs, selected dependencies, compilation and checked output |
@@ -48,3 +50,5 @@ parses correctly can still contain overlapping text or ambiguous connections.
 The measurement-specific artwork in [rtos-comparison](rtos-comparison/README.md)
 has its own recorded source data and renderer. A presentation change must not
 alter the historical results or imply additional hardware qualification.
+
+The message-comparison chart reads the current WROOM stream rows from `tests/rtos-characterization/wroom-review-2026-11-17.json` and plots the maximum of three per-run p99 values. Keep the workload, units and board scope in its caption. New results require a separately qualified campaign; regenerating artwork is not a measurement.

@@ -32,7 +32,7 @@ SOURCE_INPUTS = (
       ("preparation", "resolved", "configuration", "prepared_resource")),
     "platform/cores3/profile.toml", BSP, OVERLAY,
 )
-NATIVE = {"nxrs-acquisition": "hal/acquisition", "nxrs-gnss": "hal/gnss",
+NATIVE = {"nxrs-acquisition": "shared/acquisition", "nxrs-gnss": "hal/gnss",
           "nxrs-gpio": "driver/gpio", "nxrs-i2c": "driver/i2c"}
 HEX64 = re.compile(r"[0-9a-f]{64}\Z")
 HEX40 = re.compile(r"[0-9a-f]{40}\Z")

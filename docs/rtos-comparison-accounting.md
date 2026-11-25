@@ -1,10 +1,12 @@
 # Historical RTOS resource accounting
 
 This supporting ledger explains the October native-adapter cohorts summarized
-in [the RTOS comparison](rtos-comparison.md). It preserves their configuration,
+in [the native-adapter study](history/native-rtos-study.md). It preserves their configuration,
 byte attribution and interpretation; it does not turn those images into an
 ordinary std or current NXRS product comparison. For the broader measurement
 scope, see [Characterizing Zephyr, NuttX and NXRS](rtos-characterization.md).
+
+A [fresh November 17 control](../tests/rtos-characterization/WROOM-REVIEW.md#ram-separate-requests-usable-stacks-and-queue-costs) now separates linked worker capacity and actual usable stacks. Its native NuttX/Zephyr totals are 223,748 / 204,076 B with at least 4 KiB usable per worker. Those new images do not replace or retroactively reattribute the October values below.
 
 ## Workload and fairness
 
@@ -83,6 +85,27 @@ messages—configuration costs, not application requirements. The remaining
 and runtime/test allocations; its fixed-versus-per-service split is unmeasured.
 The [ELF-bound ledger](../tests/event-services-comparison/README.md#ram-attribution)
 retains object sizes and avoids pool/payload and arena/heap double counting.
+
+For **NuttX Rust versus Zephyr in this October 10 cohort**, the 81,920 B
+worker-stack and 30,720 B event-capacity terms cancel. The remaining 15,728 B
+difference reconciles as follows; positive means NuttX uses more:
+
+| Accounted contribution to the difference | Bytes |
+| --- | ---: |
+| Queue/adapter controls | +11,472 |
+| RAM code/vectors | −11,844 |
+| Other OS stacks/arena | −11,264 |
+| Runtime storage not individually split | +27,372 |
+| Checker/coordinator | −8 |
+| **Total** | **+15,728** |
+
+This is a configured-system difference, not a fixed-kernel estimate. In
+particular, the unsplit NuttX heap includes main-stack and thread/queue/VFS
+objects. The RAM-code difference also reflects different placement policies;
+these images are not the later MPSC timing images. Neither the stack-dominated
+ordinary std result nor this ledger establishes how much additional RAM NuttX
+itself requires for an otherwise identical product. A baseline plus separately
+linked owner-count controls is needed to separate fixed and recurring costs.
 
 
 ### What the RAM ratio establishes

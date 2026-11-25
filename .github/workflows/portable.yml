@@ -69,15 +69,17 @@ jobs:
         run: |
           cargo test --locked -p nxrs-std-stream --bin nxrs-std-stream
           python -m unittest discover -s tests/host -p test_camera_session.py -v
-      - name: Two-board GATT runner negative controls (no devices)
+      - name: Radio qualification runner controls (no devices)
         run: |
           python -m unittest discover -s tests/host -p test_gatt_client_runner.py -v
           python -m unittest discover -s tests/host -p test_gatt_native_process.py -v
           python -m unittest discover -s tests/host -p test_radio_client.py -v
           python -m unittest discover -s tests/host -p test_radio_echo.py -v
+          python -m unittest discover -s tests/nuttx-std/tracker-hardware -p test_bench.py -v
       - name: Documentation and dependency setup guards (no toolchain build)
         run: |
           python -m unittest discover -s tests/host -p test_evaluation_docs.py -v
+          python -m unittest discover -s tests/host -p test_xtensa_literal_calls.py -v
           python -m unittest discover -s tests/host -p test_upstream_layout.py -v
           python -m unittest discover -s tests/host -p test_esp_mbedtls_allocators.py -v
           python -m unittest discover -s tests/host -p test_arc4random_entropy.py -v
@@ -126,14 +128,22 @@ jobs:
         run: |
           git rev-parse HEAD
           rustc --version --verbose
+      - name: Headless Motion Tracker and observation log rotation
+        if: runner.os != 'Windows'
+        run: |
+          python tests/native/motion_tracker.py
+          cargo test --locked -p nxrs-log-qualification --test file -- --nocapture
+          cargo test --locked -p nxrs-motion-tracker --lib communications::publication
       - name: Portable applications, mocks and actual native adapters
         run: |
           cargo test --locked
           cargo test --locked -p nxrs-build-support -p nxrs-detector-build-support -p nxrs-build
+      - name: Matter gateway protocol and lifecycle
+        run: cargo test --locked --manifest-path gateway/Cargo.toml -p nxrs-gateway-matter --lib
       - name: Real shared file and UDP APIs without hardware admission
         run: |
           cargo test --locked -p nxrs-storage --features recording --test std_recording
-          cargo test --locked -p nxrs-transport --features udp --test std_udp --test typed_udp
+          cargo run --locked -p nxrs-std-udp -- pass
       - name: Native HAL integration under unset, mock and host profiles
         run: python tests/native/qualify.py
       - name: Scan fixture single-wait owner tests
@@ -191,7 +201,7 @@ jobs:
       - name: Lint capability APIs, services and test composition
         env:
           NXRS_PLATFORM: ${{ matrix.platform }}
-        run: cargo clippy --locked -p nxrs-camera -p nxrs-storage -p nxrs-transport -p nxrs-camera-service -p nxrs-recording-service -p nxrs-telemetry-service -p nxrs-camera-test-support -p nxrs-native-integration --lib -- -D warnings
+        run: cargo clippy --locked -p nxrs-camera -p nxrs-storage -p nxrs-camera-test-support -p nxrs-native-integration --lib -- -D warnings
 
   no-std:
     name: No-std Cortex-M0 compile

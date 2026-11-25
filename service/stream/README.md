@@ -1,5 +1,10 @@
 # MJPEG streaming
 
+The service owns the multipart stream and its versioned A/V contract.
+`stream_service::wire` exposes the PCM and microphone-control types. Gateway
+ingest uses this module with default features disabled, which excludes the
+camera HAL and serving code.
+
 `MjpegSession` writes one multipart MJPEG response through an injected
 `std::io::Write` implementation and an injected, fixed-capacity frame buffer.
 The owner supplies monotonic milliseconds and calls `poll` with a byte budget;

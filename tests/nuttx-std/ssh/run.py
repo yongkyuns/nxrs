@@ -229,7 +229,7 @@ class OpenSsh:
         self.known_hosts, self.password = Path(known_hosts), password
 
     def arguments(self, *, tty=True, user=None, known_hosts=None, control=None,
-                  master=False, command=(), extra=(), server_alive_interval=5):
+                  master=False, command=(), extra=(), server_alive_interval=5, password_prompts=1):
         options = {
             "UserKnownHostsFile": str(known_hosts or self.known_hosts),
             "GlobalKnownHostsFile": "/dev/null", "StrictHostKeyChecking": "yes",
@@ -237,7 +237,7 @@ class OpenSsh:
             "HostKeyAlgorithms": "ecdsa-sha2-nistp256",
             "PubkeyAuthentication": "no", "KbdInteractiveAuthentication": "no",
             "PasswordAuthentication": "yes", "PreferredAuthentications": "password",
-            "NumberOfPasswordPrompts": "1", "IdentityAgent": "none",
+            "NumberOfPasswordPrompts": str(password_prompts), "IdentityAgent": "none",
             "IdentitiesOnly": "yes", "BatchMode": "no", "ConnectionAttempts": "1",
             "ConnectTimeout": "10", "ServerAliveInterval": str(server_alive_interval), "ServerAliveCountMax": "2",
             "ForwardAgent": "no", "ForwardX11": "no", "Compression": "no",
@@ -339,9 +339,8 @@ class Suite:
         return result["status"] == "passed"
 
     def save(self):
-        idle_qualified = self.evidence_class == "device" and any(
-            case["name"] == "idle_deadline" and case["status"] == "passed" for case in self.results
-        )
+        device_passes = {case["name"] for case in self.results
+                         if self.evidence_class == "device" and case["status"] == "passed"}
         evidence = {
             "schema": 1, "evidence_class": self.evidence_class,
             "transport": "real_openssh_controlling_pty" if self.evidence_class == "device" else "host_control",
@@ -357,8 +356,9 @@ class Suite:
                 "entropy_and_crypto_fault_injection_on_device",
                 "measured_heap_stack_tcp_pty_budgets_and_peak_handshake_cost",
                 "unavailable_bind_address_address_in_use_and_network_loss_recovery",
-                "explicit_maximum_authentication_attempt_limit",
-                *([] if idle_qualified else ["idle_timeout_on_device"]),
+                *([] if "authentication_attempt_limit" in device_passes
+                  else ["explicit_maximum_authentication_attempt_limit"]),
+                *([] if "idle_deadline" in device_passes else ["idle_timeout_on_device"]),
                 "confirmed_output_backpressure_and_product_workload_latency",
                 "device_fault_injection_for_missing_output_resource_leaks_and_incomplete_shutdown",
             ] + ([] if self.console else ["independent_lifecycle_progress_and_resource_observations"]),
@@ -520,6 +520,36 @@ class Suite:
                     raise CheckFailure("password_requested_after_untrusted_host_key")
             finally:
                 process.close()
+
+    def authentication_attempt_limit(self, limit, auth_timeout):
+        console = self.console
+        console.wait_listening()
+        generation = (console.starts, console.server_exits)
+        # Leave a spare client prompt so OpenSSH cannot enforce the limit itself.
+        started = time.monotonic()
+        process = self.client.process(password_prompts=limit + 1)
+        try:
+            wrong = secrets.token_urlsafe(24).encode("ascii")
+            for _ in range(limit):
+                self.client.password_prompt(process, wrong)
+            if process.wait(8) != 255 or not re.search(
+                rb"closed by remote host|Connection (?:closed|reset) by", process.pending
+            ):
+                raise CheckFailure("auth_limit_peer_disconnect_missing")
+            if time.monotonic() - started >= auth_timeout - 2:
+                raise CheckFailure("auth_limit_disconnect_overlaps_authentication_deadline")
+        finally:
+            process.close()
+        console.wait_listening()
+        fresh = self.client.login()
+        try:
+            logout(fresh)
+        finally:
+            fresh.close()
+        console.wait_listening()
+        if (console.starts, console.server_exits) != generation:
+            raise CheckFailure("auth_limit_restarted_server")
+        return {"rejected_password_submissions": limit, "fresh_login_same_server": True}
 
     def authentication_deadline(self, timeout):
         self.wait_listening()
@@ -698,9 +728,11 @@ def main():
     parser.add_argument("--build-evidence", type=Path, help="ssh-build-evidence.json for the image the operator flashed")
     parser.add_argument("--reconnects", type=int, default=100)
     parser.add_argument("--auth-timeout", type=int, default=30)
+    parser.add_argument("--auth-attempts", type=int, choices=range(1, 11), default=3,
+                        help="wrong-password limit configured in the flashed image")
     parser.add_argument("--idle-timeout", type=int, default=60,
                         help="idle timeout configured in the flashed image")
-    parser.add_argument("--case", choices=("pty", "auth-deadline", "idle-deadline", "active-stop",
+    parser.add_argument("--case", choices=("pty", "auth-deadline", "auth-attempts", "idle-deadline", "active-stop",
                                            "wifi-reconnect", "wifi-outage"),
                         help="run one focused device case with normal startup and shutdown checks")
     parser.add_argument("--serial-port", help="independent local maintenance console; requires pyserial")
@@ -714,6 +746,8 @@ def main():
         parser.error("invalid port or reconnect count")
     if args.auth_timeout <= 0:
         parser.error("authentication timeout must be positive")
+    if args.case == "auth-attempts" and args.auth_timeout <= 2:
+        parser.error("auth-attempts requires an authentication deadline above two seconds")
     if args.case == "idle-deadline" and not 5 <= args.idle_timeout <= 3600:
         parser.error("idle deadline measurement requires a configured timeout of 5 to 3600 seconds")
     if args.case and not args.serial_port:
@@ -733,6 +767,12 @@ def main():
         build = json.loads(args.build_evidence.read_text())
         if build.get("evidence_class") != "crossbuild" or not build.get("ssh_enabled"):
             parser.error("--build-evidence must describe an SSH-enabled cross-build")
+        if args.case == "auth-attempts":
+            config = build.get("effective_ssh_config", {})
+            if config.get("CONFIG_NETUTILS_DROPBEAR_MAX_AUTH_TRIES") != str(args.auth_attempts):
+                parser.error("--auth-attempts must match the configured limit in --build-evidence")
+            if config.get("CONFIG_NETUTILS_DROPBEAR_AUTH_TIMEOUT") != str(args.auth_timeout):
+                parser.error("--auth-timeout must match the configured deadline in --build-evidence")
         if args.case == "idle-deadline":
             configured = build.get("effective_ssh_config", {}).get("CONFIG_NETUTILS_DROPBEAR_IDLE_TIMEOUT")
             if configured != str(args.idle_timeout):
@@ -768,6 +808,8 @@ def main():
         focused = {
             "pty": ("pty_rust_stdio_threads_resize_interrupt_rekey_channel_limits", suite.shell),
             "auth-deadline": ("authentication_deadline", lambda: suite.authentication_deadline(args.auth_timeout)),
+            "auth-attempts": ("authentication_attempt_limit",
+                              lambda: suite.authentication_attempt_limit(args.auth_attempts, args.auth_timeout)),
             "idle-deadline": ("idle_deadline", lambda: suite.idle_deadline(args.idle_timeout)),
             "active-stop": ("active_stop_and_restart", lambda: console.active_stop(client)),
             "wifi-reconnect": ("wifi_reconnect_and_ssh_restart", suite.wifi_reconnect),

@@ -84,6 +84,10 @@ fn editor_switch_preserves_project_settings_on_invalid_build() {
     let settings: Value = serde_json::from_slice(&before).unwrap();
     assert!(settings["lsp"]["clangd"].is_object());
     assert_eq!(
+        settings["lsp"]["rust-analyzer"]["binary"]["ignore_system_version"],
+        true
+    );
+    assert_eq!(
         settings["lsp"]["rust-analyzer"]["initialization_options"]["cargo"]["extraEnv"]
             ["NXRS_PLATFORM"],
         "host"
@@ -116,6 +120,7 @@ fn write_imu_fixture(root: &Path) {
     for package in [
         "hal/imu",
         "platform",
+        "driver/axp2101",
         "driver/bmi270",
         "driver/lsm6dso",
         "driver/ubx",
@@ -360,7 +365,7 @@ fn profile_applies_declared_and_cli_overlays_in_order_with_raw_and_semantic_iden
         format!(
             "target-os = [\"nuttx\"]\nexecution = \"nuttx\"\nboard = \"fixture:board\"\n\
              target = \"thumbv8m.main-nuttx-eabi\"\ncrossdev = \"arm-none-eabi-\"\n\
-             overlays = [\"patches/ancestor.toml\"]\n[hal]\nimu = \"nuttx\"\n{}",
+             nuttx-config = \"base.conf\"\noverlays = [\"patches/ancestor.toml\", \"patches/declared.conf\"]\n[hal]\nimu = \"nuttx\"\n{}",
             typed_imu_profile("hardware")
         ),
     )
@@ -371,6 +376,13 @@ fn profile_applies_declared_and_cli_overlays_in_order_with_raw_and_semantic_iden
     )
     .unwrap();
 
+    fs::write(root.0.join("tests/profiles/base.conf"), "CONFIG_PORT=2200\n").unwrap();
+    fs::write(
+        root.0.join("tests/profiles/patches/declared.conf"),
+        "CONFIG_PORT=2201\n",
+    )
+    .unwrap();
+    fs::write(root.0.join("overlays/extra.conf"), "CONFIG_PORT=2202\n").unwrap();
     let address_overlay = |address| format!("[devices.imu]\naddress = {address}\n");
     fs::write(
         root.0.join("tests/profiles/patches/ancestor.toml"),
@@ -397,6 +409,8 @@ fn profile_applies_declared_and_cli_overlays_in_order_with_raw_and_semantic_iden
                 "--overlay",
                 "overlays/first.toml",
                 "--overlay",
+                "overlays/extra.conf",
+                "--overlay",
                 "overlays/last.toml",
             ],
         ));
@@ -418,9 +432,12 @@ fn profile_applies_declared_and_cli_overlays_in_order_with_raw_and_semantic_iden
     let expected = [
         ("tests/profiles/base.toml", "profile"),
         ("tests/profiles/derived.toml", "profile"),
+        ("tests/profiles/base.conf", "native-config"),
         ("patches/ancestor.toml", "declared-overlay"),
+        ("patches/declared.conf", "declared-overlay"),
         ("patches/child.toml", "declared-overlay"),
         ("overlays/first.toml", "command-line-overlay"),
+        ("overlays/extra.conf", "command-line-overlay"),
         ("overlays/last.toml", "command-line-overlay"),
         ("platform/nuttx/resources/fixture.toml", "bsp-resources"),
     ];
@@ -438,6 +455,10 @@ fn profile_applies_declared_and_cli_overlays_in_order_with_raw_and_semantic_iden
         .as_str()
         .unwrap()
         .to_owned();
+    fs::write(root.0.join("overlays/extra.conf"), "CONFIG_PORT=2203\n").unwrap();
+    let native_edit = inspect();
+    assert_eq!(native_edit["resolved-composition"]["semantic-digest"], semantic);
+    assert_ne!(native_edit["resolved-composition"]["input-fingerprint"], fingerprint);
     fs::write(
         root.0.join("overlays/last.toml"),
         format!(
@@ -450,7 +471,7 @@ fn profile_applies_declared_and_cli_overlays_in_order_with_raw_and_semantic_iden
     assert_eq!(edited["resolved-composition"]["semantic-digest"], semantic);
     assert_ne!(
         edited["resolved-composition"]["input-fingerprint"],
-        fingerprint
+        native_edit["resolved-composition"]["input-fingerprint"]
     );
 
     let reversed = success(frontend(
@@ -958,6 +979,26 @@ fn dry_run_rejects_options_for_another_backend() {
             assert!(error.contains("NuttX"), "{profile}: {error}");
         }
     }
+    let error = failure(frontend(
+        &root.0,
+        &root.0,
+        &[
+            "build",
+            "--app",
+            "probe",
+            "--profile",
+            "host",
+            "--panic-diagnostics",
+            "--dry-run",
+        ],
+    ));
+    assert!(error.contains("NuttX"), "{error}");
+    let error = failure(frontend(
+        &root.0,
+        &root.0,
+        &["build", "--panic-diagnostics", "--panic-immediate-abort"],
+    ));
+    assert!(error.contains("--panic-diagnostics conflicts"), "{error}");
     for args in [
         vec!["--html", "template.html"],
         vec!["--unmodified-browser-std"],
@@ -1048,6 +1089,16 @@ fn native_dry_run_reports_literal_requests_and_preserves_required_configuration(
         "artifacts",
         "--dry-run",
     ];
+    fs::write(root.0.join("trace.conf"), "CONFIG_REQUIRED_SIZE=8192\n").unwrap();
+    let args: Vec<_> = base.into_iter().chain(["--overlay", "trace.conf"]).collect();
+    let error = failure(frontend(&root.0, &root.0, &args));
+    assert!(error.contains("profile requirement") && error.contains("trace.conf:1"), "{error}");
+    let error = failure(frontend(
+        &root.0,
+        &root.0,
+        &["profile", "--platform", "host", "--overlay", "trace.conf"],
+    ));
+    assert!(error.contains("Kconfig overlays require a NuttX board"), "{error}");
     let request = [
         "--kconfig-enable",
         "NET_IPv4",

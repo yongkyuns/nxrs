@@ -1,0 +1,436 @@
+--- a/arch/xtensa/src/common/espressif/esp_i2s.c
++++ b/arch/xtensa/src/common/espressif/esp_i2s.c
+@@ -410,6 +410,13 @@
+   /* Bytes to be written at the beginning of the next DMA buffer */
+ 
+   struct esp_buffer_carry_s carry;
++};
++
++enum i2s_rx_state_e
++{
++  I2S_RX_READY,
++  I2S_RX_STOPPING,
++  I2S_RX_DRAINING
+ };
+ 
+ /* The state of the one I2S peripheral */
+@@ -444,6 +451,8 @@
+ 
+   int  rx_irq;                    /* RX IRQ */
+   bool rx_started;                /* RX channel started */
++  enum i2s_rx_state_e rx_state;   /* Protected by slock */
++  unsigned int rx_users;         /* Submissions and callbacks outside slock */
+ #endif /* I2S_HAVE_RX */
+ 
+   bool streaming;                 /* Is I2S peripheral active? */
+@@ -470,7 +479,7 @@
+ /* Buffer container helpers */
+ 
+ static struct esp_buffer_s *
+-                i2s_buf_allocate(struct esp_i2s_s *priv);
++                i2s_buf_allocate(struct esp_i2s_s *priv, bool wait);
+ static void     i2s_buf_free(struct esp_i2s_s *priv,
+                              struct esp_buffer_s *bfcontainer);
+ static int      i2s_buf_initialize(struct esp_i2s_s *priv);
+@@ -720,7 +729,8 @@
+  *
+  ****************************************************************************/
+ 
+-static struct esp_buffer_s *i2s_buf_allocate(struct esp_i2s_s *priv)
++static struct esp_buffer_s *i2s_buf_allocate(struct esp_i2s_s *priv,
++                                              bool wait)
+ {
+   struct esp_buffer_s *bfcontainer;
+   irqstate_t flags;
+@@ -730,7 +740,8 @@
+    * have at least one free buffer container.
+    */
+ 
+-  ret = nxsem_wait_uninterruptible(&priv->bufsem);
++  ret = wait ? nxsem_wait_uninterruptible(&priv->bufsem) :
++               nxsem_trywait(&priv->bufsem);
+   if (ret < 0)
+     {
+       return NULL;
+@@ -919,12 +930,12 @@
+    * returning success.
+    */
+ 
+-  if (!sq_empty(&priv->rx.act))
++  if (priv->rx_state != I2S_RX_READY || !sq_empty(&priv->rx.act))
+     {
+       return OK;
+     }
+ 
+-  /* If there are no pending transfer, then bail returning success */
++  /* If there are no pending transfers, then bail returning success */
+ 
+   if (sq_empty(&priv->rx.pend))
+     {
+@@ -1244,6 +1255,12 @@
+ #endif
+ 
+   flags = spin_lock_irqsave(&priv->slock);
++
++  if (priv->rx_state != I2S_RX_READY)
++    {
++      spin_unlock_irqrestore(&priv->slock, flags);
++      return -EBUSY;
++    }
+ 
+   /* Add the buffer container to the end of the RX pending queue */
+ 
+@@ -1549,6 +1566,7 @@
+   struct esp_dmadesc_s *dmadesc;
+   dma_descriptor_t *dmadesc_ctrl;
+   irqstate_t flags;
++  bool final;
+ 
+   DEBUGASSERT(priv);
+ 
+@@ -1568,8 +1586,20 @@
+            */
+ 
+           flags = spin_lock_irqsave(&priv->slock);
++          if (priv->rx_state != I2S_RX_READY)
++            {
++              spin_unlock_irqrestore(&priv->slock, flags);
++              return;
++            }
++
+           bfcontainer =
+               (struct esp_buffer_s *)sq_remfirst(&priv->rx.done);
++          final = !priv->streaming;
++          if (bfcontainer != NULL)
++            {
++              priv->rx_users++;
++            }
++
+           spin_unlock_irqrestore(&priv->slock, flags);
+ 
+           if (bfcontainer == NULL)
+@@ -1614,7 +1644,7 @@
+ 
+           DEBUGASSERT(bfcontainer && bfcontainer->callback);
+ 
+-          if (priv->streaming == false)
++          if (final)
+             {
+               bfcontainer->apb->flags |= AUDIO_APB_FINAL;
+             }
+@@ -1631,16 +1661,21 @@
+           /* And release the buffer container */
+ 
+           i2s_buf_free(priv, bfcontainer);
+-        }
+ 
+-      /* After returning all done buffers, restart DMA if there are
+-       * pending buffers.  This is the correct place to call
+-       * i2s_rxdma_start because we are in HPWORK task context (not
+-       * ISR), so i2s_rx_channel_stop/start can safely call
+-       * up_disable_irq/up_enable_irq.
+-       */
++          flags = spin_lock_irqsave(&priv->slock);
++          priv->rx_users--;
++          spin_unlock_irqrestore(&priv->slock, flags);
++        }
+ 
++      /* Restart DMA from task context after handling completions. */
++
+       flags = spin_lock_irqsave(&priv->slock);
++      if (priv->rx_state != I2S_RX_READY)
++        {
++          spin_unlock_irqrestore(&priv->slock, flags);
++          return;
++        }
++
+       if (sq_empty(&priv->rx.act) && !sq_empty(&priv->rx.pend))
+         {
+           i2s_rxdma_start(priv);
+@@ -2274,7 +2309,7 @@
+ static void i2s_rx_channel_start(struct esp_i2s_s *priv)
+ {
+   int upd_timeout;
+-  if (priv->config->rx_en)
++  if (priv->config->rx_en && priv->rx_state == I2S_RX_READY)
+     {
+       if (priv->rx_started)
+         {
+@@ -2959,7 +2994,7 @@
+ 
+       /* Allocate a buffer container in advance */
+ 
+-      bfcontainer = i2s_buf_allocate(priv);
++      bfcontainer = i2s_buf_allocate(priv, true);
+       if (bfcontainer == NULL)
+         {
+           i2serr("Failed to allocate the buffer container");
+@@ -3047,8 +3082,15 @@
+       int ret = OK;
+       uint32_t nbytes;
+       uint32_t frame_size;
+-      uint32_t nsamp;
++      irqstate_t flags;
++      bool wait = true;
+ 
++#ifdef CONFIG_ARCH_CHIP_ESP32S3
++      /* The queued audio endpoint can re-enter from its dequeue callback. */
++
++      wait = priv->config->tx_en;
++#endif
++
+       /* Check max audio buffer data size from the upper half and align the
+        * receiving buffer according to the data width.
+        */
+@@ -3079,18 +3121,31 @@
+       i2sinfo("i2s_receive: aligned nbytes=%lu\n",
+               (unsigned long)nbytes);
+ 
++      if (!wait)
++        {
++          flags = spin_lock_irqsave(&priv->slock);
++          if (priv->rx_state != I2S_RX_READY)
++            {
++              spin_unlock_irqrestore(&priv->slock, flags);
++              return -EBUSY;
++            }
++
++          priv->rx_users++;
++          spin_unlock_irqrestore(&priv->slock, flags);
++        }
++
+       /* Allocate a buffer container in advance */
+ 
+-      bfcontainer = i2s_buf_allocate(priv);
++      bfcontainer = i2s_buf_allocate(priv, wait);
+       if (bfcontainer == NULL)
+         {
+-          i2serr("Failed to allocate the buffer container");
+-          return -ENOMEM;
++          ret = wait ? -ENOMEM : -EAGAIN;
++          goto out;
+         }
+ 
+       /* Get exclusive access to the I2S driver data */
+ 
+-      ret = nxmutex_lock(&priv->lock);
++      ret = wait ? nxmutex_lock(&priv->lock) : nxmutex_trylock(&priv->lock);
+       if (ret < 0)
+         {
+           goto errout_with_buf;
+@@ -3118,10 +3173,19 @@
+           goto errout_with_buf;
+         }
+ 
+-      return OK;
++      goto out;
+ 
+ errout_with_buf:
+       i2s_buf_free(priv, bfcontainer);
++
++out:
++      if (!wait)
++        {
++          flags = spin_lock_irqsave(&priv->slock);
++          priv->rx_users--;
++          spin_unlock_irqrestore(&priv->slock, flags);
++        }
++
+       return ret;
+     }
+ 
+@@ -3129,7 +3193,83 @@
+ }
+ #endif /* I2S_HAVE_RX */
+ 
++#if defined(CONFIG_ARCH_CHIP_ESP32S3) && defined(I2S_HAVE_RX) && \
++    !defined(CONFIG_AUDIO_EXCLUDE_STOP)
+ /****************************************************************************
++ * Name: i2s_stop_rx
++ *
++ * Description:
++ *   Stop receive-only capture. Leave the queues owned by the driver until
++ *   both DMA and task-context users have retired. A caller receiving
++ *   -EAGAIN must retain its buffers and retry.
++ *
++ ****************************************************************************/
++
++static int i2s_stop_rx(struct esp_i2s_s *priv)
++{
++  struct esp_buffer_s *buffer;
++  sq_queue_t canceled;
++  irqstate_t flags;
++
++  sq_init(&canceled);
++  flags = spin_lock_irqsave(&priv->slock);
++  if (priv->rx_state == I2S_RX_DRAINING)
++    {
++      spin_unlock_irqrestore(&priv->slock, flags);
++      return -EAGAIN;
++    }
++
++  if (priv->rx_state == I2S_RX_READY)
++    {
++      priv->rx_state = I2S_RX_STOPPING;
++      priv->streaming = false;
++      i2s_rx_channel_stop(priv);
++    }
++
++  if (priv->rx_users != 0 ||
++      !esp32s3_dma_is_idle(priv->dma_channel, false))
++    {
++      spin_unlock_irqrestore(&priv->slock, flags);
++      return -EAGAIN;
++    }
++
++  priv->rx_state = I2S_RX_DRAINING;
++  sq_cat(&priv->rx.done, &canceled);
++  sq_cat(&priv->rx.act, &canceled);
++  sq_cat(&priv->rx.pend, &canceled);
++  spin_unlock_irqrestore(&priv->slock, flags);
++
++  /* Callbacks can re-enter I2S through the audio upper half. Keep the
++   * admission gate closed while returning buffers outside slock.
++   */
++
++  while ((buffer = (struct esp_buffer_s *)sq_remfirst(&canceled)) != NULL)
++    {
++      buffer->apb->nbytes = 0;
++      buffer->apb->curbyte = 0;
++      buffer->apb->flags &= ~AUDIO_APB_FINAL;
++      if (sq_empty(&canceled))
++        {
++          buffer->apb->flags |= AUDIO_APB_FINAL;
++        }
++
++      if (buffer->callback != NULL)
++        {
++          buffer->callback(&priv->dev, buffer->apb, buffer->arg, -ECANCELED);
++        }
++
++      apb_free(buffer->apb);
++      i2s_buf_free(priv, buffer);
++    }
++
++  flags = spin_lock_irqsave(&priv->slock);
++  priv->rx_state = I2S_RX_READY;
++  spin_unlock_irqrestore(&priv->slock, flags);
++  return OK;
++}
++#endif
++
++/****************************************************************************
+  * Name: i2s_ioctl
+  *
+  * Description:
+@@ -3161,6 +3301,22 @@
+       case AUDIOIOC_START:
+         {
+           i2sinfo("AUDIOIOC_START\n");
++
++#if defined(CONFIG_ARCH_CHIP_ESP32S3) && defined(I2S_HAVE_RX)
++          if (priv->config->rx_en && !priv->config->tx_en)
++            {
++              irqstate_t flags = spin_lock_irqsave(&priv->slock);
++              ret = -EBUSY;
++              if (priv->rx_state == I2S_RX_READY)
++                {
++                  priv->streaming = true;
++                  ret = OK;
++                }
++
++              spin_unlock_irqrestore(&priv->slock, flags);
++              break;
++            }
++#endif
+ 
+           priv->streaming = true;
+ 
+@@ -3178,6 +3334,14 @@
+         {
+           i2sinfo("AUDIOIOC_STOP\n");
+ 
++#if defined(CONFIG_ARCH_CHIP_ESP32S3) && defined(I2S_HAVE_RX)
++          if (priv->config->rx_en && !priv->config->tx_en)
++            {
++              ret = i2s_stop_rx(priv);
++              break;
++            }
++#endif
++
+           priv->streaming = false;
+ 
+ #ifdef I2S_HAVE_RX
+--- a/arch/xtensa/src/esp32s3/esp32s3_dma.c
++++ b/arch/xtensa/src/esp32s3/esp32s3_dma.c
+@@ -596,6 +596,22 @@
+ }
+ 
+ /****************************************************************************
++ * Name: esp32s3_dma_is_idle
++ *
++ * Description:
++ *   Test whether the channel descriptor engine is parked.
++ *
++ ****************************************************************************/
++
++bool esp32s3_dma_is_idle(int chan, bool tx)
++{
++  uint32_t regaddr = tx ? DMA_OUT_LINK_CH0_REG : DMA_IN_LINK_CH0_REG;
++  uint32_t park = tx ? DMA_OUTLINK_PARK_CH0 : DMA_INLINK_PARK_CH0;
++
++  return (GET_GDMA_CH_REG(regaddr, chan) & park) != 0;
++}
++
++/****************************************************************************
+  * Name: esp32s3_dma_wait_idle
+  *
+  * Description:
+@@ -612,26 +628,9 @@
+ 
+ void esp32s3_dma_wait_idle(int chan, bool tx)
+ {
+-  uint32_t regval;
+-  uint32_t regaddr;
+-  uint32_t waitbits;
+-
+-  if (tx)
++  while (!esp32s3_dma_is_idle(chan, tx))
+     {
+-      regaddr  = DMA_OUT_LINK_CH0_REG + chan * GDMA_REG_OFFSET;
+-      waitbits = DMA_OUTLINK_PARK_CH0;
+     }
+-  else
+-    {
+-      regaddr  = DMA_IN_LINK_CH0_REG + chan * GDMA_REG_OFFSET;
+-      waitbits = DMA_INLINK_PARK_CH0;
+-    }
+-
+-  do
+-    {
+-      regval = getreg32(regaddr);
+-    }
+-  while ((waitbits & regval) == 0);
+ }
+ 
+ /****************************************************************************
+--- a/arch/xtensa/src/esp32s3/esp32s3_dma.h
++++ b/arch/xtensa/src/esp32s3/esp32s3_dma.h
+@@ -328,7 +328,17 @@
+  ****************************************************************************/
+ 
+ void esp32s3_dma_disable(int chan, bool tx);
++
++/****************************************************************************
++ * Name: esp32s3_dma_is_idle
++ *
++ * Description:
++ *   Test whether the channel descriptor engine is parked.
++ *
++ ****************************************************************************/
+ 
++bool esp32s3_dma_is_idle(int chan, bool tx);
++
+ /****************************************************************************
+  * Name: esp32s3_dma_wait_idle
+  *

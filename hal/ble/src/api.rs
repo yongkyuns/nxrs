@@ -1,8 +1,8 @@
 //! Portable BLE scan API; no controller addresses or OS handles.
 #![forbid(unsafe_code)]
 
-pub use hal_common::{OperationId, RequestId, SessionId};
 pub use messaging::{DeliveryError, Rejected};
+pub use radio_types::{OperationId, RequestId, SessionId};
 
 /// Provider-issued, session-local identity; not a Bluetooth MAC address.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

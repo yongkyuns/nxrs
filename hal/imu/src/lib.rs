@@ -4,6 +4,7 @@ mod api;
 #[allow(dead_code, reason = "Unbound profiles do not acquire devices.")]
 mod device_state;
 mod platform;
+#[cfg(any(test, platform = "mock", platform = "nuttx", platform = "simulation"))]
 mod session;
 #[cfg(test)]
 mod test_support;

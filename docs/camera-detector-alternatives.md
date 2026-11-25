@@ -1,135 +1,111 @@
-# Pretrained detector screening
+# Pretrained person-detector comparison
 
-On 2026-10-22, two public Edge Impulse FOMO checkpoints and NanoDet-m-0.5x
-were evaluated against the same frozen camera JPEGs used for PICO: 800 balanced
-COCO/VWW images and 200 balanced Open Images images. Both float32 and int8 FOMO
-exports ran through their actual exported WASM engine. NanoDet ran its upstream
-PyTorch model, validation preprocessing and box decoder on CPU with one thread.
-Five configurations each completed all 1,000 images. An additional 2,000 images
-ran through bare int8 FOMO models in TensorFlow Lite as an independent screen.
+This study evaluated whether available FOMO or NanoDet weights offered a better person-detection tradeoff than the camera's PICO model. It compared frozen images at a fixed threshold, without retraining or changing the production detector. The October 22, 2026 results apply to the named checkpoints, not to every model in those families.
 
-Keep PICO as the current default. These FOMO checkpoints produce excessive
-false positives on our sample; NanoDet offers substantially fewer false positives
-but lower person recall at the fixed threshold. These results evaluate these
-particular trained weights, not the best possible FOMO or NanoDet architecture.
-No production HAL, application policy or running device firmware was changed.
+## Test setup
 
-## Primary results
+### Models and execution
 
-All rows use score 0.5. Scores from different models are not calibrated to the
-same probability or operating point; no threshold was tuned on this comparison.
-FOMO presence uses its accepted centroids inside the image content. NanoDet's
-raw-score classification agrees with accepted person boxes on every sample.
-PICO rows reference the preceding frozen host/device qualification.
+| Model | Input and weights | Execution used for this comparison |
+| --- | --- | --- |
+| PICO reference | PICO_S8_V1, 224×224 RGB int8 | Previously qualified frozen host/device results |
+| Norik FOMO | 64×64 RGB; public snapshot `159781`; int8 and float32 exports | Exported Edge Impulse WASM SDK |
+| Jahou FOMO | 96×96 RGB; public snapshot `278974`; int8 and float32 exports | Exported Edge Impulse WASM SDK |
+| NanoDet-m-0.5x | 320×320 float32; pinned checkpoint and v0.4.2 source | Upstream PyTorch CPU model and decoder, one thread |
 
-| Model | COCO/VWW accuracy | Person recall | False positives / 400 negatives | Open Images accuracy | Person recall | False positives / 100 negatives |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| PICO, current | 86.00% | 89.75% | 71 | 76.50% | 67.00% | 14 |
-| Norik FOMO, 64×64 RGB, int8 | 53.125% | 89.25% | 332 | 52.50% | 94.00% | 89 |
-| Jahou FOMO, 96×96 RGB, int8 | 59.00% | 74.00% | 224 | 60.00% | 83.00% | 63 |
-| NanoDet-m-0.5x, 320×320, float32 | 85.125% | 73.00% | 11 | 71.50% | 43.00% | 0 |
+All alternatives ran on an arm64 macOS host; the retained environment record does not identify the CPU model. Five configurations each processed all 1,000 images. Independent TensorFlow Lite runs also evaluated both int8 FOMO exports on the same corpus, adding 2,000 image evaluations. Exact model, source and export hashes are in the [artifact manifest](../tests/detection/alternatives.json).
 
-Float32 FOMO gives the same qualitative outcome: Norik accuracy 52.75%/52.50%
-and Jahou 60.50%/61.00% on COCO/VWW/Open Images respectively. Independent bare
-int8 TensorFlow Lite heatmap maxima give Norik 53.25%/51.50% and Jahou
-59.25%/60.50%. Raw heatmap maxima include padding cells and precede SDK centroid
-grouping/filtering, so they are reported separately. This is corroboration of
-poor generalization, not a numerical-equivalence claim between runtimes or
-postprocessed confidence values.
+### Datasets and scoring
 
-For actual boxes, NanoDet produces 397 TP, 32 FP and 885 FN on the same 764
-non-crowd COCO images and 1,282 people used for the PICO box assessment:
-**92.54% precision, 30.97% recall, 46.41% F1**, at score 0.5 and IoU 0.5,
-with at most ten boxes per frame. PICO previously gave **83.18% precision,
-41.65% recall, 55.51% F1**. FOMO activation rectangles identify centroids and
-are not evaluated as full person bounds. These fixed-threshold figures are not
-COCO mAP. Crowded images are excluded using the existing benchmark rule.
+| Evaluation | Sample and label definition | Measurement |
+| --- | --- | --- |
+| COCO/VWW presence | 800 JPEGs: 400 positive, 400 negative; positive means an annotated person's area exceeds 0.5% of the image | Image-level accuracy, person recall and false-positive count |
+| Open Images presence | 200 JPEGs: 100 positive, 100 negative; explicit human labels for any person | Same presence metrics, reported separately because the label rule differs |
+| COCO boxes | 764 non-crowd images containing 1,282 people | Person precision, recall and F1 at IoU 0.5, score 0.5 and at most ten boxes/frame |
+| Host execution | COCO/VWW runs after two warm-up calls per configuration | Mean JPEG preparation + inference + postprocessing time; file reads and IPC excluded |
 
-## Performance and qualification limits
+Every model used score threshold **0.5**, without threshold tuning on these samples. Model scores are not calibrated to the same probability. FOMO presence counted accepted centroids within image content; NanoDet presence counted accepted person boxes. FOMO centroids were not scored as full person bounds. The box figures are fixed-threshold metrics, not COCO mAP.
 
-Mean measured host pipeline time on COCO/VWW was 0.741 ms for Norik int8 WASM,
-1.160 ms for Jahou int8 WASM and 8.974 ms for NanoDet float32/PyTorch. The FOMO
-figure combines Python JPEG/resize/packing time with the SDK engine's
-DSP/numerical/postprocessing time; IPC and file I/O are excluded. NanoDet
-includes JPEG decoding, upstream image preparation, numerical execution and
-postprocessing, excluding file reads. Each main run warms up twice. Runtime
-implementations differ, so these numbers are not an architecture-only speed
-comparison. Reports retain means, medians, p95 and maxima.
+FOMO used each project's `fit-long` preprocessing: centered black letterboxing, Lanczos resizing and RGB888 values passed to its SDK DSP. NanoDet used its upstream aspect-preserving validation transform and normalization. Input hashes and dataset manifests were checked before evaluation.
 
-No alternative was ported/flashed after screening. There is no alternate
-ESP32-S3 inference rate, activation-memory measurement or concurrent video FPS
-result. The existing PICO camera/gateway remain running; their preceding
-**17.766 video FPS and 1.3333 detections/s** measurement remains a PICO result.
-Public ESP-EYE/Nicla timings are not relabeled as measurements on our S3.
-Adoption would require a separate Rust HAL implementation/qualification and a
-same-image video control, concurrent inference test and joined-shutdown checks.
+### Assumptions and limits
 
-FOMO preprocessing follows each public project's documented `fit-long` input:
-centered black letterbox with Lanczos resizing, then packed RGB888 values passed
-to the actual SDK DSP. NanoDet uses its original aspect-preserving validation
-transform and normalization. All input JPEG hashes and dataset manifests are
-checked before inference. Training filenames identify no overlap between the
-174 recognizable COCO names in Jahou's project and our frozen COCO sample;
-Norik's names are not identifiable COCO IDs. Other filenames and base-model
-training membership remain unknown. This does not prove complete independence.
-Static balanced samples do not establish field prevalence, temporal incident
-recall, false alarms per hour, night/IR performance or phone acceptance.
+The balanced static samples do not estimate field prevalence, false alarms per hour, temporal incident recall or night/IR reliability. Complete independence from model training data was not established: recognizable Jahou COCO filenames did not overlap this sample, but other training names and base-model membership remain unknown.
 
-## Artifacts and licensing
+The host timings include different runtimes and preparation paths. They do not isolate architecture efficiency and cannot predict ESP32-S3 throughput. No alternative was flashed, so the study provides no alternate-model device RAM, concurrent video or joined-shutdown result. Public SDK licensing and deployment terms are also separate from this accuracy screen.
 
-The exact model/source/export pins are in
-[`tests/detection/alternatives.json`](../tests/detection/alternatives.json).
-The [public Norik project](https://studio.edgeimpulse.com/public/121370/latest)
-and [public Jahou project](https://studio.edgeimpulse.com/public/277042/latest)
-are version-one snapshots whose internal public IDs are 159781 and 278974.
-Their public deployment API provided both precision variants without requiring
-new training. API `isEnabled` flags reflect selection, not artifact availability;
-the int8 exports were successfully retrieved and evaluated.
+<a id="primary-results"></a>
 
-Both public projects list Apache 2.0. Generated C++ wrapper files also carry
-additional subscription terms; those SDK terms must be assessed separately
-before product use. No generated SDK or model binary is committed or adopted.
-Edge Impulse's [Developer terms](https://www.edgeimpulse.com/legal/terms-of-service)
-distinguish public-project models from SDK assets, and its
-[pricing](https://www.edgeimpulse.com/pricing) lists separate production terms.
-The [NanoDet repository](https://github.com/RangiLyu/nanodet) is Apache 2.0;
-the exact checkpoint and v0.4.2 source revision are pinned. The older Lightning
-checkpoint is loaded with PyTorch `weights_only=True`, permitting only an inert
-placeholder for its callback-metadata key, and requires every model weight to
-match. No executable checkpoint payload is loaded.
+## Presence results
 
-Numeric results, per-image scores, host timings and qualification boundaries are
-under [2026-10-22-alternatives](../tests/detection/results/2026-10-22-alternatives/).
-Runtime logs, credentials and dataset images stay private. All image inference
-ran locally; dataset images were not uploaded to Edge Impulse.
+### COCO/VWW: 400 positive and 400 negative images
 
-## Reproduction
+| Model | Accuracy | Person recall | False positives / 400 negatives |
+| --- | ---: | ---: | ---: |
+| PICO reference | 86.00% | 89.75% | 71 |
+| Norik FOMO int8 | 53.125% | 89.25% | 332 |
+| Jahou FOMO int8 | 59.00% | 74.00% | 224 |
+| NanoDet-m-0.5x | 85.125% | 73.00% | 11 |
 
-Use a private directory and a Python 3.12 virtual environment. The fetcher
-verifies exact archive/member hashes and extracts only the WASM module/loader
-and bare TFLite model, excluding generated C++ SDK sources. It fails if a
-historical artifact becomes unavailable or changes; it never substitutes a new
-model. Install `tests/detection/requirements-alternatives.txt` for NanoDet/WASM
-preparation. The independent TFLite screen uses the separate existing
-`tests/detection/requirements-reference.txt` environment.
+### Open Images: 100 positive and 100 negative images
 
-```sh
-python3 tests/detection/fetch_alternatives.py --out /private/path/artifacts
-git clone --branch v0.4.2 https://github.com/RangiLyu/nanodet /private/path/nanodet
-python3 tests/detection/evaluate_alternatives.py --kind fomo \
-  --node /path/to/node --export /private/path/artifacts/fomo-159781-int8 \
-  --dataset /private/path/vww-official-holdout-800 --out /private/path/norik-coco
-python3 tests/detection/evaluate_alternatives.py --kind nanodet \
-  --source /private/path/nanodet \
-  --checkpoint /private/path/artifacts/nanodet-m-0.5x.ckpt \
-  --dataset /private/path/vww-official-holdout-800 --out /private/path/nanodet-coco
-python3 tests/detection/verify_fomo_tflite.py \
-  --model /private/path/artifacts/fomo-159781-int8.tflite \
-  --dataset /private/path/vww-official-holdout-800 --out /private/path/tflite-norik
-```
+| Model | Accuracy | Person recall | False positives / 100 negatives |
+| --- | ---: | ---: | ---: |
+| PICO reference | 76.50% | 67.00% | 14 |
+| Norik FOMO int8 | 52.50% | 94.00% | 89 |
+| Jahou FOMO int8 | 60.00% | 83.00% | 63 |
+| NanoDet-m-0.5x | 71.50% | 43.00% | 0 |
 
-Repeat for snapshot 278974, float32 WASM and the frozen Open Images corpus.
-Run `tests/detection/report_boxes.py` on NanoDet's `boxes.tsv` with the verified
-official COCO annotations. The original preparation scripts/manifests define
-the image selection; score/box TSVs preserve their exact order. Dependency and
-source hashes are recorded with the results.
+Both FOMO checkpoints classified many negative images as containing people. Their float32 exports and the independent int8 TensorFlow Lite screen showed the same qualitative weakness. The latter used raw heatmap maxima, so it corroborates the screening result without establishing numerical equivalence with SDK centroid processing. [Full precision/runtime results](history/detector-screening-study.md#primary-results).
+
+NanoDet produced fewer false positives than PICO in both datasets, at the cost of lower person recall. A single fixed threshold does not establish which model has the best achievable operating point after calibration.
+
+## Box-localization results
+
+| Model | Precision | Recall | F1 |
+| --- | ---: | ---: | ---: |
+| PICO reference | 83.18% | 41.65% | 55.51% |
+| NanoDet-m-0.5x | 92.54% | 30.97% | 46.41% |
+
+NanoDet produced 397 true positives, 32 false positives and 885 false negatives. Its accepted boxes were more precise, but it located fewer of the annotated people. Image-level presence recall and per-person box recall measure different outcomes.
+
+<a id="performance-and-qualification-limits"></a>
+
+## Host execution results
+
+| Alternative implementation | Mean measured pipeline time |
+| --- | ---: |
+| Norik int8 / WASM SDK | 0.741 ms |
+| Jahou int8 / WASM SDK | 1.160 ms |
+| NanoDet float32 / PyTorch | 8.974 ms |
+
+FOMO's small host execution cost did not compensate for its false-positive rate in this screen. These host observations are not comparable to the [physical PICO streaming measurements](camera-pico-performance.md).
+
+## Interpretation
+
+**False positives, rather than host speed, disqualify these FOMO checkpoints at the tested threshold.** Norik marked 83% of COCO/VWW negative images and 89% of Open Images negatives as positive; Jahou marked 56% and 63%. Similar outcomes from float32 exports and a second int8 engine make quantization alone or one runtime defect unlikely explanations. Training-domain mismatch and score calibration remain plausible causes, not demonstrated ones. The screen does not isolate input resolution or model architecture as the dominant cause.
+
+**NanoDet makes a different error tradeoff.** On COCO/VWW it reduces false positives from PICO's 71 to 11, but also reduces person recall from 89.75% to 73%. Higher box precision alongside lower box recall means fewer incorrect boxes and more missed people. A user prioritizing fewer nuisance alerts may prefer that tradeoff; one prioritizing incident recall may not. Neither model's score 0.5 represents a matched operating point, so the table cannot establish the best achievable tradeoff.
+
+**Presence and localization answer different product questions.** PICO's 89.75% COCO/VWW presence recall means it often finds some person in a positive image; its 41.65% box recall means many individual annotated people remain unlocalized. Multi-person coverage therefore needs per-person evaluation. The lower Open Images presence results cannot be attributed solely to domain shift: that dataset labels any person, while the VWW rule labels images containing only sufficiently small people as negative.
+
+Balanced-image accuracy is also a poor proxy for an always-on alarm. When person-free scenes dominate, even a modest false-positive rate can generate many positive frames. Consecutive frames are correlated, so multiplying independent per-frame error probabilities would not predict the service's temporal-confirmation false-alarm rate.
+
+<a id="conclusions"></a>
+
+## Conclusions and next qualification
+
+PICO remains the supported choice from this screen, with NanoDet a precision-oriented candidate. The first improvement step is **operating-point evaluation**, not a device port: use a separate calibration set to choose thresholds at a common false-positive budget, then compare recall on an untouched holdout, including person-size and lighting breakdowns. If these FOMO weights remain poor at a useful recall, evaluate domain-matched training rather than spending effort porting the current exports.
+
+Only a candidate that improves the required tradeoff should proceed to the device. Measure peak model/preprocessing memory and inference alongside video, then evaluate recorded sequences for incident recall, alert delay and false alerts per camera-hour using the actual temporal policy. Keep the commercial SDK review separate. This sequence resolves model suitability before spending effort on embedded integration.
+
+<a id="artifacts-and-licensing"></a>
+<a id="reproduction"></a>
+
+## Evidence and reproduction
+
+- [Pinned models and exports](../tests/detection/alternatives.json) and [numeric evidence](../tests/detection/results/2026-10-22-alternatives/): per-image scores, timing distributions and environment/source records.
+- [Original screening report](history/detector-screening-study.md): fetch/evaluation commands, independent engine checks and recorded license provenance. Public-project Apache 2.0 labels do not cover every generated SDK file; no exported SDK or model was adopted by this screen.
+- [PICO reference qualification](camera-pico-qualification.md) and [device pipeline performance](camera-pico-performance.md).
+
+Images were evaluated locally. Public evidence contains numeric results and hashes; dataset images, credentials and runtime logs remain private.

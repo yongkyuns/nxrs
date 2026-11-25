@@ -11,7 +11,7 @@ use std::{
     path::{Path, PathBuf},
     process::Command,
 };
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct App {
     pub manifest: PathBuf,
     pub package: String,
@@ -132,7 +132,7 @@ mod descriptor_tests {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct Options {
     pub clean: bool,
     pub features: Vec<String>,
@@ -145,6 +145,7 @@ pub struct Options {
     pub size: bool,
     pub trace: bool,
     pub immediate: bool,
+    pub panic_diagnostics: bool,
 }
 impl Options {
     /// Literal native Kconfig requests, shared by planning and the target build.
@@ -220,6 +221,9 @@ impl Options {
         {
             return Err("invalid ABI profile".into());
         }
+        if self.panic_diagnostics && (self.trace || self.immediate) {
+            return Err("--panic-diagnostics conflicts with the lean panic switches".into());
+        }
         if self.immediate && !self.trace {
             return Err("immediate abort requires trace-only backtrace".into());
         }
@@ -235,7 +239,8 @@ impl Options {
                 || self.abi.is_some()
                 || self.size
                 || self.trace
-                || self.immediate)
+                || self.immediate
+                || self.panic_diagnostics)
         {
             return Err("NuttX qualification switches require a NuttX profile".into());
         }
@@ -255,7 +260,7 @@ impl Options {
     }
 }
 
-fn kconfig_value(value: &str) -> bool {
+pub(crate) fn kconfig_value(value: &str) -> bool {
     if matches!(value, "y" | "m" | "n") {
         return true;
     }
@@ -349,6 +354,7 @@ pub fn prepare_output(root: &Path, out: &Path) -> Result<PathBuf> {
         || resolved.starts_with(repo.join("external"))
         || resolved.starts_with(repo.join("platform"))
         || resolved.starts_with(repo.join("hal"))
+        || resolved.starts_with(repo.join("shared/acquisition"))
         || resolved.starts_with(repo.join("app"))
         || resolved.starts_with(repo.join(".git"))
     {

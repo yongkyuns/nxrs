@@ -41,3 +41,16 @@ pub(super) fn irq_check(fd: c_int) -> io::Result<()> {
 unsafe extern "C" {
     fn gpio_resource_irq_check(fd: c_int) -> c_int;
 }
+
+pub(super) fn check_pin(fd: c_int, output: bool) -> io::Result<()> {
+    // SAFETY: the descriptor remains open during the synchronous ioctl.
+    if unsafe { gpio_check_pin(fd, output) } < 0 {
+        Err(io::Error::last_os_error())
+    } else {
+        Ok(())
+    }
+}
+
+unsafe extern "C" {
+    fn gpio_check_pin(fd: c_int, output: bool) -> c_int;
+}

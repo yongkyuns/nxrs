@@ -1,6 +1,6 @@
 //! One-time product input. Saved records never acquire the console.
 #![forbid(unsafe_code)]
-use config::Store;
+use settings::Store;
 use home_cam::{
     bootstrap::{self, Commission},
     network::Profile,
@@ -125,22 +125,22 @@ mod tests {
     #[derive(Default)]
     struct Memory(BTreeMap<String, Vec<u8>>);
     impl Store for Memory {
-        fn get(&mut self, key: &str, out: &mut [u8]) -> Result<Option<usize>, config::Error> {
+        fn get(&mut self, key: &str, out: &mut [u8]) -> Result<Option<usize>, settings::Error> {
             self.0
                 .get(key)
                 .map(|v| {
                     out.get_mut(..v.len())
-                        .ok_or(config::Error::BufferTooSmall)?
+                        .ok_or(settings::Error::BufferTooSmall)?
                         .copy_from_slice(v);
                     Ok(v.len())
                 })
                 .transpose()
         }
-        fn set(&mut self, key: &str, value: &[u8]) -> Result<(), config::Error> {
+        fn set(&mut self, key: &str, value: &[u8]) -> Result<(), settings::Error> {
             self.0.insert(key.into(), value.to_vec());
             Ok(())
         }
-        fn remove(&mut self, key: &str) -> Result<(), config::Error> {
+        fn remove(&mut self, key: &str) -> Result<(), settings::Error> {
             self.0.remove(key);
             Ok(())
         }

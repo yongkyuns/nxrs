@@ -21,11 +21,13 @@ final class HomeExperienceUITests: XCTestCase {
     }
 
     private func selectTab(_ name: String, in app: XCUIApplication) {
-        let tab = app.tabBars.buttons[name]
+        // Native tab items can have different accessibility element types at large text sizes.
+        let tab = app.tabBars.descendants(matching: .any).matching(identifier: name).firstMatch
         let ready = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            guard tab.exists, tab.isHittable else { return false }
             let window = app.windows.firstMatch.frame
             let frame = tab.frame
-            return tab.isHittable && window.contains(frame) && frame.midY > window.midY
+            return window.contains(frame) && frame.midY > window.midY
         }, object: nil)
         XCTAssertEqual(XCTWaiter.wait(for: [ready], timeout: 3), .completed)
         // After rotation, XCTest can report an obsolete accessibility hit point

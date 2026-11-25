@@ -1,0 +1,133 @@
+diff --git a/examples/src/bin/webrtc_camera.rs b/examples/src/bin/webrtc_camera.rs
+--- a/examples/src/bin/webrtc_camera.rs
++++ b/examples/src/bin/webrtc_camera.rs
+@@ -289,7 +289,7 @@
+     shutdown_tx: Sender<()>,
+     joined: Receiver<()>,
+     candidate: RefCell<Option<String>>,
+-    remote_candidates: Cell<usize>,
++    remote_candidates: RefCell<Vec<Candidate>>,
+     negotiation: Cell<Option<OutboundWork>>,
+     send_ice: Cell<bool>,
+     end: Cell<Option<WebRTCEndReasonEnum>>,
+@@ -1137,6 +1137,41 @@
+     }
+ }
+
++// RFC 8839 section 5.1 keeps ICE active for unsupported hostnames.
++// Browser mDNS names cannot be passed to the literal-address ICE engine.
++fn remote_candidate(sdp: &str) -> Result<Option<Candidate>, WebRtcError> {
++    let sdp = sdp.trim_start_matches("a=");
++    match Candidate::from_sdp_string(sdp) {
++        Ok(candidate) => Ok(Some(candidate)),
++        Err(_) => {
++            let address = sdp.split_ascii_whitespace().nth(4);
++            let mdns = address.and_then(|name| name.split_once('.')).is_some_and(|(label, suffix)| {
++                suffix.eq_ignore_ascii_case("local") && !label.is_empty() && label.len() <= 63
++                    && label.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
++            });
++            if sdp.starts_with("candidate:") && mdns {
++                Ok(None)
++            } else {
++                Err(WebRtcError::DynamicConstraint)
++            }
++        }
++    }
++}
++
++#[cfg(test)]
++#[test]
++fn private_candidate_names_leave_numeric_ice_available() {
++    assert!(matches!(remote_candidate(
++        "candidate:1 1 UDP 2122262783 1f4712db-ea17-4bcf-a596-105139dfd8bf.local 54596 typ host",
++    ), Ok(None)));
++    assert!(matches!(remote_candidate(
++        "candidate:2 1 UDP 2122262783 192.0.2.4 54596 typ host",
++    ), Ok(Some(_))));
++    assert!(matches!(remote_candidate(
++        "candidate:3 1 UDP 2122262783 192.0.2.999 54596 typ host",
++    ), Err(WebRtcError::DynamicConstraint)));
++}
++
+ impl WebRtcHooks for Str0mHooks {
+     fn signaling_timeout(&self) -> Option<rs_matter::utils::timers::Duration> {
+         Some(rs_matter::utils::timers::Duration::from_secs(3))
+@@ -1195,7 +1230,7 @@
+                 shutdown_tx,
+                 joined: finished,
+                 candidate: RefCell::new(Some(local_cand_sdp)),
+-                remote_candidates: Cell::new(0),
++                remote_candidates: RefCell::new(Vec::new()),
+                 negotiation: Cell::new(Some(OutboundWork::Offer { session_id })),
+                 send_ice: Cell::new(true),
+                 end: Cell::new(None),
+@@ -1253,7 +1288,7 @@
+                     shutdown_tx,
+                     joined: finished,
+                     candidate: RefCell::new(Some(local_cand_sdp)),
+-                    remote_candidates: Cell::new(0),
++                    remote_candidates: RefCell::new(Vec::new()),
+                     negotiation: Cell::new(Some(OutboundWork::Answer { session_id })),
+                     send_ice: Cell::new(true),
+                     end: Cell::new(None),
+@@ -1344,19 +1379,28 @@
+         if ctrl.closing.get() || ctrl.revoked.get() || ctrl.joined.is_closed() {
+             return Err(WebRtcError::InvalidInState);
+         }
++        let mut accepted = ctrl.remote_candidates.borrow_mut();
+         let mut parsed = Vec::new();
+-        for entry in candidates.iter() {
++        for (index, entry) in candidates.iter().enumerate() {
+             let entry = entry.map_err(|_| WebRtcError::DynamicConstraint)?;
+             let sdp = entry.candidate().map_err(|_| WebRtcError::DynamicConstraint)?;
+-            if sdp.len() > CAND_LEN || ctrl.remote_candidates.get() + parsed.len() >= MAX_CAND {
++            if sdp.len() > CAND_LEN || index >= MAX_CAND * 2 {
+                 return Err(WebRtcError::ResourceExhausted);
+             }
+-            parsed.push(Candidate::from_sdp_string(sdp.trim_start_matches("a="))
+-                .map_err(|_| WebRtcError::DynamicConstraint)?);
+-        }
+-        ctrl.remote_candidates.set(ctrl.remote_candidates.get() + parsed.len());
++            let Some(candidate) = remote_candidate(sdp)? else { continue; };
++            // Bundled media and signaling retries may repeat the same candidate.
++            // Keep one shared transport's limit on distinct candidates.
++            if accepted.contains(&candidate) || parsed.contains(&candidate) {
++                continue;
++            }
++            if accepted.len() + parsed.len() >= MAX_CAND {
++                return Err(WebRtcError::ResourceExhausted);
++            }
++            parsed.push(candidate);
++        }
+         for candidate in parsed {
+-            ctrl.remote_cand_tx.try_send(candidate).map_err(|_| WebRtcError::InvalidInState)?;
++            ctrl.remote_cand_tx.try_send(candidate.clone()).map_err(|_| WebRtcError::InvalidInState)?;
++            accepted.push(candidate);
+         }
+         Ok(())
+     }
+@@ -1671,6 +1715,8 @@
+         AUDIO_ALLOCATIONS_KEY,
+         initial_video,
+     )?);
++    let microphone = deployment.microphone().map_err(|_| ErrorCode::Invalid)?;
++    let microphone_privacy = privacy.clone();
+     let shared = SHARED.init(Str0mShared::new(lan, video, cam_av, privacy));
+     let webrtc = WEBRTC.init(WebRtcProvHandler::new(
+         Dataver::new_rand(&mut rand),
+@@ -1770,6 +1816,15 @@
+             let matter_core =
+                 select(matter_core, time_client.run_with_ntp(TIME_REFRESH, &kv, &im, &ntp)).coalesce();
+             let media = async { reader.run().await; Err(ErrorCode::StdIoError.into()) };
++            let capture_control = async {
++                if let Some(microphone) = &microphone {
++                    microphone.run(&microphone_privacy, || matter.has_fabrics()).await;
++                } else {
++                    core::future::pending::<()>().await;
++                }
++                Err(ErrorCode::StdIoError.into())
++            };
++            let media = select(media, capture_control).coalesce();
+             let all = select(select(matter_core, driver).coalesce(), media).coalesce();
+             let failed_store = async {
+                 let _ = persistence_failure.recv().await;

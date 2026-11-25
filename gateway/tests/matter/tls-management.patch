@@ -1,0 +1,859 @@
+diff --git a/examples/src/bin/persistence/mod.rs b/examples/src/bin/persistence/mod.rs
+index a3a1012..502cc2b 100644
+--- a/examples/src/bin/persistence/mod.rs
++++ b/examples/src/bin/persistence/mod.rs
+@@ -1,6 +1,7 @@
+ //! The fixture uses Nxrs's durable store through the SDK's existing blob contract.
+ use async_channel::{Receiver, Sender};
+ use nxrs_gateway_matter::persistence::Store;
++use nxrs_gateway_matter::{persistence, tls};
+ use rs_matter::{
+     error::{Error, ErrorCode},
+     persist::{
+@@ -10,10 +11,11 @@ use rs_matter::{
+     },
+ };
+ use super::{AUDIO_ALLOCATIONS_KEY, CAMERA_PRIVACY_KEY, NTP_CONFIG_KEY, VIDEO_ALLOCATIONS_KEY};
+-use std::path::Path;
++use std::{cell::RefCell, path::Path, rc::Rc};
+ 
++#[derive(Clone)]
+ pub struct StoreAdapter {
+-    inner: Store,
++    inner: Rc<RefCell<Store>>,
+     failure: Sender<()>,
+ }
+ 
+@@ -29,7 +31,7 @@ impl StoreAdapter {
+         .map_err(|_| ErrorCode::StdIoError)?;
+         factory.bind(&mut inner, key, initialize).map_err(|_| ErrorCode::Invalid)?;
+         let (failure, receiver) = async_channel::bounded(1);
+-        Ok((Self { inner, failure }, receiver))
++        Ok((Self { inner: Rc::new(RefCell::new(inner)), failure }, receiver))
+     }
+     pub fn bind_attestation(
+         &mut self,
+@@ -37,18 +39,18 @@ impl StoreAdapter {
+         key: u16,
+         initializing: bool,
+     ) -> Result<(), Error> {
+-        attestation.bind(&mut self.inner, key, initializing)
++        attestation.bind(&mut self.inner.borrow_mut(), key, initializing)
+             .map_err(|_| ErrorCode::Invalid.into())
+     }
+ 
+     pub fn bind_camera(&mut self, config: &nxrs_gateway_matter::config::Deployment, key: u16, initializing: bool)
+         -> Result<(String, String), Error> {
+-        config.bind(&mut self.inner, key, initializing, rand::random)
++        config.bind(&mut self.inner.borrow_mut(), key, initializing, rand::random)
+             .map_err(|_| ErrorCode::Invalid.into())
+     }
+-    pub fn fabric_indices(&self) -> impl Iterator<Item = u16> + '_ {
++    pub fn fabric_indices(&self) -> impl Iterator<Item = u16> {
+         let range = FABRIC_KEYS_START + 1..FABRIC_KEYS_START + 255;
+-        self.inner.keys().filter(move |key| range.contains(key))
++        self.inner.borrow().keys().filter(|key| range.contains(key)).collect::<Vec<_>>().into_iter()
+     }
+ 
+     fn is_sole_fabric(&self, key: u16) -> bool {
+@@ -60,10 +62,21 @@ impl StoreAdapter {
+         if !self.is_sole_fabric(key) {
+             return Err(ErrorCode::InvalidInState.into());
+         }
+-        let result = self.inner.remove_with(key, installation_record);
++        let fabric = (key - FABRIC_KEYS_START) as u8;
++        let result = self.inner.borrow_mut().remove_with(key, |entry| {
++            installation_record(entry) || tls::is_fabric_record(fabric, entry)
++        });
+         self.checked(result)
+     }
+ 
++    pub fn tls<T>(&self, op: impl FnOnce(&mut Store) -> Result<T, tls::Error>) -> Result<T, tls::Error> {
++        let result = op(&mut self.inner.borrow_mut());
++        if matches!(result, Err(tls::Error::Storage(error)) if error != persistence::Error::Capacity) {
++            let _ = self.failure.try_send(());
++        }
++        result
++    }
++
+     fn checked<T>(
+         &self,
+         result: Result<T, nxrs_gateway_matter::persistence::Error>,
+@@ -88,10 +101,10 @@ fn installation_record(key: u16) -> bool {
+ 
+ impl KvBlobStore for StoreAdapter {
+     fn load<'a>(&mut self, key: u16, buffer: &'a mut [u8]) -> Result<Option<&'a [u8]>, Error> {
+-        self.checked(self.inner.load(key, buffer))
++        self.checked(self.inner.borrow().load(key, buffer))
+     }
+     fn store(&mut self, key: u16, data: &[u8], _buffer: &mut [u8]) -> Result<(), Error> {
+-        let result = self.inner.store(key, data);
++        let result = self.inner.borrow_mut().store(key, data);
+         self.checked(result)
+     }
+     fn store_pair(
+@@ -100,7 +113,7 @@ impl KvBlobStore for StoreAdapter {
+         (key, value): (u16, &[u8]),
+         _buffer: &mut [u8],
+     ) -> Result<(), Error> {
+-        let result = self.inner.store_with(key, value, &[prerequisite]);
++        let result = self.inner.borrow_mut().store_with(key, value, &[prerequisite]);
+         self.checked(result)
+     }
+ 
+@@ -108,9 +121,12 @@ impl KvBlobStore for StoreAdapter {
+         if self.is_sole_fabric(key) {
+             // Retire the fabric and its installation records together.
+             self.remove_sole_fabric(key)
+-        } else {
+-            let result = self.inner.remove(key);
++        } else if (FABRIC_KEYS_START + 1..FABRIC_KEYS_START + 255).contains(&key) {
++            let fabric = (key - FABRIC_KEYS_START) as u8;
++            let result = self.inner.borrow_mut().remove_with(key, |entry| tls::is_fabric_record(fabric, entry));
+             self.checked(result)
++        } else {
++            self.checked(self.inner.borrow_mut().remove(key))
+         }
+     }
+ }
+diff --git a/examples/src/bin/tls/mod.rs b/examples/src/bin/tls/mod.rs
+new file mode 100644
+index 0000000..bca2a72
+--- /dev/null
++++ b/examples/src/bin/tls/mod.rs
+@@ -0,0 +1,533 @@
++//! Matter command adapters. Storage and certificate admission belong to Nxrs.
++use std::num::NonZeroU8;
++
++use nxrs_gateway_matter::{persistence, tls};
++use rs_matter::{
++    dm::{
++        ArrayAttributeRead, Dataver, HandlerContext, InvokeContext, LifecycleOp, ReadContext,
++        clusters::decl::{tls_certificate_management as cert, tls_client_management as client},
++    },
++    error::{Error, ErrorCode},
++    persist::FABRIC_KEYS_START,
++    tlv::{Nullable, Octets, TLVBuilderParent},
++    utils::epoch::MATTER_EPOCH_SECS,
++};
++
++use super::persistence::StoreAdapter;
++
++pub struct Cluster {
++    store: StoreAdapter,
++    dataver: Dataver,
++}
++
++impl Cluster {
++    pub fn new(store: StoreAdapter, dataver: Dataver) -> Self {
++        Self { store, dataver }
++    }
++
++    fn read_fabrics(&self, ctx: &impl ReadContext) -> Vec<u8> {
++        let attr = ctx.attr();
++        if attr.fab_idx == 0 {
++            Vec::new()
++        } else if attr.fab_filter {
++            vec![attr.fab_idx]
++        } else {
++            self.store
++                .fabric_indices()
++                .map(|key| (key - FABRIC_KEYS_START) as u8)
++                .collect()
++        }
++    }
++
++    fn roots<T>(
++        &self,
++        fabric: u8,
++        f: impl FnOnce(tls::RootCertificates<'_>) -> Result<T, tls::Error>,
++    ) -> Result<T, Error> {
++        self.store
++            .tls(|store| f(tls::RootCertificates::open(store, fabric)?))
++            .map_err(status)
++    }
++
++    fn clients<T>(
++        &self,
++        fabric: u8,
++        f: impl FnOnce(tls::ClientCertificates<'_>) -> Result<T, tls::Error>,
++    ) -> Result<T, Error> {
++        self.store
++            .tls(|store| f(tls::ClientCertificates::open(store, fabric)?))
++            .map_err(status)
++    }
++
++    fn endpoints<T>(
++        &self,
++        fabric: u8,
++        f: impl FnOnce(tls::Endpoints<'_>) -> Result<T, tls::Error>,
++    ) -> Result<T, tls::Error> {
++        self.store
++            .tls(|store| f(tls::Endpoints::open(store, fabric)?))
++    }
++}
++
++fn fabric(ctx: &impl InvokeContext) -> Result<u8, Error> {
++    NonZeroU8::new(ctx.cmd().fab_idx)
++        .map(NonZeroU8::get)
++        .ok_or_else(|| ErrorCode::UnsupportedAccess.into())
++}
++
++fn utc(ctx: &impl HandlerContext) -> Option<i64> {
++    ctx.utc_time()
++        .reliable_secs()?
++        .checked_add(MATTER_EPOCH_SECS)?
++        .try_into()
++        .ok()
++}
++
++fn status(err: tls::Error) -> Error {
++    use tls::Error as T;
++    match err {
++        T::Constraint => ErrorCode::ConstraintError,
++        T::InvalidCertificate | T::InvalidTime => ErrorCode::DynamicConstraintError,
++        T::AlreadyExists => ErrorCode::AlreadyExists,
++        T::NotFound => ErrorCode::NotFound,
++        T::Capacity | T::Storage(persistence::Error::Capacity) => ErrorCode::ResourceExhausted,
++        T::InUse | T::CertificatePending => ErrorCode::InvalidInState,
++        _ => ErrorCode::Failure,
++    }
++    .into()
++}
++
++fn endpoint_status(ctx: &impl InvokeContext, error: tls::Error) -> Error {
++    let cluster = match error {
++        tls::Error::EndpointAlreadyInstalled => client::StatusCodeEnum::EndpointAlreadyInstalled,
++        tls::Error::RootCertificateNotFound => client::StatusCodeEnum::RootCertificateNotFound,
++        tls::Error::ClientCertificateNotFound => client::StatusCodeEnum::ClientCertificateNotFound,
++        _ => return status(error),
++    };
++    ctx.cmd().set_cluster_status(NonZeroU8::new(cluster as u8));
++    ErrorCode::Failure.into()
++}
++
++impl cert::ClusterHandler for Cluster {
++    const CLUSTER: rs_matter::dm::Cluster<'static> = cert::FULL_CLUSTER;
++    fn dataver(&self) -> u32 {
++        self.dataver.get()
++    }
++    fn dataver_changed(&self) {
++        self.dataver.changed();
++    }
++    fn lifecycle(&self, ctx: impl HandlerContext, op: LifecycleOp) -> Result<(), Error> {
++        if matches!(
++            op,
++            LifecycleOp::FabricRemoval { .. } | LifecycleOp::FactoryReset
++        ) {
++            self.dataver.changed();
++            ctx.notify_cluster_changed(0, cert::FULL_CLUSTER.id);
++        }
++        Ok(())
++    }
++
++    fn max_root_certificates(&self, _: impl ReadContext) -> Result<u8, Error> {
++        Ok(tls::MAX_ROOT_CERTIFICATES as u8)
++    }
++
++    fn max_client_certificates(&self, _: impl ReadContext) -> Result<u8, Error> {
++        Ok(tls::MAX_CLIENT_CERTIFICATES as u8)
++    }
++
++    fn provisioned_root_certificates<P: TLVBuilderParent>(
++        &self,
++        ctx: impl ReadContext,
++        builder: ArrayAttributeRead<
++            cert::TLSCertStructArrayBuilder<P>,
++            cert::TLSCertStructBuilder<P>,
++        >,
++    ) -> Result<P, Error> {
++        let mut records = Vec::new();
++        for fabric in self.read_fabrics(&ctx) {
++            let include = ctx.supports_large_payload() && fabric == ctx.attr().fab_idx;
++            records.extend(
++                self.roots(fabric, |roots| roots.list())?
++                    .into_iter()
++                    .map(|(id, der)| (fabric, id, include.then_some(der))),
++            );
++        }
++        match builder {
++            ArrayAttributeRead::ReadAll(mut array) => {
++                for (fabric, id, der) in records {
++                    array = root_record(array.push()?, fabric, id, der.as_deref())?;
++                }
++                array.end()
++            }
++            ArrayAttributeRead::ReadOne(index, item) => {
++                let (fabric, id, der) = records
++                    .get(index as usize)
++                    .ok_or(ErrorCode::ConstraintError)?;
++                root_record(item, *fabric, *id, der.as_deref())
++            }
++            ArrayAttributeRead::ReadNone(array) => array.end(),
++        }
++    }
++
++    fn provisioned_client_certificates<P: TLVBuilderParent>(
++        &self,
++        ctx: impl ReadContext,
++        builder: ArrayAttributeRead<
++            cert::TLSClientCertificateDetailStructArrayBuilder<P>,
++            cert::TLSClientCertificateDetailStructBuilder<P>,
++        >,
++    ) -> Result<P, Error> {
++        let mut records = Vec::new();
++        for fabric in self.read_fabrics(&ctx) {
++            let include = ctx.supports_large_payload() && fabric == ctx.attr().fab_idx;
++            records.extend(
++                self.clients(fabric, |clients| clients.list())?
++                    .into_iter()
++                    .map(|record| (fabric, include, record)),
++            );
++        }
++        match builder {
++            ArrayAttributeRead::ReadAll(mut array) => {
++                for (fabric, include, record) in records {
++                    array = client_record(array.push()?, fabric, &record, include)?;
++                }
++                array.end()
++            }
++            ArrayAttributeRead::ReadOne(index, item) => {
++                let (fabric, include, record) = records
++                    .get(index as usize)
++                    .ok_or(ErrorCode::ConstraintError)?;
++                client_record(item, *fabric, record, *include)
++            }
++            ArrayAttributeRead::ReadNone(array) => array.end(),
++        }
++    }
++
++    fn handle_provision_root_certificate<P: TLVBuilderParent>(
++        &self,
++        ctx: impl InvokeContext,
++        request: cert::ProvisionRootCertificateRequest<'_>,
++        response: cert::ProvisionRootCertificateResponseBuilder<P>,
++    ) -> Result<P, Error> {
++        let id = request.caid()?.into_option();
++        let der = request.certificate()?.0;
++        let id = self.roots(fabric(&ctx)?, |mut roots| {
++            roots.provision(id, der, utc(&ctx))
++        })?;
++        ctx.notify_own_attr_changed(cert::AttributeId::ProvisionedRootCertificates as _);
++        response.caid(id)?.end()
++    }
++
++    fn handle_find_root_certificate<P: TLVBuilderParent>(
++        &self,
++        ctx: impl InvokeContext,
++        request: cert::FindRootCertificateRequest<'_>,
++        response: cert::FindRootCertificateResponseBuilder<P>,
++    ) -> Result<P, Error> {
++        let fabric = fabric(&ctx)?;
++        let filter = requested_id(request.caid()?.into_option())?;
++        let records = self.roots(fabric, |roots| roots.list())?;
++        fit_command(|| {
++            let mut records = records
++                .into_iter()
++                .filter(|(id, _)| filter.is_none_or(|wanted| *id == wanted))
++                .peekable();
++            if records.peek().is_none() {
++                return Err(ErrorCode::NotFound.into());
++            }
++            let mut array = response.certificate_details()?;
++            for (id, der) in records {
++                array = root_record(array.push()?, fabric, id, Some(&der))?;
++            }
++            array.end()?.end()
++        })
++    }
++
++    fn handle_lookup_root_certificate<P: TLVBuilderParent>(
++        &self,
++        ctx: impl InvokeContext,
++        request: cert::LookupRootCertificateRequest<'_>,
++        response: cert::LookupRootCertificateResponseBuilder<P>,
++    ) -> Result<P, Error> {
++        let hash = request.fingerprint()?.0;
++        response
++            .caid(self.roots(fabric(&ctx)?, |roots| roots.lookup(hash))?)?
++            .end()
++    }
++
++    fn handle_remove_root_certificate(
++        &self,
++        ctx: impl InvokeContext,
++        request: cert::RemoveRootCertificateRequest<'_>,
++    ) -> Result<(), Error> {
++        let id = request.caid()?;
++        self.roots(fabric(&ctx)?, |mut roots| roots.remove(id))?;
++        ctx.notify_own_attr_changed(cert::AttributeId::ProvisionedRootCertificates as _);
++        Ok(())
++    }
++
++    fn handle_client_csr<P: TLVBuilderParent>(
++        &self,
++        ctx: impl InvokeContext,
++        request: cert::ClientCSRRequest<'_>,
++        response: cert::ClientCSRResponseBuilder<P>,
++    ) -> Result<P, Error> {
++        let id = request.ccdid()?.into_option();
++        let nonce = request.nonce()?.0;
++        let csr = self.clients(fabric(&ctx)?, |mut clients| clients.request_csr(id, nonce))?;
++        if id.is_none() {
++            ctx.notify_own_attr_changed(cert::AttributeId::ProvisionedClientCertificates as _);
++        }
++        response
++            .ccdid(csr.id)?
++            .csr(Octets(&csr.der))?
++            .nonce_signature(Octets(&csr.nonce_signature))?
++            .end()
++    }
++
++    fn handle_provision_client_certificate(
++        &self,
++        ctx: impl InvokeContext,
++        request: cert::ProvisionClientCertificateRequest<'_>,
++    ) -> Result<(), Error> {
++        let id = request.ccdid()?;
++        let leaf = request.client_certificate()?.0;
++        let mut intermediates = Vec::new();
++        for der in request.intermediate_certificates()?.iter() {
++            if intermediates.len() == tls::MAX_INTERMEDIATE_CERTIFICATES {
++                return Err(ErrorCode::ConstraintError.into());
++            }
++            intermediates.push(der?.0);
++        }
++        self.clients(fabric(&ctx)?, |mut clients| {
++            clients.provision(id, leaf, &intermediates, utc(&ctx))
++        })?;
++        ctx.notify_own_attr_changed(cert::AttributeId::ProvisionedClientCertificates as _);
++        Ok(())
++    }
++
++    fn handle_find_client_certificate<P: TLVBuilderParent>(
++        &self,
++        ctx: impl InvokeContext,
++        request: cert::FindClientCertificateRequest<'_>,
++        response: cert::FindClientCertificateResponseBuilder<P>,
++    ) -> Result<P, Error> {
++        let fabric = fabric(&ctx)?;
++        let filter = requested_id(request.ccdid()?.into_option())?;
++        let records = self.clients(fabric, |clients| clients.list())?;
++        fit_command(|| {
++            let mut records = records
++                .into_iter()
++                .filter(|record| filter.is_none_or(|wanted| record.id == wanted))
++                .peekable();
++            if records.peek().is_none() {
++                return Err(ErrorCode::NotFound.into());
++            }
++            let mut array = response.certificate_details()?;
++            for record in records {
++                array = client_record(array.push()?, fabric, &record, true)?;
++            }
++            array.end()?.end()
++        })
++    }
++
++    fn handle_lookup_client_certificate<P: TLVBuilderParent>(
++        &self,
++        ctx: impl InvokeContext,
++        request: cert::LookupClientCertificateRequest<'_>,
++        response: cert::LookupClientCertificateResponseBuilder<P>,
++    ) -> Result<P, Error> {
++        let hash = request.fingerprint()?.0;
++        response
++            .ccdid(self.clients(fabric(&ctx)?, |clients| clients.lookup(hash))?)?
++            .end()
++    }
++
++    fn handle_remove_client_certificate(
++        &self,
++        ctx: impl InvokeContext,
++        request: cert::RemoveClientCertificateRequest<'_>,
++    ) -> Result<(), Error> {
++        let id = request.ccdid()?;
++        self.clients(fabric(&ctx)?, |mut clients| clients.remove(id))?;
++        ctx.notify_own_attr_changed(cert::AttributeId::ProvisionedClientCertificates as _);
++        Ok(())
++    }
++}
++
++impl client::ClusterHandler for Cluster {
++    const CLUSTER: rs_matter::dm::Cluster<'static> = client::FULL_CLUSTER;
++    fn dataver(&self) -> u32 {
++        self.dataver.get()
++    }
++    fn dataver_changed(&self) {
++        self.dataver.changed();
++    }
++    fn lifecycle(&self, ctx: impl HandlerContext, op: LifecycleOp) -> Result<(), Error> {
++        if matches!(
++            op,
++            LifecycleOp::FabricRemoval { .. } | LifecycleOp::FactoryReset
++        ) {
++            self.dataver.changed();
++            ctx.notify_cluster_changed(0, client::FULL_CLUSTER.id);
++        }
++        Ok(())
++    }
++    fn max_provisioned(&self, _: impl ReadContext) -> Result<u8, Error> {
++        Ok(tls::MAX_ENDPOINTS as u8)
++    }
++    fn provisioned_endpoints<P: TLVBuilderParent>(
++        &self,
++        ctx: impl ReadContext,
++        builder: ArrayAttributeRead<
++            client::TLSEndpointStructArrayBuilder<P>,
++            client::TLSEndpointStructBuilder<P>,
++        >,
++    ) -> Result<P, Error> {
++        let mut records = Vec::new();
++        for fabric in self.read_fabrics(&ctx) {
++            records.extend(
++                self.endpoints(fabric, |endpoints| endpoints.list())
++                    .map_err(status)?
++                    .into_iter()
++                    .map(|item| (fabric, item)),
++            );
++        }
++        match builder {
++            ArrayAttributeRead::ReadAll(mut array) => {
++                for (fabric, record) in records {
++                    array = endpoint_record(array.push()?, fabric, &record)?;
++                }
++                array.end()
++            }
++            ArrayAttributeRead::ReadOne(index, item) => {
++                let (fabric, record) = records
++                    .get(index as usize)
++                    .ok_or(ErrorCode::ConstraintError)?;
++                endpoint_record(item, *fabric, record)
++            }
++            ArrayAttributeRead::ReadNone(array) => array.end(),
++        }
++    }
++
++    fn handle_provision_endpoint<P: TLVBuilderParent>(
++        &self,
++        ctx: impl InvokeContext,
++        request: client::ProvisionEndpointRequest<'_>,
++        response: client::ProvisionEndpointResponseBuilder<P>,
++    ) -> Result<P, Error> {
++        let id = request.endpoint_id()?.into_option();
++        let settings = tls::EndpointSettings {
++            hostname: std::str::from_utf8(request.hostname()?.0)
++                .map_err(|_| ErrorCode::ConstraintError)?
++                .to_owned(),
++            port: request.port()?,
++            root_certificate: request.caid()?,
++            client_certificate: request.ccdid()?.into_option(),
++        };
++        let id = self
++            .endpoints(fabric(&ctx)?, |mut endpoints| {
++                endpoints.provision(id, settings)
++            })
++            .map_err(|error| endpoint_status(&ctx, error))?;
++        ctx.notify_own_attr_changed(client::AttributeId::ProvisionedEndpoints as _);
++        response.endpoint_id(id)?.end()
++    }
++
++    fn handle_find_endpoint<P: TLVBuilderParent>(
++        &self,
++        ctx: impl InvokeContext,
++        request: client::FindEndpointRequest<'_>,
++        response: client::FindEndpointResponseBuilder<P>,
++    ) -> Result<P, Error> {
++        let id = request.endpoint_id()?;
++        let fabric = fabric(&ctx)?;
++        let record = self
++            .endpoints(fabric, |endpoints| endpoints.find(id))
++            .map_err(status)?;
++        endpoint_record(response.endpoint()?, fabric, &record)?.end()
++    }
++
++    fn handle_remove_endpoint(
++        &self,
++        ctx: impl InvokeContext,
++        request: client::RemoveEndpointRequest<'_>,
++    ) -> Result<(), Error> {
++        let id = request.endpoint_id()?;
++        self.endpoints(fabric(&ctx)?, |mut endpoints| endpoints.remove(id))
++            .map_err(status)?;
++        ctx.notify_own_attr_changed(client::AttributeId::ProvisionedEndpoints as _);
++        Ok(())
++    }
++}
++
++fn requested_id(id: Option<u16>) -> Result<Option<u16>, Error> {
++    if id == Some(u16::MAX) {
++        return Err(ErrorCode::ConstraintError.into());
++    }
++    Ok(id)
++}
++
++// An Invoke result is one structure. Return a status if the complete list
++// will not fit. The provisioned attribute also supports chunked list reads.
++fn fit_command<T>(write: impl FnOnce() -> Result<T, Error>) -> Result<T, Error> {
++    write().map_err(|error| {
++        if error.code() == ErrorCode::NoSpace {
++            ErrorCode::ResourceExhausted.into()
++        } else {
++            error
++        }
++    })
++}
++
++fn root_record<P: TLVBuilderParent>(
++    item: cert::TLSCertStructBuilder<P>,
++    fabric: u8,
++    id: u16,
++    certificate: Option<&[u8]>,
++) -> Result<P, Error> {
++    item.caid(id)?
++        .certificate(certificate.map(Octets))?
++        .fabric_index(Some(fabric))?
++        .end()
++}
++
++fn client_record<P: TLVBuilderParent>(
++    item: cert::TLSClientCertificateDetailStructBuilder<P>,
++    fabric: u8,
++    record: &tls::ClientCertificate,
++    include: bool,
++) -> Result<P, Error> {
++    let leaf = include.then(|| Nullable::new(record.leaf.as_deref().map(Octets)));
++    let builder = item
++        .ccdid(record.id)?
++        .client_certificate(leaf)?
++        .intermediate_certificates()?;
++    let builder = if include {
++        let mut array = builder.some()?;
++        for der in &record.intermediates {
++            array = array.push(Octets(der))?;
++        }
++        array.end()?
++    } else {
++        builder.none()
++    };
++    builder.fabric_index(Some(fabric))?.end()
++}
++
++fn endpoint_record<P: TLVBuilderParent>(
++    item: client::TLSEndpointStructBuilder<P>,
++    fabric: u8,
++    endpoint: &tls::Endpoint,
++) -> Result<P, Error> {
++    let settings = &endpoint.settings;
++    item.endpoint_id(endpoint.id)?
++        .hostname(Octets(settings.hostname.as_bytes()))?
++        .port(settings.port)?
++        .caid(settings.root_certificate)?
++        .ccdid(Nullable::new(settings.client_certificate))?
++        // This node does not install an optional Push AV transport.
++        .reference_count(0)?
++        .fabric_index(Some(fabric))?
++        .end()
++}
+diff --git a/examples/src/bin/webrtc_camera.rs b/examples/src/bin/webrtc_camera.rs
+index 4edce27..0bdf3e7 100644
+--- a/examples/src/bin/webrtc_camera.rs
++++ b/examples/src/bin/webrtc_camera.rs
+@@ -61,6 +61,7 @@ use rs_matter::dm::clusters::basic_info::BasicInfoConfig;
+ use rs_matter::dm::clusters::binding::{self, BindingHandler, Bindings};
+ use rs_matter::dm::clusters::decl::globals::{ICECandidateStruct, WebRTCEndReasonEnum};
+ use rs_matter::dm::clusters::decl::web_rtc_transport_requestor;
++use rs_matter::dm::clusters::decl::{tls_certificate_management, tls_client_management};
+ use rs_matter::dm::clusters::desc::{self, ClusterHandler as _};
+ use rs_matter::dm::clusters::groups::{self, ClusterHandler as _};
+ use rs_matter::dm::clusters::power_source::{
+@@ -80,6 +81,7 @@ use rs_matter::VerifierCommData;
+ mod lan;
+ mod attestation;
+ mod ntp;
++mod tls;
+ mod persistence;
+ use nxrs_gateway_matter::privacy::{self, LiveView, Privacy, Setting};
+ use rs_matter::dm::clusters::app::cam_av_stream::AttributeId as CameraAttr;
+@@ -1466,8 +1468,10 @@ static ATTESTATION: StaticCell<attestation::ProvisionedDevice> = StaticCell::new
+ static BASIC_INFO: StaticCell<BasicInfoConfig> = StaticCell::new();
+ static MATTER: StaticCell<Matter> = StaticCell::new();
+ static BUFFERS: StaticCell<MatterBuffers> = StaticCell::new();
+-static TCP_BUFFERS: StaticCell<rs_matter::transport::network::tcp::TcpNetworkBuffers> =
+-    StaticCell::new();
++const TCP_FRAME_BYTES: usize = rs_matter::transport::network::MAX_RX_LARGE_PACKET_SIZE;
++static TCP_BUFFERS: StaticCell<rs_matter::transport::network::tcp::TcpNetworkBuffers<
++    TCP_FRAME_BYTES, 4, {TCP_FRAME_BYTES + rs_matter::transport::network::tcp::FRAME_HDR_LEN},
++>> = StaticCell::new();
+ static STATE: StaticCell<InteractionModelState> = StaticCell::new();
+ static WEBRTC: StaticCell<WebRtc> = StaticCell::new();
+ static CAM_AV: StaticCell<CameraAvStreamHandler<'static, Str0mCamHooks, CAM_AV_NV, 1>> =
+@@ -1595,7 +1599,7 @@ fn main() -> Result<(), Error> {
+     let state = STATE.init(InteractionModelState::new());
+ 
+     // Bind the KV access object (the KV scratch buffer lives in `Matter`).
+-    let kv = matter.kv(store);
++    let kv = matter.kv(store.clone());
+ 
+     // Re-hydrate the `Matter` instance (fabrics, basic info, RTC).
+     matter.startup(&kv)?;
+@@ -1695,6 +1699,7 @@ fn main() -> Result<(), Error> {
+             &host_power,
+             &time_zones,
+             &ntp,
++            store,
+             camera_id,
+             &sensor,
+             &occupancy,
+@@ -1731,7 +1736,7 @@ fn main() -> Result<(), Error> {
+     )?;
+     matter.transport().set_tcp_capability(
+         rs_matter::transport::network::tcp::TcpCapability::ClientAndServer(
+-            rs_matter::transport::MAX_RX_BUF_SIZE as u32,
++            TCP_FRAME_BYTES as u32,
+         ),
+     );
+     let (mut net_send, mut net_recv, mut net_multicast) = {
+@@ -1818,7 +1823,9 @@ const NODE: Node<'static> = Node {
+         Endpoint::new_with_clients(
+             0,
+             devices!(DEV_TYPE_ROOT_NODE, DEV_TYPE_POWER_SOURCE),
+-            clusters!(eth, time_sync(time_zone, ntp_client, time_sync_client); power_source::CLUSTER),
++            clusters!(eth, time_sync(time_zone, ntp_client, time_sync_client);
++                power_source::CLUSTER, tls_certificate_management::FULL_CLUSTER,
++                tls_client_management::FULL_CLUSTER),
+             &[time_sync::FULL_CLUSTER.id],
+         ),
+         Endpoint::new_with_clients(
+@@ -1861,6 +1868,7 @@ fn data_model<'a>(
+     host_power: &'a PowerSourceConfig<'a>,
+     time_zones: &'a TimeZoneStore,
+     ntp: &'a dyn time_sync::NtpClient,
++    store: persistence::StoreAdapter,
+     camera_id: String,
+     sensor: &'a Bridged,
+     occupancy: &'a Occupancy,
+@@ -1884,6 +1892,18 @@ fn data_model<'a>(
+                     .adapt(),
+                 ),
+             )
++            .chain(
++                |e, c| e == 0 && c == tls_certificate_management::FULL_CLUSTER.id,
++                DmAsync(tls_certificate_management::HandlerAdaptor(tls::Cluster::new(
++                    store.clone(), Dataver::new_rand(&mut rand),
++                ))),
++            )
++            .chain(
++                |e, c| e == 0 && c == tls_client_management::FULL_CLUSTER.id,
++                DmAsync(tls_client_management::HandlerAdaptor(tls::Cluster::new(
++                    store, Dataver::new_rand(&mut rand),
++                ))),
++            )
+             .chain(
+                 |e, c| e == 2 && c == desc::DescHandler::CLUSTER.id,
+                 DmAsync(desc::DescHandler::new_aggregator(Dataver::new_rand(&mut rand)).adapt()),
+diff --git a/rs-matter-dm-core/src/handler.rs b/rs-matter-dm-core/src/handler.rs
+index c287dec..5c97c34 100644
+--- a/rs-matter-dm-core/src/handler.rs
++++ b/rs-matter-dm-core/src/handler.rs
+@@ -437,6 +437,11 @@ where
+ pub trait ReadContext: OperationContext {
+     /// Return the attribute object that is associated with this read operation.
+     fn attr(&self) -> &AttrDetails;
++
++    /// Whether the attribute report is carried by a Large Message transport.
++    fn supports_large_payload(&self) -> bool {
++        false
++    }
+ }
+ 
+ impl<T> ReadContext for &T
+@@ -446,6 +451,10 @@ where
+     fn attr(&self) -> &AttrDetails {
+         (**self).attr()
+     }
++
++    fn supports_large_payload(&self) -> bool {
++        (**self).supports_large_payload()
++    }
+ }
+ 
+ /// A context type that is passed to the handler when processing an attribute Write operation.
+diff --git a/rs-matter-im/src/context.rs b/rs-matter-im/src/context.rs
+index b1d671f..6615c1c 100644
+--- a/rs-matter-im/src/context.rs
++++ b/rs-matter-im/src/context.rs
+@@ -41,6 +41,7 @@ pub(crate) struct ReadContextInstance<'a, C> {
+     transaction_id: TransactionId,
+     context: C,
+     attr: &'a AttrDetails,
++    large_payload: bool,
+ }
+ 
+ impl<'a, C> ReadContextInstance<'a, C>
+@@ -53,11 +54,13 @@ where
+         transaction_id: TransactionId,
+         context: C,
+         attr: &'a AttrDetails,
++        large_payload: bool,
+     ) -> Self {
+         Self {
+             transaction_id,
+             context,
+             attr,
++            large_payload,
+         }
+     }
+ }
+@@ -226,6 +229,10 @@ where
+     fn attr(&self) -> &AttrDetails {
+         self.attr
+     }
++
++    fn supports_large_payload(&self) -> bool {
++        self.large_payload
++    }
+ }
+ 
+ /// A context implementation of the `WriteContext` trait
+diff --git a/rs-matter-im/src/invoker.rs b/rs-matter-im/src/invoker.rs
+index 91a2061..ff00d59 100644
+--- a/rs-matter-im/src/invoker.rs
++++ b/rs-matter-im/src/invoker.rs
+@@ -108,7 +108,12 @@ where
+         self.context
+             .handler()
+             .read(
+-                ReadContextInstance::new(self.exchange.transaction_id(), &self.context, attr),
++                ReadContextInstance::new(
++                    self.exchange.transaction_id(),
++                    &self.context,
++                    attr,
++                    self.exchange.supports_large_payload()?,
++                ),
+                 ReadReplyInstance::new(attr, tw),
+             )
+             .await
+diff --git a/rs-matter-transport/src/network.rs b/rs-matter-transport/src/network.rs
+index 54a2b5c..d52930c 100644
+--- a/rs-matter-transport/src/network.rs
++++ b/rs-matter-transport/src/network.rs
+@@ -37,8 +37,16 @@ pub const MAX_RX_PACKET_SIZE: usize = 1583;
+ // Maximum UDP TX packet size per Matter spec
+ pub const MAX_TX_PACKET_SIZE: usize = 1280 - 40/*IPV6 header size*/ - 8/*UDP header size*/;
+ 
+-// Maximum TCP RX packet size derived from the configured buffer size (`IM_BUFFER_SIZE`).
+-pub const MAX_RX_LARGE_PACKET_SIZE: usize = crate::dm::IM_BUFFER_SIZE;
++// Matter's default TCP message size. Its 13-byte AES-CCM nonce also limits
++// each encrypted plaintext to fewer than 2^16 octets, regardless of storage.
++const DEFAULT_TCP_MESSAGE_SIZE: usize = 64_000;
++
++// Bound the packet independently of the host's allocated IM buffer capacity.
++pub const MAX_RX_LARGE_PACKET_SIZE: usize = if crate::dm::IM_BUFFER_SIZE < DEFAULT_TCP_MESSAGE_SIZE {
++    crate::dm::IM_BUFFER_SIZE
++} else {
++    DEFAULT_TCP_MESSAGE_SIZE
++};
+ 
+ // Maximum TCP TX packet size derived from the configured buffer size (`IM_BUFFER_SIZE`).
+ pub const MAX_TX_LARGE_PACKET_SIZE: usize = MAX_RX_LARGE_PACKET_SIZE;

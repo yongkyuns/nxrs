@@ -147,7 +147,7 @@ class SerialLab:
 
     def control_result(self, action, timeout=15):
         output, fields = self.read_until(
-            rb"NXRS_SSH_LAB_CONTROL action=" + action + rb" result=(-?[0-9]+)\r?\n", timeout)
+            rb"NXRS_SSH_LAB_CONTROL action=" + action + rb" result=(-?[0-9]+)\r*\n", timeout)
         result = int(fields[0])
         if result != 0:
             raise self.api.CheckFailure(f"native_{action.decode('ascii')}_failed:{result}")

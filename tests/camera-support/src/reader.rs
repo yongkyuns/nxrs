@@ -1,4 +1,4 @@
-use camera_service::Frames;
+use camera::capture::Frames;
 use crate::{AppState, AppStats, Error, Progress};
 
 #[derive(Default)]

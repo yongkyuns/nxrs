@@ -1,7 +1,7 @@
 # HAL and platform architecture
 
 Each capability is one Rust crate. Applications use `wifi`, `ble`, `led`,
-`imu`, `gnss`, `camera`, `storage`, `config` and `transport`; Cargo package names
+`imu`, `gnss`, `camera`, `storage` and `settings`; Cargo package names
 retain the `nxrs-` prefix.
 
 ## Capability boundaries and execution
@@ -15,7 +15,8 @@ may use their native OS or SDK. Native code does not all belong in `driver/`.
 | Ordinary files, sockets, threads, synchronization and time | Rust `std`, used directly |
 | Reusable chip protocols and hardware-resource adapters | `driver/<device-or-resource>` |
 | Managed capability behavior and private OS/SDK adapters | Owning `hal/<capability>` |
-| Shared acquisition worker, cancellation and readiness mechanisms | `hal/acquisition`, an implementation helper with no profile binding |
+| Task lifetimes, cancellation and native readiness | `shared/acquisition`, an internal dependency of the acquiring HALs |
+| Small persistent settings records | `hal/settings` supplies storage; the application owns the record formats |
 | Device selection, resource bindings and execution budgets | Product profiles and build wiring |
 
 Use a capability-specific contract with explicit supported configuration,
@@ -24,12 +25,15 @@ does not imply equal hardware capabilities or a universal device API.
 `peripheral::imu::Imu` supplies synchronous device operations; `imu::Session`
 and `gnss::Session` describe active acquisition lifetimes.
 
-A component does not automatically require a thread or queue. A driver may own
-execution when hardware or blocking operations require it; current IMU chip
-contracts create none. `nxrs-acquisition` shares implementation code and starts
-one worker per explicit call, not a shared executor. Shared scheduling requires
-bounded device work, fairness and cancellation/deadline qualification. Application
-and service execution are unchanged by this foundation cleanup.
+A HAL may run an event loop when required for readiness, blocking device I/O
+or quiescent shutdown. The same HAL owns its validation and retry policy. A
+driver may need execution when the hardware requires it. Current IMU chip
+contracts create no threads. Each `Worker::start` in `shared/acquisition` starts one
+Rust thread. IMU and GNSS count lost measurements under backpressure and retain
+a terminal failure independently in the joined result. Audio owns a single
+latest-block slot and reports terminal faults through the stream. The shared
+worker receives a task body and caller state; the HAL defines what it delivers
+and when it releases the resource.
 
 The implemented [peripheral composition design](peripheral-composition.md)
 defines reusable sensor-specific drivers, embedded-hal resource adapters and
@@ -81,8 +85,8 @@ Resource adapters belong in `driver/<bus>`. `driver/i2c` implements
 resolved configuration and keeps acquisition and stream metadata policy.
 `driver/gpio` similarly owns NuttX interrupt registration and embedded-hal pin
 reads. Its task-context cleanup-failure hook lets the HAL retain quarantine even
-when setup or Drop fails. Shared `nxrs-acquisition` support owns the NuttX poll/pipe
-binding used by IMU and GNSS; it supplies mechanisms, not sampling policy.
+when setup or Drop fails. IMU, GNSS and audio reuse the NuttX poll/pipe binding
+in `shared/acquisition` and own their own sampling and delivery decisions.
 `driver/spi` provides bounded, single-CS `SpiDevice` transactions through the
 NuttX SPI character ABI. Chip drivers depend on bus traits, not these concrete adapters. There are no
 host bus backends, unavailable stubs or additional logical profile aliases.
@@ -105,6 +109,13 @@ recovery, deadlines, and error policy. Each capability owns its errors; shared
 delivery contracts do not imply a shared device-error enum. Generic channels and
 owned delivery results live in `shared/messaging`, below HAL and services. A
 producer accepts a typed callback; it never depends on a service inbox type.
+
+`settings::Store` is the settings storage API. Home-cam uses it for Wi-Fi settings
+and gateway enrollment. NuttX provides named records through `/dev/config`;
+the Rust provider owns the descriptor and validates keys and buffer lengths.
+The application controls record encoding and when to read or commit a record.
+Product profiles bind this capability with `settings = "nuttx"` in `[hal]`.
+Use `std::fs` for ordinary files and product profiles for build configuration.
 
 Use ordinary qualified `std::fs`, `std::io`, `std::net`, `std::thread`, and
 `std::sync` operations directly wherever available. One standard-library
@@ -138,18 +149,16 @@ Platform/provider flags are allowed at build selection and module/factory
 wiring boundaries. Shared APIs, controllers, workers, and I/O algorithms must
 not branch on `target_os`, `platform`, or platform environment
 variables. Rust model features select model code, never an OS.
-Each HAL's `src/platform/mod.rs` selects source modules as `selected` and
-re-exports only selected items. Prefer fixed named factory exports; do not
-require a wildcard or let backend exports implicitly define the crate's public
-API. Keep constructors and unavailable stubs in those selected modules, not
-inline in the selector. Prefer ordinary named modules and conditional
-`as selected` exports; source-path redirection is not required for selection.
-Group a declaration and its alias in one `cfg_if` branch. An item-level
-`#[cfg]` with a path can select the module directly as `selected` and lets
-rust-analyzer mark inactive declarations. A branch may select a shared crate
-module directly; do not add OS wrappers that only re-export it.
+Each HAL's `src/platform/mod.rs` uses one `cfg_if::cfg_if!` block to alias a named
+provider as `selected`. Re-export specific items and keep constructors in the
+providers. Local providers, including mock and simulation, use
+`src/platform/<binding>/mod.rs`; the unavailable fallback uses
+`src/platform/unbound.rs`. A branch can select a shared crate module directly
+when platforms use the same implementation.
 Identical Rust implementations remain ordinary shared modules outside
-`platform/`; selecting acquisition does not duplicate them per OS. Native source
+`platform/`; selecting acquisition does not duplicate them per OS. Wi-Fi and
+BLE selectors also admit their shared support modules, keeping all binding
+conditions out of their crate roots and implementations. Native source
 injection for host unit tests belongs in separate test wiring. Test private
 behavior through its owning modules where possible, replacing native operations
 at that boundary rather than recompiling the API and acquisition sources.
@@ -232,14 +241,10 @@ A build without `NXRS_PLATFORM`
 compiles portable contracts/common code, with no implicit hardware or mock.
 Explicit software functionality, such as camera file replay, may be requested
 through Cargo without hardware admission; it does not select a physical backend.
-The additive `recording` and `udp` Cargo features expose `storage::recording`
-and `transport::udp` without selecting a hardware provider. They have no OS
-whitelist or default feature. The old profile-dependent storage/transport root
-factories and software type aliases have been removed. Synchronous NuttX record
-files use the fixed `storage::create_record_file(path, max_records, max_frame_bytes)`
-factory, which returns `Unsupported` when that acquisition is unbound. Explicit
-`MockStorage` and `MockTransport` fixture constructors remain separate from real
-file/socket operations.
+The additive `recording` Cargo feature exposes `storage::recording`
+without selecting a hardware provider. Synchronous NuttX record files use
+`storage::create_record_file(path, max_records, max_frame_bytes)`, which returns
+`Unsupported` when acquisition is unbound. IP sockets use `std::net` directly.
 
 `NXRS_PLATFORM=macos` selects desktop Wi-Fi, BLE scanning and GATT. The radio
 providers reuse their capability's controller
@@ -270,14 +275,14 @@ SDK through the shared build support; embedded builds use their own NuttX helper
 | `src/lib.rs` | Public interface and selected exports |
 | `src/api.rs` | Portable traits, commands, events and errors |
 | `src/controller.rs` | Shared operation and lifecycle logic |
-| `src/worker.rs` | Private std execution for blocking adapters |
+| `src/worker/mod.rs` | Private std execution for blocking adapters |
 | `src/shared/` | Reusable Rust station ownership and contract |
 | `src/platform/mod.rs` | Capability admission and acquisition wiring |
 | `src/platform/nuttx/` | NuttX Rust implementation |
-| `src/platform/nuttx/ffi/` | Minimal target-header C helpers |
+| `src/platform/nuttx/ffi/` | Minimal target-header C helpers and their Rust declarations |
 | `src/platform/linux/` | Linux Rust implementation using `nxrs-linux-gio` |
 | `src/platform/macos/` | macOS Rust implementation |
-| `src/platform/macos/ffi/` | Minimal Objective-C SDK binding |
+| `src/platform/macos/ffi/` | Minimal Objective-C SDK binding and its Rust declarations |
 
 HALs own managed capability contracts and acquisition implementations.
 HALs and peripheral drivers may use Rust `std`; portability requires clean OS
@@ -304,10 +309,9 @@ construction; HAL runtime code stays in the HAL. A profile's `[hal]` values name
 `target_os`; a macOS profile cannot select Linux code. `mock` and `none` are
 explicit fixture/unbound states. There is no `std` or `native` platform/profile.
 
-Shared code lives outside `src/platform/`: sockets in `transport/src/udp.rs`,
-replay in `camera/src/replay/`, public recording in `storage::recording`,
-public shared UDP in `transport::udp`, radio
-resource protocols in `src/shared/`, and detector models in `detector/src/model/`.
+Shared code lives outside `src/platform/`. Examples include camera capture
+and replay, `storage::recording`, the Wi-Fi controller and reconnect policy,
+and detector models in `detector/src/model/`.
 An OS factory may directly reuse these modules; do not copy them into each OS
 folder or invent a shared platform. Private, platform-independent ESP-DL SDK
 compute bindings live beside their numerical adapter in
@@ -318,19 +322,21 @@ glue under `tls/src/sdk/`. Its OS factories own entropy acquisition; SDK callbac
 key lifetime and enrollment requests stay in the shared Rust adapter.
 
 Use one Rust std implementation wherever the operating systems offer the same
-operation: IP sockets belong to transport, and file/thread/synchronization/time
+operation. IP sockets use `std::net`, and file/thread/synchronization/time
 handling needs no per-platform copy. Radio control is a separate capability:
 std TCP/UDP sockets do not provide Wi-Fi association, BLE discovery or GATT.
 Provider code should contain those native protocols, with generic behavior in
 shared Rust controllers/workers. The Linux providers intentionally share the
 same GIO/D-Bus resource/call protocol through the normal `nxrs-linux-gio` Cargo
 package under `driver/linux/gio/`. That package owns its one native ABI bridge;
-each HAL retains its schemas and device policy. IMU and GNSS similarly depend
-on `nxrs-acquisition` for shared session/mock/readiness machinery. Neither
-consumer source-includes Rust from a sibling package; capability errors stay local.
+each HAL retains its schemas and device policy. IMU, GNSS and audio depend on
+`nxrs-acquisition` for worker lifetimes and readiness. These are ordinary Cargo
+dependencies. Capability errors and delivery decisions stay local.
 
 Private FFI is owned by the provider that consumes it and lives beside that
-provider's Rust implementation. There is no parallel capability-level FFI tree.
+provider's Rust implementation. Keep Rust foreign declarations in the same
+`ffi/` directory as the native glue. `hal/radio-types` supplies request
+identities and bounded payloads to Wi-Fi and BLE. Each HAL owns its errors.
 These are implementation details, not a second cross-platform HAL: CoreBluetooth,
 GLib and NuttX bindings may expose different operations. Share contracts and
 behavior in Rust when their consumers intentionally implement the same protocol;
@@ -497,9 +503,8 @@ automatically become a service or get a thread/queue. For example,
 and lifecycle in the consumer's existing event loop. A connectivity service
 can own Wi-Fi/BLE and add network selection/reconnect policy when needed.
 
-`app/home-cam` composes the camera service with a caller-polled MJPEG
-server. `service/connectivity` adds Wi-Fi reconnect policy separately; neither
-component adds a service thread. Hardware, storage and time are injected, and
+`app/home-cam` composes a camera capture session with a caller-polled MJPEG
+server. It polls `wifi::Reconnector` from the same owner loop. Hardware, storage and time are injected, and
 platform configuration owns native driver resources. See the
 [local streaming qualification](../tests/nuttx-std/stream/README.md) for its
 resource budgets, reproduction steps and evidence limits.
@@ -730,11 +735,11 @@ examples, and rejects unsupported platform/target combinations.
 
 ## Detector ownership and portability
 
-Detection delivery is an application contract above the detector HAL.
-`service/detection-wire` owns the bounded, versioned camera/gateway protocol;
-the camera app translates typed service observations into it. The stream
-service handles opaque optional metadata, while the gateway validates and
-authenticates it independently of video encoding. SDK/model details stay below
+The detection service owns scheduling, alert policy, event history and bounded,
+versioned metadata publication. It consumes only `hal/detector`. Home-cam
+supplies captured JPEGs and hands the service's encoded metadata to the stream
+service. The gateway builds the detection service's `wire` module with inference
+disabled and validates and authenticates metadata independently of video encoding. SDK/model details stay below
 the detector API. Subscribers use latest-value delivery and independent source
 and inference expiry; slow readers cannot block capture. iOS expires status
 using monotonic receipt deadlines. Live boxes require a qualified mapping from
@@ -821,8 +826,9 @@ adapters revalidate the same construction. The SDK catalogue remains the default
 See the [composition guide](../platform/README.md) for the declaration contract
 and current source limitations.
 
-NuttX profiles explicitly supply `[camera].device`, `[watchdog].device` and
-`[wifi].interface`, alongside existing console and LED configuration. These are
+NuttX profiles explicitly supply `[camera].device`, `[watchdog].device`,
+`[rtc].device`, `[flash].device` and `[wifi].interface` for selected capabilities,
+alongside console and LED configuration. These are
 registered OS resources, not new sensor drivers or pin descriptions. The build
 validates their form and emits private constants; NuttX still owns registration.
 A derived profile that switches away from a NuttX provider drops its inherited

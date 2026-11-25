@@ -161,7 +161,7 @@ class DeviceClosureFixture(unittest.TestCase):
                    "product_manifest": manifest, "data": data, "graph": graph, "semantic_digest": semantic,
                    "raw_fingerprint": sha(case.encode()), "dependencies": dependencies}
         write_json(out / "resolved-profile.json", receipt)
-        sources = {app_package: app_path, "nxrs-composition": "platform", "nxrs-acquisition": "hal/acquisition"}
+        sources = {app_package: app_path, "nxrs-composition": "platform", "nxrs-acquisition": "shared/acquisition"}
         if "imu" in caps:
             sources.update({"nxrs-imu": "hal/imu", "nxrs-i2c": "driver/i2c", "nxrs-gpio": "driver/gpio"})
         if "gnss" in caps:
@@ -212,6 +212,8 @@ class DeviceClosureFixture(unittest.TestCase):
         for cap in sorted(caps):
             identity = sha((case + cap).encode())
             text = "// Generated canonical device instances.\n" + declarations[cap] + "\npub mod devices {\n"
+            if cap == "imu" and not matrix:
+                text += "pub use super::unavailable_secondary as secondary;\n"
             text += "".join(f"pub fn r#{name}() -> &'static impl super::Device {{ &super::{symbol} }}\n"
                             for name, symbol in sorted(accessors[cap].items())) + "}\n"
             self.put(case, f"configuration/{identity}/{cap}_config.rs", text)

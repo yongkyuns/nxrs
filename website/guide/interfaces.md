@@ -1,6 +1,6 @@
 # Interfaces and APIs
 
-NXRS has several interfaces with different jobs: Cargo and the build frontend on your computer, the NuttX shell on the device, and Rust APIs inside the application. This guide helps you choose the right one and understand the result it promises.
+Use Cargo or the firmware builder to run a build, the NuttX shell to run the application on the device, and Rust APIs inside the application. This guide shows where to find each interface and how to read its contract.
 
 ## Development commands
 
@@ -12,9 +12,9 @@ Run these from the NXRS checkout unless a guide says otherwise. Its Cargo config
 | Build a NuttX image from an application and profile | `cargo nxrs build` | [Building for NuttX](firmware.md) |
 | Inspect a profile or list platform families | `cargo nxrs profile`, `cargo nxrs platforms` | [Profiles and overlays](profiles.md) |
 | Understand build inputs and outputs | `cargo nxrs build --help` and a build's retained files | [Build system](build-system.md) |
-| Read a component's Rust API documentation | `cargo doc -p <package> --no-deps` | The package's public modules and source |
+| Look up a Rust type, function, or method | [Rust API reference](../api.md), or local `cargo doc` | The library catalog, symbol search, and source |
 
-The application is an ordinary Cargo package. `cargo nxrs` adds the target preparation and NuttX integration needed to produce firmware. It does not replace Cargo's dependency resolver or define a separate application programming language.
+`cargo nxrs` prepares the target and integrates the Cargo package into the NuttX image.
 
 ## The device shell and application console
 
@@ -47,20 +47,19 @@ The [hardware guide](hardware.md) explains providers and drivers. The [services 
 
 ## Read the public API, not the provider layout
 
-These are current entry points, not a universal HAL template. The Cargo package name used with `-p` can differ from its Rust library name: for example, package `nxrs-transport` declares library `transport`.
+These are current entry points, not a universal HAL template. The [Rust API reference](../api.md) provides the generated library pages and symbol search. Its catalog distinguishes the Cargo package name used with `-p` from the Rust library name: for example, package `nxrs-camera` declares library `camera`.
 
 | Package / Rust library | Public contract or operation | Availability and meaning |
 | --- | --- | --- |
 | `nxrs-messaging` / `messaging` | `bounded`, `Sender`, `Inbox::wait` | Default `channels` feature supplies a task-context wrapper around standard bounded channels |
-| `nxrs-transport` / `transport` | `PacketSink::send` | Local whole-packet acceptance; a compatible closure can implement the contract |
-| `nxrs-transport` / `transport` | `udp::UdpTransport::connect` | Explicit `udp` feature; uses a numeric address and the standard socket path |
+| Rust `std::net` | `UdpSocket` and `TcpStream` | Ordinary socket I/O |
 | `nxrs-storage` / `storage` | `Storage` | Frame-record acceptance and flush contract; ordinary files can still use std directly |
 | `nxrs-storage` / `storage` | `recording::FileRecorder::create_new` | Explicit `recording` feature; queued directory recording with bounded buffers |
 | `nxrs-storage` / `storage` | `create_record_file` | Configured synchronous NuttX record-file acquisition; unbound acquisition reports `Unsupported` |
 | `nxrs-led` / `led` | `Led::supported`, `Led::set`, `open` | Synchronous typed controls; availability and indices depend on the selected provider |
 | `nxrs-console` / `console` | `open` returning a readable/writable resource | Configured commissioning console; native setup and ownership stay in its provider |
 
-Source and detailed contracts: [messaging](../../shared/messaging/src/lib.rs), [packet output](../../hal/transport/README.md), [record storage](../../hal/storage/README.md), [LED controls](../../hal/led/src/api.rs), and [console](../../hal/console/src/platform/mod.rs).
+Source and detailed contracts: [messaging](../../shared/messaging/src/lib.rs), [record storage](../../hal/storage/README.md), [LED controls](../../hal/led/src/api.rs), and [console](../../hal/console/src/platform/mod.rs).
 
 Generate local Rust documentation for a small component with:
 
@@ -68,11 +67,11 @@ Generate local Rust documentation for a small component with:
 cargo doc --locked -p nxrs-messaging --no-deps
 ```
 
-Cargo reports the output location. Larger hardware components may need a selected profile and prepared native inputs; use the owning component's instructions before generating target-specific docs.
+Cargo reports the output location. The published reference includes the explicit replay, recording, and UDP features described on its [coverage page](../api.md#coverage-and-features). Larger hardware components may need a selected profile and prepared native inputs; use the owning component's instructions before generating target-specific docs.
 
 ## Availability, features and acquisition
 
-Three questions are separate:
+Check these in order when a capability is unavailable.
 
 1. **Is the software compiled?** Cargo dependencies and features select available code.
 2. **Does this configuration bind the hardware capability?** The profile selects supported implementations and resources.
@@ -95,6 +94,6 @@ Before calling an unfamiliar API, answer these questions from its contract:
 | What happens after a fault? | Retryable error, terminal retained failure or an unavailable resource |
 | How does it stop? | Cancellation, wakeup, draining, joining and the precise meaning of `Drop` |
 
-Similar error variant names across capabilities do not make their contracts identical. For example, a recorder's `Busy` can mean that its caller should retry a flush later, while an acquisition's `Busy` can mean another owner holds the resource. Keep those meanings visible in the caller.
+Check the meaning of errors in the specific API. A recorder’s `Busy` may call for retrying a flush. In an acquisition API, it may mean another caller owns the resource.
 
 Continue with [Designing an application](designing-applications.md) to choose the boundaries, then [Build a controller](controller.md) to run a complete command, output and shutdown path. The controller's completion tickets demonstrate the distinction between admission and a handled result using the existing LED contract.

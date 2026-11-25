@@ -1,0 +1,339 @@
+diff --git a/rs-matter-dm/src/clusters/app/cam_av_stream.rs b/rs-matter-dm/src/clusters/app/cam_av_stream.rs
+--- a/rs-matter-dm/src/clusters/app/cam_av_stream.rs
++++ b/rs-matter-dm/src/clusters/app/cam_av_stream.rs
+@@ -78,7 +78,7 @@
+
+ use crate::dm::{ArrayAttributeRead, Cluster, Dataver, EndptId, InvokeContext, ReadContext};
+ use crate::error::{Error, ErrorCode};
+-use crate::tlv::{FromTLV, TLVBuilderParent, ToTLV, ToTLVArrayBuilder, ToTLVBuilder};
++use crate::tlv::{Octets, FromTLV, TLVBuilderParent, ToTLV, ToTLVArrayBuilder, ToTLVBuilder};
+ use crate::utils::storage::Vec;
+ use crate::utils::sync::blocking::Mutex;
+ use crate::utils::sync::{MaybeSend, MaybeSendSync};
+@@ -163,6 +163,15 @@
+ pub trait CameraAvStreamHooks: MaybeSendSync {
+     fn read_privacy(&self, _id: AttributeId) -> Result<bool, Error> {
+         Err(ErrorCode::AttributeNotFound.into())
++    }
++
++    fn capture_snapshot(&self, _width: u16, _height: u16, _quality: u8)
++        -> impl Future<Output = Result<impl AsRef<[u8]>, Error>> + MaybeSend {
++        async { Err::<&'static [u8], _>(ErrorCode::CommandNotFound.into()) }
++    }
++
++    fn snapshot_limits(&self) -> (u16, u16) {
++        (0, 0)
+     }
+
+     fn write_privacy(
+@@ -294,8 +303,36 @@
+     pub mic_capabilities: Option<AudioCapabilitiesConfig<'a>>,
+ }
+
++#[derive(Clone, Copy, PartialEq, Eq)]
++struct Snapshot {
++    id: u16,
++    min: (u16, u16),
++    max: (u16, u16),
++    quality: u8,
++}
++
++fn snapshot_resolution(value: VideoResolutionStruct<'_>) -> Result<(u16, u16), Error> {
++    Ok((value.width()?, value.height()?))
++}
++
++fn write_snapshot_capability<P: TLVBuilderParent>(
++    b: SnapshotCapabilitiesStructBuilder<P>, (width, height): (u16, u16),
++) -> Result<P, Error> {
++    b.resolution()?.width(width)?.height(height)?.end()?.max_frame_rate(1)?
++        .image_codec(ImageCodecEnum::JPEG)?.requires_encoded_pixels(false)?
++        .requires_hardware_encoder(Some(false))?.end()
++}
++
++fn write_snapshot<P: TLVBuilderParent>(b: SnapshotStreamStructBuilder<P>, s: Snapshot) -> Result<P, Error> {
++    b.snapshot_stream_id(s.id)?.image_codec(ImageCodecEnum::JPEG)?.frame_rate(1)?
++        .min_resolution()?.width(s.min.0)?.height(s.min.1)?.end()?
++        .max_resolution()?.width(s.max.0)?.height(s.max.1)?.end()?
++        .quality(s.quality)?.reference_count(0)?.encoded_pixels(false)?.hardware_encoder(false)?.watermark_enabled(None)?.osd_enabled(None)?.end()
++}
++
+ struct State<const NV: usize, const NA: usize> {
+     videos: Vec<VideoStream, NV>,
++    snapshot: Option<Snapshot>,
+     audios: AudioStreamTable<NA>,
+     stream_usage_priorities: Vec<StreamUsageEnum, MAX_STREAM_USAGES>,
+ }
+@@ -304,6 +341,7 @@
+     const fn new() -> Self {
+         Self {
+             videos: Vec::new(),
++            snapshot: None,
+             audios: AudioStreamTable::new(),
+             stream_usage_priorities: Vec::new(),
+         }
+@@ -393,6 +431,37 @@
+                 | decl::CommandId::VideoStreamDeallocate
+                 | decl::CommandId::AudioStreamAllocate
+                 | decl::CommandId::AudioStreamDeallocate
++                | decl::CommandId::SetStreamPriorities
++        ));
++
++    pub const CLUSTER_VIDEO_AUDIO_SNAPSHOT: Cluster<'static> = decl::FULL_CLUSTER
++        .with_revision(1)
++        .with_features(decl::Feature::VIDEO.bits() | decl::Feature::AUDIO.bits() | decl::Feature::PRIVACY.bits() | decl::Feature::SNAPSHOT.bits())
++        .with_attrs(with!(
++            required;
++            AttributeId::MaxConcurrentEncoders
++                | AttributeId::MaxEncodedPixelRate
++                | AttributeId::VideoSensorParams
++                | AttributeId::MinViewportResolution
++                | AttributeId::RateDistortionTradeOffPoints
++                | AttributeId::AllocatedVideoStreams
++                | AttributeId::MicrophoneCapabilities
++                | AttributeId::AllocatedAudioStreams
++                | AttributeId::AllocatedSnapshotStreams
++                | AttributeId::SnapshotCapabilities
++                | AttributeId::MicrophoneMuted
++                | AttributeId::SoftLivestreamPrivacyModeEnabled
++                | AttributeId::SoftRecordingPrivacyModeEnabled
++        ))
++        .with_cmds(with!(
++            decl::CommandId::VideoStreamAllocate
++                | decl::CommandId::VideoStreamModify
++                | decl::CommandId::VideoStreamDeallocate
++                | decl::CommandId::AudioStreamAllocate
++                | decl::CommandId::AudioStreamDeallocate
++                | decl::CommandId::SnapshotStreamAllocate
++                | decl::CommandId::SnapshotStreamDeallocate
++                | decl::CommandId::CaptureSnapshot
+                 | decl::CommandId::SetStreamPriorities
+         ));
+
+@@ -1236,13 +1305,64 @@
+         Ok(())
+     }
+
++    async fn snapshot_capabilities<P: TLVBuilderParent>(
++        &self, _ctx: impl ReadContext,
++        builder: ArrayAttributeRead<SnapshotCapabilitiesStructArrayBuilder<P>, SnapshotCapabilitiesStructBuilder<P>>,
++    ) -> Result<P, Error> {
++        let resolution = self.hooks.snapshot_limits();
++        match builder {
++            ArrayAttributeRead::ReadAll(b) => write_snapshot_capability(b.push()?, resolution)?.end(),
++            ArrayAttributeRead::ReadOne(0, b) => write_snapshot_capability(b, resolution),
++            ArrayAttributeRead::ReadOne(_, _) => Err(ErrorCode::ConstraintError.into()),
++            ArrayAttributeRead::ReadNone(b) => b.end(),
++        }
++    }
++
++    async fn allocated_snapshot_streams<P: TLVBuilderParent>(
++        &self, _ctx: impl ReadContext,
++        builder: ArrayAttributeRead<SnapshotStreamStructArrayBuilder<P>, SnapshotStreamStructBuilder<P>>,
++    ) -> Result<P, Error> {
++        let row = self.state.lock(|s| s.borrow().snapshot);
++        match builder {
++            ArrayAttributeRead::ReadAll(b) => match row {
++                Some(row) => write_snapshot(b.push()?, row)?.end(),
++                None => b.end(),
++            },
++            ArrayAttributeRead::ReadOne(0, b) => write_snapshot(b, row.ok_or(ErrorCode::NotFound)?),
++            ArrayAttributeRead::ReadOne(_, _) => Err(ErrorCode::ConstraintError.into()),
++            ArrayAttributeRead::ReadNone(b) => b.end(),
++        }
++    }
++
+     async fn handle_snapshot_stream_allocate<P: TLVBuilderParent>(
+-        &self,
+-        _ctx: impl InvokeContext,
+-        _request: SnapshotStreamAllocateRequest<'_>,
+-        _response: SnapshotStreamAllocateResponseBuilder<P>,
++        &self, ctx: impl InvokeContext, request: SnapshotStreamAllocateRequest<'_>,
++        response: SnapshotStreamAllocateResponseBuilder<P>,
+     ) -> Result<P, Error> {
+-        Err(ErrorCode::CommandNotFound.into())
++        let min = snapshot_resolution(request.min_resolution()?)?;
++        let max = snapshot_resolution(request.max_resolution()?)?;
++        let limits = self.hooks.snapshot_limits();
++        let quality = request.quality()?;
++        if request.image_codec()? != ImageCodecEnum::JPEG || request.max_frame_rate()? != 1
++            || !(1..=100).contains(&quality) || min.0 < 160 || min.1 < 120
++            || min.0 > max.0 || min.1 > max.1 || max.0 > limits.0 || max.1 > limits.1
++            || [min.0, min.1, max.0, max.1].iter().any(|n| n % 2 != 0)
++            || request.watermark_enabled()?.unwrap_or(false) || request.osd_enabled()?.unwrap_or(false) {
++            return Err(ErrorCode::ConstraintError.into());
++        }
++        let id = self.alloc_video_id();
++        let id = self.state.lock(|s| {
++            let mut state = s.borrow_mut();
++            if let Some(row) = state.snapshot {
++                if (row.min, row.max, row.quality) == (min, max, quality) {
++                    return Ok(row.id);
++                }
++                return Err(ErrorCode::ResourceExhausted);
++            }
++            state.snapshot = Some(Snapshot { id, min, max, quality });
++            Ok(id)
++        })?;
++        ctx.notify_own_attr_changed(AttributeId::AllocatedSnapshotStreams as _);
++        response.snapshot_stream_id(id)?.end()
+     }
+
+     async fn handle_snapshot_stream_modify(
+@@ -1254,20 +1374,40 @@
+     }
+
+     async fn handle_snapshot_stream_deallocate(
+-        &self,
+-        _ctx: impl InvokeContext,
+-        _request: SnapshotStreamDeallocateRequest<'_>,
++        &self, ctx: impl InvokeContext, request: SnapshotStreamDeallocateRequest<'_>,
+     ) -> Result<(), Error> {
+-        Err(ErrorCode::CommandNotFound.into())
++        let id = request.snapshot_stream_id()?;
++        self.state.lock(|s| {
++            let mut state = s.borrow_mut();
++            if !state.snapshot.is_some_and(|row| row.id == id) {
++                return Err(ErrorCode::NotFound);
++            }
++            state.snapshot = None;
++            Ok(())
++        })?;
++        ctx.notify_own_attr_changed(AttributeId::AllocatedSnapshotStreams as _);
++        Ok(())
+     }
+
+     async fn handle_capture_snapshot<P: TLVBuilderParent>(
+-        &self,
+-        _ctx: impl InvokeContext,
+-        _request: CaptureSnapshotRequest<'_>,
+-        _response: CaptureSnapshotResponseBuilder<P>,
++        &self, _ctx: impl InvokeContext, request: CaptureSnapshotRequest<'_>,
++        response: CaptureSnapshotResponseBuilder<P>,
+     ) -> Result<P, Error> {
+-        Err(ErrorCode::CommandNotFound.into())
++        let resolution = snapshot_resolution(request.requested_resolution()?)?;
++        let row = if let Some(id) = request.snapshot_stream_id()?.into_option() {
++            Some(self.state.lock(|s| s.borrow().snapshot).filter(|s| s.id == id).ok_or(ErrorCode::NotFound)?)
++        } else {
++            None
++        };
++        if row.is_some_and(|s| resolution.0 > s.max.0 || resolution.1 > s.max.1) {
++            return Err(ErrorCode::ConstraintError.into());
++        }
++        let jpeg = self.hooks.capture_snapshot(resolution.0, resolution.1, row.map_or(75, |s| s.quality)).await?;
++        if row.is_some() && self.state.lock(|s| s.borrow().snapshot) != row {
++            return Err(ErrorCode::InvalidInState.into());
++        }
++        response.data(Octets(jpeg.as_ref()))?.image_codec(ImageCodecEnum::JPEG)?
++            .resolution()?.width(resolution.0)?.height(resolution.1)?.end()?.end()
+     }
+ }
+
+diff --git a/examples/src/bin/webrtc_camera.rs b/examples/src/bin/webrtc_camera.rs
+--- a/examples/src/bin/webrtc_camera.rs
++++ b/examples/src/bin/webrtc_camera.rs
+@@ -167,9 +167,26 @@
+ const CAM_AV_NV: usize = 2;
+
+ /// Authorize audio against the live source and apply camera privacy writes.
+-struct Str0mCamHooks(Video, Privacy);
++struct Str0mCamHooks(Video, Privacy, nxrs_gateway_matter::snapshot::Snapshots);
+
+ impl CameraAvStreamHooks for Str0mCamHooks {
++    async fn capture_snapshot(&self, width: u16, height: u16, quality: u8)
++        -> Result<impl AsRef<[u8]>, Error> {
++        use nxrs_gateway_matter::snapshot::Error as Capture;
++        self.2.capture(width, height, quality).await.map_err(|error| match error {
++            Capture::Invalid => ErrorCode::ConstraintError,
++            Capture::Unavailable => ErrorCode::InvalidInState,
++            Capture::Busy => ErrorCode::Busy,
++            Capture::TooLarge => ErrorCode::ResourceExhausted,
++            Capture::Encoder => ErrorCode::Failure,
++        }.into())
++    }
++
++    fn snapshot_limits(&self) -> (u16, u16) {
++        use nxrs_gateway_matter::snapshot::{MAX_WIDTH, MAX_HEIGHT};
++        (MAX_WIDTH, MAX_HEIGHT)
++    }
++
+     fn read_privacy(&self, id: CameraAttr) -> Result<bool, Error> {
+         Ok(self.1.get(privacy_setting(id)?))
+     }
+@@ -1493,6 +1510,7 @@
+     let config_path = config_path.ok_or(ErrorCode::Invalid)?;
+     let deployment = nxrs_gateway_matter::config::Deployment::load(std::path::Path::new(&config_path))
+         .map_err(|_| ErrorCode::Invalid)?;
++    let snapshot_path = deployment.snapshot_ffmpeg.as_deref().ok_or(ErrorCode::Invalid)?;
+     let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
+     let (reader, video, feed) = runtime.block_on(deployment.inputs(initialize)).map_err(|_| ErrorCode::Invalid)?;
+     let factory = FACTORY.init(
+@@ -1534,6 +1552,9 @@
+
+     let mut rand = crypto.rand()?;
+
++    let (snapshots, snapshot_worker) = nxrs_gateway_matter::snapshot::Snapshots::open(
++        video.clone(), privacy.clone(), snapshot_path,
++    ).map_err(|_| ErrorCode::Invalid)?;
+     let cam_av_config = CameraAvStreamConfig {
+         max_concurrent_encoders: 1,
+         max_encoded_pixel_rate: 1920 * 1080 * 30,
+@@ -1544,7 +1565,7 @@
+             max_hdrfps: None,
+         },
+         min_viewport: (640, 360),
+-        max_content_buffer_size: 1_048_576,
++        max_content_buffer_size: nxrs_gateway_matter::snapshot::MAX_JPEG as u32,
+         max_network_bandwidth: 10_000,
+         supported_stream_usages: CAM_AV_STREAM_USAGES,
+         default_stream_usage_priorities: CAM_AV_STREAM_USAGES,
+@@ -1560,8 +1581,8 @@
+         Dataver::new_rand(&mut rand),
+         1,
+         cam_av_config,
+-        CameraFeature::VIDEO.bits() | CameraFeature::AUDIO.bits() | CameraFeature::PRIVACY.bits(),
+-        Str0mCamHooks(video.clone(), privacy.clone()),
++        CameraFeature::VIDEO.bits() | CameraFeature::AUDIO.bits() | CameraFeature::PRIVACY.bits() | CameraFeature::SNAPSHOT.bits(),
++        Str0mCamHooks(video.clone(), privacy.clone(), snapshots),
+     );
+     // The first commissioning sees one allocated video stream. A stored empty
+     // allocation table is a valid controller choice and survives a restart.
+@@ -1717,7 +1738,19 @@
+         Err(Error::from(ErrorCode::StdIoError))
+     };
+     let controls = topology::drive(feed, &im, &sensor, &occupancy);
+-    runtime.block_on(select(select(all, failed_store).coalesce(), controls).coalesce())
++    runtime.block_on(async {
++        let (stop, stopped) = tokio::sync::watch::channel(false);
++        let mut worker = pin!(snapshot_worker.run(stopped));
++        let result = select(select(all, failed_store).coalesce(), controls).coalesce();
++        tokio::select! {
++            result = result => {
++                stop.send_replace(true);
++                worker.as_mut().await.map_err(|_| ErrorCode::StdIoError)?;
++                result
++            },
++            _ = &mut worker => Err(ErrorCode::StdIoError.into()),
++        }
++    })
+ }
+
+ // ---------------------------------------------------------------------------
+@@ -1735,7 +1768,7 @@
+             clusters!(
+                 desc::DescHandler::CLUSTER,
+                 groups::GroupsHandler::CLUSTER,
+-                CameraAvStreamHandler::<Str0mCamHooks, CAM_AV_NV, 1>::CLUSTER_VIDEO_AUDIO,
++                CameraAvStreamHandler::<Str0mCamHooks, CAM_AV_NV, 1>::CLUSTER_VIDEO_AUDIO_SNAPSHOT,
+                 rs_matter::dm::clusters::app::cam_av_settings::CLUSTER_DPTZ_ONLY,
+                 ZoneMgmtHandler::<DemoZoneHooks, ZONE_NZ, ZONE_NV, ZONE_NT>::CLUSTER,
+                 WebRtc::CLUSTER,
+@@ -1819,7 +1852,7 @@
+                 ),
+             )
+             .chain(
+-                |e, c| e == 1 && c == CameraAvStreamHandler::<Str0mCamHooks, CAM_AV_NV, 1>::CLUSTER_VIDEO_AUDIO.id,
++                |e, c| e == 1 && c == CameraAvStreamHandler::<Str0mCamHooks, CAM_AV_NV, 1>::CLUSTER_VIDEO_AUDIO_SNAPSHOT.id,
+                 rs_matter::dm::clusters::app::cam_av_stream::HandlerAsyncAdaptor(cam_av),
+             )
+             .chain(

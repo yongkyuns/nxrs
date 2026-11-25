@@ -1,0 +1,158 @@
+diff --git a/examples/src/bin/persistence/mod.rs b/examples/src/bin/persistence/mod.rs
+--- a/examples/src/bin/persistence/mod.rs
++++ b/examples/src/bin/persistence/mod.rs
+@@ -13,13 +13,16 @@
+ }
+
+ impl StoreAdapter {
+-    pub fn open(path: &Path, initialize: bool) -> Result<(Self, Receiver<()>), Error> {
+-        let inner = if initialize {
++    pub fn open(
++        path: &Path, initialize: bool, factory: &nxrs_gateway_matter::commissioning::FactoryData, key: u16,
++    ) -> Result<(Self, Receiver<()>), Error> {
++        let mut inner = if initialize {
+             Store::initialize(path)
+         } else {
+             Store::open(path)
+         }
+         .map_err(|_| ErrorCode::StdIoError)?;
++        factory.bind(&mut inner, key, initialize).map_err(|_| ErrorCode::Invalid)?;
+         let (failure, receiver) = async_channel::bounded(1);
+         Ok((Self { inner, failure }, receiver))
+     }
+diff --git a/examples/src/bin/webrtc_camera.rs b/examples/src/bin/webrtc_camera.rs
+--- a/examples/src/bin/webrtc_camera.rs
++++ b/examples/src/bin/webrtc_camera.rs
+@@ -85,7 +85,7 @@
+
+ use rand::Rng;
+
+-use rs_matter::crypto::{default_crypto, Crypto};
++use rs_matter::crypto::{default_crypto, CanonEcPointRef, CanonEcScalarRef, Crypto};
+ use rs_matter::dm::clusters::app::cam_av_settings::{
+     CamAvSettingsConfig, CamAvSettingsError, CamAvSettingsHandler, CamAvSettingsHooks, DptzView,
+     Mptz, CLUSTER_DPTZ_ONLY,
+@@ -106,15 +106,15 @@
+ use rs_matter::dm::clusters::decl::globals::{ICECandidateStruct, WebRTCEndReasonEnum};
+ use rs_matter::dm::clusters::desc::{self, ClusterHandler as _};
+ use rs_matter::dm::clusters::groups::{self, ClusterHandler as _};
+-use rs_matter::dm::devices::test::{DAC_PRIVKEY, TEST_DEV_ATT, TEST_DEV_COMM, TEST_DEV_DET};
++use rs_matter::dm::devices::test::{DAC_PRIVKEY, TEST_DEV_ATT, TEST_DEV_DET};
+ use rs_matter::dm::devices::DEV_TYPE_CAMERA;
+ use rs_matter::dm::endpoints;
+ use rs_matter::dm::networks::unix::UnixNetifs;
+ use rs_matter::dm::{DataModel, Dataver, Endpoint, Node};
+ use rs_matter::error::{Error, ErrorCode};
+ use rs_matter::im::{InteractionModel, InteractionModelState};
+-use rs_matter::pairing::qr::QrTextType;
+-use rs_matter::pairing::DiscoveryCapabilities;
++use nxrs_gateway_matter::commissioning::FactoryData;
++use rs_matter::VerifierCommData;
+ mod persistence;
+ use nxrs_gateway_matter::privacy::{self, LiveView, Privacy, Setting};
+ use rs_matter::dm::clusters::app::cam_av_stream::AttributeId as CameraAttr;
+@@ -124,6 +124,7 @@
+ const CAMERA_PRIVACY_KEY: u16 = VENDOR_KEYS_START;
+ const VIDEO_ALLOCATIONS_KEY: u16 = VENDOR_KEYS_START + 1;
+ const AUDIO_ALLOCATIONS_KEY: u16 = VENDOR_KEYS_START + 2;
++const ONBOARDING_ID_KEY: u16 = VENDOR_KEYS_START + 3;
+ fn privacy_setting(id: CameraAttr) -> Result<Setting, Error> {
+     match id {
+         CameraAttr::MicrophoneMuted => Ok(Setting::MicrophoneMuted),
+@@ -145,7 +146,7 @@
+ };
+ use rs_matter::dm::Async as DmAsync;
+ use rs_matter::respond::DefaultResponder;
+-use rs_matter::sc::pase::MAX_COMM_WINDOW_TIMEOUT_SECS;
++use rs_matter::sc::pase::MIN_COMM_WINDOW_TIMEOUT_SECS;
+ use rs_matter::tlv::TLVArray;
+ use rs_matter::transport::exchange::MatterBuffers;
+ use rs_matter::transport::MATTER_SOCKET_BIND_ADDR;
+@@ -1462,6 +1463,7 @@
+ // Static state
+ // ---------------------------------------------------------------------------
+
++static FACTORY: StaticCell<FactoryData> = StaticCell::new();
+ static MATTER: StaticCell<Matter> = StaticCell::new();
+ static BUFFERS: StaticCell<MatterBuffers> = StaticCell::new();
+ static TCP_BUFFERS: StaticCell<rs_matter::transport::network::tcp::TcpNetworkBuffers> =
+@@ -1515,19 +1517,39 @@
+         .with_ansi(false)
+         .init();
+
++    let mut initialize = false;
++    let mut open_window = false;
++    let mut factory_path = None;
++    let mut args = std::env::args_os().skip(1);
++    while let Some(arg) = args.next() {
++        match arg.to_str() {
++            Some("--initialize-state") if !initialize => initialize = true,
++            Some("--open-commissioning-window") if !open_window => open_window = true,
++            Some("--factory-data") if factory_path.is_none() => {
++                factory_path = Some(args.next().ok_or(ErrorCode::Invalid)?);
++            }
++            _ => return Err(ErrorCode::Invalid.into()),
++        }
++    }
++    let factory_path = factory_path.ok_or(ErrorCode::Invalid)?;
++    let factory = FACTORY.init(
++        FactoryData::load(std::path::Path::new(&factory_path)).map_err(|_| ErrorCode::Invalid)?,
++    );
++    let verifier = VerifierCommData::new(
++        factory.discriminator, &factory.verifier, &factory.salt, factory.iterations,
++    )?;
++    let crypto = default_crypto(rand::rng(), DAC_PRIVKEY);
++    // Validate the scalar and encoded P-256 point before initializing durable state.
++    let (w0, point) = factory.verifier.split_at(32);
++    crypto.ec_scalar(CanonEcScalarRef::new(w0.try_into().map_err(|_| ErrorCode::Invalid)?))?;
++    crypto.ec_point(CanonEcPointRef::new(point.try_into().map_err(|_| ErrorCode::Invalid)?))?;
++    let state_dir = std::env::var_os("WEBRTC_CAMERA_STATE").ok_or(ErrorCode::Invalid)?;
++    let (store, persistence_failure) = persistence::StoreAdapter::open(
++        std::path::Path::new(&state_dir), initialize, factory, ONBOARDING_ID_KEY,
++    )?;
+     let matter = MATTER.uninit().init_with(Matter::init(
+-        &BASIC_INFO,
+-        TEST_DEV_COMM,
+-        &TEST_DEV_ATT,
+-        MATTER_PORT,
++        &BASIC_INFO, verifier.into(), &TEST_DEV_ATT, MATTER_PORT,
+     ));
+-
+-    let state_dir = std::env::var_os("WEBRTC_CAMERA_STATE").ok_or(ErrorCode::Invalid)?;
+-    let initialize = std::env::args()
+-        .skip(1)
+-        .any(|arg| arg == "--initialize-state");
+-    let (store, persistence_failure) =
+-        persistence::StoreAdapter::open(std::path::Path::new(&state_dir), initialize)?;
+
+     let buffers = BUFFERS.uninit().init_with(MatterBuffers::init());
+
+@@ -1539,12 +1561,14 @@
+
+     // Re-hydrate the `Matter` instance (fabrics, basic info, RTC).
+     matter.startup(&kv)?;
++    if open_window && matter.has_fabrics() {
++        return Err(ErrorCode::InvalidInState.into());
++    }
+     let privacy = kv.access(|store, buffer| {
+         Privacy::load(store.load(CAMERA_PRIVACY_KEY, buffer)?)
+             .map_err(|_| Error::from(ErrorCode::Invalid))
+     })?;
+
+-    let crypto = default_crypto(rand::rng(), DAC_PRIVKEY);
+     let mut rand = crypto.rand()?;
+
+     let value = |name| std::env::var(name).map_err(|_| ErrorCode::Invalid);
+@@ -1721,10 +1745,8 @@
+     .coalesce());
+     let mut driver = pin!(shared.drive());
+
+-    if !matter.has_fabrics() {
+-        matter.print_standard_qr_text(DiscoveryCapabilities::IP)?;
+-        matter.print_standard_qr_code(QrTextType::Unicode, DiscoveryCapabilities::IP)?;
+-        matter.open_basic_comm_window(MAX_COMM_WINDOW_TIMEOUT_SECS, &crypto, &())?;
++    if open_window {
++        matter.open_basic_comm_window(MIN_COMM_WINDOW_TIMEOUT_SECS, &crypto, &())?;
+     }
+
+     let matter_core = select4(&mut transport, &mut mdns, &mut respond, &mut im_job).coalesce();

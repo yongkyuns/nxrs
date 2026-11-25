@@ -85,15 +85,15 @@ only when multiple implementations actually need the same operations.
 | `driver/ubx/` | Reusable M9 protocol driver |
 | `hal/imu/src/api.rs` | Application-facing IMU contract |
 | `hal/imu/src/session.rs` | Session contract implemented on the shared worker |
-| `hal/imu/src/platform/simulation.rs` | Adapter to a coordinated simulation session |
+| `hal/imu/src/platform/simulation/mod.rs` | Adapter to a coordinated simulation session |
 | `hal/imu/src/platform/mod.rs` | Selected acquisition exports |
 | `hal/imu/src/platform/nuttx/mod.rs` | Normalized acquisition and construction API |
 | `hal/imu/src/platform/nuttx/device.rs` | Ownership, stream metadata and acquisition |
 | `platform/src/nuttx/imu.rs` | Concrete IMU construction |
 | `driver/i2c/`, `driver/spi/` | NuttX-only embedded-hal resource adapters |
 | `driver/gpio/` | NuttX GPIO interrupt owner and embedded-hal input |
-| `hal/acquisition/` | Shared workers, cancellation and native readiness |
-| `hal/acquisition/src/probe/` | Optional acquisition and I²C/SPI timing |
+| `shared/acquisition/` | Shared worker lifetimes, cancellation and native readiness |
+| `shared/acquisition/src/probe/` | Optional acquisition and I²C/SPI timing |
 | `platform/src/nuttx/gnss.rs` | Concrete GNSS construction |
 | `hal/gnss/` | UART acquisition, stream metadata and simulation adapter |
 | `shared/simulation/` | Seeded scenario and logical clock |
@@ -346,10 +346,12 @@ Use repeatable `--overlay` arguments with `cargo nxrs profile` and
 `cargo nxrs build`, or declare an ordered `overlays` list in a named profile.
 Resolution merges ancestor profiles, the child profile, the declared overlays
 from ancestor to child, and then command-line overlays in argument order.
-Overlay files contain changes only and cannot recursively include overlays or
-change the target, BSP, execution OS or composition mode. Those changes require
-a named profile. Declared paths resolve against the profile file. Command-line
-paths resolve against the selected workspace root.
+TOML device overlays contain changes only and cannot recursively include
+overlays or change the target, BSP, execution OS or composition mode. Those
+changes require a named profile. A `.conf` overlay adds native NuttX settings
+after the profile's authored fragment. Declared paths resolve against the
+profile file. Command-line paths resolve against the selected workspace root.
+See [NuttX configuration](build-system.md#nuttx-configuration).
 
 In the current v1 path, the build frontend writes `resolved-profile.json` into the owned build output
 and passes its path to Cargo through `NXRS_RESOLVED_PROFILE`. HAL build scripts

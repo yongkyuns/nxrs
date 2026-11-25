@@ -49,7 +49,7 @@ def elf(kind):
 class Witness:
     """Small internally consistent fixture with independent fixed device values."""
     def __init__(self, directory):
-        self.root = directory / "source"
+        self.root = directory.resolve() / "source"
         self.root.mkdir()
         self.parent = self.root / "target/witness"
         for name in CHECK.SOURCE_INPUTS:

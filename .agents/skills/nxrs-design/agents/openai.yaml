@@ -1,0 +1,4 @@
+interface:
+  display_name: "NXRS Design Decisions"
+  short_description: "Compare NXRS interfaces, lifetimes, and resource costs"
+  default_prompt: "Use $nxrs-design to compare concrete designs for this NXRS change and preserve the decision in its existing documentation."

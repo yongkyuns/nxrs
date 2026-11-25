@@ -58,7 +58,7 @@ Version-1 records have a 40-byte little-endian header followed by exactly len
 payload bytes: magic `RCAMREC1` (8), width (u16), height (u16), format (u8;
 Gray8=0/Rgb565=1/Jpeg=2), reserved zero (3), sequence (u64), timestamp_ms (u64),
 len (u64). The reader validates metadata, input length and an allocation limit.
-The telemetry service's existing 28-byte encoding is unchanged.
+The camera qualification's packet summary uses its existing 28-byte encoding.
 
 ## Pipeline evidence
 

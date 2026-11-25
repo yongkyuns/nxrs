@@ -36,10 +36,15 @@ void svr_dropbear_log(int level,const char *format,va_list args)
 {(void)level;(void)format;(void)args;}
 void svr_getopts(int argc,char **argv)
 {
- assert(argc==8 && strcmp(argv[1],"-F")==0 && strcmp(argv[4],"-I")==0 && strcmp(argv[6],"-T")==0);
+ assert(argc==6 && strcmp(argv[1],"-F")==0 && strcmp(argv[4],"-I")==0 && argv[6]==NULL);
+ svr_opts.maxauthtries = CONFIG_NETUTILS_DROPBEAR_MAX_AUTH_TRIES;
  setup_calls++;m_malloc(9); /* A real epoch-0 allocation, retired on every failure. */
 }
-void seedrandom(void){if(atomic_load(&seed_failure))dropbear_exit("entropy");}
+void seedrandom(void)
+{
+ assert(svr_opts.maxauthtries + 1 == CONFIG_NETUTILS_DROPBEAR_MAX_AUTH_TRIES);
+ if(atomic_load(&seed_failure))dropbear_exit("entropy");
+}
 void crypto_init(void){}
 void dropbear_random_cleanup(void){}
 void load_all_hostkeys(void)
@@ -130,9 +135,13 @@ int main(void)
  assert(pthread_create(&thread,NULL,stopper,&result)==0);
  while(!dropbear_service_stopping())usleep(1000);
  dropbear_service_finish(generation,0);
+ task_id=92;
  assert(dropbear_service_begin(&next)==0);
  assert(pthread_join(thread,NULL)==0 && result==0);
- assert(!dropbear_service_stopping());dropbear_service_finish(next,0);
+ dropbear_service_cancel_owner(90);
+ assert(!dropbear_service_stopping());
+ dropbear_service_cancel_owner(92);
+ assert(dropbear_service_stopping());dropbear_service_finish(next,0);
  dropbear_service_status();
  assert(retired>=4);unlink("hostkey");assert(chdir("/")==0);assert(rmdir(directory)==0);
  return 0;

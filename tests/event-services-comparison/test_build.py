@@ -87,6 +87,13 @@ class InventoryTests(unittest.TestCase):
 
 
 class CommandTests(unittest.TestCase):
+    def test_linked_worker_control_rejects_unsupported_capacity_or_adapter(self):
+        from types import SimpleNamespace
+        for platform, capacity in (("nuttx-c", -1), ("zephyr-c", 21),
+                                   ("nuttx-rust", 1), ("embassy", 0)):
+            with self.subTest(platform=platform, capacity=capacity), self.assertRaises(ValueError):
+                build.build(SimpleNamespace(platform=platform, worker_capacity=capacity))
+
     def test_stack_requests_are_explicit_and_reject_wrong_platform_or_alignment(self):
         from types import SimpleNamespace
         self.assertEqual(build.stack_configuration(SimpleNamespace(platform="nuttx-c")), (4096, 8192, False))

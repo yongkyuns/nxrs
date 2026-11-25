@@ -8,6 +8,7 @@ on:
       - 'app/**'
       - 'service/**'
       - 'hal/**'
+      - 'shared/acquisition/**'
       - 'tools/detector-build-support/**'
       - 'driver/**'
       - 'shared/messaging/**'
@@ -50,6 +51,7 @@ on:
       - 'app/**'
       - 'service/**'
       - 'hal/**'
+      - 'shared/acquisition/**'
       - 'tools/detector-build-support/**'
       - 'driver/**'
       - 'shared/messaging/**'
@@ -149,8 +151,7 @@ jobs:
           python3 tests/native/qualify.py
           export NXRS_PLATFORM=linux
           cargo +1.90.0 clippy --locked \
-            -p nxrs-camera -p nxrs-storage -p nxrs-transport \
-            -p nxrs-camera-service -p nxrs-recording-service -p nxrs-telemetry-service \
+            -p nxrs-camera -p nxrs-storage \
             -p nxrs-camera-test-support -p nxrs-native-integration \
             --lib -- -D warnings
           unset NXRS_PLATFORM
@@ -168,7 +169,7 @@ jobs:
               cargo +1.90.0 nxrs build --app "$app" --profile "$platform" --dry-run
             done
             cargo +1.90.0 tree --locked -p "nxrs-$app" > "/tmp/$app-tree.txt"
-            ! grep -E 'nxrs-(imu|gnss|camera|storage|transport)' "/tmp/$app-tree.txt"
+            ! grep -E 'nxrs-(imu|gnss|camera|storage)' "/tmp/$app-tree.txt"
           done
       - name: Record release behavior
         shell: bash

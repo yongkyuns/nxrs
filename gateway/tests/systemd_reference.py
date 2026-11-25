@@ -30,6 +30,7 @@ DEPLOY = Path(__file__).resolve().parents[1] / 'deploy'
 sys.path.insert(0, str(DEPLOY))
 import strict_vpn
 import vpn
+import systemd_exec
 
 
 def command(args, *, check=True):
@@ -94,6 +95,7 @@ async def exercise(gateway, mediamtx):
     control, media, proxy, target, network = [prefix + '-' + kind for kind in ['control', 'media', 'proxy', 'monitor', 'network']]
     names = [control+'.service', media+'.service', proxy+'.service', target+'.target', network+'.service']
     root, state = Path('/run')/prefix, Path('/var/lib')/control
+    executables = None
     require(not root.exists() and not state.exists(), 'new isolated fixture directories required')
     root.mkdir(mode=0o755)
     processes, logs, readers, written_units = [], [], [], []
@@ -112,9 +114,10 @@ async def exercise(gateway, mediamtx):
                             base64.b64encode(secrets.token_bytes(32)).decode())
         require(json.loads((conf/'deployment.json').read_text())['mode'] == 'strict', 'complete strict bundle')
         (root/'bin').mkdir(mode=0o755)
+        executables = systemd_exec.allocate(prefix)
         for source, name in [(gateway, 'gateway'), (mediamtx, 'mediamtx')]:
-            shutil.copyfile(source, root/'bin'/name)
-            (root/'bin'/name).chmod(0o755)
+            shutil.copyfile(source, executables/name)
+            (executables/name).chmod(0o755)
         for directory in ['deploy', 'tools']:
             (root/directory).mkdir(mode=0o755)
         for name in ['strict_vpn.py', 'vpn.py']:
@@ -169,8 +172,8 @@ async def exercise(gateway, mediamtx):
         mapping = {'nxrs-control': control, 'nxrs-media': media, 'nxrs-proxy': proxy, 'nxrs-monitor': target}
         for original in ['nxrs-control.service', 'nxrs-media.service', 'nxrs-proxy.service', 'nxrs-monitor.target']:
             text = units[original].replace('/etc/nxrs-monitor', str(conf))
-            text = text.replace('/usr/local/libexec/nxrs-gateway-control', str(root/'bin/gateway'))
-            text = text.replace('/usr/local/libexec/nxrs-mediamtx', str(root/'bin/mediamtx'))
+            text = text.replace('/usr/local/libexec/nxrs-gateway-control', str(executables/'gateway'))
+            text = text.replace('/usr/local/libexec/nxrs-mediamtx', str(executables/'mediamtx'))
             text = text.replace('wg-quick@wg-nxrs.service', network+'.service').replace('nxrs-firewall.service', network+'.service')
             filename = original
             for old, new in mapping.items():
@@ -340,9 +343,9 @@ async def exercise(gateway, mediamtx):
             except Exception: failures.append('unit file')
         try: command(['systemctl', 'daemon-reload'])
         except Exception: failures.append('reload')
-        for path in [state, root]:
+        for path in [state, root, executables]:
             try:
-                if path.exists(): shutil.rmtree(path)
+                if path is not None and path.exists(): shutil.rmtree(path)
             except Exception: failures.append('private fixture')
         if account_created:
             try: command(['userdel', control])

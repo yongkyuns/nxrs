@@ -42,20 +42,26 @@ pub fn build(here: &Path, out: &Path, target: &str) -> Result<()> {
     let mut archiver = env::var("AR").unwrap_or("ar".into());
     let mut flags = nxrs_build_support::split_flags(&env::var("CFLAGS").unwrap_or_default())?;
     flags.extend(["-ffunction-sections".into(), "-fdata-sections".into()]);
+    if env::var_os("CARGO_FEATURE_PAIRING").is_some() {
+        flags.push("-DNXRS_TLS_PAIRING".into());
+    }
     let mut cross = vec![];
     if target.contains("nuttx") {
-        let (prefix, cpu) = if target.starts_with("thumbv8m.main-") {
+        let (cc, ar, cpu) = if target.starts_with("thumbv8m.main-") {
             (
-                "arm-none-eabi-",
+                "arm-none-eabi-gcc",
+                "arm-none-eabi-ar",
                 vec!["-mcpu=cortex-m33", "-mthumb", "-mfloat-abi=soft"],
             )
         } else if target.starts_with("xtensa-esp32s3-") {
-            ("xtensa-esp32s3-elf-", vec!["-mlongcalls"])
+            ("xtensa-esp32s3-elf-gcc", "xtensa-esp32s3-elf-ar", vec!["-mlongcalls"])
+        } else if target == "aarch64-nuttx-sim-darwin" {
+            ("cc", "ar", vec!["-arch", "arm64", "-U__APPLE__", "-fvisibility=hidden"])
         } else {
             return Err("Unsupported NuttX TLS target".into());
         };
-        compiler = env::var("CC").unwrap_or(format!("{prefix}gcc"));
-        archiver = env::var("AR").unwrap_or(format!("{prefix}ar"));
+        compiler = env::var("CC").unwrap_or_else(|_| cc.into());
+        archiver = env::var("AR").unwrap_or_else(|_| ar.into());
         let include = std::path::PathBuf::from(
             env::var_os("NXRS_NUTTX_INCLUDE").ok_or("configured NuttX target headers required")?,
         );

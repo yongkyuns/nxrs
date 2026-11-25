@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light dark">
   <meta name="description" content="{{ config.description }} Application development, configuration, testing and examples.">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; frame-src 'none'; connect-src 'self'; object-src 'none'; base-uri 'self'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; {% if route == 'guide/motion-tracker/' %}frame-src 'self'{% else %}frame-src 'none'{% endif %}; connect-src 'self'; object-src 'none'; base-uri 'self'">
   <title>{{ title }} · NXRS</title>
   <link rel="canonical" href="{{ config.url }}{{ route }}">
   <link rel="icon" type="image/png" href="{{ logo }}">
@@ -23,6 +23,7 @@
       {% for target, label in [('guide/getting-started/', 'Getting started'), ('guide/start-here/', 'User guide'), ('guide/examples/', 'Examples'), ('reference/', 'Reference')] %}
       <a href="{{ url(target) }}"{% if route == target %} aria-current="page"{% endif %}>{{ label }}</a>
       {% endfor %}
+      {% if has_api %}<a href="{{ url('api/') }}"{% if kind == 'api-index' %} aria-current="page"{% endif %}>Rust API</a>{% endif %}
       <a href="{{ config.repository }}">GitHub ↗</a>
     </nav>
     <button class="search-open utility" type="button" aria-haspopup="dialog" aria-controls="search-dialog">Search <kbd>/</kbd></button>
@@ -33,17 +34,15 @@
 <main id="main" class="project-home" tabindex="-1">
   <section class="project-intro" aria-labelledby="project-title">
     <div>
-      <p class="eyebrow">Firmware development with Rust and NuttX</p>
       <h1 id="project-title">NXRS</h1>
       <p class="lead">An experimental, general-purpose Rust firmware development environment built on NuttX.</p>
-      <p>Applications use ordinary Rust standard-library APIs, threads and event-driven components. NuttX supplies the RTOS and board support; NXRS provides the Rust integration, peripheral interfaces, reusable components and platform profiles.</p>
-      <p>Start with a small program on your computer, run it on NuttX, then add the interfaces and components your application needs. The guides explain the design choices, show working commands, and link to the code behind them.</p>
+      <p>Write firmware with Rust’s standard library and use NuttX for scheduling, drivers, and board support. Start with a small program on your computer, then run the same source on NuttX.</p>
       <p><a href="{{ url('guide/getting-started/') }}">Getting started →</a> · <a href="{{ url('guide/motivation/') }}">Why NXRS?</a></p>
     </div>
     <aside class="project-note" aria-labelledby="validation-title">
       <h2 id="validation-title">Implementation and validation</h2>
       <p>Basic validation includes host tests, target integration checks, execution in the NuttX simulator and QEMU, and on-board performance and memory evaluations.</p>
-      <p><a href="{{ url('guide/status/') }}">Current status</a><br><a href="{{ url('guide/testing/') }}">Tests and evaluations</a></p>
+      <p><a href="{{ url('guide/status/') }}">Current status</a><br><a href="{{ url('guide/performance/') }}">Performance findings and measurement</a></p>
     </aside>
   </section>
   <section class="project-section" aria-labelledby="reading-title">
@@ -53,7 +52,7 @@
       <a href="{{ url('guide/' + key + '/') }}"><h3>{{ heading }}</h3><p>{{ description }}</p></a>
       {% endfor %}
     </nav>
-    <p><a href="{{ url('guide/start-here/') }}">Full guide index</a> · <a href="{{ url('guide/examples/') }}">Examples</a> · <a href="{{ url('reference/') }}">Engineering reference</a></p>
+    <p><a href="{{ url('guide/start-here/') }}">Guide index</a>{% if has_api %} · <a href="{{ url('api/') }}">Rust API reference</a>{% endif %} · <a href="{{ url('reference/') }}">Engineering reference</a></p>
   </section>
   <section class="project-section" aria-labelledby="architecture-title">
     <h2 id="architecture-title">Architecture at a glance</h2>
@@ -64,17 +63,12 @@
     </div>
     <p class="section-link"><a href="{{ url('guide/overview/') }}">Architecture overview</a> · <a href="{{ url('guide/motivation/') }}">Design reasoning</a></p>
   </section>
-  <section class="project-section" aria-labelledby="development-title">
-    <h2 id="development-title">From components to an application</h2>
-    <p>For a connected device, hardware access, command processing, recording and network communication can be separate components. The application decides how they interact; platform configuration supplies the device and resource bindings.</p>
-    <p>The documentation explains those responsibilities independently of the use case. Optional examples show both small API patterns and larger applications.</p>
-    <p><a href="{{ url('guide/designing-applications/') }}">Designing an application</a> · <a href="{{ url('guide/interfaces/') }}">Interfaces and APIs</a> · <a href="{{ url('guide/examples/') }}">Examples</a></p>
-  </section>
 </main>
 {% elif kind == 'not-found' %}
 <main id="main" class="not-found" tabindex="-1"><p class="eyebrow">404</p><h1>Page not found</h1><p>This page may have moved or been removed.</p><p><a href="{{ url('guide/start-here/') }}">Guide index</a> · <a href="{{ url('reference/') }}">Engineering reference</a></p></main>
 {% else %}
 {% set current = namespace(section='Engineering reference', entry='reference/', previous='', next='') %}
+{% if kind == 'api-index' %}{% set current.section = 'Rust API reference' %}{% set current.entry = 'api/' %}{% endif %}
 {% for section in config.sections %}
   {% for key in section.pages %}
     {% if route == 'guide/' ~ key ~ '/' %}
@@ -101,6 +95,7 @@
         {% endfor %}{% endfor %}
       </section>
       {% endfor %}
+      {% if has_api %}<section class="nav-group"><h2 class="nav-heading">Rust APIs</h2><a href="{{ url('api/') }}"{% if kind == 'api-index' %} aria-current="page"{% endif %}>Rust API reference</a></section>{% endif %}
       <section class="nav-group"><h2 class="nav-heading">Engineering reference</h2>
         <a href="{{ url('reference/') }}"{% if kind == 'reference-index' %} aria-current="page"{% endif %}>Reference index</a>
         {% for item in references %}<a href="{{ url(item.route) }}"{% if route == item.route %} aria-current="page"{% endif %}>{{ item.title }}</a>{% endfor %}
@@ -108,20 +103,26 @@
     </nav>
   </aside>
   <main id="main" class="document" tabindex="-1">
-    <nav class="breadcrumb" aria-label="Breadcrumb"><a href="{{ url() }}">Home</a><span aria-hidden="true">/</span><a href="{{ url(current.entry) }}">{{ current.section }}</a>{% if kind != 'reference-index' %}<span aria-hidden="true">/</span><span aria-current="page">{{ title }}</span>{% endif %}</nav>
+    <nav class="breadcrumb" aria-label="Breadcrumb"><a href="{{ url() }}">Home</a><span aria-hidden="true">/</span><a href="{{ url(current.entry) }}">{{ current.section }}</a>{% if kind not in ['reference-index', 'api-index'] %}<span aria-hidden="true">/</span><span aria-current="page">{{ title }}</span>{% endif %}</nav>
     {% if kind == 'reference-index' %}
-    <article class="prose"><h1>Engineering reference</h1><p class="intro">Design documents, implementation notes and evaluation reports from the repository.</p><p>Use the <a href="{{ url('guide/start-here/') }}">user guide</a> for step-by-step development. These references provide the implementation detail.</p>
+    <article class="prose"><h1>Engineering reference</h1><p class="intro">Understand the design, assess the measured results, or find the evidence behind a decision.</p><p>Use the <a href="{{ url('guide/start-here/') }}">user guide</a> for step-by-step development.{% if has_api %} The <a href="{{ url('api/') }}">Rust API reference</a> documents public types and functions.{% endif %} Start with a maintained explanation below; historical reports retain the original experiments and their limits.</p>
+      <table><thead><tr><th>Your question</th><th>Start here</th></tr></thead><tbody>
+        <tr><td>Where should my code belong?</td><td><a href="{{ url('reference/architecture/') }}">Architecture and ownership</a></td></tr>
+        <tr><td>How do delivery, RAM and deadlines compare?</td><td><a href="{{ url('reference/rtos-comparison/') }}">Same-board comparison results</a></td></tr>
+        <tr><td>Will my application fit and meet its timing budget?</td><td><a href="{{ url('guide/performance/') }}">Performance and memory</a></td></tr>
+        <tr><td>What has actually been exercised?</td><td><a href="{{ url('guide/status/') }}">Current status and validation</a></td></tr>
+      </tbody></table>
       {% set grouped = namespace(sources=[]) %}
       {% for group in config.reference_groups %}
-      <section class="reference-category"><h2 id="reference-group-{{ loop.index }}">{{ group.title }}</h2><div class="reference-list">
-        {% for name in group.pages %}{% for item in all_references if item.source == 'docs/' ~ name %}
+      <section class="reference-category"><h2 id="reference-group-{{ loop.index }}">{{ group.title }}</h2>{% if group.description is defined %}<p>{{ group.description }}</p>{% endif %}<div class="reference-list">
+        {% for name in group.pages %}{% for item in all_references if item.source.removeprefix('docs/') == name %}
         {% set grouped.sources = grouped.sources + [item.source] %}
-        <a href="{{ url(item.route) }}"><strong>{{ item.title }}</strong><span>{{ item.source }}</span></a>
+        <a href="{{ url(item.route) }}"><strong>{{ item.title }}</strong><span>{{ config.get('reference_descriptions', {}).get(name, item.source) }}</span></a>
         {% endfor %}{% endfor %}
       </div></section>
       {% endfor %}
       <section class="reference-category"><h2 id="additional-notes">Additional engineering notes</h2><div class="reference-list">
-        {% for item in all_references if item.source not in grouped.sources %}<a href="{{ url(item.route) }}"><strong>{{ item.title }}</strong><span>{{ item.source }}</span></a>{% endfor %}
+        {% for item in all_references if item.source not in grouped.sources %}<a href="{{ url(item.route) }}"><strong>{{ item.title }}</strong><span>{{ config.get('reference_descriptions', {}).get(item.source.removeprefix('docs/'), item.source) }}</span></a>{% endfor %}
       </div></section>
     </article>
     {% else %}
@@ -143,6 +144,6 @@
 </div>
 {% endif %}
 <footer class="footer"><a href="{{ url() }}">NXRS</a><p>An independent project built on NuttX.</p><a href="{{ config.repository }}/blob/{{ revision }}/LICENSE">MIT license</a></footer>
-<dialog id="search-dialog" aria-labelledby="search-title"><div class="search-heading"><h2 id="search-title">Search this site</h2><button class="utility" id="search-close" type="button" aria-label="Close search">Close <kbd>Esc</kbd></button></div><label for="search-input">Search guides and engineering references</label><input id="search-input" type="search" autocomplete="off" placeholder="Try “profiles”, “shutdown”, or “memory”…"><p id="search-status" role="status">Type to search.</p><ol id="search-results"></ol></dialog>
+<dialog id="search-dialog" aria-labelledby="search-title"><div class="search-heading"><h2 id="search-title">Search this site</h2><button class="utility" id="search-close" type="button" aria-label="Close search">Close <kbd>Esc</kbd></button></div><label for="search-input">Search guides, API libraries and engineering references</label><input id="search-input" type="search" autocomplete="off" placeholder="Try “profiles”, “shutdown”, or “memory”…"><p id="search-status" role="status">Type to search.</p><ol id="search-results"></ol></dialog>
 </body>
 </html>

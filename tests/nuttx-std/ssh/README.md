@@ -154,6 +154,13 @@ and a fresh pinned OpenSSH login can run the Rust stdio probe in the same boot.
 Use a reserved DHCP address because the fixture binds to one IPv4 address.
 Omit `--case` to run the standard campaign.
 
+Use `--case auth-attempts` to verify the wrong-password limit on one connection
+and a fresh pinned login afterward. Set `--auth-attempts` if the image uses a
+different limit from the recipe's three. Set `--auth-timeout` to the image's
+authentication deadline if it differs from 30 seconds. The runner checks both
+settings against `--build-evidence` when supplied and requires the disconnect
+to occur before the authentication deadline.
+
 Use `--case idle-deadline` to exercise the authenticated session timeout. Set
 `--idle-timeout` to match the flashed image if it differs from the recipe's
 60 seconds. The measurement requires a configured timeout of at least five

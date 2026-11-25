@@ -1,0 +1,302 @@
+--- a/rs-matter-transport/Cargo.toml
++++ b/rs-matter-transport/Cargo.toml
+@@ -49,7 +49,7 @@
+ # General
+ 
+ # mDNS support for MacOSX.
+-astro-dnssd = ["os", "dep:astro-dnssd"]
++astro-dnssd = ["os", "dep:astro-dnssd", "async-channel"]
+ # mDNS support for Linux and Windows (via Avahi or Bonjour).
+ # Prefer the Avahi and Resolved mDNS implementations over Zeroconf for production deployments, via `zbus`.
+ zeroconf = ["os", "dep:zeroconf"]
+--- a/rs-matter-transport/src/network/mdns/astro.rs
++++ b/rs-matter-transport/src/network/mdns/astro.rs
+@@ -21,8 +21,10 @@
+ 
+ use astro_dnssd::{DNSServiceBuilder, RegisteredDnsService, ServiceBrowserBuilder};
+ 
+-use std::collections::{HashMap, HashSet};
++use async_channel::{Receiver, Sender};
++use std::collections::{hash_map::Entry, HashMap, HashSet};
+ use std::net::{IpAddr, ToSocketAddrs};
++use std::thread::{self, JoinHandle};
+ use std::time::Duration;
+ 
+ use crate::error::{Error, ErrorCode};
+@@ -45,7 +47,6 @@
+ /// NOTE: For Linux, you need to install the avahi-compat libraries. E.g., on Ubuntu:
+ /// `sudo apt install -y libavahi-compat-libdnssd-dev libavahi-compat-libdnssd1`
+ pub struct AstroMdns {
+-    services: HashMap<MatterLocalService, RegisteredDnsService>,
+     interface_index: u32,
+ }
+ 
+@@ -59,7 +60,6 @@
+     /// Create a new `AstroMdns`.
+     pub fn new() -> Self {
+         Self {
+-            services: HashMap::new(),
+             interface_index: 0,
+         }
+     }
+@@ -67,7 +67,7 @@
+     /// Use one interface for registrations and outbound discovery.
+     #[cfg(unix)]
+     pub fn on_interface(index: u32) -> Self {
+-        Self { interface_index: index, ..Self::new() }
++        Self { interface_index: index }
+     }
+ 
+     /// Run the mDNS responder + querier.
+@@ -87,22 +87,27 @@
+     }
+ 
+     /// Publish the local Matter services and keep them in sync with the stack.
+-    async fn run_respond(&mut self, node: &dyn TransportHost) -> Result<(), Error> {
++    async fn run_respond(&self, node: &dyn TransportHost) -> Result<(), Error> {
++        let registrations = Registrations::start()?;
+         loop {
+             node.transport().wait_mdns().await;
+ 
+             let mut services = HashSet::new();
+             node.mdns_services(&mut |service| {
+                 services.insert(service);
+-
+                 Ok(())
+             })?;
+-
+-            info!("mDNS services changed, updating...");
+-
+-            self.update_services(node, &services)?;
+-
+-            info!("mDNS services updated");
++            // Expanding the records borrows the transport again. Finish
++            // enumerating its services before constructing the builders.
++            let desired = services
++                .into_iter()
++                .map(|service| {
++                    let builder = self.registration(node, &service)?;
++                    Ok((service, builder))
++                })
++                .collect::<Result<DesiredServices, Error>>()?;
++
++            registrations.update(desired).await?;
+         }
+     }
+ 
+@@ -249,41 +254,11 @@
+         builder
+     }
+ 
+-    fn update_services(
+-        &mut self,
+-        node: &dyn TransportHost,
+-        services: &HashSet<MatterLocalService>,
+-    ) -> Result<(), Error> {
+-        for service in services {
+-            if !self.services.contains_key(service) {
+-                info!("Registering mDNS service: {:?}", service);
+-                let registered = self.register(node, service)?;
+-                self.services.insert(service.clone(), registered);
+-            }
+-        }
+-
+-        loop {
+-            let removed = self
+-                .services
+-                .iter()
+-                .find(|(service, _)| !services.contains(service));
+-
+-            if let Some((service, _)) = removed {
+-                info!("Deregistering mDNS service: {:?}", service);
+-                self.services.remove(&service.clone());
+-            } else {
+-                break;
+-            }
+-        }
+-
+-        Ok(())
+-    }
+-
+-    fn register(
+-        &mut self,
++    fn registration(
++        &self,
+         node: &dyn TransportHost,
+         service: &MatterLocalService,
+-    ) -> Result<RegisteredDnsService, Error> {
++    ) -> Result<DNSServiceBuilder, Error> {
+         // Scratch buffer for expanding `MatterLocalService` into a `MdnsLocalService` view —
+         // the strings (name, subtypes, TXT values) are formatted into this buffer.
+         let mut buf = [0u8; 512];
+@@ -312,9 +287,73 @@
+             builder = builder.with_key_value(k.to_string(), v.to_string());
+         }
+ 
+-        let svc = builder.register().map_err(|_| ErrorCode::MdnsError)?;
+-
+-        Ok(svc)
++        Ok(builder)
++    }
++}
++
++type DesiredServices = HashMap<MatterLocalService, DNSServiceBuilder>;
++
++struct RegistrationUpdate {
++    desired: DesiredServices,
++    completed: Sender<Result<(), Error>>,
++}
++
++struct Registrations {
++    updates: Sender<RegistrationUpdate>,
++    worker: Option<JoinHandle<()>>,
++}
++
++impl Registrations {
++    fn start() -> Result<Self, Error> {
++        let (updates, pending) = async_channel::bounded(1);
++        let worker = thread::Builder::new()
++            .name("matter-dns-sd".into())
++            .spawn(move || Self::run(pending))
++            .map_err(|_| ErrorCode::MdnsError)?;
++        Ok(Self {
++            updates,
++            worker: Some(worker),
++        })
++    }
++
++    async fn update(&self, desired: DesiredServices) -> Result<(), Error> {
++        let (completed, result) = async_channel::bounded(1);
++        self.updates
++            .send(RegistrationUpdate { desired, completed })
++            .await
++            .map_err(|_| ErrorCode::MdnsError)?;
++        result.recv().await.map_err(|_| ErrorCode::MdnsError)?
++    }
++
++    fn run(pending: Receiver<RegistrationUpdate>) {
++        let mut registered = HashMap::<MatterLocalService, RegisteredDnsService>::new();
++        while let Ok(RegistrationUpdate { desired, completed }) = pending.recv_blocking() {
++            // The daemon can take seconds to acknowledge registration. Keep
++            // creation and destruction of its handles on this worker.
++            registered.retain(|service, _| desired.contains_key(service));
++            let result = desired.into_iter().try_for_each(|(service, builder)| {
++                if !pending.is_closed() {
++                    if let Entry::Vacant(entry) = registered.entry(service) {
++                        entry.insert(builder.register().map_err(|_| ErrorCode::MdnsError)?);
++                    }
++                }
++                Ok(())
++            });
++            let failed = result.is_err();
++            let _ = completed.try_send(result);
++            if failed {
++                break;
++            }
++        }
++    }
++}
++
++impl Drop for Registrations {
++    fn drop(&mut self) {
++        self.updates.close();
++        if let Some(worker) = self.worker.take() {
++            let _ = worker.join();
++        }
+     }
+ }
+ 
+--- a/rs-matter-im-core/src/client.rs
++++ b/rs-matter-im-core/src/client.rs
+@@ -28,7 +28,7 @@
+ use crate::utils::sync::MaybeSend;
+ 
+ use super::{
+-    AttrResp, IMStatusCode, InvReqBuilder, InvokeResp, ReadReqBuilder, ReportDataResp,
++    AttrResp, CmdResp, IMStatusCode, InvReqBuilder, InvokeResp, ReadReqBuilder, ReportDataResp,
+     SubscribeReqBuilder, WriteReqBuilder, WriteResp,
+ };
+ 
+@@ -233,7 +233,24 @@
+     T: ImClient,
+     B: FnMut(InvReqBuilder<T::InvokeSender>) -> Result<T::InvokeSender, Error> + MaybeSend,
+ {
+-    complete_invoke(tx.invoke_with(timed_timeout_ms, build).await?).await
++    let mut chunk = tx.invoke_with(timed_timeout_ms, build).await?;
++    let mut failure = None;
++    loop {
++        if let Some(responses) = chunk.response()?.and_then(|response| response.invoke_responses) {
++            for item in responses.iter() {
++                if let CmdResp::Status(status) = item? {
++                    if let Some(code) = status.status.status.to_error_code() {
++                        failure.get_or_insert(code);
++                    }
++                }
++            }
++        }
++
++        match chunk.complete().await? {
++            Some(next) => chunk = next,
++            None => return failure.map_or(Ok(()), |code| Err(code.into())),
++        }
++    }
+ }
+ 
+ /// Acknowledge the provided chunk and all the chunks following it.
+--- a/rs-matter-dm/src/clusters/app/webrtc_prov.rs
++++ b/rs-matter-dm/src/clusters/app/webrtc_prov.rs
+@@ -558,6 +558,7 @@
+     fab_idx: u8,
+     peer_node_id: u64,
+     peer_endpoint_id: EndptId,
++    access: OfferAccess,
+     stream_usage: StreamUsageEnum,
+     /// `None` = NULL in spec; `Some(x)` = concrete stream ID.
+     video_stream_id: Option<u16>,
+@@ -832,7 +833,29 @@
+             self.set_state(*session_id, SessionState::AwaitingAnswer);
+         }
+ 
+-        let delivery = self.send_outbound(ctx, session, &work, sdp);
++        let delivery = async {
++            let mut result = self.send_outbound(ctx, session, &work, sdp).await;
++            if matches!(work, OutboundWork::Answer { .. }) {
++                for _ in 0..3 {
++                    if !matches!(&result, Err(error) if error.code() == ErrorCode::NotFound) {
++                        break;
++                    }
++                    // A requestor may still be registering the session named
++                    // in ProvideOfferResponse. Retry only an explicit rejection,
++                    // while the same authenticated offer still permits access.
++                    Timer::after_millis(40).await;
++                    if !self.session_copy(session_id).is_some_and(|current| {
++                        current.access == session.access
++                            && current.peer_endpoint_id == session.peer_endpoint_id
++                            && current.access.allowed(ctx, self.matter, self.endpoint_id)
++                    }) {
++                        return Ok(());
++                    }
++                    result = self.send_outbound(ctx, session, &work, sdp).await;
++                }
++            }
++            result
++        };
+         if let Some(timeout) = self.hooks.signaling_timeout() {
+             match select(delivery, Timer::after(timeout)).await {
+                 Either::First(result) => result,
+@@ -1103,6 +1126,7 @@
+             fab_idx,
+             peer_node_id,
+             peer_endpoint_id: params.originating_endpoint_id,
++            access: params.access,
+             stream_usage: params.stream_usage,
+             video_stream_id: outcome.video_stream_id,
+             audio_stream_id: outcome.audio_stream_id,
+@@ -1177,6 +1201,7 @@
+             fab_idx,
+             peer_node_id,
+             peer_endpoint_id: params.originating_endpoint_id,
++            access: params.access,
+             stream_usage: params.stream_usage,
+             video_stream_id: outcome.video_stream_id,
+             audio_stream_id: outcome.audio_stream_id,

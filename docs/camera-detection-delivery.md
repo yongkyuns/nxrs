@@ -11,10 +11,11 @@ of playback status. A stale video view never displays a current person state.
 wire contract. [monitoring-api.json](monitoring-api.json) describes the public
 subscription. The shared golden fixture is
 `clients/ios/Tests/NxrsMonitorCoreTests/Fixtures/detection.json`; Rust, Swift and
-JSON Schema tests consume those same bytes. `service/detection-wire` owns the
-Rust wire types and bounded serializer/parser. It depends on no HAL or model.
-The application maps its typed detection snapshot into that protocol; the HAL
-continues to own only inference and its common capability API.
+JSON Schema tests consume those same bytes. `service/detection` owns the alert
+policy, event history and publication. Its `wire` module owns the Rust types
+and bounded JSON codec. Home-cam sends the resulting metadata, and the gateway
+validates it with inference disabled. The detector HAL owns model execution
+and its portable capability API.
 
 `Source` carries a publication ID, owner-clock emission time, confirmed presence,
 localization capability, optional latest observation, and eight retained events.
@@ -91,10 +92,16 @@ Slow readers have no application queue. Shutdown ends streaming bodies before
 HTTP listeners drain. The nginx route disables buffering and preserves
 Last-Event-ID. The optional local HTTPS fixture proxy also streams incrementally.
 
+An enrolled gateway reader with `"scope": "detections"` can subscribe only
+to detections for its configured cameras. Catalogue and playback-grant requests
+return HTTP 403. Existing viewers retain their original access when scope is
+omitted. Revocation ends an active subscription at the next gateway emission.
+
 Each `event: detection` contains a complete `Snapshot`, including confirmed
-presence, current source data, known observation age and a 1500 ms presentation
-lease. The gateway emits every 500 ms. Source updates older than 1500 ms, or
-observations older than 5000 ms, produce unavailable. Age uses source-owner time
+presence, current source data, known observation age and a presentation deadline
+in `valid_for_ms`. For fresh observations, each 500 ms heartbeat reports only the time remaining until
+either the source update reaches 1500 ms or the observation reaches 5000 ms.
+At either deadline the state becomes unavailable. Age uses source-owner time
 plus monotonic time since receipt; it is not UTC or sensor-exposure freshness.
 
 SSE IDs have the form `source_session_id:event_count`. Last-Event-ID asks for a

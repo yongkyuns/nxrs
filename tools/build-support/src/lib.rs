@@ -14,6 +14,7 @@ pub mod preparation;
 pub mod prepared_resource;
 pub mod profile;
 pub mod resolved;
+pub mod source_transaction;
 pub mod source;
 
 use sha2::{Digest, Sha256};

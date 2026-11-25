@@ -1,0 +1,79 @@
+diff --git a/src/sdp/mod.rs b/src/sdp/mod.rs
+--- a/src/sdp/mod.rs
++++ b/src/sdp/mod.rs
+@@ -2,6 +2,8 @@
+ use std::ops::Deref;
+
+ use serde::{Deserialize, Deserializer, Serialize, Serializer, de};
++use crate::format::PayloadParams;
++use crate::media::Direction;
+
+ mod data;
+ #[cfg(test)]
+@@ -31,6 +33,29 @@
+         self.0.to_string()
+     }
+
++    /// Keep one compatible H.264 payload and its RTX format on the video m-line.
++    /// Other media sections retain their original indices and parameters.
++    pub fn select_h264_receiver(&mut self, profile_level_id: u32) -> Option<PayloadParams> {
++        let mut video = self.0.media_lines.iter_mut().filter(|line| {
++            line.typ == MediaType::Video && !line.disabled && line.direction() == Direction::RecvOnly
++        });
++        let line = video.next()?;
++        if video.next().is_some() {
++            return None;
++        }
++        let params = line.rtp_params().into_iter().find(|p| {
++            line.pts.contains(&p.pt()) && p.accepts_h264_source(profile_level_id)
++        })?;
++        line.pts.retain(|pt| *pt == params.pt() || Some(*pt) == params.resend());
++        line.attrs.retain(|attr| match attr {
++            MediaAttribute::RtpMap { pt, .. }
++            | MediaAttribute::Fmtp { pt, .. }
++            | MediaAttribute::RtcpFb { pt, .. } => line.pts.contains(pt),
++            _ => true,
++        });
++        Some(params)
++    }
++
+     #[cfg(test)]
+     pub(crate) fn into_inner(self) -> Sdp {
+         self.0
+diff --git a/src/format/payload_params.rs b/src/format/payload_params.rs
+--- a/src/format/payload_params.rs
++++ b/src/format/payload_params.rs
+@@ -4,9 +4,10 @@
+
+ use crate::packet::H264ProfileLevel;
+ use crate::packet::H265ProfileTierLevel;
+-use crate::rtp_::Pt;
++use crate::rtp_::{Frequency, Pt};
+
+ use super::codec::{Codec, CodecSpec};
++use super::format_params::FormatParams;
+
+ /// Preferred ranges for dynamic payload type allocation.
+ pub(crate) const PREFERED_RANGES: &[RangeInclusive<usize>] = &[
+@@ -211,6 +212,21 @@
+     /// The codec with settings for this group of parameters.
+     pub fn spec(&self) -> CodecSpec {
+         self.spec
++    }
++
++    /// Whether this receiver can decode the source SPS in packetization mode 1.
++    pub fn accepts_h264_source(&self, profile_level_id: u32) -> bool {
++        self.spec.codec == Codec::H264
++            && self.spec.clock_rate == Frequency::NINETY_KHZ
++            && self.spec.format.profile_level_id.is_some()
++            && Self::match_h264_score(self.spec, CodecSpec {
++                format: FormatParams {
++                    packetization_mode: Some(1),
++                    profile_level_id: Some(profile_level_id),
++                    ..Default::default()
++                },
++                ..self.spec
++            }).is_some()
+     }
+
+     /// Sets whether the payload use the TWCC feedback mechanic.

@@ -46,7 +46,7 @@ hardware evidence and continue independent host work when devices are absent.
 
 Read `hal/imu/src/{api,bmi270,cadence}.rs`,
 `hal/imu/src/platform/nuttx/{mod,irq,signal}.rs`, `hal/imu/src/test_support.rs`,
-`hal/acquisition/src/`, `tools/build-support/src/profile.rs`,
+`shared/acquisition/src/`, `tools/build-support/src/profile.rs`,
 `tools/build/src/{deployment,cargo_graph}.rs` and
 `platform/cores3/profile.toml`.
 
@@ -626,6 +626,15 @@ The implementation acceptance matrix is:
 | Native and memory evidence | Selected helper/ABI checks, final map/code/data inspection, static state versus remaining allocation inventory |
 | Portability | The same application/service policy and normal entry points work across selected sensor implementations |
 
+The [acquisition memory witness](memory-qualification.md#acquisition-lifetime-witness)
+separates construction, completed first wait, stop/join and session drop for one
+and two workers, then repeats each lifecycle eight times. Its Linux Rust-allocator
+measurements and ownership inventory complement linked static-object evidence;
+they do not measure native NuttX heap/descriptor costs, stack high-water marks or
+physical sensor execution. Joined sessions still own cancellation/state allocations
+until dropped. Keep those two reclamation boundaries distinct in future target
+measurements and in the remaining D5 allocation accounting.
+
 Run the relevant existing commands above, build-support/build tests, boundary
 regressions and external-consumer suites. Inspect actual target Cargo artifacts
 and the final linked image; Cargo.lock presence or total binary size alone is
@@ -688,12 +697,11 @@ mixed input set and remove stale reports before checking new evidence.
 
 These finite target-image checks address the same-model, mixed-model and
 unconsumed-capability cases in D5's implementation-selection and permanent-state
-evidence. They do not execute physical device sessions. Complete allocation
-accounting and an explicit simultaneous different-profile/separate-output build
-witness remain separate items. Same-output locking and sequential profile-switch
-tests already cover their respective concurrency and freshness cases. Physical
-S8 behavior and any performance or whole-system memory claims require their own
-evidence.
+evidence. The [concurrent profile qualification](build-system.md#concurrent-profile-qualification)
+covers simultaneous builds with separate outputs. Same-output locking and
+sequential profile-switch tests cover their respective concurrency and
+freshness cases. Physical S8 behavior, target allocation accounting and
+whole-system performance and memory measurements require separate evidence.
 
 Update architecture docs, HAL READMEs and AGENTS rules to the implemented state,
 remove superseded migration guidance and retain source/qualification provenance.

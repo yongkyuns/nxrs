@@ -1,0 +1,251 @@
+--- a/examples/src/bin/webrtc_camera.rs
++++ b/examples/src/bin/webrtc_camera.rs
+@@ -1521,6 +1521,11 @@
+ // Main
+ // ---------------------------------------------------------------------------
+
++enum Maintenance {
++    Status,
++    RemoveSoleFabric(u16),
++}
++
+ fn main() -> Result<(), Error> {
+     // Use `tracing-subscriber` so we see both the rs-matter `log::*` events
+     // (bridged via the `tracing-log` feature of `tracing-subscriber`) AND
+@@ -1538,23 +1543,39 @@
+     let mut initialize = false;
+     let mut open_window = false;
+     let mut config_path = None;
++    let mut maintenance = None;
+     let mut args = std::env::args_os().skip(1);
+     while let Some(arg) = args.next() {
+         match arg.to_str() {
+             Some("--initialize-state") if !initialize => initialize = true,
+             Some("--open-commissioning-window") if !open_window => open_window = true,
++            Some("--fabric-status") if maintenance.is_none() => {
++                maintenance = Some(Maintenance::Status);
++            }
++            Some("--remove-sole-fabric") if maintenance.is_none() => {
++                let index = args.next().and_then(|arg| arg.to_str()?.parse().ok())
++                    .filter(|index| (1..=254).contains(index)).ok_or(ErrorCode::Invalid)?;
++                maintenance = Some(Maintenance::RemoveSoleFabric(index));
++            }
+             Some("--config") if config_path.is_none() => {
+                 config_path = Some(args.next().ok_or(ErrorCode::Invalid)?);
+             }
+             _ => return Err(ErrorCode::Invalid.into()),
+         }
++    }
++    if maintenance.is_some() && (initialize || open_window) {
++        return Err(ErrorCode::Invalid.into());
+     }
+     let config_path = config_path.ok_or(ErrorCode::Invalid)?;
+     let deployment = nxrs_gateway_matter::config::Deployment::load(std::path::Path::new(&config_path))
+         .map_err(|_| ErrorCode::Invalid)?;
+     let snapshot_path = deployment.snapshot_ffmpeg.as_deref().ok_or(ErrorCode::Invalid)?;
+     let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
+-    let (reader, video, feed) = runtime.block_on(deployment.inputs(initialize)).map_err(|_| ErrorCode::Invalid)?;
++    let inputs = if maintenance.is_none() {
++        Some(runtime.block_on(deployment.inputs(initialize)).map_err(|_| ErrorCode::Invalid)?)
++    } else {
++        None
++    };
+     let factory = FACTORY.init(
+         FactoryData::load(&deployment.factory_data).map_err(|_| ErrorCode::Invalid)?,
+     );
+@@ -1570,6 +1591,17 @@
+         &deployment.state_directory, initialize, factory, ONBOARDING_ID_KEY,
+     )?;
+     let (camera_id, sensor_id) = store.bind_camera(&deployment, CAMERA_ID_KEY, initialize)?;
++    if let Some(maintenance) = maintenance {
++        match maintenance {
++            Maintenance::Status => {
++                let indices: Vec<_> = store.fabric_indices().collect();
++                println!("{{\"fabric_indices\":{indices:?}}}");
++            }
++            Maintenance::RemoveSoleFabric(index) => store.remove_sole_fabric(index)?,
++        }
++        return Ok(());
++    }
++    let (reader, video, feed) = inputs.ok_or(ErrorCode::Invalid)?;
+     let matter = MATTER.uninit().init_with(Matter::init(
+         &BASIC_INFO, verifier.into(), &TEST_DEV_ATT, MATTER_PORT,
+     ));
+--- a/examples/src/bin/persistence/mod.rs
++++ b/examples/src/bin/persistence/mod.rs
+@@ -36,6 +36,24 @@
+         config.bind(&mut self.inner, key, initializing, rand::random)
+             .map_err(|_| ErrorCode::Invalid.into())
+     }
++    pub fn fabric_indices(&self) -> impl Iterator<Item = u16> + '_ {
++        let range = FABRIC_KEYS_START + 1..FABRIC_KEYS_START + 255;
++        self.inner.keys().filter(move |key| range.contains(key))
++    }
++
++    fn is_sole_fabric(&self, key: u16) -> bool {
++        let mut fabrics = self.fabric_indices();
++        fabrics.next() == Some(key) && fabrics.next().is_none()
++    }
++
++    pub fn remove_sole_fabric(&mut self, key: u16) -> Result<(), Error> {
++        if !self.is_sole_fabric(key) {
++            return Err(ErrorCode::InvalidInState.into());
++        }
++        let result = self.inner.remove_with(key, installation_record);
++        self.checked(result)
++    }
++
+     fn checked<T>(
+         &self,
+         result: Result<T, nxrs_gateway_matter::persistence::Error>,
+@@ -66,19 +84,23 @@
+         let result = self.inner.store(key, data);
+         self.checked(result)
+     }
+-    fn remove(&mut self, key: u16, _buffer: &mut [u8]) -> Result<(), Error> {
+-        let last_fabric = {
+-            let range = FABRIC_KEYS_START + 1..FABRIC_KEYS_START + 255;
+-            let mut fabrics = self.inner.keys().filter(|key| range.contains(key));
+-            fabrics.next() == Some(key) && fabrics.next().is_none()
+-        };
+-        let result = if last_fabric {
+-            // The fabric and every record owned by this Matter installation
+-            // must cross the same rename boundary.
+-            self.inner.remove_with(key, installation_record)
+-        } else {
+-            self.inner.remove(key)
+-        };
++    fn store_pair(
++        &mut self,
++        prerequisite: (u16, &[u8]),
++        (key, value): (u16, &[u8]),
++        _buffer: &mut [u8],
++    ) -> Result<(), Error> {
++        let result = self.inner.store_with(key, value, &[prerequisite]);
+         self.checked(result)
+     }
++
++    fn remove(&mut self, key: u16, _buffer: &mut [u8]) -> Result<(), Error> {
++        if self.is_sole_fabric(key) {
++            // Retire the fabric and its installation records together.
++            self.remove_sole_fabric(key)
++        } else {
++            let result = self.inner.remove(key);
++            self.checked(result)
++        }
++    }
+ }
+--- a/rs-matter-dm-core/src/persist.rs
++++ b/rs-matter-dm-core/src/persist.rs
+@@ -263,6 +263,19 @@
+     /// - `Err` if an error occurred during storing.
+     fn store(&mut self, key: u16, data: &[u8], buf: &mut [u8]) -> Result<(), Error>;
+
++    /// Store two related records in their commit order. Start with the
++    /// prerequisite record and finish with the record that makes it live.
++    /// Stores with atomic snapshots should override this method.
++    fn store_pair(
++        &mut self,
++        prerequisite: (u16, &[u8]),
++        record: (u16, &[u8]),
++        buf: &mut [u8],
++    ) -> Result<(), Error> {
++        self.store(prerequisite.0, prerequisite.1, buf)?;
++        self.store(record.0, record.1, buf)
++    }
++
+     /// Remove a BLOB with the specified key from the storage.
+     ///
+     /// # Arguments
+@@ -287,6 +300,15 @@
+         T::store(self, key, data, buf)
+     }
+
++    fn store_pair(
++        &mut self,
++        prerequisite: (u16, &[u8]),
++        record: (u16, &[u8]),
++        buf: &mut [u8],
++    ) -> Result<(), Error> {
++        T::store_pair(self, prerequisite, record, buf)
++    }
++
+     fn remove(&mut self, key: u16, buf: &mut [u8]) -> Result<(), Error> {
+         T::remove(self, key, buf)
+     }
+@@ -299,6 +321,15 @@
+
+     fn store(&mut self, key: u16, data: &[u8], buf: &mut [u8]) -> Result<(), Error> {
+         (**self).store(key, data, buf)
++    }
++
++    fn store_pair(
++        &mut self,
++        prerequisite: (u16, &[u8]),
++        record: (u16, &[u8]),
++        buf: &mut [u8],
++    ) -> Result<(), Error> {
++        (**self).store_pair(prerequisite, record, buf)
+     }
+
+     fn remove(&mut self, key: u16, buf: &mut [u8]) -> Result<(), Error> {
+@@ -446,6 +477,30 @@
+
+             Ok(Some(wb.get_tail()))
+         })
++    }
++
++    /// Serialize both values before making either of them visible in storage.
++    pub fn store_tlv_pair<T: ToTLV, U: ToTLV>(
++        &mut self,
++        prerequisite: (u16, T),
++        record: (u16, U),
++    ) -> Result<(), Error> {
++        fn encode(value: impl ToTLV, buf: &mut [u8]) -> Result<usize, Error> {
++            let mut writer = WriteBuf::new(buf);
++            value.to_tlv(&TLVTag::Anonymous, &mut writer)?;
++            Ok(writer.get_tail())
++        }
++        let result = self.kvb.access(|kv, buf| {
++            if !buf.is_empty() {
++                let size = encode(prerequisite.1, buf)?;
++                let (first, buf) = buf.split_at_mut(size);
++                let size = encode(record.1, buf)?;
++                let (second, scratch) = buf.split_at_mut(size);
++                kv.store_pair((prerequisite.0, first), (record.0, second), scratch)?;
++            }
++            Ok(())
++        });
++        self.check(record.0, result)
+     }
+
+     /// Load a value from the storage with the specified key by calling the
+--- a/rs-matter-node-core/src/fabric.rs
++++ b/rs-matter-node-core/src/fabric.rs
+@@ -1563,6 +1563,14 @@
+             .store_tlv(FABRIC_KEYS_START + fabric.fab_idx().get() as u16, fabric)
+     }
+
++    /// Commit a commissioned fabric with the allocator cursor it advanced.
++    pub fn store_commissioned(&mut self, fabric: &Fabric, next: NonZeroU8) -> Result<(), Error> {
++        self.0.store_tlv_pair(
++            (NEXT_FABRIC_INDEX_KEY, next.get()),
++            (FABRIC_KEYS_START + fabric.fab_idx().get() as u16, fabric),
++        )
++    }
++
+     /// Remove the fabric with the given index from the persistent storage.
+     pub fn remove(&mut self, fab_idx: NonZeroU8) -> Result<(), Error> {
+         self.0.remove(FABRIC_KEYS_START + fab_idx.get() as u16)
+--- a/rs-matter-dm/src/clusters/gen_comm.rs
++++ b/rs-matter-dm/src/clusters/gen_comm.rs
+@@ -570,8 +570,7 @@
+                 state
+                     .failsafe
+                     .disarm_with(sess.get_session_mode(), state.fabrics, |fabric| {
+-                        persist.store_next_fab_idx(next_fab_idx)?;
+-                        persist.store(fabric)
++                        persist.store_commissioned(fabric, next_fab_idx)
+                     })?;
+
+                 state.pase.close_comm_window(notify_mdns, notify_change)?;

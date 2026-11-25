@@ -1,0 +1,7 @@
+[package]
+name = "nxrs-sim7080"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+name = "sim7080"

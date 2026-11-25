@@ -1,7 +1,7 @@
-//! Direct synchronous MCUboot SDK bindings. The SDK opens/closes its native
-//! flash resources within each call; one Rust owner excludes concurrent calls.
+//! Reset diagnostics and synchronous MCUboot SDK bindings. The SDK manages its
+//! native flash resources within each call. One Rust owner excludes concurrent calls.
 use crate::staging::Slot;
-use crate::{DeviceError, State};
+use crate::{DeviceError, ResetCause, State};
 use core::ffi::c_int;
 use core::ptr::NonNull;
 
@@ -22,6 +22,7 @@ struct Sector {
 }
 
 unsafe extern "C" {
+    fn boot_reset_cause() -> c_int;
     fn up_systemreset() -> !;
     fn flash_area_id_from_image_slot(slot: c_int) -> c_int;
     fn flash_area_open(id: u8, area: *mut *const FlashArea) -> c_int;
@@ -36,6 +37,22 @@ unsafe extern "C" {
     fn boot_swap_type_multi(image: c_int) -> c_int;
     fn boot_set_pending_multi(image: c_int, permanent: c_int) -> c_int;
     fn boot_set_confirmed_multi(image: c_int) -> c_int;
+}
+
+pub(super) fn reset_cause() -> Result<ResetCause, DeviceError> {
+    // SAFETY: the bridge queries the board synchronously and returns a scalar.
+    match unsafe { boot_reset_cause() } {
+        0 => Ok(ResetCause::Unknown),
+        1 => Ok(ResetCause::ChipReset),
+        2 => Ok(ResetCause::Brownout),
+        3 => Ok(ResetCause::Software),
+        4 => Ok(ResetCause::ExternalPin),
+        5 => Ok(ResetCause::LowPower),
+        6 => Ok(ResetCause::MainWatchdog),
+        7 => Ok(ResetCause::RtcWatchdog),
+        -1 => Err(DeviceError::Unsupported),
+        _ => Err(DeviceError::Io),
+    }
 }
 
 pub(super) fn reboot() -> Result<core::convert::Infallible, DeviceError> {

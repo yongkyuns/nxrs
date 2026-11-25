@@ -3,9 +3,9 @@ name: First firmware tutorial
 on:
   push:
     branches: [main]
-    paths: ['website/**', 'hal/led/**', 'hal/config/**', 'platform/**', 'upstream/**', 'external/**', 'tools/**', 'tests/profiles/esp32s3-qemu-mock.toml', 'tests/profiles/esp32s3-qemu-led-mock.toml', 'tests/profiles/mock.toml', 'tests/rtos_harness/nuttx.py', '.cargo/**', 'Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml', '.gitmodules', '.github/scripts/install-ubuntu-packages.sh', '.github/workflows/first-firmware.yml']
+    paths: ['website/**', 'hal/led/**', 'hal/settings/**', 'platform/**', 'upstream/**', 'external/**', 'tools/**', 'tests/profiles/esp32s3-qemu-mock.toml', 'tests/profiles/esp32s3-qemu-led-mock.toml', 'tests/profiles/mock.toml', 'tests/rtos_harness/nuttx.py', '.cargo/**', 'Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml', '.gitmodules', '.github/scripts/install-ubuntu-packages.sh', '.github/workflows/first-firmware.yml']
   pull_request:
-    paths: ['website/**', 'hal/led/**', 'hal/config/**', 'platform/**', 'upstream/**', 'external/**', 'tools/**', 'tests/profiles/esp32s3-qemu-mock.toml', 'tests/profiles/esp32s3-qemu-led-mock.toml', 'tests/profiles/mock.toml', 'tests/rtos_harness/nuttx.py', '.cargo/**', 'Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml', '.gitmodules', '.github/scripts/install-ubuntu-packages.sh', '.github/workflows/first-firmware.yml']
+    paths: ['website/**', 'hal/led/**', 'hal/settings/**', 'platform/**', 'upstream/**', 'external/**', 'tools/**', 'tests/profiles/esp32s3-qemu-mock.toml', 'tests/profiles/esp32s3-qemu-led-mock.toml', 'tests/profiles/mock.toml', 'tests/rtos_harness/nuttx.py', '.cargo/**', 'Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml', '.gitmodules', '.github/scripts/install-ubuntu-packages.sh', '.github/workflows/first-firmware.yml']
   workflow_dispatch:
 
 permissions:

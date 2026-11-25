@@ -102,7 +102,33 @@
       "0115-esp32s3-smp-flash-rendezvous.patch",
       "0116-xtensa-serialize-wifi-reconnect.patch",
       "0117-mm-heap-propagate-lock-failure.patch",
-      "0118-esp32s3-smp-psram-atomics.patch"
+      "0118-esp32s3-smp-psram-atomics.patch",
+      "0119-esp32s3-board-reset-cause.patch",
+      "0120-rp23xx-peripheral-device-controls.patch",
+      "0121-espressif-ledc-gpio-readback.patch",
+      "0122-esp32s3-spi-write-only-pio.patch",
+      "0123-esp32s3-cores3-display-resources.patch",
+      "0124-esp32s3-maintenance-volume.patch",
+      "0125-esp32s3-camera-smp-irq-lifetime.patch",
+      "0126-espressif-i2s-rx-enqueue-ownership.patch",
+      "0127-esp32s3-i2s-rx-interrupt-route.patch",
+      "0128-esp32s3-i2s-rx-stop-ownership.patch",
+      "0129-esp32s3-cores3-register-settings-storage.patch",
+      "0130-esp32s3-cores3-ble-and-guarded-entropy.patch",
+      "0131-esp32s3-read-systimer-with-periodic-scheduler.patch",
+      "0132-esp32s3-cores3-touchscreen.patch",
+      "0133-esp32s3-qemu-host-entropy.patch",
+      "0134-sim-macos-pty.patch",
+      "0135-sim-macos-libc-symbol-prefix.patch",
+      "0136-sim-replace-macos-archive-members.patch",
+      "0137-bluetooth-nonblocking-notify.patch",
+      "0138-bluetooth-retire-failed-acl-transport.patch",
+      "0139-bluetooth-strip-write-command-handle.patch",
+      "0140-esp32s3-serialize-vhci-send.patch",
+      "0141-bluetooth-reclaim-tx-credits-before-allocation.patch",
+      "0142-stack-guard-use-saved-interrupt-context.patch",
+      "0143-esp32s3-cores3-register-watchdog.patch",
+      "0144-ram-uart-report-only-new-rx-bytes.patch"
     ]
   },
   "mcuboot": {
@@ -120,7 +146,8 @@
       "0002-nsh-dmesg-reset-options.patch",
       "0003-dhcpc-pad-option.patch",
       "0004-mcuboot-current-helpers.patch",
-      "0005-dropbear-bounded-service.patch"
+      "0005-dropbear-bounded-service.patch",
+      "0006-dropbear-initialize-remote-prompt.patch"
     ]
   },
   "esp-hal-3rdparty": {

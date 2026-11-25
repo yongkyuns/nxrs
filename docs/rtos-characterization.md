@@ -6,19 +6,19 @@ each implementation provide?** RAM is one part of that answer. An empty-thread
 test cannot characterize device integration, progress under load, recovery or
 the value of ordinary Rust application code.
 
-This document defines the broader evaluation scope and maps existing evidence
-to it. The experiments below are the proposed next measurements, not completed
-physical results. The historical [RTOS comparison](rtos-comparison.md),
-[std channel campaign](std-channel-performance.md) and their frozen cohorts
-retain their original scope. The new RAM controls are one component of this
-characterization; they do not establish a platform ranking.
+Use this page when designing an evaluation. For the recorded findings, start with [RTOS comparison results](rtos-comparison.md), [bounded channels](std-channel-performance.md) and [memory and image size](rust-std-footprint.md).
 
-The [finite hardware campaign](../tests/rtos-characterization/README.md) now
-maps the core criteria to build inspection, a fixed run census, and strict
-offline replay. Its current-source owner witnesses and separate S3 CPU/IRQ
-observer images complement the primary messaging and RAM controls. Artifact
-readiness and physical execution are reported separately; real device, energy
-and protection requirements retain their own hardware qualification scope.
+## Choose the experiment
+
+| Product question | Experiment | Existing evidence |
+| --- | --- | --- |
+| Will the required application fit? | [1. Deployment cost](#1-cost-of-the-required-deployment) | [Physical RAM controls](../tests/rtos-characterization/PHYSICAL-RESULTS.md#ram) |
+| Will messages make progress at the required load? | [2. Communication and priority](#2-communication-selection-and-priority-progress) | [Messaging and owner runs](../tests/rtos-characterization/PHYSICAL-RESULTS.md#messaging-and-progress) |
+| Will the device produce an output on time? | [3. Device-to-output response](#3-device-to-output-response-under-interference) | [Separate timer and camera checks](../tests/rtos-characterization/PHYSICAL-RESULTS.md#supplemental-board-checks) |
+| Can overload or a fault be recovered without resource growth? | [4. Overload and recovery](#4-bounded-overload-and-recovery) | [Finite campaign](../tests/rtos-characterization/README.md) |
+| Can behavior survive a board or device change? | [5. Portability and integration](#5-portability-integration-and-maintenance) | [Portable services](portable-services.md), [device composition](static-device-composition.md) |
+
+Each experiment needs an acceptance requirement and a stopping point. Reuse the existing fixture that answers it. Missing physical sensor, energy or protection evidence remains a separate product requirement; it is not a reason to expand every transport comparison.
 
 ## Separate the OS from the application environment
 
@@ -143,9 +143,10 @@ single-inbox path. It already runs a shared Rust workload using NuttX std
 within one board. It does not run Rust std on Zephyr. A separately selected
 public POSIX `mq_*` NuttX control now retains the same Rust workload and std
 threads; build receipts check the common kernel configuration, patches and
-link-relevant archive contents. This isolates a queue-path substitution, not
-the complete NXRS/native-C difference. Physical capture and final hot-path
-placement qualification still remain before attributing a measured timing gap.
+link-relevant archive contents. This isolates a queue-path substitution. The
+[physical messaging runs](../tests/rtos-characterization/PHYSICAL-RESULTS.md#messaging-and-progress)
+report measured timing. Attribution still requires a final hot-path placement
+check.
 
 For independent stop/important/ordinary capacity, reuse the
 [existing three-class Wi-Fi owner](../tests/nuttx-std/wifi/src/owner.rs) and
@@ -225,18 +226,19 @@ implementation references.
 
 | Evidence | Supported finding | Remaining boundary |
 | --- | --- | --- |
-| [Historical event services](rtos-comparison.md) | Twenty-service native configurations provision equal payload capacity. Timer resolution, code placement and execution model affect observed results. | Native-adapter Rust is not ordinary NXRS; fixed 4 KiB requests do not establish minimal safe stacks; different cohorts cannot be added together. |
-| [Modern std channel campaign](std-channel-performance.md) | The selected NuttX bounded std path has physical delivery, overload and throughput observations. | One bounded channel is not selected multi-queue service progress or complete device-to-output qualification. Each full timing/counter matrix had one pass; only a focal case had additional repeats. |
+| [Historical event services](history/native-rtos-study.md) | Twenty-service native configurations provision equal payload capacity. Timer resolution, code placement and execution model affect observed results. | Native-adapter Rust is not ordinary NXRS; fixed 4 KiB requests do not establish minimal safe stacks; different cohorts cannot be added together. |
+| [Original std channel campaign](history/std-channel-campaign.md) | The selected NuttX bounded std path has physical delivery, overload and throughput observations. | One bounded channel is not selected multi-queue service progress or complete device-to-output qualification. Each full timing/counter matrix had one pass; only a focal case had additional repeats. |
 | [Native C/Rust service qualification](../tests/service-qualification/README.md) | Scoped pressure, same-boot restart, failure/recovery and resource-reclamation cases passed. | It shares native adapters, excludes production std/Crossbeam paths, and does not qualify input IRQ latency or arbitrary failure recovery. |
-| [New ordinary Rust RAM controls](../tests/ram-footprint-std/README.md) | Actual std/inbox/Crossbeam paths have host accounting/lifecycle checks and target build controls. | Host behavior and target linking do not supply physical target heap, stack or timing measurements. |
-| [Native NuttX queue control](../tests/mpsc-comparison/README.md) | The maintained workload can select std or public POSIX queues under the same NuttX/std-thread model; receipts check kernel inputs and the selected linked API. | A new build/capture cohort is required. It does not measure the complete NXRS layer, unequal-priority progress, or qualified final placement by itself. |
+| [Physical ordinary Rust RAM](../tests/rtos-characterization/PHYSICAL-RESULTS.md#ram) | WROOM measurements cover std threads, std inboxes and Crossbeam selection. | Heap and linked RAM measurements apply to the exercised configurations and workloads. |
+| [Physical messaging and owner cases](../tests/rtos-characterization/PHYSICAL-RESULTS.md#messaging-and-progress) | NuttX std, NuttX POSIX and Zephyr native transports ran on each board. Separate Rust owner cases exercised overload, shutdown and recovery. | The owner cases use synthetic Wi-Fi input. Timing attribution still depends on code placement and observer scope. |
+| [Physical timer and camera checks](../tests/rtos-characterization/PHYSICAL-RESULTS.md#supplemental-board-checks) | A Pico timer alarm woke a blocked Rust worker under load. A WROOM camera recovered from an injected read error in the same boot and Wi-Fi session. | Physical IMU IRQ-to-sample latency and protected recovery require separate qualification. |
 | [Architecture and capability contracts](concurrency-event-communication.md) | Ownership, independent admission, failure retention and shutdown requirements are explicit. | A requirement is not an executed witness; each chosen provider/runtime still needs qualification. |
 
-The old lean RAM figures put native-adapter NuttX Rust at 221,108 B and Zephyr C
-at 205,380 B in that fixture. This is a 15,728 B configured-image difference,
-not a measured price for NXRS. Embassy's separate 61,172 B row is useful as an
-async execution reference, but the earlier near-threefold full-image ratio
-cannot rank the three application environments covered by this document.
+For measured totals and their implications, see the
+[service RAM and deadline comparison](rtos-comparison.md#service-ram-and-deadline-behavior).
+The four-way service case compares cooperative and threaded execution. The
+matched usable-stack control separates stack and queue costs for native NuttX
+and Zephyr. The ordinary Rust case measures the std path used by NXRS.
 
 ## Reporting discipline
 

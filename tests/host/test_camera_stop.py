@@ -11,6 +11,7 @@ ROOT = Path(__file__).resolve().parents[2]
 CAM = 'arch/xtensa/src/esp32s3/esp32s3_cam.c'
 CAP = 'drivers/video/v4l2_cap.c'
 PATCH = '0102-camera-stop-acknowledgement.patch'
+IRQ_PATCH = '0125-esp32s3-camera-smp-irq-lifetime.patch'
 
 
 def function(source, name):
@@ -28,7 +29,8 @@ class CameraStopTests(unittest.TestCase):
         cls.addClassCleanup(cls.temporary.cleanup)
         cls.directory = directory = Path(cls.temporary.name)
         series = runpy.run_path(str(ROOT / 'tools/apply-nuttx-patches.py'))['SERIES']['nuttx']
-        assert series.count(PATCH) == 1
+        assert series.count(PATCH) == series.count(IRQ_PATCH) == 1
+        assert series.index(PATCH) < series.index(IRQ_PATCH)
         revision = subprocess.check_output(['git', 'rev-parse', ':external/nuttx'], cwd=ROOT, text=True).strip()
         def upstream(path):
             return subprocess.check_output(['git', '-C', str(ROOT / 'external/nuttx'),
@@ -39,7 +41,7 @@ class CameraStopTests(unittest.TestCase):
             target.write_text(upstream(path))
         env = {**os.environ, 'GIT_CEILING_DIRECTORIES': str(directory.parent)}
         for name in series:
-            if name == PATCH:
+            if name in (PATCH, IRQ_PATCH):
                 continue
             subprocess.run(['git', 'apply', '--include=' + CAM, '--include=' + CAP,
                             str(ROOT / 'upstream/nuttx/patches' / name)], cwd=directory,
@@ -50,17 +52,17 @@ class CameraStopTests(unittest.TestCase):
         (directory / 'dma_registers.h').write_text(header.replace(
             '#include "esp32s3_soc.h"', '#define DR_REG_GDMA_BASE 0\n#define BIT(n) (1u << (n))'))
         cls.binaries = {}
-        for patched in (False, True):
-            if patched:
+        for version, patch in (('baseline', None), ('stop-only', PATCH), ('current', IRQ_PATCH)):
+            if patch:
                 subprocess.run(['git', 'apply', '--check', '--whitespace=error',
-                                str(ROOT / 'upstream/nuttx/patches' / PATCH)], cwd=directory,
+                                str(ROOT / 'upstream/nuttx/patches' / patch)], cwd=directory,
                                env=env, check=True, capture_output=True)
-                subprocess.run(['git', 'apply', str(ROOT / 'upstream/nuttx/patches' / PATCH)],
+                subprocess.run(['git', 'apply', str(ROOT / 'upstream/nuttx/patches' / patch)],
                                cwd=directory, env=env, check=True, capture_output=True)
             for source, include, fixture, names in (
                 (CAM, 'camera_stop', 'esp32s3_camera_stop',
                  ('cam_stop_dma', 'cam_prepare_frame', 'cam_interrupt',
-                  'esp32s3_cam_stop_capture', 'esp32s3_cam_uninit')),
+                  'esp32s3_cam_config', 'esp32s3_cam_stop_capture', 'esp32s3_cam_uninit')),
                 (CAP, 'v4l2_stop', 'v4l2_camera_stop',
                  ('stop_capture', 'start_capture', 'change_capture_state', 'cleanup_resources',
                   'complete_capture', 'capture_reqbufs', 'capture_qbuf', 'capture_streamoff',
@@ -68,26 +70,26 @@ class CameraStopTests(unittest.TestCase):
             ):
                 actual = (directory / source).read_text()
                 selected = [function(actual, name) for name in names
-                            if name != 'cam_stop_dma' or patched]
+                            if name != 'cam_stop_dma' or version != 'baseline']
                 (directory / (include + '.inc')).write_text('\n'.join(selected))
-                binary = directory / f'{fixture}-{patched}'
+                binary = directory / f'{fixture}-{version}'
                 built = subprocess.run(['cc', '-std=c11', '-Wall', '-Werror', '-Wno-unused-function',
                                         '-I', str(directory), str(ROOT / 'tests/host' / (fixture + '.c')),
                                         '-o', str(binary)], capture_output=True, text=True)
                 if built.returncode:
                     raise AssertionError(f'{binary.name}:\n' + (built.stdout + built.stderr)[-12000:])
-                cls.binaries[fixture, patched] = binary
+                cls.binaries[fixture, version] = binary
 
-    def cases(self, fixture, cases, baseline_refuses=()):
+    def cases(self, fixture, cases, baseline_refuses=(), baseline='baseline'):
         for case in cases:
             with self.subTest(case=case):
-                result = subprocess.run([str(self.binaries[fixture, True]), str(case)],
+                result = subprocess.run([str(self.binaries[fixture, 'current']), str(case)],
                                         capture_output=True, text=True, timeout=5)
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         for case in baseline_refuses:
             with self.subTest(baseline=case):
                 # Baseline must compile and reach a failed behavioral assertion.
-                result = subprocess.run([str(self.binaries[fixture, False]), str(case)],
+                result = subprocess.run([str(self.binaries[fixture, baseline]), str(case)],
                                         capture_output=True, text=True, timeout=5)
                 self.assertNotEqual(result.returncode, 0, 'baseline unexpectedly satisfied stop contract')
                 self.assertIn('Assertion', result.stderr)
@@ -97,6 +99,9 @@ class CameraStopTests(unittest.TestCase):
 
     def test_isr_does_not_publish_or_rearm_pending_dma(self):
         self.cases('esp32s3_camera_stop', (3, 4), baseline_refuses=(3,))
+
+    def test_camera_reopens_after_close_on_another_cpu(self):
+        self.cases('esp32s3_camera_stop', (5,), baseline_refuses=(5,), baseline='stop-only')
 
     def test_async_stop_partial_start_and_queue_ownership(self):
         self.cases('v4l2_camera_stop', (0, 1, 4, 5, 6, 7), baseline_refuses=(0, 1, 4, 5, 6))

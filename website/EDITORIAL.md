@@ -10,7 +10,9 @@ Give readers two ways through the material: a continuous learning path and a tas
 
 Domain-specific applications belong under Examples or application-specific reference notes. They may illustrate a general concept, but a reader should not need to understand sensor fusion, a camera pipeline, or any other product to learn the framework.
 
-Give each tutorial a task, prerequisites, commands, expected output, an explanation of the relevant files, and a next step. Distinguish a runnable example from a design illustration by naming it accordingly. Keep real configuration requirements near the operation they affect.
+Open a tutorial with what the reader will accomplish and what they need. Put prerequisites before the commands, then show the expected output and explain the files the reader will change. End with one practical next step. Label design examples so readers can tell which code they can run. Keep configuration requirements next to the step that uses them.
+
+Keep one main explanation for a concept. Link to it from the task that needs it, with enough context for the current step. Make link text and table headings describe the reader’s task. Use the same name for an interface across the guide, the examples, and the API reference.
 
 Use generated SVGs for topology, ownership, lifecycle, and build flow. Match the approved overall architecture; replace text sketches, including diagrams in tilde-fenced blocks. A directory inventory or a simple dependency mapping is usually clearer as a table. Preserve real code and terminal output. Explain a diagram's scope in its caption and keep small-screen reading possible through descriptive prose and a link to the full SVG.
 
@@ -24,6 +26,20 @@ Reviewed on 2026-11-10:
 - [PX4 first application](https://docs.px4.io/main/en/modules/hello_sky): establish a minimal application before adding domain-specific behavior. NXRS borrows that teaching sequence, not PX4's flight or messaging architecture.
 
 These are documentation references, not compatibility, endorsement, or feature-parity claims. The wording and examples here are written for NXRS.
+
+## Write finished evaluation reports
+
+An evaluation reference is a completed report: objective, test setup and assumptions, results, interpretation, conclusions and focused follow-up, then evidence and reproduction. State the setup before the first finding or chart. Identify hardware, software/build revisions, workload, scheduling and memory settings, sample counts, warm-up and repetitions, measurement boundaries, correctness checks and exclusions. Include only settings relevant to interpreting the result; link full receipts and commands. If a material detail was not recorded, say so rather than inferring it.
+
+Define unfamiliar metrics and denominators before using them. Separate experiments that used different firmware, workloads, observers or label rules. Put the scope beside each table or chart as well. Conclusions should follow from the stated evidence; avoid opening with a rhetorical question, repeating a recommendation, or narrating successive attempts. Keep detailed test procedures in the measurement guide and intermediate controls in the linked study archive.
+
+Interpret the result rather than restating the table. Identify the dominant measured cost, the implementation mechanism that could explain a difference, and what is still unresolved. Distinguish measured effects, source inspection, hypotheses and calculated opportunities; do not turn correlation into a root-cause claim. Explain the consequence for the user's latency, memory or reliability budget. End with one or two prioritized follow-ups, stating which uncertainty each resolves and what evidence would justify the proposed improvement. Avoid an open-ended test catalogue.
+
+Keep current explanations at their established routes. Preserve long investigations under `docs/history/` with a prominent scope notice and a link back to the maintained summary. Original numbers, failed controls and provenance remain intact. Do not combine different firmware, workloads or observers into a new apparent result, or turn historical “pending” statements into current status.
+
+Reference navigation separates findings, measurement methods and historical evidence. Give each entry a short description of the question it answers in `site.json`; a filename alone is not a useful introduction. Add results to the appropriate summary instead of appending a new chronology to the reader's main path.
+
+Charts use the existing SVG generator and themes, with named units, readable values, a source and a nearby textual/table equivalent. Use a zero baseline for magnitude bars. Conceptual flow diagrams must not imply measured durations. A documentation or chart refresh never implies a new hardware run.
 
 ## Maintainable examples
 

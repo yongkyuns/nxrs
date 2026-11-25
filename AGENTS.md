@@ -1,3 +1,33 @@
+# Service ownership and footprint
+
+For service changes, read [Service boundaries and footprint](docs/architecture.md#service-boundaries-and-footprint)
+and use the `nxrs-service-boundaries` skill in `.agents/skills/`.
+Identify the existing owner and production callers before adding a crate. Keep
+reusable capability policy, lifecycle and state together behind a small typed API.
+Keep device-specific waits, retries and shutdown with the HAL. Extract a service
+for an independent, reusable contract. Apps construct and connect capabilities,
+coordinate startup and shutdown, and own product-specific workflows and policy.
+
+- Use the fewest threads that satisfy blocking, timing and isolation needs.
+  Prefer synchronous helpers and existing workers. Give each active owner one
+  logical wait point. Justify a new thread and its stack with an independent
+  progress requirement. Set priorities only as part of a target-qualified
+  scheduling policy. Fix contention and blocking at their source.
+- Connect producers directly to consumers through narrow, typed, bounded
+  event endpoints injected at composition time. Keep routine data, state changes
+  and requests off the app's event loop unless the app owns the interaction.
+  Define overload and retain terminal state even if notification fails.
+- Use shared memory sparingly when large payloads make event transfer costly.
+  Bound the storage, define write ownership and reader lifetime, and use a
+  qualified synchronization primitive. Publish before notifying. Keep rendering
+  and I/O outside shared locks and bound contention on time-sensitive paths.
+
+Keep fixture-only helpers under `tests/`, and keep service policy and runtime
+adapters out of the root `platform/` tree. Reuse the portable operation, inbox,
+and owner where their contracts match. Budget new workers, queues, retained
+buffers, allocations, dependencies, and linked bytes against the existing
+product path.
+
 # HAL architecture rules
 
 Read `docs/hal-platform-architecture.md` and `docs/nuttx-device-access.md` before
@@ -49,10 +79,14 @@ portability, dependency, native-boundary and lifecycle coverage. The OS/provider
   and `driver/gpio` support NuttX only and own their descriptors and embedded-hal
   implementations. GPIO owns registration/rollback and reports teardown failures
   through a task-context hook; the consuming HAL retains quarantine policy.
-  `hal/acquisition` is shared worker/readiness implementation support, with one
-  NuttX poll/pipe binding used by IMU and GNSS. It has no profile binding and
-  shares worker code, not an executor. `imu::Session` and `gnss::Session` describe
-  acquisition lifetimes; synchronous chip operations remain driver contracts.
+  `shared/acquisition` supplies task lifetimes, cancellation and one NuttX
+  poll/pipe binding for IMU, GNSS and audio. It has no profile binding. The
+  owning HAL defines event admission, overload, terminal delivery and cleanup.
+  Applications use the owning capability API. `imu::Session` and `gnss::Session`
+  describe acquisition lifetimes; synchronous chip operations remain driver
+  contracts.
+  `hal/settings` is settings storage for small persistent application records.
+  Applications own their record formats; build settings live in product profiles.
   Catalogues supply concrete resource configuration; sensor HALs own acquisition policy; chip drivers
   consume bus traits without depending on the concrete adapter. Do not add speculative OS
   backends, host stubs or another logical profile alias. Host witnesses inject
@@ -122,7 +156,9 @@ portability, dependency, native-boundary and lifecycle coverage. The OS/provider
   C exports needed only by SDK witnesses belong under `tests/`, enabled only
   for those tests. Actual SDK callbacks still use the required native ABI.
 - Keep private ABI glue beside its owning Rust provider in that provider's
-  `ffi/` directory. Do not create a parallel `hal/<capability>/ffi/<platform>`
+  `ffi/` directory, including the Rust foreign declarations. Shared SDK bindings
+  keep those declarations beside their shared native adapter. Do not create a
+  parallel `hal/<capability>/ffi/<platform>`
   tree or impose one C HAL API across platforms. Each provider consumes only
   the SDK/target operations it needs; shared behavior and contracts stay in Rust.
 - Avoid redundant `nxrs_` prefixes on private functions, native ABI symbols,
@@ -145,16 +181,25 @@ portability, dependency, native-boundary and lifecycle coverage. The OS/provider
   internal `platform` value at their module boundary. It names the exact
   validated binding (`nuttx`, `linux`, `macos`, `windows`, `mock` or `simulation`),
   with no selector for unbound capabilities; do not collapse OS names to `hardware`.
-- Cargo manifests own component dependencies. Ordinary additive features may
-  select optional functionality, formats, algorithms and driver code at their
-  owning module boundary. Do not maintain a global feature-name allowlist.
-  Keep OS selection in target configuration and physical resource instances in
-  explicit configuration/ownership. Optional diagnostic instrumentation uses
-  the explicit `probe` feature. The detector product/model rules below still apply.
-- Group capability admission and acquisition selection in each HAL's
-  `src/platform/mod.rs`. Select modules as `selected`, using ordinary named
-  modules and conditional `as selected` exports where practical. Group each
-  declaration and alias in one `cfg_if` branch rather than repeating its condition.
+- Cargo manifests declare component dependencies. The product profile selects
+  hardware, providers and hardware-dependent build inputs. Use one app entry
+  path and use portable capability results to handle absent optional hardware.
+  Declare required capabilities and surface genuine initialization errors.
+  Keep Cargo features to a minimum. Reserve additive features for independent
+  software functionality, formats, algorithms, driver implementations and
+  diagnostics at the owning module boundary. Product-controlled implementation
+  features are derived from the profile. Do not add app features for selecting
+  hardware or product build dependencies. Do not maintain a global feature-name
+  allowlist. Keep optional instrumentation under `probe`. The detector
+  product/model rules below still apply.
+- Use one `cfg_if::cfg_if!` block for provider selection in each HAL's
+  `src/platform/mod.rs`. Declare named provider modules and alias the active
+  module as `selected`. Keep local providers, including mock and simulation,
+  under `src/platform/<binding>/mod.rs` and the unavailable fallback in
+  `src/platform/unbound.rs`.
+  BLE and Wi-Fi keep every `platform` condition in that selector, including the
+  admission of shared Rust support modules. `hal/radio-types` is dependency-free
+  and used directly only by BLE and Wi-Fi.
   Keep constructors and unavailable stubs in those implementations, and host source-injection
   witnesses in separate test wiring. Prefer fixed named exports. The selector
   must not contain implementation bodies or force its entire public namespace
@@ -163,11 +208,10 @@ portability, dependency, native-boundary and lifecycle coverage. The OS/provider
   Gate a coherent module once instead of repeating its condition on each type,
   implementation and constructor. All HAL selectors must name their exports;
   wildcard re-exports in selectors or crate roots are forbidden by the audit.
-  Storage recording and transport UDP are explicitly accessible as
-  `storage::recording` and `transport::udp` through the additive, nondefault
-  `recording` and `udp` Cargo features, regardless of hardware admission. Use
-  their explicit constructors; do not restore profile-dependent root factories
-  or OS whitelists. The distinct synchronous `create_record_file` acquisition
+  Use `std::net` directly for TCP and UDP. Keep packet adapters used only by
+  qualification in its fixtures. Storage recording is `storage::recording`
+  through the additive, nondefault `recording` Cargo feature, independent of
+  hardware admission. The distinct synchronous `create_record_file` acquisition
   keeps one signature and an explicit unavailable result.
   Shared file replay is explicit functionality, not a platform backend:
   `nxrs-camera` exposes it through its additive `replay` Cargo feature, with no
@@ -189,6 +233,10 @@ portability, dependency, native-boundary and lifecycle coverage. The OS/provider
   model features are for HAL qualification only. Model dependencies remain
   explicit in the detector HAL; benchmark choices use typed cases, never boolean
   cfg aliases or a feature for each measurement axis.
+- Deadline-sensitive paths on fixed-priority targets reserve workspace during
+  setup and reuse it through the owning component's normal API. Qualify shared
+  heap access across Rust and native calls. See
+  `docs/concurrency-event-communication.md`.
 - Hardware acquisition is event-driven. GNSS UART reads and IMU FIFO
   draining belong to HAL providers, never service polling timers. Services receive
   normalized typed messages through bounded channels. ISRs and interrupt-context callbacks only
@@ -275,3 +323,23 @@ alternating-pixel witness before changes; the SDK texture path is not qualified.
 Run the shared core/native suites and `clients/tests/multicamera_reference.py` with
 the relevant native runner. Report actual rendered FPS separately from codec and
 source FPS, and label emulator/simulator results separately from physical devices.
+
+# Repository skills
+
+Use the matching repository skill for substantial work; load only the workflow
+needed for the task. These skills supplement this operating contract and the
+existing architecture documents.
+
+| Task | Skill |
+| --- | --- |
+| Design or review service ownership and firmware footprint | [nxrs-service-boundaries](.agents/skills/nxrs-service-boundaries/SKILL.md) |
+| Reproduce a bug or performance regression | [nxrs-debug](.agents/skills/nxrs-debug/SKILL.md) |
+| Review a change against its requirements and repository rules | [nxrs-change-review](.agents/skills/nxrs-change-review/SKILL.md) |
+| Compare interfaces or record a consequential design decision | [nxrs-design](.agents/skills/nxrs-design/SKILL.md) |
+| Improve the development workflow after an observed problem | [nxrs-retro](.agents/skills/nxrs-retro/SKILL.md) |
+| Write documentation or improve the documentation website | [nxrs-documentation](.agents/skills/nxrs-documentation/SKILL.md) |
+
+Keep durable project facts in their existing source documents and link to them
+from skills. Choose routine implementation details within the authorized scope;
+ask when an unresolved requirement or consequential tradeoff needs the user's
+decision. See [skill attribution](.agents/skills/ATTRIBUTION.md) for upstream sources.

@@ -79,14 +79,28 @@ pub(crate) fn render_instances(
             format!("DEVICE_{}", instances.len())
         };
         let reference = driver.sensor_reference;
+        let period = device
+            .navigation_period_ms
+            .map_or(String::new(), |period| format!(", {period}"));
         source.push_str(&format!(
-            "declare_device!({name}, {id:?}, {driver_type}, {arguments}, {stack}, {reference});\n"
+            "declare_device!({name}, {id:?}, {driver_type}, {arguments}, {stack}, {reference}{period});\n"
         ));
         instances.insert(id, name);
     }
 
     source.push_str("pub mod devices {\n");
-    for (accessor, id) in graph.accessors(catalogs, capability)? {
+    let accessors = graph.accessors(catalogs, capability)?;
+    // The SDK catalogue supplies this fallback. Product catalogues generate
+    // only the physical device and alias accessors they declare.
+    if capability == "imu"
+        && catalogs
+            .package(capability)
+            .is_some_and(|catalogue| catalogue.name == "nxrs-composition")
+        && !accessors.contains_key("secondary")
+    {
+        source.push_str("pub use super::unavailable_secondary as secondary;\n");
+    }
+    for (accessor, id) in accessors {
         let instance = instances
             .get(id)
             .ok_or("accessor references an inactive device")?;
@@ -372,6 +386,7 @@ mod tests {
             .unwrap();
         let imu = render_instances(&graph, &catalogs, "imu", 16384).unwrap();
         assert!(imu.contains("::r#test_imu::AnotherSensor<resources::Bus>"));
+        assert!(!imu.contains("unavailable_secondary"));
         assert!(imu.contains(", 16384, false);"));
         assert!(!imu.contains("peripheral::imu"));
         assert!(imu

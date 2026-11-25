@@ -1,8 +1,6 @@
 # Drivers and HALs
 
-Hardware access is split between NuttX board support, Rust resource adapters, device drivers, and capability interfaces. This chapter helps you choose the right integration point, add a peripheral, and understand which behavior still needs a board test.
-
-Start with a working [NuttX build](firmware.md) and the [architecture overview](overview.md). You need the board schematic and the selected BSP's resource configuration before changing physical wiring.
+Use this guide to pick an API for a device or add support for a peripheral. Before changing physical wiring, check the board schematic, the NuttX board support package (BSP), and the [profile](profiles.md) used by your build.
 
 ## NuttX owns board support
 
@@ -19,13 +17,14 @@ Device configuration, ioctls, cancellable readiness, and radio-control operation
 | Operation | Appropriate boundary | What stays below the application |
 | --- | --- | --- |
 | Read or write an ordinary file | `std::fs` and `std::io` | Filesystem mount and native device setup |
+| Save small named settings records | `settings::Store` | NuttX named record controls and descriptor ownership |
 | Exchange IP packets | `std::net` or an intentional packet-output contract | Interface and radio configuration |
 | Configure a peripheral bus transaction | Resource adapter using a Rust bus trait | Native request layout and bus descriptor |
 | Read or configure a particular chip | Chip driver | Register protocol and device-specific conversion |
 | Acquire a managed subsystem | Capability HAL | Concrete resource selection, callbacks and acquisition lifetime |
 | Decide what a device result means to the product | Application or reusable service | No board selection is needed here |
 
-The [interfaces guide](interfaces.md) links the concrete public APIs and explains feature selection.
+The [interfaces guide](interfaces.md) explains feature selection. The [Rust API reference](../api.md) provides public capability and chip-driver documentation, with explicit source links for the NuttX-only bus and GPIO resource types.
 
 ## Resource adapters and chip drivers
 
@@ -35,9 +34,15 @@ Use existing Rust bus traits where they express the operation. Keep controller i
 
 The current adapters are concrete integrations. For example, the [I²C adapter](../../driver/i2c/) owns NuttX bus transactions, and the [GPIO adapter](../../driver/gpio/) currently supports rising-edge interrupt registration and input reads. Chip drivers consume the relevant Rust traits. A host test can inject a scripted bus to exercise the protocol without introducing a pretend host hardware backend.
 
+### How a bus reaches a chip driver
+
+A resource adapter sits below the chip protocol. Product composition selects the bus configuration and device address, opens the resource, and explicitly moves that Rust value into the chip driver. The driver uses a bus trait and owns the supplied adapter; ordinary Rust construction carries the dependency. There is no implicit bus injection.
+
+A static catalogue handle identifies the configured device. For the composed acquisition devices, opening an exclusive session constructs the driver/resource path, and joined retirement releases it. Multiple aliases can identify the same physical instance without creating a second session. See [device identity and acquisition](#device-identity-and-acquisition).
+
 ## Capability HALs
 
-A capability HAL presents a subsystem interface, such as storage, transport, a camera, or a data-acquisition device. It owns its public Rust API, errors, resource lifetime, and OS-specific implementation selection.
+A capability HAL presents a subsystem interface, such as storage, Wi-Fi, a camera, or a data-acquisition device. It owns its public Rust API, errors, resource lifetime, and OS-specific implementation selection.
 
 The application can acquire a capability through its documented constructor or select a named device through the portable catalogue. Services consume that interface rather than constructing board-specific drivers. A synchronous driver call and a streaming acquisition session are different APIs because their lifetimes differ.
 
@@ -64,6 +69,7 @@ Keep callbacks, buffers and descriptors alive until the producer has stopped. Fo
 | `hal/<capability>/` | Public capability API and implementations |
 | `hal/<capability>/src/platform/` | OS-specific implementation selection |
 | Provider-local `ffi/` directories | Native ABI bindings |
+| `shared/acquisition/` | Internal worker lifetimes, cancellation and readiness |
 | `platform/src/` or a product-owned composition package | Named devices and typed constructors |
 | `platform/<family>/profile.toml` and `platform/nuttx/` | Product and target configuration |
 | `service/` | Reusable application behavior |

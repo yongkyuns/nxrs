@@ -41,9 +41,9 @@ static char queue_names[ES_SERVICES][ES_QUEUES_PER_SERVICE][48];
 static int queue_opened[ES_SERVICES][ES_QUEUES_PER_SERVICE];
 static struct pollfd poll_sets[ES_SERVICES][ES_QUEUES_PER_SERVICE];
 static unsigned ready_cursor[ES_SERVICES];
-static pthread_t threads[ES_SERVICES];
-static struct es_role roles[ES_SERVICES];
-static int thread_joined[ES_SERVICES];
+static pthread_t threads[ES_WORKER_CAPACITY];
+static struct es_role roles[ES_WORKER_CAPACITY];
+static int thread_joined[ES_WORKER_CAPACITY];
 static unsigned spawned;
 static sem_t ready_gate;
 static sem_t go_gate;
@@ -55,12 +55,14 @@ static int released;
 static int spawn_failed;
 static unsigned completed_workers;
 #if ES_STACK_WATERMARK
-static struct es_stack_sample stack_observations[ES_SERVICES];
+static struct es_stack_sample stack_observations[ES_WORKER_CAPACITY];
 #endif
 static _Atomic unsigned queue_peak;
 static _Atomic unsigned invocation_id;
 
 static unsigned es_qindex(unsigned kind) { return ES_MAILBOX ? 0u : kind; }
+
+unsigned es_platform_worker_capacity(void) { return ES_WORKER_CAPACITY; }
 
 int es_platform_io_wait(uint32_t microseconds) {
   uint32_t start = es_platform_cycles();
@@ -327,7 +329,7 @@ static void *es_thread_trampoline(void *argument) {
 }
 
 int es_platform_spawn(void *(*entry)(void *)) {
-  if (!initialized || !entry || spawned >= ES_SERVICES || released) {
+  if (!initialized || !entry || spawned >= ES_WORKER_CAPACITY || released) {
     return -1;
   }
   unsigned slot = spawned;
@@ -518,7 +520,7 @@ void es_platform_resources(void) {
                          sizeof(queue_opened) + sizeof(poll_sets) +
                          sizeof(ready_cursor);
   size_t thread_objects = sizeof(threads) + sizeof(thread_joined);
-  size_t stack_storage = (size_t)ES_SERVICES * es_worker_stack_bytes();
+  size_t stack_storage = (size_t)ES_WORKER_CAPACITY * es_worker_stack_bytes();
   printf("ES_RESOURCES queue_buffers=30720 queue_objects=%zu "
          "thread_objects=%zu entry_storage=%zu stack_storage=%zu "
          "heap_allocated=%u "

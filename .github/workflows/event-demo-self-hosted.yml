@@ -26,8 +26,7 @@ on:
       - 'driver/peripheral/**'
       - 'driver/bmi270/**'
       - 'hal/gnss/**'
-      - 'hal/common/**'
-      - 'hal/acquisition/**'
+      - 'shared/acquisition/**'
       - 'driver/lsm6dso/**'
       - 'driver/ubx/**'
       - 'tests/host/fixtures/lsm6dso-overlay.toml'
@@ -54,6 +53,8 @@ on:
       - 'tests/host/test_concurrent_builds.py'
       - 'tests/host/test_platform_profiles.py'
       - 'tests/host/test-event-demo-nuttx.py'
+      - 'tests/rtos_harness/footprint_budget.py'
+      - 'tests/rtos_harness/images.py'
       - 'Cargo.toml'
       - 'Cargo.lock'
       - 'external/nuttx'
@@ -295,6 +296,13 @@ jobs:
           python3 tools/qualify-concurrent-builds.py \
             --out target/firmware/event-demo/concurrent-profiles \
             --revision "$(git rev-parse HEAD)"
+      - name: Check CoreS3 sensor deployment footprint
+        run: |
+          set -o pipefail
+          source target/qemu-tools/environment.sh
+          PYTHONPATH=tests python3 -m rtos_harness.footprint_budget \
+            target/firmware/event-demo/concurrent-profiles/bmi270 \
+            --linked-flash 368640 --image 393216 --static-ram 64512 | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Verify selected devices in the linked CoreS3 images
         shell: bash
