@@ -4,17 +4,24 @@ use crate::{
     text::Text,
     tracker::{Reading, Snapshot},
 };
-use canvas::{Area, Canvas};
+use canvas::CanvasExt;
 use charts::{History, Metric, RoutePoint, ROUTE_POINTS, SAMPLE_INTERVAL};
+use display::graphics::{Area, Raster as Canvas};
 use display::{Display, Error, Rect, Size};
 use gesture::{Contact, Gesture};
 use map::{Position, View as MapView, Viewport};
 use qrcodegen::{QrCode, QrCodeEcc};
-use std::{fmt::Write, time::Instant};
+use std::{
+    fmt::Write,
+    time::{Duration, Instant},
+};
 
 const STRIP: u16 = 8;
+const CHART_INTERVAL: Duration = Duration::from_millis(100);
+const PLOT_LABEL_CAPACITY: usize = 20;
 const GRIP_HEIGHT: i32 = 8;
 const MENU_HEIGHT: i32 = 40;
+const QR_TOP: u16 = 80;
 const BG: u16 = 0x0883;
 const PANEL: u16 = 0x1126;
 const GRID: u16 = 0x226b;
@@ -134,6 +141,10 @@ pub struct Screen<D> {
     map: MapView,
     zoom: Zoom,
     next_plot: Instant,
+    next_sample: Instant,
+    projected: Vec<Option<PlotPoint>>,
+    damage: Vec<Columns>,
+    presented_damage: Vec<Columns>,
 }
 
 impl<D: Display> Screen<D> {
@@ -142,19 +153,26 @@ impl<D: Display> Screen<D> {
         if size.width < 272 || size.height < 220 {
             return Err(Error::InvalidRegion);
         }
+        let now = Instant::now();
+        let layout = Layout {
+            width: size.width.into(),
+            height: size.height.into(),
+        };
+        let bands = (layout.plot(GRIP_HEIGHT).h as usize).div_ceil(usize::from(STRIP));
         Ok(Self {
             display,
-            layout: Layout {
-                width: size.width.into(),
-                height: size.height.into(),
-            },
+            layout,
             pixels: vec![BG; usize::from(size.width) * usize::from(STRIP)].into_boxed_slice(),
             present: None,
             ui: Dashboard::default(),
             history: History::new(zoom),
             map: MapView::default(),
             zoom,
-            next_plot: Instant::now(),
+            next_plot: now,
+            next_sample: now,
+            projected: Vec::with_capacity(charts::MOTION_POINTS),
+            damage: vec![Columns::default(); bands],
+            presented_damage: vec![Columns::default(); bands],
         })
     }
 
@@ -255,9 +273,20 @@ impl<D: Display> Screen<D> {
         now: Instant,
         exchange_tile: impl FnOnce(Option<Key>) -> Option<Tile>,
     ) -> Result<(), Error> {
-        if now >= self.next_plot {
+        if now >= self.next_sample {
             self.history.record(snapshot, now);
-            self.next_plot = now + SAMPLE_INTERVAL;
+            self.next_sample = now + SAMPLE_INTERVAL;
+        }
+        if now >= self.next_plot {
+            let interval = if self.ui.page == Page::Gnss || link == LinkStatus::Pairing {
+                SAMPLE_INTERVAL
+            } else {
+                CHART_INTERVAL
+            };
+            self.next_plot += interval;
+            if self.next_plot <= now {
+                self.next_plot = now + interval;
+            }
         }
         let viewport = self
             .map
@@ -267,11 +296,6 @@ impl<D: Display> Screen<D> {
             self.map.accept(viewport, tile);
         }
         self.render(link, snapshot, now, viewport)?;
-        let finished = Instant::now();
-        if finished >= self.next_plot {
-            // Skip the missed paint and leave time for input.
-            self.next_plot = finished + SAMPLE_INTERVAL;
-        }
         Ok(())
     }
 
@@ -285,60 +309,151 @@ impl<D: Display> Screen<D> {
     ) -> Result<(), Error> {
         let ui = &self.ui;
         let key = (ui.page, ui.metric, link, ui.menu);
-        let full = self.present != Some(key);
+        let previous_metric = self
+            .present
+            .filter(|&(page, _, status, menu)| (page, status, menu) == (ui.page, link, ui.menu))
+            .map(|(_, metric, _, _)| metric);
+        let full = previous_metric.is_none();
         if !full && link == LinkStatus::Pairing {
             return Ok(());
         }
+        self.present = None;
         let layout = &self.layout;
-        let size = self.display.size();
-        let content_top = ui.content_top() as u16;
+        let content_top = ui.content_top();
         let top = if full { 0 } else { content_top };
+        let plot = layout.plot(content_top);
         let mut route = [RoutePoint::default(); ROUTE_POINTS];
         let body = Body::new(
             ui,
             snapshot,
             &self.history,
             now,
-            layout.plot(content_top.into()),
+            plot,
             viewport.map(|viewport| (viewport, &self.map)),
             &mut route,
         );
-        for y in (top..size.height).step_by(usize::from(STRIP)) {
-            let height = STRIP.min(size.height - y);
-            let pixels = &mut self.pixels[..usize::from(size.width) * usize::from(height)];
-            pixels.fill(BG);
-            let mut paint = Canvas {
-                pixels,
-                top: y.into(),
-                width: size.width.into(),
-            };
+        let chart = link != LinkStatus::Pairing && matches!(&body, Body::Motion { .. });
+        if chart {
+            body.project_motion(plot, ui.metric, &mut self.projected);
+            chart_damage(plot, &self.projected, &mut self.damage);
+        }
+        let paint = |canvas: &mut Canvas<'_>| {
             if link == LinkStatus::Pairing {
                 if let Some(code) = &ui.code {
-                    pairing(&mut paint, layout, code);
+                    pairing(canvas, layout, code);
                 }
             } else {
-                if full && y < content_top {
-                    header(&mut paint, layout, ui, link);
+                if full && canvas.area().y < content_top {
+                    header(canvas, layout, ui, link);
                 }
-                if y + height > content_top {
-                    body.paint(&mut paint, layout, ui, snapshot);
+                if canvas.area().y + canvas.area().h > content_top {
+                    body.paint(canvas, layout, ui, snapshot, &self.projected);
                 }
             }
-            self.display.draw(
-                Rect {
+        };
+        let whole = Some;
+        if !full && chart {
+            if previous_metric != Some(ui.metric) {
+                // Present the selection before repainting its traces and values.
+                let accel = layout.metric(0, content_top);
+                let gyro = layout.metric(1, content_top);
+                let controls = Area {
+                    w: gyro.x + gyro.w - accel.x,
+                    ..accel
+                };
+                draw_strips(&mut self.display, &mut self.pixels, controls, whole, &paint)?;
+            }
+            let label = (plot.y + 5, plot.y + 12);
+            let changed = |strip: Area| {
+                let band = (strip.y - plot.y) as usize / usize::from(STRIP);
+                let mut range = self.damage[band];
+                range.include(self.presented_damage[band]);
+                if label.0 < strip.y + strip.h && label.1 > strip.y {
+                    range.include(Columns {
+                        left: (plot.x + 5) as u16,
+                        right: (plot.x + 5 + PLOT_LABEL_CAPACITY as i32 * 6) as u16,
+                    });
+                }
+                (range.left < range.right).then(|| Area {
+                    x: range.left.into(),
+                    w: (range.right - range.left).into(),
+                    ..strip
+                })
+            };
+            draw_strips(&mut self.display, &mut self.pixels, plot, changed, &paint)?;
+            draw_strips(
+                &mut self.display,
+                &mut self.pixels,
+                Area {
                     x: 0,
-                    y,
-                    size: Size {
-                        width: size.width,
-                        height,
-                    },
+                    y: layout.height - 24,
+                    w: layout.width,
+                    h: 7,
                 },
-                pixels,
+                whole,
+                &paint,
+            )?;
+        } else {
+            draw_strips(
+                &mut self.display,
+                &mut self.pixels,
+                Area {
+                    x: 0,
+                    y: top,
+                    w: layout.width,
+                    h: layout.height - top,
+                },
+                whole,
+                &paint,
             )?;
         }
         self.present = Some(key);
+        if chart {
+            std::mem::swap(&mut self.presented_damage, &mut self.damage);
+        }
         Ok(())
     }
+}
+
+fn rectangle(area: Area) -> Rect {
+    // The layout and dirty regions are bounded by the display dimensions.
+    Rect {
+        x: area.x as u16,
+        y: area.y as u16,
+        size: Size {
+            width: area.w as u16,
+            height: area.h as u16,
+        },
+    }
+}
+
+fn draw_strips(
+    display: &mut impl Display,
+    pixels: &mut [u16],
+    area: Area,
+    clip: impl Fn(Area) -> Option<Area>,
+    paint: impl Fn(&mut Canvas<'_>),
+) -> Result<(), Error> {
+    let end = area.y + area.h;
+    let mut y = area.y;
+    while y < end {
+        let height = i32::from(STRIP).min(end - y);
+        let strip = Area {
+            y,
+            h: height,
+            ..area
+        };
+        y += height;
+        let Some(strip) = clip(strip) else {
+            continue;
+        };
+        let rect = rectangle(strip);
+        let pixels = &mut pixels[..strip.w as usize * height as usize];
+        pixels.fill(BG);
+        paint(&mut Canvas::new(rect, pixels)?);
+        display.draw_strip(rect, pixels)?;
+    }
+    Ok(())
 }
 
 fn header(canvas: &mut Canvas<'_>, layout: &Layout, ui: &Dashboard, link: LinkStatus) {
@@ -417,7 +532,7 @@ fn chip(canvas: &mut Canvas<'_>, area: Area, text: &[u8], color: u16, highlighte
 }
 
 fn pairing(canvas: &mut Canvas<'_>, layout: &Layout, code: &QrCode) {
-    if canvas.top < MENU_HEIGHT {
+    if canvas.area().y < MENU_HEIGHT {
         chip(canvas, layout.tab(3), b"CANCEL", TEXT, true);
     }
     canvas.text(
@@ -428,7 +543,7 @@ fn pairing(canvas: &mut Canvas<'_>, layout: &Layout, code: &QrCode) {
         TEXT,
     );
     let modules = code.size() + 8;
-    let top = 80;
+    let top = i32::from(QR_TOP);
     let scale = (layout.height - top - 8).min(layout.width - 20) / modules;
     let side = modules * scale;
     let left = (layout.width - side) / 2;
@@ -441,8 +556,9 @@ fn pairing(canvas: &mut Canvas<'_>, layout: &Layout, code: &QrCode) {
         },
         0xffff,
     );
-    let first_code_row = ((canvas.top - top).div_euclid(scale) - 4).max(0);
-    let last_code_row = ((canvas.top + STRIP as i32 - top).div_euclid(scale) - 3).min(code.size());
+    let first_code_row = ((canvas.area().y - top).div_euclid(scale) - 4).max(0);
+    let last_code_row =
+        ((canvas.area().y + canvas.area().h - top).div_euclid(scale) - 3).min(code.size());
     for row in first_code_row..last_code_row {
         for col in 0..code.size() {
             if code.get_module(col, row) {
@@ -457,6 +573,69 @@ fn pairing(canvas: &mut Canvas<'_>, layout: &Layout, code: &QrCode) {
                 );
             }
         }
+    }
+}
+
+#[derive(Clone, Copy)]
+struct PlotPoint {
+    x: u16,
+    y: [u16; 3],
+}
+
+#[derive(Clone, Copy, Default)]
+struct Columns {
+    left: u16,
+    right: u16,
+}
+
+impl Columns {
+    fn include(&mut self, range: Self) {
+        if range.left < range.right {
+            self.left = if self.left == self.right {
+                range.left
+            } else {
+                self.left.min(range.left)
+            };
+            self.right = self.right.max(range.right);
+        }
+    }
+}
+
+fn chart_damage(plot: Area, points: &[Option<PlotPoint>], bands: &mut [Columns]) {
+    bands.fill(Columns::default());
+    let mut previous: Option<PlotPoint> = None;
+    let right = (plot.x + plot.w) as u16;
+    let first_row = plot.y as u16;
+    for point in points {
+        if let Some(point) = *point {
+            for (axis, y) in point.y.into_iter().enumerate() {
+                let (columns, top, bottom) = if let Some(from) = previous {
+                    (
+                        Columns {
+                            left: point.x.min(from.x),
+                            right: point.x.max(from.x) + 1,
+                        },
+                        y.min(from.y[axis]),
+                        y.max(from.y[axis]),
+                    )
+                } else {
+                    (
+                        Columns {
+                            left: point.x,
+                            right: (point.x + 2).min(right),
+                        },
+                        y,
+                        y + 1,
+                    )
+                };
+                let first = usize::from((top - first_row) / STRIP);
+                let last = usize::from((bottom - first_row) / STRIP);
+                for band in &mut bands[first..=last] {
+                    band.include(columns);
+                }
+            }
+        }
+        previous = *point;
     }
 }
 
@@ -481,6 +660,31 @@ enum Body<'a> {
 }
 
 impl<'a> Body<'a> {
+    fn project_motion(&self, plot: Area, metric: Metric, points: &mut Vec<Option<PlotPoint>>) {
+        points.clear();
+        let Self::Motion {
+            samples,
+            now,
+            index,
+            limit,
+        } = self
+        else {
+            return;
+        };
+        let center = plot.y + plot.h / 2;
+        for (fraction, signal) in samples.motion(*index, metric, *now) {
+            points.push(signal.map(|values| {
+                let y = values.map(|value| {
+                    center - ((value / limit).clamp(-1.0, 1.0) * (plot.h / 2 - 4) as f32) as i32
+                });
+                PlotPoint {
+                    x: (plot.x + (fraction * (plot.w - 1) as f32) as i32) as u16,
+                    y: y.map(|row| row as u16),
+                }
+            }));
+        }
+    }
+
     fn new(
         ui: &Dashboard,
         snapshot: &Snapshot,
@@ -558,7 +762,14 @@ impl<'a> Body<'a> {
         }
     }
 
-    fn paint(&self, canvas: &mut Canvas<'_>, layout: &Layout, ui: &Dashboard, snapshot: &Snapshot) {
+    fn paint(
+        &self,
+        canvas: &mut Canvas<'_>,
+        layout: &Layout,
+        ui: &Dashboard,
+        snapshot: &Snapshot,
+        projected: &[Option<PlotPoint>],
+    ) {
         let top = ui.content_top();
         let plot = layout.plot(top);
         let footer = layout.height - 24;
@@ -635,12 +846,7 @@ impl<'a> Body<'a> {
         }
         match self {
             Self::Map { .. } => unreachable!(),
-            Self::Motion {
-                samples,
-                now,
-                index,
-                limit,
-            } => {
+            Self::Motion { index, limit, .. } => {
                 let sensor = if *index == 0 { b"IMU 1" } else { b"IMU 2" };
                 let unit = match ui.metric {
                     Metric::Acceleration => "M/S2",
@@ -663,30 +869,38 @@ impl<'a> Body<'a> {
                 );
                 canvas.line((plot.x, center), (right, center), AXIS);
                 if canvas.intersects_rows(plot.y + 5, 7) {
-                    let mut bound = Text::<20>::new();
+                    let mut bound = Text::<PLOT_LABEL_CAPACITY>::new();
                     let _ = write!(bound, "+{limit:.0} {unit}");
                     canvas.text(plot.x + 5, plot.y + 5, bound.bytes(), 1, MUTED);
                 }
-                let mut previous: Option<(i32, [i32; 3])> = None;
-                for (fraction, signal) in samples.motion(*index, ui.metric, *now) {
-                    let x = plot.x + (fraction * (plot.w - 1) as f32) as i32;
-                    let Some(values) = signal else {
-                        previous = None;
-                        continue;
-                    };
-                    let ys = values.map(|v| {
-                        center - ((v / limit).clamp(-1.0, 1.0) * (plot.h / 2 - 4) as f32) as i32
-                    });
-                    if let Some((last_x, last_ys)) = previous {
-                        for (axis, (from, to)) in last_ys.into_iter().zip(ys).enumerate() {
-                            canvas.line((last_x, from), (x, to), SIGNALS[axis]);
+                if canvas.intersects_rows(plot.y, plot.h) {
+                    let mut previous: Option<PlotPoint> = None;
+                    for point in projected {
+                        if let Some(current) = point {
+                            let x = i32::from(current.x);
+                            for (axis, color) in SIGNALS.into_iter().enumerate() {
+                                let y = i32::from(current.y[axis]);
+                                if let Some(from) = previous {
+                                    canvas.line(
+                                        (from.x.into(), from.y[axis].into()),
+                                        (x, y),
+                                        color,
+                                    );
+                                } else {
+                                    canvas.fill(
+                                        Area {
+                                            x,
+                                            y,
+                                            w: 2.min(right - x + 1),
+                                            h: 2,
+                                        },
+                                        color,
+                                    );
+                                }
+                            }
                         }
-                    } else {
-                        for (axis, y) in ys.into_iter().enumerate() {
-                            canvas.fill(Area { x, y, w: 2, h: 2 }, SIGNALS[axis]);
-                        }
+                        previous = *point;
                     }
-                    previous = Some((x, ys));
                 }
                 match snapshot.imu[*index] {
                     Reading::Live(sample) if canvas.intersects_rows(footer, 7) => {
@@ -816,7 +1030,13 @@ mod tests {
     use super::*;
     use touch::{Event, Point};
 
-    struct Panel(Vec<u16>);
+    struct Panel(Vec<u16>, Vec<Rect>);
+
+    impl Panel {
+        fn new() -> Self {
+            Self(vec![BG; 320 * 240], Vec::new())
+        }
+    }
 
     impl Display for Panel {
         fn size(&self) -> Size {
@@ -827,22 +1047,124 @@ mod tests {
         }
 
         fn draw(&mut self, rect: Rect, pixels: &[u16]) -> Result<(), Error> {
-            assert_eq!(rect.size.width, self.size().width);
-            assert_eq!(rect.size.height, STRIP);
+            assert!(rect.x + rect.size.width <= self.size().width);
+            assert!((1..=STRIP).contains(&rect.size.height));
             assert!(rect.y + rect.size.height <= self.size().height);
             assert_eq!(
                 pixels.len(),
                 usize::from(rect.size.width * rect.size.height)
             );
-            let start = usize::from(rect.y) * usize::from(rect.size.width);
-            self.0[start..start + pixels.len()].copy_from_slice(pixels);
+            let width = usize::from(rect.size.width);
+            for (offset, row) in pixels.chunks_exact(width).enumerate() {
+                let start = (usize::from(rect.y) + offset) * 320 + usize::from(rect.x);
+                self.0[start..start + width].copy_from_slice(row);
+            }
+            self.1.push(rect);
             Ok(())
         }
+    }
+
+    #[test]
+    fn steady_chart_writes_only_damaged_columns_and_erases_a_disappeared_trace() {
+        let mut screen = Screen::new(Panel::new(), Zoom::default()).unwrap();
+        let now = screen.deadline();
+        let mut snapshot = Snapshot {
+            clock: None,
+            imu: [Reading::Waiting; 2],
+            gnss: Reading::Waiting,
+        };
+        screen
+            .draw(LinkStatus::Idle, &snapshot, now, |_| None)
+            .unwrap();
+        assert_eq!(screen.deadline(), now + CHART_INTERVAL);
+        screen.display.1.clear();
+        screen.presented_damage[(98 - 38) / usize::from(STRIP)] = Columns {
+            left: 24,
+            right: 26,
+        };
+        screen.display.0[98 * 320 + 24] = MINT;
+
+        snapshot.imu[0] = Reading::Fault;
+        let next = now + CHART_INTERVAL + Duration::from_millis(10);
+        screen
+            .draw(LinkStatus::Idle, &snapshot, next, |_| None)
+            .unwrap();
+        assert_eq!(screen.deadline(), now + CHART_INTERVAL * 2);
+        let writes = &screen.display.1;
+        assert_eq!(writes.last().unwrap().y, 216);
+        assert_eq!((writes[0].x, writes[0].size.width), (17, 120));
+        assert_eq!((writes[1].x, writes[1].size.width), (17, 120));
+        assert_eq!(
+            (writes[2].x, writes[2].y, writes[2].size.width),
+            (24, 94, 2)
+        );
+        assert_eq!(
+            writes
+                .iter()
+                .map(|r| u32::from(r.size.width) * u32::from(r.size.height))
+                .sum::<u32>(),
+            (120 * 2 + 2) * 8 + 320 * 7
+        );
+        assert_ne!(screen.display.0[98 * 320 + 24], MINT);
+
+        let partial = screen.display.0.clone();
+        screen.present = None;
+        screen
+            .draw(LinkStatus::Idle, &snapshot, next, |_| None)
+            .unwrap();
+        assert_eq!(screen.display.0, partial);
     }
 
     fn tap(screen: &mut Screen<Panel>, link: LinkStatus, point: Point) -> Option<Action> {
         assert_eq!(screen.input(link, Event::Pressed(point), false), None);
         screen.input(link, Event::Released, false)
+    }
+
+    #[test]
+    fn metric_taps_repaint_controls_and_traces_without_resetting_the_chart_deadline() {
+        let mut screen = Screen::new(Panel::new(), Zoom::default()).unwrap();
+        let link = LinkStatus::Connected;
+        let start = screen.deadline();
+        let now = start + SAMPLE_INTERVAL;
+        let mut sample = imu::ImuSample {
+            sequence: 0,
+            timestamp_us: 0,
+            is_capture_time: false,
+            sample_interval_us: 10_000,
+            accel_mps2: [5.0, -3.0, 9.0],
+            gyro_rps: [0.2, -0.45, 0.8],
+        };
+        let mut snapshot = Snapshot {
+            imu: [Reading::Live(sample), Reading::Waiting],
+            gnss: Reading::Waiting,
+            clock: None,
+        };
+        screen.draw(link, &snapshot, start, |_| None).unwrap();
+        sample.accel_mps2 = [7.0, 4.0, -8.0];
+        snapshot.imu[0] = Reading::Live(sample);
+        screen.draw(link, &snapshot, now, |_| None).unwrap();
+        let deadline = screen.deadline();
+
+        for x in [280, 230] {
+            screen.display.1.clear();
+            let before = screen.display.0.clone();
+            assert_eq!(
+                tap(&mut screen, link, Point { x, y: 20 }),
+                Some(Action::Redraw)
+            );
+            screen.draw(link, &snapshot, now, |_| None).unwrap();
+            assert_eq!(screen.deadline(), deadline);
+
+            let (controls, body) = screen.display.1.split_at(3);
+            assert!(controls.iter().all(|r| (r.x, r.size.width) == (214, 96)));
+            assert_eq!(controls[0].y, 9);
+            assert!(body.iter().all(|r| (38..208).contains(&r.y) || r.y == 216));
+            let partial = screen.display.0.clone();
+            assert_ne!(partial, before);
+            screen.present = None;
+            screen.draw(link, &snapshot, now, |_| None).unwrap();
+            assert_eq!(screen.display.0, partial);
+        }
     }
 
     fn swipe(
@@ -859,7 +1181,7 @@ mod tests {
 
     #[test]
     fn a_swipe_reveals_the_menu_and_pairing_returns_to_the_graph() {
-        let mut screen = Screen::new(Panel(vec![BG; 320 * 240]), Zoom::default()).unwrap();
+        let mut screen = Screen::new(Panel::new(), Zoom::default()).unwrap();
         let pair = Point { x: 275, y: 20 };
         let module = Point { x: 115, y: 20 };
         let gnss = Point { x: 195, y: 20 };
@@ -960,7 +1282,7 @@ mod tests {
 
     #[test]
     fn upward_swipe_dismisses_and_interrupted_contacts_cannot_activate_pairing() {
-        let mut screen = Screen::new(Panel(vec![BG; 320 * 240]), Zoom::default()).unwrap();
+        let mut screen = Screen::new(Panel::new(), Zoom::default()).unwrap();
         let status = LinkStatus::Idle;
         let pair = Point { x: 275, y: 20 };
         let below = Point { x: 275, y: 80 };

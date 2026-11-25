@@ -4,6 +4,15 @@ use std::{
     os::fd::{AsRawFd, BorrowedFd},
 };
 
+pub(super) fn panel_bytes(pixels: &mut [u16]) -> &[u8] {
+    for pixel in pixels.iter_mut() {
+        *pixel = pixel.to_be();
+    }
+    // SAFETY: u16 has no padding and every bit pattern is valid for u8.
+    // The borrowed byte view covers exactly the initialized pixel storage.
+    unsafe { std::slice::from_raw_parts(pixels.as_ptr().cast(), std::mem::size_of_val(pixels)) }
+}
+
 unsafe extern "C" {
     fn display_spi_write(
         fd: c_int,

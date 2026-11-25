@@ -8,7 +8,7 @@ use std::{
 
 pub const WINDOW: Duration = Duration::from_secs(12);
 pub const SAMPLE_INTERVAL: Duration = Duration::from_millis(200);
-const MOTION_POINTS: usize = 61;
+pub(super) const MOTION_POINTS: usize = 61;
 pub const ROUTE_POINTS: usize = 96;
 const EARTH_RADIUS_M: f64 = 6_378_137.0;
 
