@@ -101,6 +101,8 @@ impl crate::Device for SelectedDevice {
     }
 }
 pub mod devices {
+    pub use super::super::unbound::devices::secondary;
+
     pub fn primary_imu() -> &'static impl crate::Device {
         &super::DEVICE
     }

@@ -150,8 +150,12 @@ contract, so gateway ingest can read it with the camera-side server disabled.
 `wifi::Reconnector` owns station retry and rejoin; its caller supplies credentials
 and drives polling. Home-cam composes those APIs with streaming and detection.
 Motion Tracker's `communications` module owns the BLE and cellular sessions and
-their common bounded publisher. Its dashboard consumes link status. Navigation
-supplies reusable observation and fusion behavior. The camera qualification's
+their common bounded publisher. The cellular HAL owns PPP redial and publishes
+link changes. Communications owns collector TCP/TLS recovery. Navigation
+publishes measurements and terminal faults to shared observation readers.
+Motion Tracker's single entry point requires a primary IMU and GNSS. The
+selected profile supplies processing capabilities and any optional display,
+touch or secondary IMU. The camera qualification's
 recording and packet-summary adapters live with that fixture. Network data paths
 use `std::net`.
 

@@ -262,7 +262,7 @@ def qualify(process, modem, gnss_wire, transcript, log, ethernet, server, pin, r
     assert b'\nNXRS_STATUS_0\n' in transcript, transcript[-2000:]
     assert not re.search(rb'PANIC|panicked at|Assertion failed', transcript), transcript[-2000:]
     assert len(usb) == 160 and gnss.writes == [1, 7], (len(usb), gnss.writes)
-    assert transcript.count(b"cellular Failed(Rejected)") == 1
+    assert transcript.count(b"cellular Retrying(Rejected)") == 1
     check_live(json.loads(usb[-1]))
     if reject:
         assert len(secure_connections) >= 2, secure_connections

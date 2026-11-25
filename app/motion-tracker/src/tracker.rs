@@ -4,7 +4,6 @@ use std::time::Duration;
 
 pub const IMU_FRESH: Duration = Duration::from_millis(500);
 
-#[cfg(feature = "dashboard")]
 mod dashboard {
     use super::{Duration, Reading};
 
@@ -29,8 +28,7 @@ mod dashboard {
     }
 }
 
-#[cfg(feature = "dashboard")]
-pub use dashboard::{FIX_FRESH, Snapshot};
+pub use dashboard::{Snapshot, FIX_FRESH};
 
 pub fn reading_status<T>(reading: &Reading<T>) -> &'static str {
     match reading {

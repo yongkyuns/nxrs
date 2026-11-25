@@ -318,14 +318,16 @@ class Panel:
                 return image
         raise TimeoutError(f'dashboard pixel ({x}, {y}) never became {rgb:#06x}')
 
-    async def pairing_key(self):
+    async def pairing_key(self, *, previous=None):
         deadline = time.monotonic() + 10
         while time.monotonic() < deadline:
             image = await self.capture()
             code = zxingcpp.read_barcode(image.crop((0, 72, WIDTH, HEIGHT)))
             if code is not None:
                 assert re.fullmatch(r'NXRS1:[0-9A-F]{64}', code.text), 'invalid pairing payload'
-                return bytes.fromhex(code.text[6:])
+                key = bytes.fromhex(code.text[6:])
+                if key != previous:
+                    return key
             await asyncio.sleep(0.003)
         raise TimeoutError('decodable dashboard QR')
 

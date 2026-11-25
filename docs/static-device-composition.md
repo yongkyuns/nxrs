@@ -85,7 +85,9 @@ object. A single IMU needs no alias; multiple IMUs require an explicit default.
 Accessor name collisions between different devices are rejected. `Device::open`
 accepts configuration and a typed sink; `open_default` uses the driver's default.
 The result is an exclusive `Session`, separate from permanent identity. Consumers acquire through these device methods. The explicit mock fixture has primary and
-secondary devices; coordinated simulation has primary only. Portable services
+secondary devices. The standard `secondary()` accessor reports `Unsupported`
+when a profile supplies no secondary IMU, including coordinated simulation.
+Portable services
 can receive the selected reference through `ImuService::start_on(device)`.
 
 Each NuttX instance owns resource-opening and initialization callbacks and a

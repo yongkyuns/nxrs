@@ -89,7 +89,11 @@ pub(crate) fn render_instances(
     }
 
     source.push_str("pub mod devices {\n");
-    for (accessor, id) in graph.accessors(catalogs, capability)? {
+    let accessors = graph.accessors(catalogs, capability)?;
+    if capability == "imu" && !accessors.contains_key("secondary") {
+        source.push_str("pub use super::unavailable_secondary as secondary;\n");
+    }
+    for (accessor, id) in accessors {
         let instance = instances
             .get(id)
             .ok_or("accessor references an inactive device")?;
@@ -431,6 +435,9 @@ mod tests {
             trait Device {{}}
             mod imu_wiring {{
                 use crate::Device;
+                struct Unavailable;
+                impl Device for Unavailable {{}}
+                pub fn unavailable_secondary() -> &'static impl Device {{ &Unavailable }}
                 mod resource {{ pub struct Config<'a> {{ pub path: &'a str, pub frequency: u32 }} }}
                 mod resources {{
                     pub type Bus = ();

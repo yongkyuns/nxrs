@@ -74,13 +74,13 @@ RUNSTALL patch before the UART receive-timeout patch was added.
 
 ## Headless one-IMU tracker
 
-Use the production app with its dashboard feature disabled. The qualification
-profile registers one modeled BMI270 on NuttX's I²C driver and exposes NSH over
-UART0. The headless JSON stream is version 2 with one IMU entry. The verifier
-checks live readings, a successful exit, and reacquisition in the same boot.
+The acquisition fixture registers one modeled BMI270 on NuttX's I²C driver
+and exposes NSH over UART0. It exercises the same observation service used in
+the tracker. The verifier checks live readings, a clean exit and reacquisition
+in the same boot.
 
 ```sh
-cargo nxrs build --app motion-tracker --no-default-features \
+cargo nxrs build --manifest-path tests/nuttx-std/tracker-sim/logging/Cargo.toml \
   --profile esp32s3-qemu-tracker-headless \
   --target-c-source tests/nuttx-std/tracker-sim/devices.c \
   --target-c-source tests/nuttx-std/tracker-sim/native_init.c \

@@ -1,4 +1,4 @@
-"""Build and exercise the production headless executable with a mock IMU."""
+"""Run the production tracker with mock sensors and no display."""
 
 import json
 import os
@@ -10,7 +10,7 @@ def main():
     result = subprocess.run(
         [
             "cargo", "run", "--locked", "-p", "nxrs-motion-tracker",
-            "--no-default-features", "--", "--interval-ms", "100",
+            "--", "--interval-ms", "100",
             "--frames", "8", "--stream-usb",
         ],
         cwd=Path(__file__).resolve().parents[2],
@@ -24,9 +24,10 @@ def main():
     assert len(frames) == 8, frames
     live = []
     for frame in frames:
-        assert frame["v"] == 2 and "gnss" not in frame, frame
-        assert len(frame["imu"]) == 1, frame
-        [imu] = frame["imu"]
+        assert frame["v"] == 1, frame
+        assert frame["gnss"]["state"] in ("waiting", "live"), frame
+        imu, secondary = frame["imu"]
+        assert secondary["state"] in ("waiting", "live"), frame
         assert imu["state"] in ("waiting", "live"), frame
         if imu["state"] == "live":
             assert imu["interval_us"] > 0, imu
@@ -34,6 +35,8 @@ def main():
             live.append(imu["seq"])
     assert len(set(live)) >= 2 and live == sorted(live), live
     assert frames[-1]["imu"][0]["state"] == "live", frames[-1]
+    assert frames[-1]["gnss"]["state"] == "live", frames[-1]
+    assert frames[-1]["imu"][1]["state"] == "live", frames[-1]
     print(f"Motion Tracker exited cleanly after {len(frames)} frames. Live IMU sequences {live}.")
 
 

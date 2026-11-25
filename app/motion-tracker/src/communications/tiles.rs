@@ -151,6 +151,12 @@ struct Dial(Option<JoinHandle<io::Result<TcpStream>>>);
 
 impl Dial {
     fn start(endpoint: Endpoint) -> io::Result<Self> {
+        if !tls::Identity::SUPPORTS_PINNED_CLIENT {
+            return Err(io::Error::new(
+                io::ErrorKind::Unsupported,
+                "map relay TLS is unavailable",
+            ));
+        }
         thread::Builder::new()
             .name("tracker-tile-dial".into())
             .stack_size(8 * 1024)

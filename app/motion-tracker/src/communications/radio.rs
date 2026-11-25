@@ -138,6 +138,19 @@ impl<'a, L: Listener> Output<'a, L> {
         now >= self.expires
     }
 
+    pub fn active(&self) -> bool {
+        self.connection.is_some()
+    }
+
+    pub fn next_service(&self, active_at: Instant) -> Instant {
+        let wake = if self.active() {
+            active_at
+        } else {
+            self.listener.idle_retry_at().unwrap_or(self.expires)
+        };
+        wake.min(self.expires)
+    }
+
     pub fn take_ready(&self) -> bool {
         self.listener.take_ready()
     }

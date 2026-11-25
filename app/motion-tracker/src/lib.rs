@@ -1,23 +1,14 @@
 //! Motion observations and the outputs selected by this application build.
 #![forbid(unsafe_code)]
 
-#[cfg(feature = "dashboard")]
 mod charts;
-#[cfg(feature = "dashboard")]
 mod clock;
-#[cfg(feature = "dashboard")]
 mod communications;
 mod health;
-#[cfg(feature = "dashboard")]
 mod map;
-#[cfg(feature = "dashboard")]
 #[path = "dashboard.rs"]
 mod mode;
-#[cfg(not(feature = "dashboard"))]
-#[path = "headless.rs"]
-mod mode;
 mod preferences;
-#[cfg(feature = "dashboard")]
 mod screen;
 mod text;
 mod tracker;

@@ -32,7 +32,6 @@ fn imu_json(
     out.write_char('}')
 }
 
-#[cfg(feature = "dashboard")]
 mod version {
     use super::*;
     use crate::{map::Key, tracker::Snapshot};
@@ -145,25 +144,7 @@ mod version {
     }
 }
 
-#[cfg(not(feature = "dashboard"))]
-mod version {
-    use super::*;
-    use navigation::observations::Snapshot;
-
-    pub fn frame(snapshot: &Snapshot<1>) -> io::Result<Text<768>> {
-        let mut frame = Text::<768>::new();
-        frame
-            .write_str("{\"v\":2,\"imu\":[")
-            .and_then(|()| imu_json(&mut frame, snapshot.imu[0], None))
-            .and_then(|()| frame.write_str("]}\n"))
-            .map_err(|_| io::ErrorKind::InvalidData)?;
-        Ok(frame)
-    }
-}
-
-#[cfg(feature = "dashboard")]
 pub use version::export_frame;
 pub use version::frame;
 
-#[cfg(feature = "dashboard")]
 pub use version::ble_frame;
