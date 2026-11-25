@@ -8,7 +8,7 @@ publish = false
 probe = []
 
 [target.'cfg(unix)'.dev-dependencies]
-nxrs-acquisition = { path = "../../hal/acquisition" }
+nxrs-acquisition = { path = "../../shared/acquisition" }
 
 [[test]]
 name = "acquisition_lifecycle"

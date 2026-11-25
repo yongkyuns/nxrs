@@ -74,7 +74,6 @@ mod unix {
     #[derive(Clone, Copy, Debug)]
     enum Failure {
         Input,
-        Delivery,
         Cancellation,
         Join,
     }
@@ -124,7 +123,7 @@ mod unix {
             lane.reset();
         }
         let before = ALLOCATOR.snapshot();
-        let mut sessions: [(Worker<Cancel, Failure>, File); N] = std::array::from_fn(|index| {
+        let mut sessions: [_; N] = std::array::from_fn(|index| {
             let lane = &LANES[index];
             // Fixture input is separate from the real cancellation owner. The
             // two host pipe pairs' native storage is outside Rust counters.
@@ -135,13 +134,8 @@ mod unix {
                 "allocation-witness",
                 STACK_BYTES,
                 cancel,
-                move |value: u8| {
-                    assert_eq!(value, INPUT);
-                    lane.delivered.fetch_add(1, Ordering::Relaxed);
-                    Ok(())
-                },
-                |_| 0,
-                move |stopping, emit| {
+                lane,
+                move |stopping, lane| {
                     // Acknowledge entry to user code before construction's
                     // snapshot; no channels or heap-backed gates are involved.
                     lane.reached.store(1, Ordering::Release);
@@ -151,10 +145,8 @@ mod unix {
                     if byte[0] != INPUT {
                         return Err(Failure::Input);
                     }
-                    if !emit(byte[0]) {
-                        return Err(Failure::Delivery);
-                    }
-                    // The first read AND nonallocating sink have completed.
+                    lane.delivered.fetch_add(1, Ordering::Relaxed);
+                    // The first read and the fixture's delivery have completed.
                     // This is stronger than merely announcing wait entry; the
                     // byte may nevertheless have arrived before the OS read.
                     lane.reached.store(2, Ordering::Release);
@@ -197,7 +189,6 @@ mod unix {
         for (worker, _) in &mut sessions {
             worker.stop_and_join(Failure::Join).unwrap();
             assert!(worker.is_finished());
-            assert_eq!(worker.dropped(), 0);
         }
         let stop_join = ALLOCATOR.snapshot();
         stop_join.validate_after(first_wait).unwrap();
@@ -237,8 +228,31 @@ mod unix {
         ALLOCATOR.snapshot().reclaimed_since(before).unwrap();
     }
 
+    fn initialize_thread_runtime() {
+        let run_plain_thread = || {
+            std::thread::Builder::new()
+                .name("allocation-witness".into())
+                .stack_size(STACK_BYTES)
+                .spawn(|| {})
+                .unwrap()
+                .join()
+                .unwrap();
+        };
+        let before = ALLOCATOR.snapshot();
+        run_plain_thread();
+        let initialized = ALLOCATOR.snapshot();
+        initialized.validate_after(before).unwrap();
+        run_plain_thread();
+        ALLOCATOR.snapshot().reclaimed_since(initialized).unwrap();
+        println!(
+            "MEMORY_THREAD_BOOTSTRAP live_before={} live_after={} blocks_before={} blocks_after={}",
+            before.live, initialized.live, before.blocks, initialized.blocks
+        );
+    }
+
     pub fn run() {
         begin_measurement();
+        initialize_thread_runtime();
         observer_control();
         // Fixed counts, with no discarded warmup, byte allowance, or adaptive
         // baseline. Keep every result on the stack until all measurements end.

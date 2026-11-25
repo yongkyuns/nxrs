@@ -85,6 +85,10 @@ and two simultaneously live workers. Each cardinality has one initial lifecycle
 and exactly eight repetitions. There is no acquisition warm-up, adaptive retry,
 byte allowance or unexplained baseline subtraction. Every lifecycle must return
 tracked requested bytes and blocks to the same pre-construction baseline.
+A plain Rust thread runs before the first observation to expose one-time
+standard-library retention. The probe reports that baseline change separately
+and requires a second plain thread to return exactly to the initialized
+baseline before any acquisition workers start.
 
 The fixture uses safe `std::io::pipe` descriptor ownership on Unix. Each worker
 has one actual cancellation pipe and a separate test data pipe. Static atomics
@@ -138,11 +142,11 @@ instantiate the NuttX sensor backends.
 | Queues and sink-owned buffers | Chosen by the consumer; Worker does not create a queue | None in this witness; other sinks need their own accounting |
 | Optional tracing observer | Enabled observer can own an `Arc`; ordinary `Trace` is zero-sized | Not enabled by this witness; qualify separately when selected |
 
-Ownership sources: [worker](../hal/acquisition/src/lib.rs),
-[cancellation](../hal/acquisition/src/readiness.rs),
+Ownership sources: [worker](../shared/acquisition/src/lib.rs),
+[cancellation](../shared/acquisition/src/readiness.rs),
 [IMU slot and retained guard](../hal/imu/src/platform/nuttx/instance.rs),
 [GNSS slot and UART cleanup](../hal/gnss/src/platform/nuttx/mod.rs), and
-[tracing selection](../hal/acquisition/src/probe/mod.rs).
+[tracing selection](../shared/acquisition/src/probe/mod.rs).
 The [CoreS3 profile](../platform/cores3/profile.toml) requests 16,384 bytes for
 each sensor worker. Those requests are separate from both linked static object
 sizes and observed Rust allocations. The host witness requests 65,536 bytes per
