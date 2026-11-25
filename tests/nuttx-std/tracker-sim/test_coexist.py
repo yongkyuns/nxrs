@@ -1,8 +1,12 @@
+import asyncio
 import contextlib
 import io
+from types import SimpleNamespace
 import unittest
 
+from bumble.hci import HCI_Reset_Command
 from coexist import STACK_TASKS, check_stack_headroom
+from dashboard import Guest, H4Controller
 
 
 def snapshot(used):
@@ -26,3 +30,21 @@ class StackHeadroomTests(unittest.TestCase):
         incomplete = snapshot(800).replace(b'5 1000 700 imu-acquire\n', b'')
         with self.assertRaisesRegex(AssertionError, 'never observed all tracker tasks'):
             check_stack_headroom(incomplete)
+
+
+class StartupDiagnosticsTests(unittest.IsolatedAsyncioTestCase):
+    async def test_split_failure_line_preserves_stage_and_hci_progress(self):
+        stdout = asyncio.StreamReader()
+        guest = Guest(SimpleNamespace(stdout=stdout), io.BytesIO())
+        guest.controller = H4Controller('test')
+        guest.controller.on_packet(bytes(HCI_Reset_Command()))
+        reader = asyncio.create_task(guest.read_console())
+        stdout.feed_data(b'tracker simulator initialization failed: -5')
+        await asyncio.sleep(0)
+        self.assertFalse(reader.done())
+        stdout.feed_data(b' (register H4 controller)\r\n')
+        stdout.feed_eof()
+        with self.assertRaisesRegex(
+            RuntimeError, r'-5 \(register H4 controller\)\nH4 startup: command 0x0c03, complete 0x0c03'
+        ):
+            await reader

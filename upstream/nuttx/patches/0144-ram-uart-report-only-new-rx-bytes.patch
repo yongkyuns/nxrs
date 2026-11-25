@@ -1,0 +1,50 @@
+diff --git a/drivers/serial/uart_ram.c b/drivers/serial/uart_ram.c
+--- a/drivers/serial/uart_ram.c
++++ b/drivers/serial/uart_ram.c
+@@ -352,13 +352,30 @@
+ }
+ 
+ /****************************************************************************
++ * Name: uart_ram_rxpending
++ ****************************************************************************/
++
++static size_t uart_ram_rxpending(FAR struct uart_ram_s *priv)
++{
++  int wroff = atomic_read(&priv->rx->wroff);
++  int head = priv->uart.recv.head;
++
++  /* Bytes between tail and head have already been reported to the upper
++   * half, even when the reader has not released them yet.
++   */
++
++  return wroff >= head ? wroff - head :
++         sizeof(priv->rx->buffer) - head + wroff;
++}
++
++/****************************************************************************
+  * Name: uart_ram_dmareceive
+  ****************************************************************************/
+ 
+ static void uart_ram_dmareceive(FAR struct uart_dev_s *dev)
+ {
+   FAR struct uart_ram_s *priv = dev->priv;
+-  dev->dmarx.nbytes = uart_rambuf_rxavailable(priv->rx);
++  dev->dmarx.nbytes = uart_ram_rxpending(priv);
+   uart_recvchars_done(dev);
+ }
+ 
+@@ -456,11 +473,11 @@
+       uart_ram_dmatxavail(dev);
+     }
+ 
+-  /* When the read and write pointers of the rx buffer are different,
+-   * it means that the data is received
++  /* Notify the upper half only when new RX bytes arrived after its head,
++   * even if previously delivered bytes have not been read.
+    */
+ 
+-  if (dev->dmarx.length == 0 && uart_rambuf_rxavailable(priv->rx))
++  if (dev->dmarx.length == 0 && uart_ram_rxpending(priv))
+     {
+       uart_recvchars_dma(dev);
+     }

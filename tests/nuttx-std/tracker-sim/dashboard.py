@@ -2,6 +2,7 @@
 import argparse
 import asyncio
 import base64
+from collections import deque
 from dataclasses import replace
 import json
 import math
@@ -19,6 +20,7 @@ from bumble.core import AdvertisingData, PhysicalTransport, UUID
 from bumble.device import Device, Peer
 from bumble.gatt import Characteristic
 from bumble.hci import (
+    HCI_Command_Complete_Event, HCI_Command_Status_Event,
     HCI_LE_Advertising_Report_Event, HCI_LE_Extended_Advertising_Report_Event,
     HCI_Number_Of_Completed_Packets_Event,
 )
@@ -149,7 +151,19 @@ class BluetoothLink(LocalLink):
 class H4Controller(Controller):
     withheld_completions = None
 
+    def __init__(self, *args, **kwargs):
+        self.boot_hci = deque(maxlen=16)
+        super().__init__(*args, **kwargs)
+
+    def on_hci_command_packet(self, command):
+        if self.boot_hci is not None:
+            self.boot_hci.append(f'command {command.op_code:#06x}')
+        super().on_hci_command_packet(command)
+
     def send_hci_packet(self, packet):
+        if self.boot_hci is not None and isinstance(packet, (HCI_Command_Complete_Event, HCI_Command_Status_Event)):
+            result = 'complete' if isinstance(packet, HCI_Command_Complete_Event) else f'status {packet.status:#04x}'
+            self.boot_hci.append(f'{result} {packet.command_opcode:#06x}')
         if self.withheld_completions is not None and isinstance(packet, HCI_Number_Of_Completed_Packets_Event):
             for handle, count in zip(packet.connection_handles, packet.num_completed_packets):
                 self.withheld_completions[handle] = self.withheld_completions.get(handle, 0) + count
@@ -202,11 +216,16 @@ class PhoneController(Controller):
         super().send_hci_packet(packet)
 
 
+class TrackerStartupError(RuntimeError):
+    pass
+
+
 class Guest:
     def __init__(self, process, log):
         self.process = process
         self.log = log
         self.buffer = bytearray()
+        self.controller = None
         self.samples = []
         self.gnss = None
         self.publish_fix = True
@@ -219,14 +238,17 @@ class Guest:
             self.log.write(data)
             self.log.flush()
             self.buffer.extend(data.replace(b'\r', b''))
-            failure = re.search(rb'tracker simulator initialization failed: -?\d+', self.buffer)
-            if failure:
-                raise RuntimeError(failure[0].decode())
             line.extend(data.replace(b'\r', b''))
+            if self.controller is not None and self.controller.boot_hci is not None and b'nsh>' in line:
+                self.controller.boot_hci = None
             while b'\n' in line:
                 end = line.index(b'\n')
                 text = bytes(line[:end])
                 del line[:end + 1]
+                if text.startswith(b'tracker simulator initialization failed: '):
+                    recent = self.controller.boot_hci if self.controller is not None else None
+                    progress = ', '.join(recent or ()) or 'no HCI commands received'
+                    raise TrackerStartupError(f'{text.decode()}\nH4 startup: {progress}')
                 start = text.find(b'{"v":1,')
                 if start < 0:
                     continue
@@ -851,6 +873,13 @@ async def run(args, log, exercise=scenario, attach_controller=None):
                     task.result()
                 assert test in done, 'guest console or UART terminated during the test'
                 print(f'PASS: full tracker in {time.monotonic() - start:.2f} host seconds')
+            except TrackerStartupError as error:
+                if attach_controller is not None:
+                    try:
+                        error.add_note(await asyncio.wait_for(controller_wire.describe_rings(), 1))
+                    except (OSError, AssertionError, ValueError, struct.error):
+                        error.add_note('Could not read RAM UART ring offsets')
+                raise
             finally:
                 for task in tasks:
                     task.cancel()

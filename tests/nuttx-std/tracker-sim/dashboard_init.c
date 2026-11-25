@@ -40,12 +40,14 @@ int nsh_main(int argc, char *argv[]);
 
 int tracker_sim_init(int argc, char *argv[])
 {
+  const char *stage = "register simulated devices";
   int ret = tracker_sim_devices();
 #ifdef CONFIG_BLUETOOTH_UART_SHIM
 #ifdef CONFIG_RAM_UART
   const char *hci = "/dev/tracker_hci";
   if (ret >= 0)
     {
+      stage = "register RAM UART";
       ret = uart_ram_register(hci, tracker_hci_buffers, false);
     }
 #else
@@ -53,6 +55,7 @@ int tracker_sim_init(int argc, char *argv[])
 #endif
   if (ret >= 0)
     {
+      stage = "register H4 controller";
       struct btuart_lowerhalf_s *lower = btuart_shim_getdevice(hci);
       ret = lower ? btuart_register(lower) : -ENODEV;
     }
@@ -61,7 +64,7 @@ int tracker_sim_init(int argc, char *argv[])
 
   if (ret < 0)
     {
-      printf("tracker simulator initialization failed: %d\n", ret);
+      printf("tracker simulator initialization failed: %d (%s)\n", ret, stage);
       return ret;
     }
 
