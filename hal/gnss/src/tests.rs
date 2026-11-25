@@ -41,6 +41,7 @@ enum Fault {
     None,
     Nak,
     ReadAfterSet,
+    SatelliteReadAfterSet,
     WrongReadback,
     Silent,
 }
@@ -48,6 +49,8 @@ struct Stream {
     input: VecDeque<u8>,
     tx: Vec<u8>,
     rate: u8,
+    satellite_rate: u8,
+    period_ms: u16,
     reads: usize,
     commands: usize,
     fault: Fault,
@@ -60,6 +63,8 @@ impl Default for Stream {
             input: VecDeque::new(),
             tx: Vec::new(),
             rate: 7,
+            satellite_rate: 4,
+            period_ms: 1_000,
             reads: 0,
             commands: 0,
             fault: Fault::None,
@@ -99,28 +104,47 @@ impl Write for Stream {
         assert_eq!(frame(6, self.tx[3], &self.tx[6..6 + length]), self.tx);
         self.commands += 1;
         if self.fault != Fault::Silent {
+            if self.tx[3] == 0x8b && length == 12 {
+                assert_eq!(&self.tx[6..18], &[0, 0, 0, 0, 1, 0, 0x21, 0x30, 2, 0, 0x21, 0x30]);
+                let mut reply = [1, 0, 0, 0, 1, 0, 0x21, 0x30, 0, 0, 2, 0, 0x21, 0x30, 1, 0];
+                reply[8..10].copy_from_slice(&self.period_ms.to_le_bytes());
+                self.input.extend(frame(6, 0x8b, &reply));
+                self.tx.clear();
+                return Ok(count);
+            }
+            let key: [u8; 4] = self.tx[10..14].try_into().unwrap();
+            let satellite = key == [0x16, 0, 0x91, 0x20];
+            assert!(satellite || key == [7, 0, 0x91, 0x20]);
+            let rate = if satellite {
+                &mut self.satellite_rate
+            } else {
+                &mut self.rate
+            };
             match self.tx[3] {
                 0x8b => {
-                    assert_eq!(&self.tx[6..14], &[0, 0, 0, 0, 7, 0, 0x91, 0x20]);
-                    let mut rate = self.rate;
+                    assert_eq!(&self.tx[6..10], &[0, 0, 0, 0]);
+                    let mut value = *rate;
                     if self.changed && self.fault == Fault::WrongReadback {
-                        rate = rate.wrapping_add(1);
+                        value = value.wrapping_add(1);
                         self.fault = Fault::None;
                     }
-                    self.input
-                        .extend(frame(6, 0x8b, &[1, 0, 0, 0, 7, 0, 0x91, 0x20, rate]));
+                    let mut reply = [1, 0, 0, 0, 0, 0, 0, 0, value];
+                    reply[4..8].copy_from_slice(&key);
+                    self.input.extend(frame(6, 0x8b, &reply));
                 }
                 0x8a => {
                     // Only RAM; no BBR/flash saves, protocol or baud changes.
-                    assert_eq!(&self.tx[6..14], &[0, 1, 0, 0, 7, 0, 0x91, 0x20]);
+                    assert_eq!(&self.tx[6..10], &[0, 1, 0, 0]);
                     let nak = self.fault == Fault::Nak;
                     if nak {
                         self.fault = Fault::None;
                     } else {
-                        self.rate = self.tx[14];
+                        *rate = self.tx[14];
                         self.changed = true;
                     }
-                    if self.fault == Fault::ReadAfterSet {
+                    if self.fault == Fault::ReadAfterSet
+                        || (satellite && self.fault == Fault::SatelliteReadAfterSet)
+                    {
                         self.read_error = true;
                         self.fault = Fault::None;
                     }
@@ -150,6 +174,87 @@ fn receiver_with(payload: &[u8]) -> Receiver<Driver<Stream>> {
     let mut stream = Stream::default();
     stream.input.extend(frame(1, 7, payload));
     Receiver::new(Driver::new(stream))
+}
+
+#[test]
+fn fixes_include_quality_and_only_recent_satellite_reports() {
+    let mut stream = Stream::default();
+    // More blocks than fit in the old PVT-sized decoder. Include acquired,
+    // unusable, code-locked, carrier-locked and unmeasured signal readings.
+    let mut sat = [0; 8 + 12 * 9];
+    sat[..4].copy_from_slice(&604_799_750u32.to_le_bytes());
+    sat[4] = 1;
+    sat[5] = 9;
+    for (index, (block, (quality, cn0))) in sat[8..]
+        .chunks_exact_mut(12)
+        .zip([
+            (2, 39),
+            (3, 28),
+            (4, 31),
+            (5, 42),
+            (7, 0),
+            (0, 0),
+            (0, 0),
+            (0, 0),
+            (0, 0),
+        ])
+        .enumerate()
+    {
+        block[1] = index as u8 + 1;
+        block[2] = cn0;
+        block[8] = quality;
+    }
+    stream.input.extend(frame(1, 0x35, &sat));
+    let mut fix = pvt(250);
+    fix[23] = 2;
+    fix[40..44].copy_from_slice(&2_500u32.to_le_bytes());
+    fix[44..48].copy_from_slice(&4_750u32.to_le_bytes());
+    fix[68..72].copy_from_slice(&250u32.to_le_bytes());
+    fix[76..78].copy_from_slice(&175u16.to_le_bytes());
+    stream.input.extend(frame(1, 7, &fix));
+
+    let mut receiver = Receiver::new(Driver::new(stream));
+    let quality = receiver.fixture_fix(10_000).unwrap().quality.unwrap();
+    assert_eq!(quality.satellites_used, 2);
+    assert_eq!(quality.horizontal_accuracy_m, 2.5);
+    assert_eq!(quality.vertical_accuracy_m, 4.75);
+    assert_eq!(quality.speed_accuracy_mps, 0.25);
+    assert_eq!(quality.position_dop, Some(1.75));
+    let satellites = quality.satellites.unwrap();
+    assert_eq!((satellites.visible, satellites.tracked), (9, 3));
+    assert_eq!(satellites.mean_cn0_db_hz, Some(37));
+    assert_eq!(satellites.age_ms, 500); // Receiver week rollover.
+
+    receiver
+        .source
+        .io_mut()
+        .input
+        .extend(frame(1, 7, &pvt(3_000)));
+    assert!(receiver
+        .fixture_fix(20_000)
+        .unwrap()
+        .quality
+        .unwrap()
+        .satellites
+        .is_none());
+
+    sat[..4].copy_from_slice(&4_000u32.to_le_bytes());
+    receiver.source.io_mut().input.extend(frame(1, 0x35, &sat));
+    receiver
+        .source
+        .io_mut()
+        .input
+        .extend(frame(1, 7, &pvt(3_500)));
+    assert!(receiver
+        .fixture_fix(30_000)
+        .unwrap()
+        .quality
+        .unwrap()
+        .satellites
+        .is_none());
+    receiver.source.io_mut().input.extend(frame(1, 7, &pvt(4_000)));
+    let satellites = receiver.fixture_fix(32_000).unwrap().quality.unwrap().satellites.unwrap();
+    assert_eq!(satellites.age_ms, 0);
 }
 
 fn report_pulse(receiver: &mut Receiver<Driver<Stream>>, epoch: u32, flags: u8, now: u64) {
@@ -295,18 +400,38 @@ fn checksum_length_noise_resynchronize_and_each_event_read_is_bounded() {
 }
 #[test]
 fn ram_configuration_is_acknowledged_read_back_and_restored() {
-    let mut receiver = Receiver::new(Driver::new(Stream::default()));
-    receiver.source.configure(deadline()).unwrap();
-    assert_eq!(receiver.source.io().rate, 1);
-    receiver.source.restore(deadline()).unwrap();
-    assert_eq!(receiver.source.io().rate, 7);
-    assert_eq!(receiver.source.io().commands, 5); // Initial GET, SET/GET, restore SET/GET.
-    receiver.source.restore(deadline()).unwrap();
-    assert_eq!(receiver.source.io().commands, 5);
+    for (baud, period_ms, satellite_rate) in [
+        (38_400, 40, Some(75)),
+        (38_400, 1_000, Some(3)),
+        (38_400, 10_000, Some(1)),
+        (9_600, 1_000, Some(5)),
+        (9_600, 125, None),
+    ] {
+        let stream = Stream {
+            period_ms,
+            ..Stream::default()
+        };
+        let mut receiver = Receiver::new(Driver::new(stream).with_uart_baud(baud));
+        receiver.source.configure(deadline()).unwrap();
+        assert_eq!(receiver.source.io().rate, 1);
+        assert_eq!(receiver.source.io().satellite_rate, satellite_rate.unwrap_or(4));
+        receiver.source.restore(deadline()).unwrap();
+        assert_eq!(receiver.source.io().rate, 7);
+        assert_eq!(receiver.source.io().satellite_rate, 4);
+        let commands = if satellite_rate.is_some() { 11 } else { 6 };
+        assert_eq!(receiver.source.io().commands, commands);
+        receiver.source.restore(deadline()).unwrap();
+        assert_eq!(receiver.source.io().commands, commands);
+    }
 }
 #[test]
 fn negative_ack_readback_mismatch_and_uncertain_apply_can_be_rolled_back() {
-    for fault in [Fault::Nak, Fault::ReadAfterSet, Fault::WrongReadback] {
+    for fault in [
+        Fault::Nak,
+        Fault::ReadAfterSet,
+        Fault::WrongReadback,
+        Fault::SatelliteReadAfterSet,
+    ] {
         let mut receiver = Receiver::new(Driver::new(Stream {
             fault,
             ..Stream::default()
@@ -314,6 +439,7 @@ fn negative_ack_readback_mismatch_and_uncertain_apply_can_be_rolled_back() {
         assert!(receiver.source.configure(deadline()).is_err());
         receiver.source.restore(deadline()).unwrap();
         assert_eq!(receiver.source.io().rate, 7);
+        assert_eq!(receiver.source.io().satellite_rate, 4);
     }
     let mut receiver = Receiver::new(Driver::new(Stream {
         fault: Fault::Silent,
@@ -343,6 +469,7 @@ fn failed_restoration_stays_pending_until_it_is_verified() {
     receiver.source.io_mut().fault = Fault::None;
     receiver.source.restore(deadline()).unwrap();
     assert_eq!(receiver.source.io().rate, 7);
+    assert_eq!(receiver.source.io().satellite_rate, 4);
 }
 
 #[test]

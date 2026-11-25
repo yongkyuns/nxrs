@@ -278,6 +278,18 @@ static bool store_pixel(uint16_t rgb, unsigned int index,
 
 static void draw_pixels(const uint8_t *bytes, size_t size)
 {
+  /* Preserve a stable capture across a complete dashboard repaint. Varying
+   * address windows can also update the plot or its readout independently.
+   */
+
+  static bool full_repaint;
+  if (!full_repaint)
+    {
+      tracker_frame_sequence++;
+      full_repaint = g_x == 0 && g_last_column == WIDTH - 1 &&
+                     (g_y == 0 || g_y == 8 || g_y == 40);
+    }
+
   unsigned int colors[2] = {0};
   for (size_t i = 0; i + 1 < size; i += 2)
     {
@@ -288,24 +300,22 @@ static void draw_pixels(const uint8_t *bytes, size_t size)
           tracker_model_error = 1;
           return;
         }
-      if (g_x == 0 && (tracker_frame_sequence & 1) == 0)
-        {
-          tracker_frame_sequence++;
-        }
       if (!store_pixel(rgb, g_y * WIDTH + g_x, colors))
         {
           tracker_model_error = 2;
           return;
-        }
-      if (g_x == WIDTH - 1 && g_y == HEIGHT - 1)
-        {
-          tracker_frame_sequence++;
         }
       if (g_x++ == g_last_column)
         {
           g_x = g_column;
           g_y++;
         }
+    }
+
+  if (!full_repaint || g_y == HEIGHT)
+    {
+      tracker_frame_sequence++;
+      full_repaint = false;
     }
 }
 

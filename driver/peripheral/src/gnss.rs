@@ -1,6 +1,31 @@
 //! Synchronous GNSS receiver protocol, without acquisition or host timestamps.
 use std::time::Instant;
 
+/// Accuracy estimates and satellite usage at the solution epoch.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct FixQuality {
+    pub satellites_used: u8,
+    pub horizontal_accuracy_m: f32,
+    pub vertical_accuracy_m: f32,
+    pub speed_accuracy_mps: f32,
+    /// Position dilution of precision (PDOP), a dimensionless factor.
+    pub position_dop: Option<f32>,
+    pub satellites: Option<SatelliteStatus>,
+}
+
+/// Summary of a receiver's recent satellite report.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SatelliteStatus {
+    /// Satellites the receiver reports as visible or tracked.
+    pub visible: u8,
+    /// Satellites with a synchronized code or carrier lock.
+    pub tracked: u8,
+    /// Mean carrier-to-noise density, rounded to whole dB-Hz.
+    pub mean_cn0_db_hz: Option<u8>,
+    /// Milliseconds from the satellite report's receiver epoch to this fix.
+    pub age_ms: u32,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Error {
     Io,
@@ -19,6 +44,7 @@ pub struct Measurement {
     pub longitude_deg: f64,
     pub speed_mps: f32,
     pub course_rad: Option<f32>,
+    pub quality: Option<FixQuality>,
 }
 
 /// Time of week of the next pulse. The receiver can use either time grid.
@@ -44,6 +70,5 @@ pub trait Receiver {
     fn restore(&mut self, deadline: Instant) -> Result<(), Error>;
     /// Read at most one bounded chunk. Invalid frames are recoverable events;
     /// transport failures terminate the call. NoFix is not a corrupt frame.
-    fn read_available(&mut self, emit: impl FnMut(Result<Report, Error>))
-        -> Result<(), Error>;
+    fn read_available(&mut self, emit: impl FnMut(Result<Report, Error>)) -> Result<(), Error>;
 }

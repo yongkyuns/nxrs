@@ -169,6 +169,7 @@ fn gnss_fix(key: EventKey, observation: GnssObservation) -> gnss_hal::GnssFix {
         longitude_deg: f64::from(observation.longitude_e7) / 10_000_000.0,
         speed_mps: observation.speed_mm_s as f32 / 1_000.0,
         course_rad: observation.course_mrad.map(|value| value as f32 / 1_000.0),
+        quality: None,
     }
 }
 

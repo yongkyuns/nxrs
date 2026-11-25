@@ -61,10 +61,26 @@ impl Display for Screen {
     fn draw(&mut self, area: Rect, pixels: &[u16]) -> Result<(), Error> {
         self.panel
             .draw(area.x, area.y, area.size.width, area.size.height, pixels)
-            .map_err(|error| match error {
-                ili9342c::Error::InvalidRegion => Error::InvalidRegion,
-                ili9342c::Error::InvalidPixelCount => Error::InvalidPixelCount,
-                ili9342c::Error::Transport(error) => error,
-            })
+            .map_err(panel_error)
+    }
+
+    fn draw_strip(&mut self, area: Rect, pixels: &mut [u16]) -> Result<(), Error> {
+        self.panel
+            .draw_packed(
+                area.x,
+                area.y,
+                area.size.width,
+                area.size.height,
+                ffi::panel_bytes(pixels),
+            )
+            .map_err(panel_error)
+    }
+}
+
+fn panel_error(error: ili9342c::Error<Error>) -> Error {
+    match error {
+        ili9342c::Error::InvalidRegion => Error::InvalidRegion,
+        ili9342c::Error::InvalidPixelCount => Error::InvalidPixelCount,
+        ili9342c::Error::Transport(error) => error,
     }
 }

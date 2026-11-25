@@ -32,7 +32,15 @@ pub trait Display {
     /// The pixel count must exactly match the area. The transfer completes
     /// before returning. An I/O failure may leave a partial update.
     fn draw(&mut self, area: Rect, pixels: &[u16]) -> Result<(), Error>;
+
+    /// Draw from a reusable scratch buffer. Its contents may change, including
+    /// after an error. The caller can reuse its storage as soon as this returns.
+    fn draw_strip(&mut self, area: Rect, pixels: &mut [u16]) -> Result<(), Error> {
+        self.draw(area, pixels)
+    }
 }
 
 mod platform;
 pub use platform::open;
+
+pub mod graphics;

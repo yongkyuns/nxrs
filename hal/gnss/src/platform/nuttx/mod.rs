@@ -219,7 +219,7 @@ impl<R: Protocol + AsRef<Serial> + AsMut<Serial> + Send + 'static> Drop for Reta
             self.0.state.store(2, Ordering::Release);
             error.into_inner()
         });
-        drop(storage.take());
+        *storage = None;
     }
 }
 impl<R: Protocol + AsRef<Serial> + AsMut<Serial> + Send + 'static> crate::api::Sealed

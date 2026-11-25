@@ -3,6 +3,9 @@ extends = "esp32s3-qemu-tracker-upload"
 nuttx-config = "esp32s3-qemu-tracker-coexist.conf"
 hal = { ble = "nuttx", execution = "nuttx", boot = "nuttx", watchdog = "nuttx" }
 
+[build]
+size-optimized = true
+
 [watchdog]
 device = "/dev/watchdog0"
 mode = "runtime"

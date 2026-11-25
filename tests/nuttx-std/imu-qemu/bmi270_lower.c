@@ -34,14 +34,14 @@
 #define UPLOAD_BYTES 8192
 #define FRAME_BYTES  12
 #define FRAMES       6
-#define SAMPLE_TICKS 256 /* 25.6 kHz clock at 100 Hz ODR */
+#define SAMPLE_TICKS 256 /* 25.6 kHz sensor clock at 100 Hz ODR. */
 
 static uint8_t registers[128];
 static uint8_t fifo[FRAMES * FRAME_BYTES];
-static uint32_t sensor_ticks;
 static size_t uploaded;
 static size_t fifo_offset;
 static size_t fifo_count;
+static uint32_t sensor_ticks;
 static bool uploading;
 static bool overflow;
 static bool bus_open;
@@ -138,9 +138,9 @@ static int read_registers(uint8_t reg, uint8_t *data, size_t len)
     }
   else if (reg == SENSOR_TIME && len == 3)
     {
-      data[0] = sensor_ticks;
-      data[1] = sensor_ticks >> 8;
-      data[2] = sensor_ticks >> 16;
+      data[0] = sensor_ticks & 255;
+      data[1] = (sensor_ticks >> 8) & 255;
+      data[2] = (sensor_ticks >> 16) & 255;
     }
   else if (reg == INT_STATUS && len == 1)
     {
@@ -327,7 +327,6 @@ int bmi270_fixture_push(bool full)
         }
 
       fifo_count = sizeof(fifo);
-      /* Keep both reads of a FIFO length snapshot on this sample boundary. */
       sensor_ticks += FRAMES * SAMPLE_TICKS;
     }
 

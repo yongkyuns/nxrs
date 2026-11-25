@@ -14,11 +14,13 @@ def ubx(kind, identifier, payload):
 
 class NeoM9n:
     KEY = bytes((7, 0, 0x91, 0x20))
+    SATELLITE_KEY = bytes((0x16, 0, 0x91, 0x20))
 
     def __init__(self, wire):
         self.wire = wire
         self.buffer = bytearray()
         self.rate = 7
+        self.satellite_rate = 0
         self.navigation = (1000, 1)
         self.writes = []
         self.fix_sent = False
@@ -47,14 +49,20 @@ class NeoM9n:
                     first, second = (struct.pack('<H', number) for number in self.navigation)
                     self.wire.sendall(ubx(6, 0x8b, bytes((1, 0, 0, 0)) + measurement + first + cycles + second))
                 continue
+            key = data[4:8]
+            assert key in (self.KEY, self.SATELLITE_KEY)
             if identifier == 0x8a:
-                assert data[:-1] == b'\0\1\0\0' + self.KEY
-                self.rate = data[-1]
-                self.writes.append(self.rate)
+                assert data[:4] == b'\0\1\0\0'
+                if key == self.KEY:
+                    self.rate = data[-1]
+                    self.writes.append(self.rate)
+                else:
+                    self.satellite_rate = data[-1]
                 self.wire.sendall(ubx(5, 1, bytes((6, 0x8a))))
             else:
-                assert identifier == 0x8b and data == bytes(4) + self.KEY
-                answer = ubx(6, 0x8b, b'\1\0\0\0' + self.KEY + bytes((self.rate,)))
+                assert identifier == 0x8b and data[:4] == bytes(4)
+                rate = self.rate if key == self.KEY else self.satellite_rate
+                answer = ubx(6, 0x8b, b'\1\0\0\0' + key + bytes((rate,)))
                 self.wire.sendall(answer)
 
     def send_fix(self):
