@@ -149,12 +149,12 @@ fn fragmented_nav_pvt_reports_epoch_coordinates_speed_and_heading_quality() {
         let mut reports = Vec::new();
         decoder.consume(&wire[..split], &mut |e| {
             if let ubx::Event::NavPvt(r) = e {
-                reports.push(r)
+                reports.push(r.copied())
             }
         });
         decoder.consume(&wire[split..], &mut |e| {
             if let ubx::Event::NavPvt(r) = e {
-                reports.push(r)
+                reports.push(r.copied())
             }
         });
         assert_eq!(reports.len(), 1);
@@ -172,7 +172,7 @@ fn fragmented_nav_pvt_reports_epoch_coordinates_speed_and_heading_quality() {
     let mut reports = Vec::new();
     decoder.consume(&frame(1, 7, &still), &mut |e| {
         if let ubx::Event::NavPvt(r) = e {
-            reports.push(r)
+            reports.push(r.copied())
         }
     });
     assert_eq!(reports[0].unwrap().heading_rad, None);
@@ -208,7 +208,7 @@ fn satellite_framer_checks_shape_and_checksum_at_the_protocol_limit() {
     assert_eq!(errors, 2);
     assert_eq!(summaries.len(), 1);
     assert_eq!((summaries[0].visible, summaries[0].tracked), (255, 255));
-    assert_eq!(summaries[0].mean_cn0_db_hz, Some(55.0));
+    assert_eq!(summaries[0].mean_cn0_db_hz, Some(55));
 }
 
 #[test]
@@ -220,7 +220,7 @@ fn invalid_fix_values_and_bad_coordinates_are_rejected() {
         let mut reports = Vec::new();
         decoder.consume(&frame(1, 7, &payload), &mut |e| {
             if let ubx::Event::NavPvt(r) = e {
-                reports.push(r)
+                reports.push(r.copied())
             }
         });
         assert_eq!(reports, [Err(DriverError::NoFix)]);
@@ -232,7 +232,7 @@ fn invalid_fix_values_and_bad_coordinates_are_rejected() {
         let mut reports = Vec::new();
         decoder.consume(&frame(1, 7, &payload), &mut |e| {
             if let ubx::Event::NavPvt(r) = e {
-                reports.push(r)
+                reports.push(r.copied())
             }
         });
         assert_eq!(reports, [Err(DriverError::InvalidData)]);

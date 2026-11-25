@@ -14,8 +14,8 @@ pub(super) const TIM_TP_RATE: ConfigKey = match ConfigKey::new(0x2091_017e) {
     Err(_) => panic!("TIM-TP UART1 key is U1"),
 };
 
-pub(super) enum Event {
-    NavPvt(Result<NavPvt, DriverError>),
+pub(super) enum Event<'a> {
+    NavPvt(Result<&'a NavPvt, DriverError>),
     Rate(ConfigKey, u8),
     Pulse(Option<TimePulse>),
     Navigation { measurement: u16, cycles: u16 },
@@ -52,7 +52,7 @@ impl Decoder {
 
     // Share the decoder between acquisition and RAM transactions in the firmware.
     #[inline(never)]
-    pub(super) fn consume(&mut self, bytes: &[u8], emit: &mut dyn FnMut(Event)) {
+    pub(super) fn consume(&mut self, bytes: &[u8], emit: &mut dyn FnMut(Event<'_>)) {
         for &byte in bytes {
             let frame = match self.parser.push(byte) {
                 Some(WireEvent::Frame(frame)) => frame,
@@ -119,7 +119,7 @@ impl Decoder {
                         }
                         None
                     });
-                    emit(Event::NavPvt(Ok(NavPvt {
+                    emit(Event::NavPvt(Ok(&NavPvt {
                         itow_ms: p.itow,
                         // UBX-NAV-PVT valid.fullyResolved. instant() also checks
                         // the valid date/time flags and handles the signed fraction.

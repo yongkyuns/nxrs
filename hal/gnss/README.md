@@ -13,9 +13,9 @@ radians. `timestamp_us` uses the same monotonic clock as IMU samples.
 `GnssFix::quality` reports satellites used, estimated horizontal and vertical
 accuracy in metres, speed accuracy in m/s, and optional position DOP (PDOP).
 The optional satellite summary contains the receiver's visible-or-tracked count,
-the count with synchronized code or carrier lock, and mean C/N₀ in dB-Hz for
-tracked satellites with a signal reading. `age_ms` is its age relative to the
-fix epoch. The driver omits reports older than one configured NAV-SAT interval.
+the count with synchronized code or carrier lock, and mean C/N₀ for tracked
+satellites with a signal reading, rounded to whole dB-Hz. `age_ms` gives the
+report's age relative to the fix epoch, up to one configured NAV-SAT interval.
 
 The NuttX provider owns a nonblocking UART. The CoreS3 profile declares a UART
 resource and an M9 receiver. The [driver binding](../../driver/ubx/bindings.toml)

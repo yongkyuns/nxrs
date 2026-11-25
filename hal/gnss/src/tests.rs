@@ -190,7 +190,7 @@ fn fixes_include_quality_and_only_recent_satellite_reports() {
         .zip([
             (2, 39),
             (3, 28),
-            (4, 30),
+            (4, 31),
             (5, 42),
             (7, 0),
             (0, 0),
@@ -222,7 +222,7 @@ fn fixes_include_quality_and_only_recent_satellite_reports() {
     assert_eq!(quality.position_dop, Some(1.75));
     let satellites = quality.satellites.unwrap();
     assert_eq!((satellites.visible, satellites.tracked), (9, 3));
-    assert_eq!(satellites.mean_cn0_db_hz, Some(36.0));
+    assert_eq!(satellites.mean_cn0_db_hz, Some(37));
     assert_eq!(satellites.age_ms, 500); // Receiver week rollover.
 
     receiver

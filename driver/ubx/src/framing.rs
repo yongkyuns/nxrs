@@ -156,13 +156,15 @@ impl Framer {
         if self.payload[4] != 1 || self.length() != SAT_HEADER + u16::from(visible) * SAT_BLOCK {
             return Event::Invalid;
         }
+        let readings = u16::from(self.signals.reported);
+        let mean_cn0_db_hz =
+            (readings > 0).then(|| ((self.signals.sum + readings / 2) / readings) as u8);
         Event::Satellites(
             u32::from_le_bytes(self.payload[..4].try_into().unwrap()),
             SatelliteStatus {
                 visible,
                 tracked: self.signals.tracked,
-                mean_cn0_db_hz: (self.signals.reported > 0)
-                    .then(|| f32::from(self.signals.sum) / f32::from(self.signals.reported)),
+                mean_cn0_db_hz,
                 age_ms: 0,
             },
         )

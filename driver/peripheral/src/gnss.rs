@@ -20,8 +20,8 @@ pub struct SatelliteStatus {
     pub visible: u8,
     /// Satellites with a synchronized code or carrier lock.
     pub tracked: u8,
-    /// Mean carrier-to-noise density in dB-Hz among tracked satellites with a reading.
-    pub mean_cn0_db_hz: Option<f32>,
+    /// Mean carrier-to-noise density, rounded to whole dB-Hz.
+    pub mean_cn0_db_hz: Option<u8>,
     /// Milliseconds from the satellite report's receiver epoch to this fix.
     pub age_ms: u32,
 }

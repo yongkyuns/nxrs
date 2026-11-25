@@ -42,6 +42,8 @@ pub type NeoM9n<T> = Driver<T>;
 pub struct Driver<R> {
     io: R,
     decoder: ubx::Decoder,
+    // Reuse the receiver's read workspace during streaming and RAM transactions.
+    input: [u8; 128],
     uart_baud: u32,
     saved_rate: Option<u8>,
     saved_satellite_rate: Option<u8>,
@@ -55,6 +57,7 @@ impl<R: Read + Write> Driver<R> {
         Self {
             io,
             decoder: ubx::Decoder::default(),
+            input: [0; 128],
             uart_baud: 38_400,
             saved_rate: None,
             saved_satellite_rate: None,
@@ -119,18 +122,17 @@ impl<R: Read + Write> Driver<R> {
         mut emit: impl FnMut(Result<NavPvt, DriverError>),
     ) -> Result<(), DriverError> {
         self.read_chunk(|event| match event {
-            ubx::Event::NavPvt(report) => emit(report),
+            ubx::Event::NavPvt(report) => emit(report.copied()),
             ubx::Event::Invalid => emit(Err(DriverError::InvalidData)),
             _ => {}
         })
     }
 
-    fn read_chunk(&mut self, mut emit: impl FnMut(ubx::Event)) -> Result<(), DriverError> {
-        let mut bytes = [0; 128];
-        match self.io.read(&mut bytes) {
+    fn read_chunk(&mut self, mut emit: impl FnMut(ubx::Event<'_>)) -> Result<(), DriverError> {
+        match self.io.read(&mut self.input) {
             Ok(0) => Err(DriverError::Io),
             Ok(n) => {
-                self.decoder.consume(&bytes[..n], &mut emit);
+                self.decoder.consume(&self.input[..n], &mut emit);
                 Ok(())
             }
             Err(e) if matches!(e.kind(), ErrorKind::WouldBlock | ErrorKind::Interrupted) => Ok(()),
@@ -204,16 +206,15 @@ impl<R: Read + Write> Driver<R> {
     fn wait<T>(
         &mut self,
         deadline: Instant,
-        select: impl Fn(ubx::Event) -> Option<Result<T, DriverError>>,
+        select: impl Fn(ubx::Event<'_>) -> Option<Result<T, DriverError>>,
     ) -> Result<T, DriverError> {
-        let mut bytes = [0; 128];
         loop {
             check_deadline(deadline)?;
-            match self.io.read(&mut bytes) {
+            match self.io.read(&mut self.input) {
                 Ok(0) => return Err(DriverError::Io),
                 Ok(n) => {
                     let mut reply = None;
-                    self.decoder.consume(&bytes[..n], &mut |event| {
+                    self.decoder.consume(&self.input[..n], &mut |event| {
                         if reply.is_none() {
                             reply = match event {
                                 ubx::Event::Ack(false) => Some(Err(DriverError::InvalidData)),
