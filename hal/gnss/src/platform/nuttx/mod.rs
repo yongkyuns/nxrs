@@ -7,10 +7,7 @@ use crate::{receiver::Receiver, DeviceError, Event, Session};
 use acquisition::nuttx as events;
 use acquisition::readiness;
 use core::sync::atomic::{AtomicU8, Ordering};
-#[cfg(not(test))]
-type PpsLine = gpio::Interrupt<&'static AtomicU8>;
-#[cfg(test)]
-use crate::test_support::PpsLine;
+use pps_line::PpsLine;
 use peripheral::gnss::Receiver as Protocol;
 use std::sync::Mutex;
 use std::{
@@ -21,6 +18,7 @@ use std::{
 #[cfg(not(test))]
 #[allow(unsafe_code)]
 mod ffi;
+mod pps_line;
 
 const TRANSACTION_BUDGET: std::time::Duration = std::time::Duration::from_secs(1);
 fn deadline() -> std::time::Instant {
@@ -208,8 +206,9 @@ impl<R: Protocol + AsRef<Serial> + AsMut<Serial> + Send + 'static> Instance<R> {
             construct,
         }
     }
-    pub const fn with_pps(mut self, path: Option<&'static str>) -> Self {
-        self.pps_path = path;
+    #[cfg(feature = "pps")]
+    pub const fn with_pps(mut self, path: &'static str) -> Self {
+        self.pps_path = Some(path);
         self
     }
 }

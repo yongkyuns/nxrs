@@ -54,13 +54,7 @@ pub(crate) fn render_instances(
                     format!("resources::SpiResource, resources::open_spi, {config}, {irq:?}"),
                 )
             }
-            Resource::Uart { device: path, baud } => {
-                let pps = device.pps.as_ref().map(|resource| &graph.resources[resource]).map(|resource| match resource {
-                    Resource::GpioInterrupt { device, .. } => Ok(device.as_str()),
-                    _ => Err("PPS requires a GPIO interrupt resource"),
-                }).transpose()?;
-                ("Serial", format!("{path:?}, {baud}, {pps:?}"))
-            }
+            Resource::Uart { device: path, baud } => ("Serial", format!("{path:?}, {baud}")),
             _ => return Err(format!("device {id} requires a supported bus")),
         };
         let binding = catalogs.binding(capability, &device.compatible, resource.kind())?;
@@ -88,8 +82,13 @@ pub(crate) fn render_instances(
         let period = device
             .navigation_period_ms
             .map_or(String::new(), |period| format!(", {period}"));
+        let pps = match device.pps.as_ref().map(|resource| &graph.resources[resource]) {
+            Some(Resource::GpioInterrupt { device, .. }) => format!(", pps = {device:?}"),
+            Some(_) => return Err("PPS requires a GPIO interrupt resource".into()),
+            None => String::new(),
+        };
         source.push_str(&format!(
-            "declare_device!({name}, {id:?}, {driver_type}, {arguments}, {stack}, {reference}{period});\n"
+            "declare_device!({name}, {id:?}, {driver_type}, {arguments}, {stack}, {reference}{period}{pps});\n"
         ));
         instances.insert(id, name);
     }
@@ -398,7 +397,7 @@ mod tests {
         assert!(imu
             .contains("(resource::Config { path: \"/dev/i2c0\", frequency: 400000 }, 104), None"));
         let gnss = render_instances(&graph, &catalogs, "gnss", 32768).unwrap();
-        assert!(gnss.contains("::r#ubx::NeoM9n<Serial>, \"/dev/ttyS1\", 38400, None, 32768"));
+        assert!(gnss.contains("::r#ubx::NeoM9n<Serial>, \"/dev/ttyS1\", 38400, 32768"));
         for invalid in [
             "",
             "Self",
@@ -471,8 +470,7 @@ mod tests {
                 struct Instance<R>(std::marker::PhantomData<R>);
                 impl<R> crate::Device for Instance<R> {{}}
                 macro_rules! declare_device {{
-                    ($name:ident, $id:literal, $receiver:ty, $path:literal, $baud:literal, $pps:expr, $stack:literal, $reference:tt) => {{
-                        const _: Option<&str> = $pps;
+                    ($name:ident, $id:literal, $receiver:ty, $path:literal, $baud:literal, $stack:literal, $reference:tt) => {{
                         static $name: Instance<$receiver> = Instance(std::marker::PhantomData);
                     }};
                 }}

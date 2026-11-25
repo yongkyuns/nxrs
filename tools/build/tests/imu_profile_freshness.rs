@@ -132,6 +132,7 @@ mod ffi {
     pub fn irq_register(_: i32) -> std::io::Result<()> { panic!("unexpected I/O") }
     pub fn irq_unregister(_: i32) -> std::io::Result<()> { panic!("unexpected I/O") }
     pub fn irq_read(_: i32) -> std::io::Result<bool> { panic!("unexpected I/O") }
+    pub fn irq_timestamp(_: i32) -> std::io::Result<Option<(usize, u64)>> { panic!("unexpected I/O") }
 }
 #[cfg(unix)]
 use ffi as events;

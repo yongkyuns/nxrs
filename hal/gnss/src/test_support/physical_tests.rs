@@ -68,7 +68,7 @@ fn instance(id: &'static str) -> &'static Instance<Source> {
         38400,
         65536,
         |io| Source { io, epoch: 0 },
-    ).with_pps(None)))
+    )))
 }
 #[test]
 fn canonical_alias_busy_independent_instances_and_joined_reopen() {

@@ -373,8 +373,8 @@ mod tests {
                 "[package]\ndescription = 'Detached distribution'",
             )
             .replace(
-                "resource-features = { i2c = \"i2c\", spi = \"spi\" }",
-                "resource-features = { spi = \"spi\", i2c = \"i2c\" }",
+                "i2c = \"i2c\", spi = \"spi\"",
+                "spi = \"spi\", i2c = \"i2c\"",
             );
         assert_eq!(
             render(&detached, "imu", &profile, "nuttx").unwrap(),

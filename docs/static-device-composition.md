@@ -181,8 +181,10 @@ including dependencies inherited from the declaring Cargo workspace. The
 dependency alias supplies both the Rust crate name and the Cargo feature.
 The driver declares its capability and binding files. The generator qualifies
 the binding's exported type with that alias and supplies the resource adapter
-types. Catalogue-owned `resource-features` metadata maps bus kinds to ordinary
-Cargo features. Required chip and resource features are additive and are
+types. Catalogue-owned `resource-features` metadata maps resource kinds to ordinary
+Cargo features. A key such as `gnss/gpio-interrupt` takes precedence over the
+unqualified resource key for that capability. Required chip and resource
+features are additive and are
 requested only for capabilities consumed in the target graph. The
 [composition README](../platform/README.md) shows registration and detached
 product configuration, including the current path-source requirement.
