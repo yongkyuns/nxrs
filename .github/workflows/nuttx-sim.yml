@@ -55,3 +55,66 @@ jobs:
             target/nuttx-sim/relocations.txt
             target/nuttx-sim/build.log
             target/nuttx-sim/console.log
+
+  tracker:
+    name: Native NuttX tracker (Apple Silicon)
+    runs-on: macos-15
+    timeout-minutes: 20
+    env:
+      HOMEBREW_NO_AUTO_UPDATE: '1'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+          submodules: true
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        with:
+          toolchain: 1.90.0
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.12'
+      - name: Prepare the native NuttX build tools
+        run: |
+          test "$(uname -m)" = arm64
+          brew install make gnu-sed flock px4/px4/genromfs
+          if ! command -v cmake >/dev/null; then brew install cmake; fi
+          echo "$(brew --prefix make)/libexec/gnubin" >> "$GITHUB_PATH"
+          echo "$(brew --prefix gnu-sed)/libexec/gnubin" >> "$GITHUB_PATH"
+          # NuttX sethost.sh uses kconfig-tweak even when Kconfiglib resolves the config.
+          kconfig_bin="$RUNNER_TEMP/nxrs-kconfig"
+          mkdir -p "$kconfig_bin"
+          curl --proto '=https' -fsSL --retry 3 \
+            https://raw.githubusercontent.com/patacongo/tools/9484147c12d051014f854852d59c21d75a9616bd/kconfig-frontends/utils/kconfig-tweak.in \
+            -o "$kconfig_bin/kconfig-tweak.in"
+          printf '%s  %s\n' a847ac38cc80d77f5c3ef87976b912816b8d1b4546867920ccba3451a4e99790 \
+            "$kconfig_bin/kconfig-tweak.in" | shasum -a 256 -c -
+          sed 's/@CONFIG_@/CONFIG_/g' "$kconfig_bin/kconfig-tweak.in" > "$kconfig_bin/kconfig-tweak"
+          chmod +x "$kconfig_bin/kconfig-tweak"
+          echo "$kconfig_bin" >> "$GITHUB_PATH"
+          python -m pip install kconfiglib==14.1.0 lief==0.17.6
+          rustup toolchain install nightly-2025-09-15 --profile minimal --component rust-src
+      - name: Build the tracker with NuttX and Rust std
+        run: |
+          for tool in make sed kconfig-tweak cmake genromfs flock; do
+            command -v "$tool" || { echo "Missing build tool: $tool" >&2; exit 1; }
+          done
+          cargo nxrs fetch tls
+          cargo nxrs build --app motion-tracker --profile nuttx-sim-tracker \
+            --target-c-source tests/nuttx-std/tracker-sim/devices.c \
+            --target-c-source tests/nuttx-std/tracker-sim/native_init.c \
+            --out target/nuttx-sim-tracker
+      - name: Exercise tracker failure recovery and recorded sensor replay
+        env:
+          NXRS_TRACKER_REPLAY_IMAGE: target/nuttx-sim-tracker/nuttx/nuttx
+        run: |
+          python tests/nuttx-std/tracker-sim/native.py "$NXRS_TRACKER_REPLAY_IMAGE"
+          python tests/nuttx-std/tracker-sim/test_replay.py
+      - name: Retain the tracker ABI report and console
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: nuttx-sim-tracker
+          path: |
+            target/nuttx-sim-tracker/abi-report.json
+            target/nuttx-sim-tracker/provenance.txt
+            target/nuttx-sim-tracker/console.log

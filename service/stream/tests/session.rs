@@ -228,7 +228,7 @@ fn partial_batches_cross_segment_boundaries_without_completing_early() {
 
 #[test]
 fn batches_remain_bounded_by_stack_scratch_and_eight_calls() {
-    let mut jpeg = vec![0x55; 2048 * 8];
+    let mut jpeg = vec![0x55; 4096 * 8];
     jpeg[..2].copy_from_slice(&[0xff, 0xd8]);
     let length = jpeg.len();
     jpeg[length - 2..].copy_from_slice(&[0xff, 0xd9]);
@@ -238,12 +238,12 @@ fn batches_remain_bounded_by_stack_scratch_and_eight_calls() {
     let progress = session.poll(2, usize::MAX).unwrap();
     assert_eq!(
         (progress.calls, progress.bytes, progress.ready),
-        (8, 2048 * 8, false)
+        (8, 4096 * 8, false)
     );
     assert_eq!(session.stats().completed, 0);
     drain(&mut session, 3);
     let (writer, buffer, stats) = session.into_parts();
-    assert_eq!(writer.largest_write, 2048);
+    assert_eq!(writer.largest_write, 4096);
     assert_eq!(buffer.len(), length);
     let mut expected = RESPONSE.to_vec();
     expected.extend_from_slice(&expected_part(1, 1, &jpeg));
@@ -253,7 +253,7 @@ fn batches_remain_bounded_by_stack_scratch_and_eight_calls() {
 
 #[test]
 fn every_byte_budget_preserves_concatenated_protocol_bytes() {
-    let mut jpeg = vec![0x55; 2048 + JPEG_B.len()];
+    let mut jpeg = vec![0x55; 4096 + JPEG_B.len()];
     jpeg[..2].copy_from_slice(&[0xff, 0xd8]);
     let length = jpeg.len();
     jpeg[length - 2..].copy_from_slice(&[0xff, 0xd9]);

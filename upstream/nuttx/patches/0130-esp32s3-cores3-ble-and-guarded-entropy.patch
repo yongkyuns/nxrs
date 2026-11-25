@@ -1,0 +1,60 @@
+--- a/arch/xtensa/src/esp32s3/esp32s3_rng.c
++++ b/arch/xtensa/src/esp32s3/esp32s3_rng.c
+@@ -46,7 +46,7 @@
+ #include "esp_clk.h"
+ 
+ #include "esp_random.h"
+-#ifdef CONFIG_ESPRESSIF_WIFI
++#if defined(CONFIG_ESPRESSIF_WIFI) || defined(CONFIG_ESPRESSIF_BLE)
+ #  include "esp_private/phy.h"
+ #endif
+ 
+@@ -144,8 +144,8 @@
+ static ssize_t esp32s3_trng_read(struct file *filep, char *buffer,
+                                  size_t buflen)
+ {
+-#if defined(CONFIG_ESPRESSIF_WIFI) && !defined(CONFIG_ESPRESSIF_AUTO_SLEEP) && \
+-    !defined(CONFIG_PM) && !defined(CONFIG_ESP32S3_AUTO_SLEEP)
++#if (defined(CONFIG_ESPRESSIF_WIFI) || defined(CONFIG_ESPRESSIF_BLE)) && \
++    !defined(CONFIG_ESPRESSIF_AUTO_SLEEP) && !defined(CONFIG_PM) && !defined(CONFIG_ESP32S3_AUTO_SLEEP)
+   _lock_t lock;
+   ssize_t ret = -EAGAIN;
+ 
+@@ -166,7 +166,11 @@
+    * Keep it through the last sample; do not take ownership of a modem bit.
+    */
+ 
++#ifdef CONFIG_ESPRESSIF_WIFI
+   if ((phy_get_modem_flag() & PHY_MODEM_WIFI) != 0)
++#else
++  if ((phy_get_modem_flag() & PHY_MODEM_BT) != 0)
++#endif
+     {
+       ret = MIN(buflen, 32);
+       esp_fill_random(buffer, ret);
+--- a/boards/xtensa/esp32s3/esp32s3-m5-cores3/src/esp32s3_boot.c
++++ b/boards/xtensa/esp32s3/esp32s3-m5-cores3/src/esp32s3_boot.c
+@@ -12,6 +12,9 @@
+ #endif
+ #if defined(CONFIG_ESP32S3_MTD) && defined(CONFIG_MTD_CONFIG_NVS)
+ int board_spiflash_init(void);
++#endif
++#ifdef CONFIG_ESPRESSIF_BLE
++int esp32s3_ble_initialize(void);
+ #endif
+ void esp32s3_board_initialize(void) {}
+ #ifdef CONFIG_BOARD_LATE_INITIALIZE
+@@ -34,6 +37,13 @@
+     }
+ 
+ #endif
++#ifdef CONFIG_ESPRESSIF_BLE
++  int radio = esp32s3_ble_initialize();
++  if (radio < 0)
++    {
++      syslog(LOG_ERR, "CoreS3 BLE registration failed: %d\n", radio);
++    }
++#endif
+ #ifdef CONFIG_ESP32S3_M5_CORES3_LCD
+   int lcd = cores3_lcd_bus_initialize();
+   if (lcd < 0) syslog(LOG_ERR, "CoreS3 LCD bus registration failed: %d\n", lcd);

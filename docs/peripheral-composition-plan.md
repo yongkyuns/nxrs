@@ -46,7 +46,7 @@ hardware evidence and continue independent host work when devices are absent.
 
 Read `hal/imu/src/{api,bmi270,cadence}.rs`,
 `hal/imu/src/platform/nuttx/{mod,irq,signal}.rs`, `hal/imu/src/test_support.rs`,
-`hal/acquisition/src/`, `tools/build-support/src/profile.rs`,
+`shared/acquisition/src/`, `tools/build-support/src/profile.rs`,
 `tools/build/src/{deployment,cargo_graph}.rs` and
 `platform/cores3/profile.toml`.
 

@@ -10,6 +10,7 @@ on:
       - 'tests/camera-support/**'
       - 'app/home-cam/**'
       - 'hal/**'
+      - 'shared/acquisition/**'
       - 'tools/detector-build-support/**'
       - 'shared/messaging/**'
       - 'driver/**'
@@ -88,7 +89,7 @@ jobs:
       - name: Qualify explicit recording and UDP software
         run: |
           cargo +1.90.0 test --locked -p nxrs-storage --features recording
-          cargo +1.90.0 test --locked -p nxrs-transport --features udp
+          cargo +1.90.0 run --locked -p nxrs-std-udp -- pass
 
       - name: Qualify isolated storage ownership and bytes
         run: |
@@ -104,7 +105,6 @@ jobs:
         run: |
           export NXRS_PLATFORM=linux
           cargo +1.90.0 clippy --locked \
-            -p nxrs-camera -p nxrs-storage -p nxrs-transport \
-            -p nxrs-camera-service -p nxrs-recording-service -p nxrs-telemetry-service \
+            -p nxrs-camera -p nxrs-storage \
             -p nxrs-camera-test-support -p nxrs-native-integration \
             --lib -- -D warnings

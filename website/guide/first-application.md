@@ -1,10 +1,10 @@
 # Your first application
 
-An NXRS application is a normal Rust package with a `main()` function. Create your own source project, run it on the host, and then build the same project for NuttX. NXRS supplies target integration and configuration; it does not supply a precompiled application.
+Create an independent Cargo package that prints a greeting. You’ll run it on your computer and add the metadata the NuttX builder needs.
 
-**Before you start:** finish the host setup in [Getting started](getting-started.md), keep the terminal in the NXRS root, and choose an unused `../my-firmware` directory. By the end of this chapter, your own Cargo package will print a greeting on the host and contain the metadata needed by the target builder.
+Finish the [host setup](getting-started.md) and run the commands from the NXRS root. Use an unused `../my-firmware` directory.
 
-The complete Rust source for this first program is:
+The program’s complete source is below. You’ll put it in `src/main.rs` after creating the package.
 
 <!-- tutorial:source -->
 ```rust
@@ -50,7 +50,7 @@ stack-size = 65536
 
 `[package]`, `[workspace]`, and `[[bin]]` are Cargo settings. The package owns its workspace and lockfile. `hello` is the binary name; no NXRS runtime dependency is needed for this program.
 
-The firmware metadata selects the binary and NuttX shell command, with the entry task's priority and stack allocation. The tutorial requests a 64 KiB entry stack. This is an example allocation, not a minimum or a recommendation for every application. Host Cargo execution does not use these NuttX settings.
+The firmware builder reads the metadata below. The 64 KiB stack is the allocation for this tutorial’s entry task. Measure the stack your program needs separately.
 
 | Manifest value | Meaning in this example |
 | --- | --- |
@@ -82,9 +82,7 @@ Expected application output:
 Hello from NXRS
 ```
 
-Cargo compiles your source into a host executable before running it. There is no executable-copy step. No platform profile or MCU toolchain is needed yet.
-
-Keep running these commands from the NXRS checkout so its pinned Rust toolchain is selected. Commit your application's source, manifest, and lockfile to its own repository when ready.
+Cargo builds and runs the host executable with the checkout’s Rust toolchain. Keep the source, manifest, and lockfile together in your application’s repository.
 
 ## Understand the files you own
 
@@ -115,4 +113,4 @@ The [build reference](../../docs/build-system.md#external-applications-and-packa
 
 Once `hello` runs in QEMU, follow [Services and concurrency](services.md#run-the-worker-in-your-application). It provides the complete worker source to put in the same `src/main.rs`. Keep the manifest and target profile unchanged, then rebuild on the host and for NuttX.
 
-The checked-in [basic-firmware sources](../examples/basic-firmware/) are a reference for the documentation tests. You do not need to copy that directory or any of its build output to follow the tutorial.
+The [checked-in source](../examples/basic-firmware/) matches the code used in the tutorial tests.

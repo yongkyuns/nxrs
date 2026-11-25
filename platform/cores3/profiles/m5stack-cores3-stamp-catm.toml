@@ -1,0 +1,12 @@
+# CoreS3 with M135 and the S003 Stamp CatM on M135 pads JP2 (TX) and JP4 (RX).
+extends = "m5stack-cores3-dual-imu"
+nuttx-config = "stamp-catm.conf"
+hal = { cellular = "nuttx" }
+
+[cellular]
+uart = "modem_uart"
+
+[resources.modem_uart]
+binding = "uart2"
+kconfig = { ESP32S3_UART2_TXPIN = 13, ESP32S3_UART2_RXPIN = 7 }
+baud = 115200

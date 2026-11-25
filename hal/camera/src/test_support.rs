@@ -2,7 +2,7 @@
 
 #[cfg(not(platform = "mock"))]
 #[allow(dead_code, unused_imports)]
-#[path = "platform/mock.rs"]
+#[path = "platform/mock/mod.rs"]
 pub(crate) mod mock_tests;
 #[cfg(platform = "mock")]
 pub(crate) use crate::platform as mock_tests;

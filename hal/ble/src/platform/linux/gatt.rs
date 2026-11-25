@@ -3,7 +3,7 @@ use super::{
     gio::{self, Bus, Context, Failure, Reply, G, V},
     identity::{identity, uuid},
 };
-use crate::gatt_backend::{
+use crate::platform::runtime::gatt_backend::{
     device_error, Backend, Event as BackendEvent, Kind, Outcome, Request as Operation, Wake,
     CAPACITY,
 };

@@ -1,0 +1,23 @@
+[package]
+name = "nxrs-cellular"
+version.workspace = true
+edition.workspace = true
+build = "../../tools/build-support/cargo/hal.rs"
+
+[lib]
+name = "cellular"
+
+[package.metadata.nxrs]
+kind = "hal-capability"
+platforms = ["nuttx"]
+
+[dependencies]
+cfg-if = "=1.0.5"
+
+[target.'cfg(target_os = "nuttx")'.dependencies]
+nxrs-acquisition = { path = "../../shared/acquisition" }
+nxrs-sim7080 = { path = "../../driver/sim7080" }
+ppproto = "=0.2.1"
+
+[build-dependencies]
+nxrs-build-support = { path = "../../tools/build-support" }

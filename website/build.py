@@ -28,6 +28,7 @@ from pygments.util import ClassNotFound
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from build_api import load_catalog, validate_artifact
+import tracker_demo
 
 ROOT = Path(__file__).resolve().parents[1]
 MEDIA = {'.svg', '.png', '.jpg', '.jpeg', '.gif', '.webp', '.avif'}
@@ -141,6 +142,8 @@ class Site:
                 + quote(source, safe='/') + (f'#{fragment}' if fragment else ''))
 
     def register(self, source: str, route: str, section: str, title: str = '') -> None:
+        if source in self.pages:
+            raise ValueError(f'duplicate source: {source}')
         if route in self.routes.values():
             raise ValueError(f'duplicate route: {route}')
         file = self.root / source
@@ -165,6 +168,12 @@ class Site:
                 raise ValueError(f'linked document: {path}')
             relative = path.relative_to(self.root / 'docs').as_posix()
             self.register('docs/' + relative, 'reference/' + relative[:-3] + '/', 'Reference')
+        for source, route in self.config.get('reference_sources', {}).items():
+            if not re.fullmatch(r'(?:[A-Za-z0-9_-]+/)+[A-Za-z0-9_-]+\.md', source):
+                raise ValueError(f'invalid repository reference: {source}')
+            if not re.fullmatch(r'[a-z0-9-]+(?:/[a-z0-9-]+)*', route):
+                raise ValueError(f'invalid reference route: {route}')
+            self.register(source, f'reference/{route}/', 'Reference')
         for path in sorted((self.root / 'docs').rglob('*')):
             if path.suffix.lower() in MEDIA and path.is_file():
                 if path.is_symlink():
@@ -245,6 +254,12 @@ class Site:
                                 section=page['section'], headings=' '.join(x['title'] for x in headings),
                                 text=' '.join(texts)))
         content = self.md.renderer.render(tokens, self.md.options, {})
+        if page['source'] == tracker_demo.GUIDE:
+            marker = '<!-- motion-tracker-demo -->'
+            if content.count(marker) != 1:
+                raise ValueError('the Motion Tracker guide must contain one demo marker')
+            embed = self.env.get_template('tracker-demo.html').render(demo_url=self.url(tracker_demo.ROUTE))
+            content = content.replace(marker, embed)
         if page['section'] == 'Rust API reference':
             marker = '<!-- api-catalog -->'
             if content.count(marker) != 1:
@@ -303,6 +318,7 @@ class Site:
                 else:
                     shutil.copyfile(source, target)
         self.discover()
+        demo = tracker_demo.install(self.root, output) if tracker_demo.GUIDE in self.pages else None
         for source, dest in self.media.items():
             target = output / dest
             target.parent.mkdir(parents=True, exist_ok=True)
@@ -364,6 +380,8 @@ class Site:
                       total_pages=len(self.pages)+3+api_html_pages, base_path=self.prefix,
                       source_sha256={source: hashlib.sha256((self.root/source).read_bytes()).hexdigest()
                                      for source in sorted(self.pages)})
+        if demo:
+            report['motion_tracker_demo'] = demo
         if self.api_manifest:
             report['rust_api'] = {key: self.api_manifest[key]
                                   for key in ('revision', 'dirty', 'toolchain', 'host', 'binding', 'features')}

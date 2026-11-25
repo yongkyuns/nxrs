@@ -1,0 +1,190 @@
+--- a/examples/src/bin/ntp/mod.rs
++++ b/examples/src/bin/ntp/mod.rs
+@@ -1,19 +1,20 @@
+ //! Matter DefaultNTP configuration and the LAN-scoped gateway SNTP client.
+ use std::{
+     cell::RefCell,
+-    net::{Ipv6Addr, SocketAddrV6},
++    net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV6},
+ };
+ 
+ use nxrs_gateway_matter::{lan::Lan, ntp};
+ use rand::RngExt;
+ use rs_matter::{
+     dm::{
+-        clusters::time_sync::{client::NtpFallback, NtpClient, SetDefaultNTPRequest},
++        clusters::time_sync::{client::NtpSources, NtpClient, SetDefaultNTPRequest},
+         LifecycleOp,
+     },
+     error::{Error, ErrorCode},
+     persist::{KvBlobStoreAccess, Persist},
+     tlv::Nullable,
++    transport::network::mdns::{MDNS_IPV4_BROADCAST_ADDR, MDNS_IPV6_BROADCAST_ADDR, MDNS_PORT},
+     utils::{storage::String, sync::Notification},
+     Matter,
+ };
+@@ -60,6 +61,28 @@
+             server: RefCell::new(server),
+             changed: Notification::new(),
+         })
++    }
++
++    async fn discover_on(&self, multicast: SocketAddr) -> Option<IpAddr> {
++        let local = wildcard(multicast.ip());
++        let socket = tokio::net::UdpSocket::from_std(self.lan.bind_mdns_query(local).ok()?).ok()?;
++        ntp::discovery::discover(socket, multicast, rand::rng().random()).await
++    }
++
++    async fn sample(&self, address: IpAddr) -> Option<u64> {
++        let peer = ntp::server_address(address, self.lan.index());
++        let socket = self.lan.bind_udp(wildcard(address)).ok()?;
++        socket.set_nonblocking(true).ok()?;
++        let socket = tokio::net::UdpSocket::from_std(socket).ok()?;
++        let nonce = rand::rng().random::<u64>().to_be_bytes();
++        ntp::sample(socket, peer, nonce).await.ok()
++    }
++}
++
++fn wildcard(address: IpAddr) -> SocketAddr {
++    match address {
++        IpAddr::V4(_) => (Ipv4Addr::UNSPECIFIED, 0).into(),
++        IpAddr::V6(_) => (Ipv6Addr::UNSPECIFIED, 0).into(),
+     }
+ }
+ 
+@@ -109,23 +132,32 @@
+     }
+ }
+ 
+-impl<S: KvBlobStoreAccess> NtpFallback for Provider<'_, S> {
+-    fn configured(&self) -> bool {
+-        self.server.borrow().is_some()
++impl<S: KvBlobStoreAccess> NtpSources for Provider<'_, S> {
++    fn enabled(&self) -> bool {
++        true
+     }
+ 
+     async fn changed(&self) {
+         self.changed.wait().await;
+     }
+ 
+-    async fn query(&self) -> Option<u64> {
++    async fn discover(&self) -> Option<u64> {
++        let group_v6 = SocketAddrV6::new(MDNS_IPV6_BROADCAST_ADDR, MDNS_PORT, 0, self.lan.index());
++        let group_v4 = SocketAddr::new(IpAddr::V4(MDNS_IPV4_BROADCAST_ADDR), MDNS_PORT);
++        let (v6, v4) = tokio::join!(
++            self.discover_on(group_v6.into()),
++            self.discover_on(group_v4)
++        );
++        for addr in [v6, v4].into_iter().flatten() {
++            if let Some(sample) = self.sample(addr).await {
++                return Some(sample);
++            }
++        }
++        None
++    }
++
++    async fn query_default(&self) -> Option<u64> {
+         let addr = self.server.borrow().as_ref()?.address;
+-        let peer = ntp::server_address(addr, self.lan.index());
+-        let local = SocketAddrV6::new(Ipv6Addr::UNSPECIFIED, 0, 0, 0);
+-        let socket = self.lan.bind_udp(local.into()).ok()?;
+-        socket.set_nonblocking(true).ok()?;
+-        let socket = tokio::net::UdpSocket::from_std(socket).ok()?;
+-        let nonce = rand::rng().random::<u64>().to_be_bytes();
+-        ntp::sample(socket, peer, nonce).await.ok()
++        self.sample(addr.into()).await
+     }
+ }
+--- a/rs-matter-dm/src/clusters/time_sync/client.rs
++++ b/rs-matter-dm/src/clusters/time_sync/client.rs
+@@ -68,15 +68,16 @@
+ /// `MissingTrustedTimeSource`, at most.
+ const TIME_EVENTS_INTERVAL: Duration = Duration::from_secs(60 * 60);
+ 
+-/// A configured SNTP source to try when the trusted Matter peer cannot supply time.
+-pub trait NtpFallback {
+-    fn configured(&self) -> bool;
++/// LAN time discovery and the administrator-configured SNTP fallback.
++pub trait NtpSources {
++    fn enabled(&self) -> bool;
+     async fn changed(&self);
+-    async fn query(&self) -> Option<u64>;
+-}
+-
+-impl NtpFallback for () {
+-    fn configured(&self) -> bool {
++    async fn discover(&self) -> Option<u64>;
++    async fn query_default(&self) -> Option<u64>;
++}
++
++impl NtpSources for () {
++    fn enabled(&self) -> bool {
+         false
+     }
+ 
+@@ -84,7 +85,11 @@
+         core::future::pending().await
+     }
+ 
+-    async fn query(&self) -> Option<u64> {
++    async fn discover(&self) -> Option<u64> {
++        None
++    }
++
++    async fn query_default(&self) -> Option<u64> {
+         None
+     }
+ }
+@@ -144,13 +149,13 @@
+         self.run_with_ntp(period, kv, notify, &()).await
+     }
+ 
+-    /// Run both clock sources in one loop. Trusted Matter samples take precedence.
++    /// Try LAN SNTP, the trusted Matter peer, then the configured SNTP fallback.
+     pub async fn run_with_ntp<S, N>(
+         &self,
+         period: Duration,
+         kv: S,
+         notify: &N,
+-        ntp: &impl NtpFallback,
++        ntp: &impl NtpSources,
+     ) -> Result<(), Error>
+     where
+         S: KvBlobStoreAccess,
+@@ -177,7 +182,7 @@
+                     retry = first_retry;
+                     Some(period)
+                 }
+-                Either::Second(Ok(Refresh::NoSource)) if !ntp.configured() => None,
++                Either::Second(Ok(Refresh::NoSource)) if !ntp.enabled() => None,
+                 Either::Second(Ok(_)) => Some(back_off(&mut retry, period)),
+                 Either::Second(Err(e)) => {
+                     warn!("TimeSync client: refresh failed: {}", e);
+@@ -228,16 +233,24 @@
+         &self,
+         kv: S,
+         notify: &N,
+-        ntp: &impl NtpFallback,
++        ntp: &impl NtpSources,
+     ) -> Result<Refresh, Error>
+     where
+         S: KvBlobStoreAccess,
+         N: AttrChangeNotifier + EventEmitter,
+     {
++        if let Some(utc_us) = ntp.discover().await {
++            return self.apply_sample(
++                kv,
++                notify,
++                (utc_us, TimeGranularity::Seconds, TimeSource::NonMatterSNTP),
++                None,
++            );
++        }
+         let mut refreshed = self.refresh(&kv, notify).await;
+         let no_source = matches!(refreshed, Ok(Refresh::NoSource) | Err(_));
+         if !matches!(refreshed, Ok(Refresh::Applied | Refresh::SourceChanged)) {
+-            if let Some(utc_us) = ntp.query().await {
++            if let Some(utc_us) = ntp.query_default().await {
+                 refreshed = self.apply_sample(
+                     &kv,
+                     notify,

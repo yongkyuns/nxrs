@@ -6,7 +6,7 @@ edition.workspace = true
 [features]
 # Only the ordinary-std executable selects sockets; ARCH_SIM keeps its local
 # core-only compatibility output and compiles the HAL contracts alone.
-udp = ["nxrs-transport/udp"]
+udp = ["nxrs-camera-test-support/udp"]
 
 [lib]
 crate-type = ["staticlib"]
@@ -21,8 +21,5 @@ required-features = ["udp"]
 [dependencies]
 nxrs-camera = { path = "../../hal/camera" }
 nxrs-storage = { path = "../../hal/storage" }
-nxrs-transport = { path = "../../hal/transport" }
-nxrs-camera-service = { path = "../../service/camera" }
-nxrs-recording-service = { path = "../../service/recording" }
 nxrs-camera-test-support = { path = "../camera-support" }
 nxrs-nuttx-support = { path = "support" }

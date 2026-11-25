@@ -32,6 +32,15 @@ pub struct Config {
     pub gyro_range: GyroRange,
 }
 
+impl Config {
+    fn counts_scale(self) -> [f32; 2] {
+        [
+            9.80665 * self.accel_range.full_scale_g() / 32768.0,
+            core::f32::consts::PI / 180.0 * self.gyro_range.full_scale_dps() / 32768.0,
+        ]
+    }
+}
+
 impl Default for Config {
     fn default() -> Self {
         Self {
@@ -362,9 +371,7 @@ impl<T: Registers, D: DelayNs> Device<T, D> {
         }
         let mut remaining = count;
         let mut bytes = [0; 60];
-        let accel = 9.80665 * self.config.accel_range.full_scale_g() / 32768.0;
-        let gyro =
-            core::f32::consts::PI / 180.0 * self.config.gyro_range.full_scale_dps() / 32768.0;
+        let [accel, gyro] = self.config.counts_scale();
         while remaining != 0 {
             let n = remaining.min(bytes.len());
             self.io.read(0x26, &mut bytes[..n])?;

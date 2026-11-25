@@ -1,0 +1,19 @@
+# Endpoints registered by the simulator and the tracker test fixture.
+[kconfig]
+ARCH_SIM = "y"
+
+[resources.tracker_i2c]
+kind = "i2c"
+device = "/dev/i2c0"
+[resources.tracker_i2c.kconfig]
+I2C = "y"
+I2C_DRIVER = "y"
+
+[resources.uart0]
+kind = "uart"
+device = "/dev/ttySIM0"
+[resources.uart0.kconfig]
+SIM_UART_NUMBER = "1"
+SIM_UART0_NAME = '"/dev/ttySIM0"'
+SIM_UART_PTY = "y"
+SERIAL_TERMIOS = "y"

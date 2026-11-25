@@ -50,6 +50,33 @@ class HalBoundariesTests(unittest.TestCase):
         self.write('hal/demo/src/api.rs', '#[cfg(test)] fn platform() {}')
         self.assertEqual(self.errors(), [])
 
+    def test_radio_selection_stays_in_the_selector(self):
+        self.write('hal/wifi/src/lib.rs', '#![cfg_attr(target_os = "none", no_std)]\nmod platform;')
+        selector = self.write('hal/wifi/src/platform/mod.rs', '''
+            #[cfg(platform = "nuttx")]
+            #[path = "../worker/mod.rs"]
+            mod worker;
+            cfg_if::cfg_if! {
+                if #[cfg(platform = "nuttx")] { mod nuttx; use nuttx as selected; }
+                else { mod unbound; use unbound as selected; }
+            }
+            pub(crate) use selected::open;
+        ''')
+        self.assertEqual(self.errors(), [])
+        path = self.write('hal/wifi/src/lib.rs', '#[cfg(platform = "nuttx")] mod worker;')
+        self.assertTrue(any('radio platform selection belongs' in error for error in self.errors()))
+        path.write_text('mod platform;')
+        selector.write_text(selector.read_text().replace('mod nuttx;', '#[path = "../nuttx.rs"] mod nuttx;'))
+        self.assertTrue(self.errors())
+
+    def test_rust_foreign_declarations_require_the_owning_ffi_directory(self):
+        bindings = 'unsafe extern "C" { fn device(); }'
+        source = self.write('hal/demo/src/platform/nuttx/mod.rs', bindings)
+        self.assertTrue(any('Rust FFI declarations' in error for error in self.errors()))
+        source.write_text('mod ffi; pub extern "C" fn native_callback() {}')
+        self.write('hal/demo/src/platform/nuttx/ffi/mod.rs', bindings)
+        self.assertEqual(self.errors(), [])
+
     def write_declarative_imu(self):
         self.write('platform/src/nuttx/imu.rs', '''
             include!(concat!(env!("OUT_DIR"), "/imu_config.rs"));
@@ -64,7 +91,8 @@ class HalBoundariesTests(unittest.TestCase):
             device::Device::open(config, self.irq_path, trace, &self.state, open, initialize);
             state: DeviceState,
             storage: Mutex<Option<device::Device<S>>>,
-            Worker::start_guarded("imu-acquire", self.stack_bytes, cancel, sink, retained, Event::Failed, run)
+            let delivery = (sink, Retained(self));
+            session::start(self.stack_bytes, cancel, delivery, run)
         """)
         self.write('tools/build-support/cargo/composition.rs', '''
             fn main() {
@@ -137,7 +165,7 @@ class HalBoundariesTests(unittest.TestCase):
         instance = self.root / 'hal/imu/src/platform/nuttx/instance.rs'
         original = instance.read_text()
         for removed in ['storage: Mutex<Option<device::Device<S>>>', 'state: DeviceState',
-                        'Worker::start_guarded', 'device::Device::open']:
+                        'session::start', 'Retained(self)', 'device::Device::open']:
             instance.write_text(original.replace(removed, 'missing'))
             self.assertTrue(any('guarded worker retirement' in error for error in CHECK.inspect_generated_imu_factory(self.root)))
         instance.write_text(original)
@@ -166,13 +194,14 @@ class HalBoundariesTests(unittest.TestCase):
         for relative in ("platform/Cargo.toml", "tools/build-support/cargo/composition.rs",
                          "platform/src/nuttx/gnss.rs", "driver/ubx/Cargo.toml",
                          "driver/ubx/bindings.toml", "driver/bmi270/Cargo.toml",
-                         "driver/lsm6dso/Cargo.toml", "hal/gnss/Cargo.toml",
+                         "driver/lsm6dso/Cargo.toml", "driver/axp2101/Cargo.toml",
+                         "hal/gnss/Cargo.toml",
                          "hal/gnss/src/platform/nuttx/mod.rs"):
             self.write(relative, (ROOT / relative).read_text())
         self.assertEqual(CHECK.inspect_generated_imu_factory(self.root), [])
         runtime = self.root / "hal/gnss/src/platform/nuttx/mod.rs"
         original = runtime.read_text()
-        runtime.write_text(original.replace("Worker::start_guarded", "Worker::start"))
+        runtime.write_text(original.replace("Retained(self)", "()"))
         self.assertTrue(any("canonical state" in e for e in CHECK.inspect_generated_imu_factory(self.root)))
         runtime.write_text(original)
         manifest = self.root / "hal/gnss/Cargo.toml"
@@ -235,6 +264,7 @@ class HalBoundariesTests(unittest.TestCase):
 
     def test_driver_and_sdk_build_packages_retain_native_inventory_and_behavior_checks(self):
         for name in ('driver/linux/gio/src/platform/linux/ffi/gio.c',
+                     'shared/acquisition/src/platform/nuttx/ffi/events.c',
                      'tools/detector-build-support/src/ffi/compat.hpp'):
             with self.subTest(path=name):
                 source = self.write(name, 'unsigned sdk_constant(void) { return 1; }')
@@ -248,7 +278,8 @@ class HalBoundariesTests(unittest.TestCase):
                 self.write('hal/ffi-boundaries.toml', '')
 
     def test_driver_and_sdk_glue_cannot_move_outside_the_owning_source_module(self):
-        for name in ('driver/linux/gio/ffi/gio.c', 'tools/detector-build-support/compat.hpp'):
+        for name in ('driver/linux/gio/ffi/gio.c', 'shared/acquisition/ffi/nuttx/events.c',
+                     'tools/detector-build-support/compat.hpp'):
             with self.subTest(path=name):
                 source = self.write(name, 'unsigned sdk_constant(void) { return 1; }')
                 self.write('hal/ffi-boundaries.toml', f'[[bridge]]\npath="{name}"\nkind="abi"\nreason="SDK header translation"\n')
@@ -325,20 +356,16 @@ def capabilities(root):
 
 class WiringNegativeControls(unittest.TestCase):
     ROOT = 'mod api; mod platform; pub use api::*; pub use platform::open;'
-    SELECTOR = '#[path = "unbound.rs"] mod selected; pub use selected::open;'
+    SELECTOR = ('cfg_if::cfg_if! { if #[cfg(platform = "nuttx")] '
+                '{ mod nuttx; use nuttx as selected; } else '
+                '{ mod unbound; use unbound as selected; } } pub use selected::open;')
 
     def test_explicit_api_and_named_selected_exports_are_allowed(self):
         self.assertEqual(wiring_errors(self.ROOT, self.SELECTOR), [])
         self.assertEqual(wiring_errors('mod platform; pub use platform::construction;',
-                                       'pub mod selected; pub use selected as construction;'), [])
-        self.assertEqual(wiring_errors(self.ROOT,
-                                       'mod unbound; pub use unbound as selected; pub use selected::open;'), [])
-        self.assertEqual(wiring_errors(self.ROOT,
-                                       'cfg_if::cfg_if! { if #[cfg(platform = "nuttx")] '
-                                       '{ mod nuttx; use nuttx as selected; } else '
-                                       '{ mod unbound; use unbound as selected; } } pub use selected::open;'), [])
+                                       self.SELECTOR.replace('selected::open', 'selected as construction')), [])
         self.assertEqual(wiring_errors(self.ROOT + 'mod model;',
-                                       'use crate::model as selected; pub use selected::open;'), [])
+                                       self.SELECTOR.replace('mod nuttx; use nuttx as selected;', 'use crate::model as selected;')), [])
         self.assertEqual(wiring_errors(self.ROOT, self.SELECTOR + '\n#[cfg(platform = "mock")] pub use selected::{Mock, FORMAT};'), [])
 
     def test_backend_globs_in_roots_are_rejected(self):
@@ -394,7 +421,8 @@ class RepositoryHalOrganization(unittest.TestCase):
                 self.assertEqual(wiring_errors(root.read_text(), selector.read_text()), [])
                 support = directory / 'src/test_support.rs'
                 if support.exists():
-                    self.assertRegex(code(root.read_text()), r'#\[cfg\(test\)\]\s*mod test_support;')
+                    wiring = code(root.read_text()) + code(selector.read_text())
+                    self.assertRegex(wiring, r'#\[cfg\(test\)\]\s*(?:#\[path = "\.\./test_support\.rs"\]\s*)?mod test_support;')
         print(f'HAL organization: {len(directories)} capabilities checked')
 
 

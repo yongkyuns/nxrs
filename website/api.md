@@ -1,12 +1,10 @@
 # Rust API reference
 
-Look up public types, functions, methods, and their documented contracts. The catalog below groups the Rust libraries used by applications, reusable services, and chip drivers. Use [Interfaces and APIs](guide/interfaces.md) when choosing a boundary, or [Standard-library APIs](guide/standard-library.md) for ordinary threads, files, sockets, and collections.
-
-Check the [documented configuration](#coverage-and-features) when an item depends on a feature or target.
+Use this catalog to find the Rust library that owns a type, function, or method. If you’re deciding which API to use, start with [Interfaces and APIs](guide/interfaces.md).
 
 ## Find an API
 
-Choose a library from the catalog, then use rustdoc's search to find a symbol such as `Led` or `PacketSink`. The website's header search finds guides and catalog entries; the search inside generated Rust documentation finds API items.
+Choose a library below, then search its generated Rust documentation for a symbol such as `Led` or `Reconnector`. Use the site’s header search for guides and library names.
 
 The catalog shows both names you need: Cargo selects package `nxrs-led`, while Rust code imports its library as `led`, for example `led::Led`. An item's page gives its signature, documentation, and a link to source. Type and trait pages also list relevant implementations. Follow the owning contract for error, completion, and cleanup semantics.
 
@@ -22,7 +20,6 @@ Ordinary default features are retained, including messaging channels. The refere
 | --- | --- | --- |
 | `nxrs-camera` | `replay` | `camera::replay` for explicit file replay |
 | `nxrs-storage` | `recording` | `storage::recording` for queued file recording |
-| `nxrs-transport` | `udp` | `transport::udp` for Rust socket output |
 | `nxrs-composition` | `imu`, `gnss` | IMU and GNSS device-access modules |
 
 The named devices available through `composition` follow the selected product profile. The public `imu::construction` and `gnss::construction` modules serve platform catalogues and qualification; applications use the catalogue's device accessors and the capability APIs. Detector model features and diagnostic probes are not enabled in this view. Private provider and build-tooling interfaces are outside the public catalog.

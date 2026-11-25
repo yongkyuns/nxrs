@@ -1,8 +1,6 @@
 # Standard-library APIs
 
-Rust's standard library is the starting point for application code in NXRS. NuttX provides the underlying operating-system facilities; the Rust target integration connects those facilities to `std`.
-
-Use this chapter after [Your first application](first-application.md). The commands run from the NXRS checkout and use its pinned host toolchain. They demonstrate API behavior; the [NuttX walkthrough](firmware.md) covers target builds.
+Use Rust’s standard library for threads, memory, files, and sockets. The recipes below run from the NXRS checkout on your computer. See [Building for NuttX](firmware.md) to try the same APIs on the target.
 
 ## Choose the interface for the operation
 
@@ -42,7 +40,7 @@ Use condition variables with a predicate checked under the same mutex. Decide ho
 
 ## Memory and collections
 
-Select storage from the workload: fixed arrays for fixed-size data, preallocated collections for bounded variable data, and dynamic allocation where the lifetime and budget allow it. A channel's capacity bounds its slots; payload allocations and retained buffers belong in the same memory budget.
+Use fixed arrays for fixed-size data and preallocate collections when you know the bound. Include retained buffers and payload allocations in the memory budget.
 
 ```sh
 cargo run --locked -p nxrs-std-demo -- --case fixed
@@ -52,7 +50,7 @@ cargo run --locked -p nxrs-std-demo -- --case maps
 
 [Performance and memory](performance.md) describes image size, thread stacks, heap use, and communication measurements.
 
-`Vec::with_capacity` reserves capacity; it does not prevent later growth. Check a collection's length against your application limit before inserting. Include data owned by each element: a queue of `Vec<u8>` values bounds message count but can still retain a large amount of payload memory.
+`Vec::with_capacity` reserves space. Check the length before inserting to enforce a limit. If you queue `Vec<u8>` values, bound both the message count and the bytes per message.
 
 Use an owned value when work crosses a thread boundary. For a large payload, decide whether to move an existing allocation or use a bounded, reusable buffer pool. Small copied messages often need no additional abstraction. The `ownership` and `queues` recipes provide further exercises:
 

@@ -6,5 +6,17 @@ edition.workspace = true
 [lib]
 name = "stream_service"
 
+[features]
+default = ["server"]
+server = ["dep:nxrs-camera"]
+
 [dependencies]
-nxrs-camera = { path = "../../hal/camera" }
+nxrs-camera = { path = "../../hal/camera", optional = true }
+
+[[test]]
+name = "server"
+required-features = ["server"]
+
+[[test]]
+name = "session"
+required-features = ["server"]

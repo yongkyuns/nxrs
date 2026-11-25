@@ -5,6 +5,8 @@ mod policy;
 mod revocations;
 pub mod security;
 mod media_control;
+mod microphone;
+mod recording;
 pub use media_control::Maintenance;
 
 use axum::{
@@ -49,6 +51,17 @@ fn bearer(headers: &HeaderMap) -> Result<&str, Failure> {
     headers.get(header::AUTHORIZATION).and_then(|h| h.to_str().ok()).and_then(|s| s.strip_prefix("Bearer "))
         .filter(|s| config::hex_token(s)).ok_or(Failure(StatusCode::UNAUTHORIZED))
 }
+fn publisher_identity(headers: &HeaderMap) -> Result<(&str, &str), Failure> {
+    if headers.get_all("x-nxrs-publisher").iter().count() != 1 {
+        return Err(Failure(StatusCode::UNAUTHORIZED));
+    }
+    let user = headers
+        .get("x-nxrs-publisher")
+        .and_then(|v| v.to_str().ok())
+        .filter(|v| crate::config::identifier(v))
+        .ok_or(Failure(StatusCode::UNAUTHORIZED))?;
+    Ok((bearer(headers)?, user))
+}
 fn wall() -> Result<u64, Failure> {
     SystemTime::now().duration_since(UNIX_EPOCH).map(|t| t.as_secs())
         .map_err(|_| Failure(StatusCode::SERVICE_UNAVAILABLE))
@@ -56,6 +69,10 @@ fn wall() -> Result<u64, Failure> {
 async fn health() -> Json<Value> { Json(json!({"status": "ok"})) }
 async fn catalog(State(shared): State<Shared>, headers: HeaderMap) -> Result<Json<Value>, Failure> {
     shared.lock().await.catalog(bearer(&headers)?).map(Json).map_err(Failure)
+}
+async fn source_mapping(State(shared): State<Shared>, Path((site, camera)): Path<(String, String)>,
+    headers: HeaderMap) -> Result<Json<Value>, Failure> {
+    shared.lock().await.source_mapping(bearer(&headers)?, &site, &camera).map(Json).map_err(Failure)
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -117,9 +134,13 @@ pub fn routers(config: config::Config) -> Result<(Router, Router), &'static str>
 pub fn managed_routers(config: config::Config, settings: Option<Settings>) -> Result<(Router, Router, Maintenance), &'static str> {
     let shared = Arc::new(Mutex::new(GatewayPolicy::new(config, settings.clone())?));
     let control = Router::new().route("/healthz", get(health)).route("/v1/cameras", get(catalog))
+        .route("/service/v1/sites/{site}/cameras/{camera}/source", get(source_mapping))
         .route("/v1/cameras/{camera}/detections", get(detections::subscribe))
         .route("/v1/cameras/{camera}/playback-grants", post(grant)).with_state(shared.clone());
     let internal = Router::new().route("/internal/mediamtx/auth", post(media_auth))
+        .route("/internal/cameras/{camera}/microphone", post(microphone::write))
+        .route("/internal/cameras/{camera}/microphone-permit", post(microphone::read))
+        .route("/internal/cameras/{camera}/recording", get(recording::read).post(recording::write))
         .route("/internal/cameras/{camera}/detection-sessions", post(detections::register))
         .route("/internal/cameras/{camera}/detections", post(detections::publish))
         .route("/internal/viewers/{viewer}/revoke", post(revoke))

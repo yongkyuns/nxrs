@@ -10,12 +10,8 @@ use std::fs::{File, OpenOptions};
 use std::io;
 use std::os::fd::AsRawFd;
 
-unsafe extern "C" {
-    // 0 = success; otherwise the positive errno captured by the C helper.
-    // The helpers never close/retain fd and never retain output pointers.
-    fn userled_supported(fd: c_int, supported: *mut u32) -> c_int;
-    fn userled_set(fd: c_int, index: u8, on: c_int) -> c_int;
-}
+mod ffi;
+use self::ffi::{userled_set, userled_supported};
 
 pub struct UserLeds {
     file: File,

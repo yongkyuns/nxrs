@@ -1,0 +1,127 @@
+diff --git a/include/hw/xtensa/esp32s3_clk.h b/include/hw/xtensa/esp32s3_clk.h
+--- a/include/hw/xtensa/esp32s3_clk.h
++++ b/include/hw/xtensa/esp32s3_clk.h
+@@ -20,6 +20,7 @@
+ 
+ 
+ #define ESP32S3_SYSTEM_CPU_INTR_COUNT   4
++#define ESP32S3_SYSTEM_CORE1_RUNSTALL_GPIO "core1-runstall"
+ 
+ /**
+  * Value for SYSTEM_SOC_CLK_SEL
+@@ -62,6 +63,8 @@
+     uint32_t levels;
+     
+     uint32_t app_cpu_addr;
++    bool core1_runstall;
++    qemu_irq core1_runstall_out;
+     
+     uint32_t sys_ext_dev_enc_dec_ctrl;
+ } ESP32S3ClockState;
+diff --git a/hw/xtensa/esp32s3_clk.c b/hw/xtensa/esp32s3_clk.c
+--- a/hw/xtensa/esp32s3_clk.c
++++ b/hw/xtensa/esp32s3_clk.c
+@@ -22,6 +22,7 @@
+ 
+ #define CLOCK_DEBUG      0
+ #define CLOCK_WARNING    0
++#define CORE1_RUNSTALL_MASK BIT(0)
+ 
+ static uint32_t esp32s3_read_cpu_intr(ESP32S3ClockState *s, uint32_t index)
+ {
+@@ -52,6 +53,9 @@
+     uint64_t r = 0;
+ 
+     switch(addr) {
++        case A_SYSTEM_CORE_1_CONTROL_0_REG:
++            r = s->core1_runstall ? CORE1_RUNSTALL_MASK : 0;
++            break;
+         case A_SYSTEM_CORE_1_CONTROL_1_REG:
+                 r = s->app_cpu_addr;
+             break;
+@@ -91,6 +95,10 @@
+     ESP32S3ClockState *s = ESP32S3_CLOCK(opaque);
+ 
+     switch(addr) {
++        case A_SYSTEM_CORE_1_CONTROL_0_REG:
++            s->core1_runstall = (value & CORE1_RUNSTALL_MASK) != 0;
++            qemu_set_irq(s->core1_runstall_out, s->core1_runstall);
++            break;
+         case A_SYSTEM_CORE_1_CONTROL_1_REG:
+                 s->app_cpu_addr = (uint32_t)value;
+             break;
+@@ -141,6 +149,9 @@
+     s->bt_lpck_div_int = 0xFF;
+     s->bt_lpck_div_frac = 0x02001001;
+ 
++    s->core1_runstall = false;
++    qemu_irq_lower(s->core1_runstall_out);
++
+     /* Initialize the IRQs */
+     s->levels = 0;
+     for (int i = 0 ; i < ESP32S3_SYSTEM_CPU_INTR_COUNT; i++) {
+@@ -162,6 +173,9 @@
+     memory_region_init_io(&s->iomem, obj, &esp32s3_clock_ops, s,
+                           TYPE_ESP32S3_CLOCK, A_SYSTEM_COMB_PVT_ERR_HVT_SITE3 + sizeof(uint32_t));
+     sysbus_init_mmio(sbd, &s->iomem);
++
++    qdev_init_gpio_out_named(DEVICE(obj), &s->core1_runstall_out,
++                            ESP32S3_SYSTEM_CORE1_RUNSTALL_GPIO, 1);
+ 
+     /* Initialize the output IRQ lines used to manually trigger interrupts */
+     for (uint64_t i = 0; i < ESP32S3_SYSTEM_CPU_INTR_COUNT; i++) {
+diff --git a/hw/xtensa/esp32s3.c b/hw/xtensa/esp32s3.c
+--- a/hw/xtensa/esp32s3.c
++++ b/hw/xtensa/esp32s3.c
+@@ -195,14 +195,15 @@
+ }
+ 
+ /*
+- * Hold a core while RTC_CNTL stalls it, or while it waits out a reset by the
+- * other core (below). The stall is RTC state: resetting the core does not
+- * release it (xtensa_cpu_reset_hold keeps runstall), as on the ESP32 machine.
++ * Hold a core while RTC_CNTL or the system controller stalls it, or while
++ * it waits out a reset by the other core. A core reset preserves the stall
++ * signals (xtensa_cpu_reset_hold keeps runstall).
+  */
+ static void esp32s3_update_runstall(Esp32s3SocState *s, int n)
+ {
+     CPUXtensaState *env = &s->cpu[n].env;
+-    bool hold = s->cpu_stall_level[n] || timer_pending(s->cpu_reset_hold[n]);
++    bool hold = s->cpu_stall_level[n] || timer_pending(s->cpu_reset_hold[n]) ||
++                (n == 1 && s->clock.core1_runstall);
+ 
+     if (hold == env->runstall) {
+         return;
+@@ -333,6 +334,11 @@
+     esp32s3_update_runstall(s, n);
+ }
+ 
++static void esp32s3_core1_runstall(void *opaque, int n, int level)
++{
++    esp32s3_update_runstall(ESP32S3_SOC(opaque), 1);
++}
++
+ static void esp32s3_clk_update(void* opaque, int n, int level)
+ {
+     if (!level) {
+@@ -663,6 +669,8 @@
+     qdev_init_gpio_in_named(DEVICE(s), esp32s3_cpu_reset,  ESP32S3_RTC_CPU_RESET_GPIO, ESP32S3_CPU_COUNT);
+     qdev_init_gpio_in_named(DEVICE(s), esp32s3_cpu_stall,  ESP32S3_RTC_CPU_STALL_GPIO, ESP32S3_CPU_COUNT);
+     qdev_init_gpio_in_named(DEVICE(s), esp32s3_clk_update, ESP32S3_RTC_CLK_UPDATE_GPIO, 1);
++    qdev_init_gpio_in_named(DEVICE(s), esp32s3_core1_runstall,
++                           ESP32S3_SYSTEM_CORE1_RUNSTALL_GPIO, 1);
+ 
+     object_initialize_child(obj, "twai", &s->twai, TYPE_ESP32S3_TWAI);
+ 
+@@ -834,6 +842,10 @@
+     /* System clock realization */
+     {
+         sysbus_realize(SYS_BUS_DEVICE(&ss->clock), &error_fatal);
++        qdev_connect_gpio_out_named(DEVICE(&ss->clock),
++                                    ESP32S3_SYSTEM_CORE1_RUNSTALL_GPIO, 0,
++                                    qdev_get_gpio_in_named(DEVICE(ss),
++                                        ESP32S3_SYSTEM_CORE1_RUNSTALL_GPIO, 0));
+         MemoryRegion *mr = sysbus_mmio_get_region(SYS_BUS_DEVICE(&ss->clock), 0);
+         memory_region_add_subregion_overlap(sys_mem, DR_REG_SYSTEM_BASE, mr, 0);
+         /* Connect the IRQ lines to the interrupt matrix */

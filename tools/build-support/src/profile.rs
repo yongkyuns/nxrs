@@ -15,25 +15,30 @@ use std::{
 pub const CAPABILITIES: &[&str] = &[
     "console",
     "execution",
+    "ssh",
     "detector",
     "camera",
-    "config",
+    "audio",
+    "settings",
     "storage",
-    "transport",
     "led",
     "imu",
     "gnss",
     "wifi",
+    "cellular",
     "ble",
     "tls",
     "boot",
     "watchdog",
+    "battery",
     "rtc",
     "flash",
     "display",
+    "touch",
 ];
 pub const HOST_OS: &[&str] = &["linux", "macos", "windows"];
-const NUTTX_ENDPOINTS: &[&str] = &["camera", "watchdog", "wifi", "rtc", "flash", "display"];
+const NUTTX_ENDPOINTS: &[&str] =
+    &["camera", "audio", "watchdog", "wifi", "rtc", "flash", "display", "touch"];
 #[derive(Debug, Clone)]
 pub struct Profile {
     pub data: Value,
@@ -125,9 +130,9 @@ pub(crate) fn sensor_stack(v: &Value) -> Result<u64> {
         .as_u64()
         .unwrap_or(16384);
     if v.get("stack-bytes")
-        .is_some_and(|x| !integer(x, 8192, 262144))
+        .is_some_and(|x| !integer(x, 3072, 262144))
     {
-        return Err("sensor stack-bytes must be between 8192 and 262144".into());
+        return Err("sensor stack-bytes must be between 3072 and 262144".into());
     }
     Ok(stack)
 }
@@ -837,6 +842,7 @@ impl Profile {
     }
     pub fn validate_resources(&self) -> Result<()> {
         self.detector()?;
+        self.cellular_uart()?;
         if let Some(v) = self.data.get("scheduling") {
             if self.binding("execution") == "none"
                 || !keys(v, &["background", "normal"], &[])
@@ -888,13 +894,19 @@ impl Profile {
                 } else {
                     device(&value[field])
                 };
-                let optional: &[&str] = if capability == "watchdog" {
-                    &["mode"]
-                } else {
-                    &[]
+                let (required, optional): (&[&str], &[&str]) = match capability {
+                    "audio" => (&[field, "slot"], &[]),
+                    "watchdog" => (&[field], &["mode"]),
+                    _ => (&[field], &[]),
                 };
-                if !keys(value, &[field], optional) || !valid {
+                if !keys(value, required, optional) || !valid {
                     return Err(format!("{capability} requires a valid profile {field}"));
+                }
+                if capability == "audio"
+                    && (value["device"].as_str() != Some("/dev/audio/pcm_in0")
+                        || !matches!(value["slot"].as_str(), Some("left" | "right")))
+                {
+                    return Err("audio requires the I2S0 capture endpoint and a left or right slot".into());
                 }
                 if capability == "watchdog"
                     && value.get("mode").is_some()
@@ -931,6 +943,35 @@ impl Profile {
         }
         Ok(())
     }
+    fn cellular_uart(&self) -> Result<Option<&str>> {
+        let value = &self.data["cellular"];
+        if self.binding("cellular") != "nuttx" {
+            if !value.is_null() {
+                return Err("cellular UART requires its NuttX binding".into());
+            }
+            return Ok(None);
+        }
+        let uart = value["uart"]
+            .as_str()
+            .filter(|_| keys(value, &["uart"], &[]))
+            .ok_or("cellular requires one named UART resource")?;
+        let resource = &self.data["resources"][uart];
+        let assigned = self.data["devices"].as_object().is_some_and(|devices| {
+            devices.values().any(|device| {
+                self.data["resources"][device["bus"].as_str().unwrap_or_default()]["device"]
+                    == resource["device"]
+            })
+        });
+        if assigned
+            || resource["kind"] != "uart"
+            || resource["baud"] != 115200
+            || !device(&resource["device"])
+        {
+            return Err("cellular requires a dedicated 115200-baud BSP UART".into());
+        }
+        Ok(resource["device"].as_str())
+    }
+
     pub fn watchdog_mode(&self) -> &str {
         self.data["watchdog"]["mode"]
             .as_str()
@@ -1032,6 +1073,11 @@ impl Profile {
         let mut env =
             |name: &str, value: String| output.push(format!("cargo:rustc-env={name}={value}"));
         match capability {
+            "cellular" => {
+                if let Some(uart) = self.cellular_uart()? {
+                    env("CELLULAR_DEVICE", uart.into());
+                }
+            }
             "boot" if self.binding(capability) == "nuttx" && self.data.get("mcuboot").is_some() => {
                 env("BOOT_UPDATE_CONTROL", "1".into());
             }
@@ -1052,7 +1098,7 @@ impl Profile {
                         .into(),
                 );
             }
-            "camera" | "watchdog" | "rtc" | "flash" | "display"
+            "camera" | "audio" | "watchdog" | "rtc" | "flash" | "display" | "touch"
                 if self.binding(capability) == "nuttx" =>
             {
                 env(
@@ -1062,6 +1108,15 @@ impl Profile {
                         .ok_or("missing device path")?
                         .into(),
                 );
+                if capability == "audio" {
+                    env(
+                        "AUDIO_SLOT",
+                        self.data["audio"]["slot"]
+                            .as_str()
+                            .ok_or("missing audio slot")?
+                            .into(),
+                    );
+                }
                 if capability == "watchdog" {
                     env("WATCHDOG_MODE", self.watchdog_mode().into());
                 }
@@ -1154,6 +1209,41 @@ mod tests {
         assert_eq!(replaced.data["kconfig"], inherited.data["kconfig"]);
     }
     #[test]
+    fn stamp_uses_its_own_bsp_uart_at_the_fixed_modem_baud() {
+        let root = root();
+        for name in ["m5stack-cores3-stamp-catm", "esp32s3-qemu-tracker"] {
+            let mut profile = Profile::resolve(&root, name).unwrap();
+            assert_eq!(profile.cellular_uart().unwrap(), Some("/dev/ttyS2"));
+            assert_eq!(
+                profile.data["resources"]["receiver_uart"]["device"],
+                "/dev/ttyS1"
+            );
+            profile.data["resources"]["modem_uart"]["device"] = json!("/dev/ttyS1");
+            assert!(profile.cellular_uart().is_err());
+            profile.data["resources"]["modem_uart"]["device"] = json!("/dev/ttyS2");
+            profile.data["resources"]["modem_uart"]["baud"] = json!(9600);
+            assert!(profile.cellular_uart().is_err());
+        }
+    }
+
+    #[test]
+    fn microphone_profile_admits_only_the_bound_endpoint_and_a_valid_slot() {
+        let root = root();
+        let mut profile = Profile::resolve(&root, "esp32s3-camera-microphone").unwrap();
+        let output = profile.cargo_output(&root, "audio", "nuttx").unwrap();
+        assert!(output
+            .iter()
+            .any(|line| line == "cargo:rustc-env=AUDIO_DEVICE=/dev/audio/pcm_in0"));
+        assert!(output.iter().any(|line| line == "cargo:rustc-env=AUDIO_SLOT=left"));
+
+        profile.data["audio"]["slot"] = json!("center");
+        assert!(profile.validate_resources().is_err());
+        profile.data["audio"]["slot"] = json!("right");
+        profile.data["audio"]["device"] = json!("/dev/audio/pcm_in1");
+        assert!(profile.validate_resources().is_err());
+    }
+
+    #[test]
     fn registered_endpoints_are_explicit_validated_profile_inputs() {
         let root = root();
         let base = Profile::resolve(&root, "esp32s3-camera-stream-startup").unwrap();
@@ -1164,6 +1254,7 @@ mod tests {
             ("rtc", "device", "RTC_DEVICE", "/dev/rtc0"),
             ("flash", "device", "FLASH_DEVICE", "/dev/mtdblock0"),
             ("display", "device", "DISPLAY_DEVICE", "/dev/spi2"),
+            ("touch", "device", "TOUCH_DEVICE", "/dev/input0"),
         ] {
             let mut profile = base.clone();
             profile.data["hal"][capability] = json!("nuttx");
@@ -1248,7 +1339,7 @@ mod tests {
             ("imu", "address", json!(0x70)),
             ("imu", "frequency", json!(0)),
             ("imu", "irq-device", json!(false)),
-            ("gnss", "stack-bytes", json!(1)),
+            ("gnss", "stack-bytes", json!(3071)),
         ] {
             let mut p = base.clone();
             p.data[cap][key] = bad;

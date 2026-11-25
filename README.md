@@ -43,14 +43,7 @@ cargo run --locked --manifest-path website/examples/basic-firmware/Cargo.toml --
 
 The program prints `Hello from NXRS`. It is an ordinary, self-contained Cargo application with no hardware dependencies. [Your first application](website/guide/first-application.md) explains its manifest and how to use it as a starting point.
 
-The standard-library application provides short examples of collections, channels, synchronization, and deadlines:
-
-```sh
-cargo run --locked -p nxrs-std-demo -- --list
-cargo run --locked -p nxrs-std-demo -- --case channels
-```
-
-Neither example requires a platform profile. Follow the [getting-started guide](website/guide/getting-started.md) for setup and the [firmware guide](website/guide/firmware.md) for NuttX builds.
+Follow [Getting started](website/guide/getting-started.md) for host setup and [Building for NuttX](website/guide/firmware.md) to boot your own application in QEMU. The [examples index](website/guide/examples.md) links runnable Rust recipes, a controller tutorial, and the simulated Matter light.
 
 ## Architecture
 
@@ -81,6 +74,8 @@ cargo nxrs build --app std-demo --profile esp32s3-qemu-mock --dry-run
 
 After installing the target prerequisites, remove `--dry-run` to build the image. [Building for NuttX](website/guide/firmware.md) covers setup, outputs, and execution. [Profiles and overlays](website/guide/profiles.md) explains the configuration inputs.
 
+Use `cargo nxrs config --app event-demo --platform cores3` to search, review, and save native NuttX settings for a selected build. The [configuration guide](website/guide/profiles.md#configure-nuttx) covers prerequisites, shared fragment ownership, Save & sync, and scriptable checks. The next ordinary build consumes the saved settings.
+
 ## Tests and evaluations
 
 Basic validation includes host tests, target build and ABI checks, simulator/QEMU execution, and on-board performance and memory evaluations.
@@ -90,7 +85,16 @@ cargo test --locked
 python3 tools/check-architecture.py
 ```
 
-Performance and memory remain part of ongoing development. Evaluations include image size, stacks, heap use, queues, event latency, and throughput, with reference comparisons such as Zephyr. See the [test index](tests/README.md), [performance guide](website/guide/performance.md), [event-path measurements](docs/std-channel-performance.md), [footprint study](docs/rust-std-footprint.md), and [RTOS comparisons](docs/rtos-comparison.md).
+Start with the [performance guide](website/guide/performance.md) to choose a measurement, or read the findings by question:
+
+| Question | Read |
+| --- | --- |
+| How do delivery, RAM and deadlines compare with Zephyr and Embassy? | [RTOS comparison results](docs/rtos-comparison.md) |
+| What do bounded Rust channels cost and how do they wait? | [Channel behavior and performance](docs/std-channel-performance.md) |
+| What consumes RAM and flash as services are added? | [Memory and image size](docs/rust-std-footprint.md) |
+| Which tests can I run? | [Test and fixture index](tests/README.md) |
+
+Each summary states the tested workload, useful conclusion and measurement limits. Detailed historical experiments remain linked as evidence.
 
 ## Documentation and examples
 

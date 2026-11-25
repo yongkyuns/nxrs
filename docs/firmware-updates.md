@@ -1,5 +1,19 @@
 # Signed firmware updates
 
+A signed update must be authenticated, staged without damaging the active image, tried under a startup deadline, and confirmed only after health checks pass. MCUboot owns authentication and recovery; the Rust boot HAL owns staging/lifecycle access; the application decides when it is healthy enough to confirm.
+
+This reference covers the WROOM camera integration and its recorded checks. It separates the update contract from the individual hardware trials.
+
+| Task | Read |
+| --- | --- |
+| Build a signed image and matching bootloader | [Image preparation](#prepare-the-image) and [bootloader](#build-the-bootloader) |
+| Understand staging and confirmation ownership | [Boot HAL and startup health](#boot-hal-and-startup-health) |
+| Inspect exercised fault cases and remaining limits | [Physical update trials](#physical-update-trials) |
+| Deliver an update over the network | [OTA delivery](#ota-delivery) |
+| Understand credentials and renewal | [Network enrollment and time](#network-enrollment-and-time) |
+
+## Prepare the image
+
 Select `home-cam` with platform `esp32s3-camera-stream-startup` for a signed MCUboot camera/TLS/PICO image with
 TLS autostart and trial confirmation. Unsigned qualification builds require an
 explicit `--platform`; missing signing inputs fail before building.
@@ -8,6 +22,16 @@ It inherits the existing camera
 configuration without copying its HAL implementations or resource budgets.
 The pinned Espressif port reserves swap status for 512 sectors; signing includes
 that trailer budget and rejects an image that no longer fits.
+
+WROOM streaming profiles read the ESP32-S3 hardware counter for Rust's
+monotonic capture timestamps and keep the periodic scheduler. Delayed timer
+interrupts do not slow down the clock. The gateway retires streams when
+capture-to-arrival delay grows by more than one second above the connection's
+best observed offset.
+
+WROOM streaming profiles share the regular camera's fixed TCP write pool,
+including the SSH maintenance image. Buffered sends let the TLS worker keep
+polling while TCP waits for acknowledgements.
 
 Install the NuttX-pinned upstream tool with `pip install -r tools/mcuboot-requirements.txt`.
 The PyPI 2.2.0 release lacks the pinned source's EC public-key verification fix. Supply
@@ -55,6 +79,8 @@ The same candidate payload with the trusted key, matching class and counter 8
 booted as an unconfirmed trial. The test seeded pending images over USB to
 exercise MCUboot admission. The original 16 MiB flash was restored and verified.
 
+## Boot HAL and startup health
+
 MCUboot owns image authentication, swapping and recovery. `hal/boot` exposes
 `state`, `stage_update`, `request_trial` and `confirm`. Shared Rust admits staging
 only from a stable image, stable-to-pending trial requests, and trial-to-confirmed
@@ -100,6 +126,8 @@ service or automatic startup confirmation policy. Product wiring owns layout.
 The packager uses upstream signing/verification and explicit geometry, independent
 of the ESP32-S3 boot ROM.
 
+## Build the bootloader
+
 Build the matching signature-enforcing second stage with:
 
 ```sh
@@ -130,6 +158,8 @@ invokes synchronous network initialization. Stable boots cancel before USB
 credential/enrollment input; trial boots retain the deadline while waiting.
 The register model checks both modes, locked/unlocked entry,
 preserved bits and repeated handoff; it does not qualify reset timing.
+
+## Physical update trials
 
 Trial health requires capture, authenticated full-image write completion and
 any configured real-frame inference within five seconds. Consuming retirement
@@ -241,7 +271,7 @@ No hardware protection setting or eFuse is changed.
 
 One-time commissioning stores the gateway's last-known private IPv4 endpoint, exact
 certificate SHA-256 pin, per-camera token and approved camera/site/gateway names
-in `hal/config`, beside the saved Wi-Fi profile. Device signing keys stay volatile
+in `hal/settings`, beside the saved Wi-Fi profile. Device signing keys stay volatile
 and non-exportable. No USB certificate or clock service runs after commissioning.
 The existing Rust ingest process owns one TLS1.3 bootstrap listener, signs a
 verified P-256 CSR with server-assigned names/usages, and joins old ingest workers
@@ -295,7 +325,7 @@ otherwise block without a reader. Rust opens `/dev/ttyACM0` only for missing
 commissioning/Wi-Fi input, restores its termios and closes it before networking.
 The tool also resumes Wi-Fi-only input after an interrupted first setup.
 Firmware erasure of the
-reserved config partition resets both records; keep ROM recovery available.
+reserved settings partition resets both records. Keep ROM recovery available.
 With hardware flash encryption off, stored Wi-Fi/token data is readable from
 flash. This change performs no eFuse or protection provisioning.
 
@@ -307,9 +337,15 @@ image. This keeps crypto/network delay out of a partially sent JPEG without
 relaxing the gateway's freshness limit. Requests have a 5-second total budget
 and measured delivery uncertainty. Cloning a lease preserves its original expiry;
 backward disjoint observations fail closed. Exact-peer mutual TLS still guards
-media and updates. The gateway host's UTC must be trustworthy. Camera sessions
-renew before their one-hour grant expires and retry unavailable enrollment after
-joined Wi-Fi cleanup. Losing time closes the authenticated stream.
+media and updates. The gateway host's UTC must be trustworthy. The camera
+requests fresh certificates and revocation data after 45 minutes, before the
+one-hour grant expires. Renewal proves possession of the existing camera key
+over the pinned bootstrap channel and retains the gateway key. Both sides
+validate the refreshed grant and apply it to the active TLS transport. The
+camera, detector, and gateway publisher keep running. Initial enrollment or
+replacement of a camera key still retires the prior grant and its publisher.
+Losing trusted time or reaching the grant deadline closes the authenticated
+stream. Seamless renewal requires the updated camera and gateway together.
 
 `gateway/tests/network_enrollment.py` tests the actual SDK camera and Rust gateway
 with synthetic media: enrollment, large JPEGs with a bounded clock-refresh stall,

@@ -1,0 +1,256 @@
+Subject: [PATCH] esp32s3: register the CoreS3 touchscreen
+
+Use the existing FT5x06 driver, starting and stopping its poll timer
+with open consumers. Make the idle poll interval selectable.
+
+diff --git a/boards/xtensa/esp32s3/esp32s3-m5-cores3/Kconfig b/boards/xtensa/esp32s3/esp32s3-m5-cores3/Kconfig
+--- a/boards/xtensa/esp32s3/esp32s3-m5-cores3/Kconfig
++++ b/boards/xtensa/esp32s3/esp32s3-m5-cores3/Kconfig
+@@ -9,3 +9,10 @@
+ 	---help---
+ 		Bring up the panel rails and register SPI2 for the write-only LCD.
+ 		GPIO35 is LCD D/C in this mode, so SD card SPI is unavailable.
++
++config ESP32S3_M5_CORES3_TOUCH
++	bool "Register the built-in CoreS3 touchscreen"
++	depends on ESP32S3_M5_CORES3_LCD && INPUT_FT5X06
++	depends on FT5X06_POLLMODE && FT5X06_SINGLEPOINT
++	---help---
++		Enable the FT6336 reset line on the AW9523 and register /dev/input0.
+diff --git a/boards/xtensa/esp32s3/esp32s3-m5-cores3/src/esp32s3_boot.c b/boards/xtensa/esp32s3/esp32s3-m5-cores3/src/esp32s3_boot.c
+--- a/boards/xtensa/esp32s3/esp32s3-m5-cores3/src/esp32s3_boot.c
++++ b/boards/xtensa/esp32s3/esp32s3-m5-cores3/src/esp32s3_boot.c
+@@ -9,6 +9,9 @@
+ #include "esp32s3_i2c.h"
+ #ifdef CONFIG_ESP32S3_M5_CORES3_LCD
+ int cores3_lcd_bus_initialize(void);
++#endif
++#ifdef CONFIG_ESP32S3_M5_CORES3_TOUCH
++int cores3_touch_initialize(void);
+ #endif
+ #if defined(CONFIG_ESP32S3_MTD) && defined(CONFIG_MTD_CONFIG_NVS)
+ int board_spiflash_init(void);
+@@ -48,6 +51,13 @@
+   int lcd = cores3_lcd_bus_initialize();
+   if (lcd < 0) syslog(LOG_ERR, "CoreS3 LCD bus registration failed: %d\n", lcd);
+ #endif
++#ifdef CONFIG_ESP32S3_M5_CORES3_TOUCH
++  int touch = cores3_touch_initialize();
++  if (touch < 0)
++    {
++      syslog(LOG_ERR, "CoreS3 touch registration failed: %d\n", touch);
++    }
++#endif
+ }
+ #endif
+ #ifdef CONFIG_BOARDCTL_RESET
+diff --git a/boards/xtensa/esp32s3/esp32s3-m5-cores3/src/esp32s3_lcd_bus.c b/boards/xtensa/esp32s3/esp32s3-m5-cores3/src/esp32s3_lcd_bus.c
+--- a/boards/xtensa/esp32s3/esp32s3-m5-cores3/src/esp32s3_lcd_bus.c
++++ b/boards/xtensa/esp32s3/esp32s3-m5-cores3/src/esp32s3_lcd_bus.c
+@@ -2,6 +2,9 @@
+ 
+ #include <nuttx/arch.h>
+ #include <nuttx/i2c/i2c_master.h>
++#ifdef CONFIG_ESP32S3_M5_CORES3_TOUCH
++#  include <nuttx/input/ft5x06.h>
++#endif
+ #include <nuttx/spi/spi.h>
+ #include <nuttx/spi/spi_transfer.h>
+ #include <errno.h>
+@@ -138,3 +141,49 @@
+   esp32s3_i2cbus_uninitialize(i2c);
+   return ret;
+ }
++
++#ifdef CONFIG_ESP32S3_M5_CORES3_TOUCH
++
++int cores3_touch_initialize(void)
++{
++  const uint8_t reset = 1 << 0; /* AW9523 P0_0 */
++  static const struct ft5x06_config_s config =
++  {
++    .lower = { .xres = 320, .yres = 240, .maxpoint = 1 },
++    .address = 0x38,
++    .frequency = I2C_SPEED_FAST,
++  };
++  struct i2c_master_s *i2c = esp32s3_i2cbus_initialize(0);
++  int ret;
++
++  if (i2c == NULL)
++    {
++      return -ENODEV;
++    }
++
++  ret = set_bits(i2c, AW9523_ADDR, 0x02, reset, 0);
++  if (ret >= 0)
++    {
++      ret = set_bits(i2c, AW9523_ADDR, 0x04, reset, 0);
++    }
++
++  if (ret >= 0)
++    {
++      up_mdelay(5);
++      ret = set_bits(i2c, AW9523_ADDR, 0x02, reset, reset);
++    }
++
++  if (ret >= 0)
++    {
++      up_mdelay(50);
++      ret = ft5x06_register(i2c, &config, 0);
++    }
++
++  if (ret < 0)
++    {
++      esp32s3_i2cbus_uninitialize(i2c);
++    }
++
++  return ret;
++}
++#endif
+diff --git a/drivers/input/Kconfig b/drivers/input/Kconfig
+--- a/drivers/input/Kconfig
++++ b/drivers/input/Kconfig
+@@ -260,6 +260,15 @@
+ 		This is a non-optimal design both because (1) it will lead to delays
+ 		in detecting touch related events and (2) it will consume a
+ 		significant amount of CPU time to perform the polling.
++
++config FT5X06_POLL_IDLE_MS
++	int "Maximum FT5x06 touch poll interval in milliseconds"
++	depends on FT5X06_POLLMODE
++	range 20 200
++	default 200
++	---help---
++		Shorter intervals reduce the chance of missing a quick tap on a
++		polled touchscreen.
+ 
+ config FT5X06_SINGLEPOINT
+ 	bool "Single point"
+diff --git a/drivers/input/ft5x06.c b/drivers/input/ft5x06.c
+--- a/drivers/input/ft5x06.c
++++ b/drivers/input/ft5x06.c
+@@ -41,6 +41,7 @@
+ #include <nuttx/config.h>
+ 
++#include <sys/param.h>
+ #include <sys/types.h>
+ 
+ #include <stdbool.h>
+ #include <stdio.h>
+@@ -85,9 +86,11 @@
+  * polling rates.
+  */
+ 
+-#define POLL_MINDELAY  MSEC2TICK(50)
+-#define POLL_MAXDELAY  MSEC2TICK(200)
+-#define POLL_INCREMENT MSEC2TICK(10)
++#ifdef CONFIG_FT5X06_POLLMODE
++#  define POLL_MINDELAY  MSEC2TICK(MIN(50, CONFIG_FT5X06_POLL_IDLE_MS))
++#  define POLL_MAXDELAY  MSEC2TICK(CONFIG_FT5X06_POLL_IDLE_MS)
++#  define POLL_INCREMENT MSEC2TICK(10)
++#endif
+ 
+ /****************************************************************************
+  * Private Types
+@@ -111,6 +113,7 @@
+   uint32_t frequency;                       /* Current I2C frequency */
+ #ifdef CONFIG_FT5X06_POLLMODE
+   uint32_t delay;                           /* Current poll delay */
++  unsigned int users;                       /* Open poll consumers */
+ #endif
+ 
+   FAR struct i2c_master_s *i2c;             /* Saved I2C driver instance */
+@@ -196,6 +199,13 @@
+    */
+ 
+   nxmutex_lock(&priv->devlock);
++#ifdef CONFIG_FT5X06_POLLMODE
++  if (priv->users == 0)
++    {
++      nxmutex_unlock(&priv->devlock);
++      return;
++    }
++#endif
+ 
+   /* Read touch data */
+ 
+@@ -263,7 +273,7 @@
+            * if there is no touch.
+            */
+ 
+-          priv->delay += POLL_INCREMENT;
++          priv->delay = MIN(priv->delay + POLL_INCREMENT, POLL_MAXDELAY);
+         }
+ #endif
+     }
+@@ -305,12 +318,7 @@
+   FAR struct ft5x06_dev_s *priv = (FAR struct ft5x06_dev_s *)arg;
+   int ret;
+ 
+-  /* Transfer processing to the worker thread.  Since FT5x06 poll timer is
+-   * disabled while the work is pending, no special action should be
+-   * required to protected the work queue.
+-   */
+-
+-  DEBUGASSERT(priv->work.worker == NULL);
++  /* Queue or replace pending work after a close and reopen. */
+   ret = work_queue(HPWORK, &priv->work, ft5x06_data_worker, priv, 0);
+   if (ret != 0)
+     {
+@@ -573,7 +583,21 @@
+       return ret;
+     }
+ 
+-#ifndef CONFIG_FT5X06_POLLMODE
++#ifdef CONFIG_FT5X06_POLLMODE
++  nxmutex_lock(&priv->devlock);
++  if (priv->users++ == 0)
++    {
++      priv->valid = false;
++#ifdef CONFIG_FT5X06_SINGLEPOINT
++      priv->lastevent = FT5X06_INVALID;
++#endif
++      priv->delay = POLL_MAXDELAY;
++      wd_start(&priv->polltimer, priv->delay,
++               ft5x06_poll_timeout, (wdparm_t)priv);
++    }
++
++  nxmutex_unlock(&priv->devlock);
++#else
+   /* Enable FT5x06 interrupts */
+ 
+   config->clear(config);
+@@ -591,9 +615,13 @@
+   FAR struct ft5x06_dev_s *priv = (FAR struct ft5x06_dev_s *)lower;
+ 
+ #ifdef CONFIG_FT5X06_POLLMODE
+-  /* Stop the poll timer */
+-
+-  wd_cancel(&priv->polltimer);
++  nxmutex_lock(&priv->devlock);
++  if (priv->users > 0 && --priv->users == 0)
++    {
++      wd_cancel(&priv->polltimer);
++    }
++
++  nxmutex_unlock(&priv->devlock);
+ 
+ #else
+   FAR const struct ft5x06_config_s *config = &priv->config;
+@@ -754,6 +782,7 @@
+       goto errout_with_priv;
+     }
+ 
++#ifndef CONFIG_FT5X06_POLLMODE
+   /* Schedule work to perform the initial sampling and to set the data
+    * availability conditions.
+    */
+@@ -764,6 +793,8 @@
+       ierr("ERROR: Failed to queue work: %d\n", ret);
+       goto errout_with_priv;
+     }
++
++#endif
+ 
+   /* And return success */
+ 

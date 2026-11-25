@@ -14,6 +14,7 @@ mod ffi;
 use ffi::*;
 
 mod connection;
+mod record;
 use crate::{Certificates, TimeLease};
 pub use connection::Connection;
 
@@ -170,10 +171,11 @@ pub struct Identity {
     key: u32,
     // Retire the cached SSL config/certificates before destroying its borrowed
     // PSA key or releasing the SDK lease.
-    enrollment: Option<connection::Enrollment>,
+    enrollment: RefCell<Option<Rc<connection::Enrollment>>>,
     pk: Option<Opaque>,
     _single_thread: PhantomData<Rc<()>>,
-    // Declared last: source destruction must finish before another SDK owner.
+    record: record::Memory,
+    // Declared last: source and workspace retire before another SDK owner.
     _lease: Lease,
 }
 impl Identity {
@@ -186,14 +188,23 @@ impl Identity {
         OWNED
             .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
             .map_err(|_| Error::Busy)?;
+        let lease = Lease;
+        let record = match record::Memory::prepare() {
+            Ok(record) => record,
+            Err(error) => {
+                drop(callback);
+                return Err(error);
+            }
+        };
         UNEXPECTED_CALLBACK.store(false, Ordering::Release);
         let mut identity = Self {
             callback,
             key: 0,
-            enrollment: None,
+            enrollment: RefCell::new(None),
             pk: None,
             _single_thread: PhantomData,
-            _lease: Lease,
+            record,
+            _lease: lease,
         };
         // SAFETY: sole SDK owner; the stable callback source already exists.
         identity.sdk(|| unsafe { psa_crypto_init() })?;
@@ -249,9 +260,35 @@ impl Identity {
         time: &TimeLease,
     ) -> Result<(), Error> {
         // A failed replacement must not leave the previous enrollment usable.
-        drop(self.enrollment.take());
-        let enrollment = connection::Enrollment::configure(self, certificates, time)?;
-        self.enrollment = Some(enrollment);
+        drop(self.enrollment.get_mut().take());
+        let enrollment =
+            connection::Enrollment::configure(self, certificates, time, None, &mut || Ok(()))?;
+        *self.enrollment.get_mut() = Some(Rc::new(enrollment));
+        Ok(())
+    }
+
+    /// Renew authorization for the same issuer, names and signing keys.
+    /// Active connections retain their native configuration and use the new
+    /// authorization at their next time refresh. Failure leaves the previous
+    /// grant's deadlines in effect. `progress` runs between synchronous SDK calls.
+    pub fn renew(
+        &self,
+        certificates: Certificates<'_>,
+        time: &TimeLease,
+        mut progress: impl FnMut() -> Result<(), Error>,
+    ) -> Result<(), Error> {
+        let old = self
+            .enrollment
+            .borrow()
+            .clone()
+            .ok_or(Error::InvalidInput)?;
+        let next =
+            connection::Enrollment::configure(self, certificates, time, Some(&old), &mut progress)?;
+        let mut current = self.enrollment.borrow_mut();
+        if !current.as_ref().is_some_and(|live| Rc::ptr_eq(live, &old)) {
+            return Err(Error::Authentication);
+        }
+        *current = Some(Rc::new(next));
         Ok(())
     }
 
@@ -291,7 +328,7 @@ impl Identity {
     /// Create a public PEM CSR with an advisory CN only. The issuer must assign
     /// the approved identity independently. Output must have 512..=4096 bytes;
     /// SDK failures clear that buffer.
-    pub fn request(&mut self, subject_id: &str, output: &mut [u8]) -> Result<usize, Error> {
+    pub fn request(&self, subject_id: &str, output: &mut [u8]) -> Result<usize, Error> {
         if !(512..=4096).contains(&output.len()) {
             return Err(Error::Capacity);
         }
@@ -361,7 +398,7 @@ impl Identity {
 impl Drop for Identity {
     fn drop(&mut self) {
         // SDK borrowed-key context must retire before destroying its PSA key.
-        drop(self.enrollment.take());
+        drop(self.enrollment.get_mut().take());
         drop(self.pk.take());
         // SAFETY: all operations and callback execution are synchronous. The
         // sole owner and source remain alive until native PSA/DRBG teardown ends.

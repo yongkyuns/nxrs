@@ -1,10 +1,10 @@
 //! The SAME assertions execute in native tests, the CLI, Node, and Chromium.
 use std::collections::VecDeque;
 use camera_test_support::{AppState, CameraProduct, Error, Monitor, Progress, Recorder};
-use camera_service::{CameraService, CameraState, CaptureProgress, Error as CameraError, Frames};
+use camera::capture::{Error as CameraError, Frames, Progress as CaptureProgress, Session, State};
 use camera::{Capture, DeviceError, Format, PixelFormat};
-use recording_service::{Error as RecordingError, RecordingService};
-use telemetry_service::{payload_checksum, Error as TelemetryError, TelemetryService, SUMMARY_BYTES};
+use camera_test_support::recording::{Error as RecordingError, RecordingService};
+use camera_test_support::packet_summary::{payload_checksum, Error as TelemetryError, TelemetryService, SUMMARY_BYTES};
 use crate::mocks::{CameraAction, MockCamera, MockStorage, MockTransport, FORMAT};
 
 pub type Product = CameraProduct<MockCamera, MockStorage, MockTransport, 16, 2>;
@@ -93,7 +93,7 @@ fn monitor_stop_does_not_stop_recorder() {
 }
 
 fn applications_compose_without_the_example_product() {
-    let mut camera = CameraService::<_, 16, 2>::new(MockCamera::new([CameraAction::Frame(7), CameraAction::Frame(8)])).unwrap();
+    let mut camera = Session::<_, 16, 2>::new(MockCamera::new([CameraAction::Frame(7), CameraAction::Frame(8)])).unwrap();
     let mut storage = RecordingService::new(MockStorage::default());
     let mut recorder = Recorder::default();
     camera.start(FORMAT).unwrap();
@@ -191,10 +191,10 @@ fn busy_sink_retry_does_not_poll_camera() {
 
 fn transport_busy_does_not_repeat_recording() {
     let mut transport = MockTransport::default();
-    transport.send_errors.push_back(transport::DeviceError::Busy);
+    transport.send_errors.push_back(camera_test_support::packet::DeviceError::Busy);
     let mut product = assemble(MockCamera::new([CameraAction::Frame(7)]), MockStorage::default(), transport);
     start(&mut product);
-    assert_eq!(product.step(1).monitor, Err(Error::Telemetry(TelemetryError::Device(transport::DeviceError::Busy))));
+    assert_eq!(product.step(1).monitor, Err(Error::Telemetry(TelemetryError::Device(camera_test_support::packet::DeviceError::Busy))));
     assert_eq!(product.step(2).monitor, Ok(Progress::Processed { sequence: 1, skipped: 0 }));
     assert_eq!(product.recordings.backend().writes, 1);
     assert_eq!(product.telemetry.backend().sends, 2);
@@ -232,9 +232,9 @@ fn storage_full_is_bounded_and_does_not_stop_monitor() {
 fn failed_start_is_retryable_and_duplicate_start_rejected() {
     let mut device = MockCamera::new([]);
     device.start_failures = 1;
-    let mut camera = CameraService::<_, 16, 2>::new(device).unwrap();
+    let mut camera = Session::<_, 16, 2>::new(device).unwrap();
     assert_eq!(camera.start(FORMAT), Err(CameraError::Device(DeviceError::Io)));
-    assert_eq!(camera.state(), CameraState::Stopped);
+    assert_eq!(camera.state(), State::Stopped);
     assert!(!camera.backend().active);
     camera.start(FORMAT).unwrap();
     assert_eq!(camera.start(FORMAT), Err(CameraError::AlreadyRunning));
@@ -243,21 +243,21 @@ fn failed_start_is_retryable_and_duplicate_start_rejected() {
 }
 
 fn invalid_requested_format_never_starts_device() {
-    let mut camera = CameraService::<_, 16, 2>::new(MockCamera::new([])).unwrap();
+    let mut camera = Session::<_, 16, 2>::new(MockCamera::new([])).unwrap();
     for format in [Format { width: 0, ..FORMAT }, Format { width: 100, height: 100, ..FORMAT }] {
         assert_eq!(camera.start(format), Err(CameraError::InvalidFormat));
     }
     assert_eq!(camera.backend().starts, 0);
-    assert_eq!(camera.state(), CameraState::Stopped);
-    assert!(CameraService::<_, 0, 2>::new(MockCamera::new([])).is_err());
-    assert!(CameraService::<_, 16, 0>::new(MockCamera::new([])).is_err());
+    assert_eq!(camera.state(), State::Stopped);
+    assert!(Session::<_, 0, 2>::new(MockCamera::new([])).is_err());
+    assert!(Session::<_, 16, 0>::new(MockCamera::new([])).is_err());
 }
 
 fn negotiated_format_is_used_as_actual_metadata() {
     let actual = Format { width: 1, height: 2, ..FORMAT };
     let mut device = MockCamera::new([CameraAction::Frame(9)]);
     device.negotiated = Some(actual);
-    let mut camera = CameraService::<_, 16, 2>::new(device).unwrap();
+    let mut camera = Session::<_, 16, 2>::new(device).unwrap();
     assert_eq!(camera.start(FORMAT), Ok(actual));
     assert_eq!(camera.format(), Some(actual));
     camera.poll(10).unwrap();
@@ -274,14 +274,14 @@ fn invalid_negotiation_rolls_back_or_retains_cleanup_owner() {
         let mut device = MockCamera::new([]);
         device.negotiated = Some(Format { width: 0, ..FORMAT });
         device.stop_failures = failures;
-        let mut camera = CameraService::<_, 16, 2>::new(device).unwrap();
+        let mut camera = Session::<_, 16, 2>::new(device).unwrap();
         let result = camera.start(FORMAT);
         if failures == 0 {
             assert_eq!(result, Err(CameraError::InvalidFormat));
-            assert_eq!(camera.state(), CameraState::Stopped);
+            assert_eq!(camera.state(), State::Stopped);
         } else {
             assert_eq!(result, Err(CameraError::Device(DeviceError::Busy)));
-            assert_eq!(camera.state(), CameraState::StopPending);
+            assert_eq!(camera.state(), State::StopPending);
             assert!(camera.backend().active);
             assert_eq!(camera.start(FORMAT), Err(CameraError::AlreadyRunning));
             camera.stop().unwrap();
@@ -302,7 +302,7 @@ fn malformed_capture_cannot_publish_or_corrupt_history() {
         Capture { timestamp_ms: 9, ..valid },
     ];
     for bad in invalid {
-        let mut camera = CameraService::<_, 16, 2>::new(MockCamera::new([
+        let mut camera = Session::<_, 16, 2>::new(MockCamera::new([
             CameraAction::Frame(7), CameraAction::Malformed(bad), CameraAction::Frame(9),
         ])).unwrap();
         camera.start(FORMAT).unwrap();
@@ -317,7 +317,7 @@ fn malformed_capture_cannot_publish_or_corrupt_history() {
 }
 
 fn pending_and_capture_errors_preserve_published_bytes() {
-    let mut camera = CameraService::<_, 16, 2>::new(MockCamera::new([
+    let mut camera = Session::<_, 16, 2>::new(MockCamera::new([
         CameraAction::Frame(5), CameraAction::Pending, CameraAction::Fail(DeviceError::Timeout),
     ])).unwrap();
     camera.start(FORMAT).unwrap();
@@ -346,7 +346,7 @@ fn camera_stop_failure_is_retryable_and_hides_stale_frames() {
     start(&mut product);
     product.step(1);
     assert_eq!(product.shutdown().camera, Err(Error::Camera(CameraError::Device(DeviceError::Busy))));
-    assert_eq!(product.camera.state(), CameraState::StopPending);
+    assert_eq!(product.camera.state(), State::StopPending);
     assert!(product.camera.next_after(0).is_none());
     assert_eq!(product.camera.poll(2), Err(CameraError::NotRunning));
     assert_eq!(product.camera.start(FORMAT), Err(CameraError::AlreadyRunning));
@@ -396,7 +396,7 @@ fn independent_compositions_have_no_global_state() {
     assert_eq!(first.recordings.backend().records[0].bytes, vec![11; 4]);
     assert_eq!(second.recordings.backend().records[0].bytes, vec![22; 4]);
     finish(&mut first);
-    assert_eq!(second.camera.state(), CameraState::Running);
+    assert_eq!(second.camera.state(), State::Running);
     assert_eq!(second.camera.backend().stops, 0);
     assert_eq!(second.camera.next_after(0).unwrap().capture.timestamp_ms, 99);
     finish(&mut second);

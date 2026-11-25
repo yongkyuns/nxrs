@@ -5,7 +5,7 @@ edition.workspace = true
 publish = false
 
 [dependencies]
-nxrs-acquisition = { path = "../../../../hal/acquisition" }
+nxrs-acquisition = { path = "../../../../shared/acquisition" }
 
 [package.metadata.nxrs]
 qualification-only = true

@@ -85,11 +85,17 @@ def build(args):
     if work_mode == 'chunked' and scheduling_policy != 'budget':
         raise ValueError('chunked work requires the budget scheduling policy')
     worker_stack, shared_stack, stack_watermark = stack_configuration(args)
+    worker_capacity = getattr(args, 'worker_capacity', 20)
+    if worker_capacity not in (0, 1, 5, 10, 20):
+        raise ValueError('worker capacity must be 0, 1, 5, 10 or 20')
+    if worker_capacity != 20 and args.platform not in ('nuttx-c', 'zephyr-c'):
+        raise ValueError('linked worker controls require a native C adapter')
     out=args.out.resolve();out.mkdir(parents=True,exist_ok=False)
     record={'schema':1,'status':'failed','failure':'build incomplete',
             'platform':args.platform,'layout':args.layout,'configuration':{
                 'instrumentation':instrumentation,
                 'ram_contract':1,
+                'worker_capacity':worker_capacity,
                 'worker_stack_bytes':worker_stack if args.platform != 'embassy' else 0,
                 'shared_stack_bytes':shared_stack if args.platform == 'embassy' else 0,
                 'stack_watermark':stack_watermark,
@@ -139,10 +145,13 @@ def build(args):
                 '-DBOARD='+zephyr.BOARD,'-DZEPHYR_BASE='+str(args.zephyr.resolve()),
                 '-DZephyr_DIR='+str(args.zephyr.resolve()/'share/zephyr-package/cmake'),
                 '-DZEPHYR_MODULES='+str(args.espressif.resolve())+';'+str(args.xtensa.resolve()),
-                '-DZEPHYR_SDK_INSTALL_DIR='+str(args.sdk.resolve()),
+                *(['-DZEPHYR_TOOLCHAIN_VARIANT=cross-compile',
+                   '-DCROSS_COMPILE='+args.cross_prefix] if getattr(args, 'cross_prefix', None)
+                  else ['-DZEPHYR_SDK_INSTALL_DIR='+str(args.sdk.resolve())]),
                 '-DPython3_EXECUTABLE='+str(args.zephyr_python.absolute()),
                 '-DES_MAILBOX='+str(mailbox),'-DES_TIMER_MS='+str(timer_ms),
                 '-DES_STACK_BYTES='+str(worker_stack),
+                '-DES_WORKER_CAPACITY='+str(worker_capacity),
                 '-DES_STACK_WATERMARK='+str(int(stack_watermark)),
                 '-DES_LEAN='+str(int(instrumentation == 'lean')),
                 *([] if timer_ms == 10 else ['-DEXTRA_CONF_FILE='+str(HERE/'timer-1ms.conf')])],out,'configure.log',env=env)
@@ -154,7 +163,8 @@ def build(args):
             shutil.copy2(stage/'zephyr/zephyr.elf',out/'app.elf')
             shutil.copy2(stage/'zephyr/zephyr.bin',out/'image.bin')
             shutil.copy2(stage/'zephyr/.config',out/'resolved.config')
-            readelf=args.sdk/'gnu/xtensa-espressif_esp32s3_zephyr-elf/bin/xtensa-espressif_esp32s3_zephyr-elf-readelf'
+            readelf=(Path(args.cross_prefix+'readelf') if getattr(args, 'cross_prefix', None)
+                     else args.sdk/'gnu/xtensa-espressif_esp32s3_zephyr-elf/bin/xtensa-espressif_esp32s3_zephyr-elf-readelf')
         else:
             nuttx=args.nuttx_tree.resolve()/'nuttx';apps=args.nuttx_tree.resolve()/'apps'
             env=os.environ.copy()
@@ -165,6 +175,7 @@ def build(args):
             stage=out/'nuttx-build'
             definitions=['ES_SPEED=1','ES_MAILBOX='+str(mailbox),'ES_TIMER_MS='+str(timer_ms),
                          'ES_STACK_BYTES='+str(worker_stack),
+                         'ES_WORKER_CAPACITY='+str(worker_capacity),
                          'ES_STACK_WATERMARK='+str(int(stack_watermark))]
             if instrumentation == 'lean': definitions += ['ES_LEAN=1']
             headers=[HERE/n for n in ('contract.h','platform.h','native_stack.h','runtime.h','clock.h','controls.h','saturation.h','hal.h','instrumentation.h')]
@@ -265,6 +276,8 @@ def main():
                    help='publication tick resolution; native timeslice stays unchanged')
     p.add_argument('--worker-stack-bytes', type=int, default=4096,
                    help='native per-worker reservation; a sweep is not a safe-size qualification')
+    p.add_argument('--worker-capacity', type=int, choices=(0,1,5,10,20), default=20,
+                   help='linked native C worker reservation; smaller images admit allocation controls only')
     p.add_argument('--shared-stack-bytes', type=int, default=8192,
                    help='Embassy shared main/executor/interrupt stack reservation')
     p.add_argument('--stack-watermark', action='store_true',
@@ -277,6 +290,7 @@ def main():
     p.add_argument('--readelf',required=True,type=Path)
     p.add_argument('--espflash',type=Path)
     p.add_argument('--esptool',type=Path,help='NuttX image builder esptool.py (added to PATH)')
+    p.add_argument('--cross-prefix',help='Zephyr native compiler prefix, as used by the MPSC comparison')
     p.add_argument('--cargo-target',type=Path,default=ROOT/'target/event-services-cargo')
     p.add_argument('--nuttx-cargo-target',type=Path,default=ROOT/'target/event-services-nuttx-cargo')
     p.add_argument('--nuttx-profile',choices=('baseline','minimal'),default='baseline')
@@ -289,6 +303,10 @@ def main():
     args=p.parse_args()
     required={'embassy':['espflash'],'zephyr-c':['zephyr','espressif','xtensa','sdk','zephyr_python'],
               'nuttx-c':['nuttx_tree','baseline_config'],'nuttx-rust':['nuttx_tree','sysroot','baseline_config']}[args.platform]
+    if args.cross_prefix:
+        if args.platform != 'zephyr-c' or args.sdk:
+            p.error('--cross-prefix is an alternative to --sdk for Zephyr only')
+        required.remove('sdk')
     if args.platform == 'nuttx-rust' and args.rust_input_bundle:
         required.remove('sysroot') # The verified bundle already contains std.
     if args.out.exists() or any(getattr(args,n) is None for n in required):

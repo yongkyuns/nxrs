@@ -28,8 +28,8 @@ ALLOWED = {
     'shared': {'shared'},
     'build-support': {'build-support'},
     'build': {'build-support'},
-    'devices': {'hal', 'driver', 'shared'},
-    'platform': {'service', 'api', 'backend', 'mock', 'driver', 'support', 'platform', 'shared'},
+    'devices': {'hal', 'driver', 'shared', 'support'},
+    'platform': {'api', 'backend', 'mock', 'driver', 'support', 'platform', 'shared'},
     'test': {'app', 'service', 'hal', 'api', 'backend', 'mock', 'driver', 'support', 'platform', 'devices', 'test', 'shared', 'build-support'},
 }
 PORTABLE = {'app', 'service', 'hal', 'api', 'shared', 'devices'}
@@ -44,16 +44,21 @@ PORTABLE_EXTERNAL: set[str] = {'cfg-if'}
 # provenance and qualification live in hal/detector/README.md; services do not
 # receive a general third-party dependency exception.
 PORTABLE_EXTERNAL_BY_PACKAGE = {
-    # Embedded bus traits for shared acquisition timing observers.
-    # Bus access and chip protocols belong to independent driver packages.
-    'nxrs-acquisition': {'embedded-hal'},
     # Concrete resource construction uses the same portable bus traits.
     'nxrs-composition': {'embedded-hal'},
     'nxrs-detector': {'microflow', 'nalgebra', 'zune-jpeg'},
     # Fixed-capacity camera/gateway wire protocol, with bounded JSON buffers.
     # serde is safe Rust; serde_json uses the already-required Rust std I/O.
     # The actual NuttX publisher is qualified with the camera product image.
-    'nxrs-detection-wire': {'serde', 'serde_json'},
+    'nxrs-detection-service': {'serde', 'serde_json'},
+    # QR encoding and the log facade have no native dependencies.
+    'nxrs-motion-tracker': {'log', 'qrcodegen'},
+    # Fixed-buffer PPP framing and negotiation with no host/native runtime.
+    'nxrs-cellular': {'ppproto'},
+    # Diagnostics use the safe Rust facade. Fixture-only native adapters stay
+    # in tests, and ordinary navigation builds don't enable the probe.
+    'nxrs-navigation-services': {'log'},
+    'nxrs-log-router': {'log'},
 }
 
 
@@ -65,8 +70,10 @@ def layer(path: Path) -> str:
         return 'build' if parts == ('tools', 'build') else 'build-support'
     if parts == ('platform',):
         return 'devices'
+    if parts == ('shared', 'acquisition'):
+        return 'support'
     if parts[0] == 'hal':
-        if parts == ('hal', 'common'):
+        if parts == ('hal', 'radio-types'):
             return 'api'
         if len(parts) == 2 and parts[1] not in {'common', 'support', 'platform'}:
             return 'hal'
@@ -101,32 +108,35 @@ def inspect(metadata: dict, root: Path) -> list[str]:
     for identity, role in roles.items():
         package = packages[identity]
         for dep in package['dependencies']:
-            # Cargo resolves aliases/workspace inheritance to the actual package.
-            # Optional, target cfg and build edges are NOT exempted.
-            if dep.get('kind') == 'dev':
-                dep_path = dep.get('path')
-                destination = by_path.get(Path(dep_path).resolve()) if dep_path else None
-                if destination and ((role in {'app', 'service'} and roles[destination] in {'platform', 'build', 'build-support'})
-                                    or (role in {'platform', 'build'} and roles[destination] == 'app')):
-                    errors.append(f"{package['name']}: test dependencies cannot bypass the app/platform boundary")
-                if (destination and role in {'hal', 'driver', 'build-support'}
-                        and paths[destination] == Path('tools/build')):
-                    errors.append(f"{package['name']}: HAL and driver tooling must not depend on the build controller")
-                if destination and role in {'hal', 'driver'} and roles[destination] == 'build-support':
-                    errors.append(f"{package['name']}: HAL and driver build helpers must be build dependencies")
-                continue
             context = f"{package['name']} ({paths[identity]}) -> {dep['name']}"
             dep_path = dep.get('path')
             target = by_path.get(Path(dep_path).resolve()) if dep_path else None
+            source = paths[identity].parts
+            destination = paths[target].parts if target is not None else ()
+            if source == ('hal', 'radio-types'):
+                errors.append(f'{context}: shared radio types must remain dependency-free')
+            if destination == ('hal', 'radio-types') and source not in {('hal', 'wifi'), ('hal', 'ble')}:
+                errors.append(f'{context}: only Wi-Fi and BLE may depend directly on radio types')
+            if source == ('service', 'detection') and target is not None and roles[target] == 'hal':
+                if destination != ('hal', 'detector') or not dep.get('optional') or dep.get('kind'):
+                    errors.append(f'{context}: detection may only use the optional detector HAL')
+            # Cargo resolves aliases/workspace inheritance to the actual package.
+            # Optional, target cfg and build edges are NOT exempted.
+            if dep.get('kind') == 'dev':
+                if target and ((role in {'app', 'service'} and roles[target] in {'platform', 'build', 'build-support'})
+                               or (role in {'platform', 'build'} and roles[target] == 'app')
+                               or (role in {'devices', 'platform'} and roles[target] == 'service')):
+                    errors.append(f"{package['name']}: test dependencies cannot bypass the app/platform boundary")
+                if (target and role in {'hal', 'driver', 'build-support'}
+                        and destination == ('tools', 'build')):
+                    errors.append(f"{package['name']}: HAL and driver tooling must not depend on the build controller")
+                if target and role in {'hal', 'driver'} and roles[target] == 'build-support':
+                    errors.append(f"{package['name']}: HAL and driver build helpers must be build dependencies")
+                continue
             if target is not None:
-                source, destination = paths[identity].parts, paths[target].parts
-                if source == ('hal', 'common'):
-                    errors.append(f'{context}: shared radio identities must remain dependency-free')
-                if destination == ('hal', 'common') and role == 'hal' and source[-1] not in {'wifi', 'ble'}:
-                    errors.append(f'{context}: common contains radio identities and bounded payloads only')
                 # A HAL/driver can use generic host helpers or its own SDK build
                 # package. These are build edges only, never target libraries.
-                if (role in {'hal', 'driver', 'devices'} and dep.get('kind') == 'build'
+                if (role in {'hal', 'driver', 'devices', 'support'} and dep.get('kind') == 'build'
                         and (destination == ('tools', 'build-support')
                              or (role == 'hal' and destination == ('tools', source[-1] + '-build-support')))):
                     continue
@@ -363,22 +373,24 @@ def inspect_sources(metadata: dict, root: Path) -> list[str]:
 
 def inspect_dependency_capsule(root: Path) -> list[str]:
     """A small patched runtime is reviewable only with complete source identity."""
-    capsule = root / 'vendor/microflow'
-    if not capsule.exists():
-        return []
-    try:
-        record = json.loads((root / 'upstream/microflow/source.json').read_text())
-        expected = record['files']
-        files = {p.relative_to(root).as_posix(): p for p in capsule.rglob('*') if p.is_file()}
-        if set(expected) != set(files):
-            return ['microflow: vendored source inventory differs from its reviewed ledger']
-        errors = []
-        for name, path in files.items():
-            if path.is_symlink() or hashlib.sha256(path.read_bytes()).hexdigest() != expected[name]:
-                errors.append(f'{name}: vendored source hash differs from its reviewed ledger')
-        return errors
-    except (OSError, ValueError, KeyError, TypeError):
-        return ['microflow: missing or malformed source provenance ledger']
+    errors = []
+    for crate in ('microflow', 'ppproto'):
+        capsule = root / 'vendor' / crate
+        if not capsule.exists():
+            continue
+        try:
+            record = json.loads((root / 'upstream' / crate / 'source.json').read_text())
+            expected = record['files']
+            files = {p.relative_to(root).as_posix(): p for p in capsule.rglob('*') if p.is_file()}
+            if set(expected) != set(files):
+                errors.append(f'{crate}: vendored source inventory differs from its reviewed ledger')
+                continue
+            for name, path in files.items():
+                if path.is_symlink() or hashlib.sha256(path.read_bytes()).hexdigest() != expected[name]:
+                    errors.append(f'{name}: vendored source hash differs from its reviewed ledger')
+        except (OSError, ValueError, KeyError, TypeError):
+            errors.append(f'{crate}: missing or malformed source provenance ledger')
+    return errors
 
 
 def declared_binding_catalogs(package: Path, stack=(), capability=None) -> list[Path]:
@@ -449,11 +461,11 @@ def declared_binding_catalogs(package: Path, stack=(), capability=None) -> list[
 
 
 def inspect_generated_imu_factory(root: Path) -> list[str]:
-    """Check declarative sensor generation and the current typed runtime seam."""
+    """Check declarative device generation and the typed runtime seams."""
     root = root.resolve()
     errors = []
     relative = lambda path: path.relative_to(root).as_posix()
-    for capability in ('imu', 'gnss'):
+    for capability in ('imu', 'gnss', 'battery'):
         hal = root / 'hal' / capability
         owner = root / 'platform'
         nuttx = owner / 'src/nuttx' / f'{capability}.rs'
@@ -519,7 +531,8 @@ def inspect_generated_imu_factory(root: Path) -> list[str]:
             instance = hal / 'src/platform/nuttx/instance.rs'
             runtime = re.sub(r'\s+', '', instance.read_text()) if instance.is_file() else ''
             if ('state:DeviceState' not in runtime or 'storage:Mutex<Option<device::Device<S>>>' not in runtime
-                    or 'Worker::start_guarded("imu-acquire",self.stack_bytes,' not in runtime
+                    or 'letdelivery=(sink,Retained(self));' not in runtime
+                    or 'session::start(self.stack_bytes,cancel,delivery,' not in runtime
                     or 'device::Device::open(config,self.irq_path,trace,&self.state,' not in runtime):
                 errors.append(f'{relative(instance)}: retain per-device storage and ownership through guarded worker retirement')
             for path in (nuttx, instance, instance.parent / 'device.rs'):
@@ -542,11 +555,13 @@ def inspect_generated_imu_factory(root: Path) -> list[str]:
                     continue
                 if any(re.search(r'\b' + re.escape(name) + r'\b', path.read_text()) for name in implementations):
                     errors.append(f'{relative(path)}: concrete sensor wiring belongs in the platform device catalogue')
-        else:
+        elif capability == 'gnss':
             runtime = (hal / 'src/platform/nuttx/mod.rs').read_text()
             compact = re.sub(r'\s+', '', source)
+            retirement = re.sub(r'\s+', '', runtime)
             if ('static$name:Instance<' not in compact or '$stack' not in compact
-                    or 'Worker::start_guarded' not in runtime
+                    or 'letdelivery=(sink,Retained(self));' not in retirement
+                    or 'session::start(self.stack_bytes,cancel,delivery,' not in retirement
                     or 'storage: Mutex<Option<Active<R>>>' not in runtime
                     or re.search(r'\bstatic\s+OWNED\b', runtime)):
                 errors.append(f'{relative(nuttx)}: GNSS must retain canonical state through guarded retirement')
@@ -565,6 +580,7 @@ def inspect_hal_boundaries(root: Path) -> list[str]:
     code review; scalar declarations do not certify a mechanical boundary.
     """
     errors = inspect_generated_imu_factory(root)
+    radio_selectors = {f'hal/{name}/src/platform/mod.rs' for name in ('ble', 'wifi')}
     for path in (root / 'hal').glob('*/src/platform/mod.rs'):
         text = re.sub(r'//[^\n]*|/\*.*?\*/', '', path.read_text(), flags=re.S)
         exports = re.findall(r'\bpub(?:\([^)]*\))?\s+use\s+([^;]+);', text)
@@ -573,7 +589,32 @@ def inspect_hal_boundaries(root: Path) -> list[str]:
         crate_source = re.sub(r'//[^\n]*|/\*.*?\*/', '', (path.parent.parent / 'lib.rs').read_text(), flags=re.S)
         crate_modules = set(re.findall(r'\bmod\s+(\w+)\s*;', crate_source))
         aliases.update(f'crate::{name} as selected' for name in crate_modules)
-        selected_aliases = re.findall(r'\buse\s+((?:crate::)?\w+\s+as\s+selected)\s*;', text)
+        alias_pattern = r'\buse\s+((?:crate::)?\w+\s+as\s+selected)\s*;'
+        selected_aliases = re.findall(alias_pattern, text)
+        macros = list(re.finditer(r'\bcfg_if::cfg_if!\s*\{', text))
+        grouped_aliases = []
+        if len(macros) == 1:
+            body = text[macros[0].end():]
+            depth = 1
+            for brace in re.finditer(r'[{}]', body):
+                depth += 1 if brace[0] == '{' else -1
+                if depth == 0:
+                    grouped_aliases = re.findall(alias_pattern, body[:brace.start()])
+                    break
+        path_attr = r'#\s*\[\s*path\s*='
+        provider_wiring = text
+        if path.relative_to(root).as_posix() in radio_selectors:
+            # Radio selectors also admit shared Rust support modules from src/.
+            shared_module = r'#\s*\[\s*path\s*=\s*"\.\./(\w+)(?:\.rs|/mod\.rs)"\s*\]\s*mod\s+\1\s*;'
+            provider_wiring = re.sub(shared_module, '', text)
+            aliases = {alias for alias in aliases if alias.startswith('crate::')
+                       or re.search(r'\bmod\s+' + alias.split()[0] + r'\s*;', provider_wiring)}
+        if (not grouped_aliases or grouped_aliases != selected_aliases
+                or re.search(path_attr, provider_wiring) or 'selected' in modules):
+            errors.append(f'{path.relative_to(root)}: select named providers in one cfg_if::cfg_if! block')
+        for module in sorted(modules - {'unbound'}):
+            if path.with_name(f'{module}.rs').is_file():
+                errors.append(f'{path.relative_to(root)}: put provider {module} in {module}/mod.rs')
         # Check the selection boundary, not a mandatory wildcard spelling.
         # Exact exports prevent backend internals from accidentally reaching
         # public namespaces. No platform selector may wildcard-reexport.
@@ -581,7 +622,7 @@ def inspect_hal_boundaries(root: Path) -> list[str]:
         if (not exports
                 or any(not (re.fullmatch(selected_export, export.strip()) or export.strip() == 'selected as construction' or export.strip() in aliases) for export in exports)
                 or any(alias not in aliases for alias in selected_aliases)
-                or not ('selected' in modules or any(alias in aliases for alias in selected_aliases))
+                or not selected_aliases
                 or re.search(r'\b(?:fn|impl|struct|enum|trait)\b|\bmod\s+\w+\s*\{', text)):
             errors.append(f'{path.relative_to(root)}: select source modules and re-export selected items only; factories belong in the selected implementation')
     for path in (root / 'hal').glob('*/src/lib.rs'):
@@ -604,18 +645,25 @@ def inspect_hal_boundaries(root: Path) -> list[str]:
     shared = {'api.rs', 'controller.rs', 'worker.rs', 'events.rs', 'record.rs',
               'udp.rs', 'file.rs', 'recording.rs', 'replay.rs', 'client.rs',
               'gatt_backend.rs', 'gatt_driver.rs', 'std.rs'}
-    for path in (root / 'hal').rglob('*.rs'):
+    for path in (root / 'hal').glob('*/src/**/*.rs'):
         relative = path.relative_to(root).as_posix()
         # SDK callbacks are ABI operations. These retired high-level symbols
         # instead connected Rust modules to Rust modules through a C protocol.
         text = re.sub(r'//[^\n]*|/\*.*?\*/', '', path.read_text(), flags=re.S)
+        if (relative.startswith(('hal/ble/', 'hal/wifi/')) and relative not in radio_selectors
+                and re.search(r'(?:#\s*\[\s*cfg(?:_attr)?\s*\(|\bcfg!\s*\()[^\];{}]*\bplatform\s*=', text)):
+            errors.append(f'{relative}: radio platform selection belongs in src/platform/mod.rs')
+        if (re.search(r'\bextern\s+"(?:C|system)(?:-unwind)?"\s*\{', text)
+                and not re.fullmatch(r'hal/[^/]+/src/platform/[^/]+/ffi/.+'
+                                     r'|hal/tls/src/sdk/ffi/.+|hal/detector/src/compute/esp_dl/ffi/.+', relative)):
+            errors.append(f'{relative}: Rust FFI declarations belong in the owning ffi directory')
         if re.search(r'\b(?:hal_enabled|hal_mock|hal_provider)\b', text):
             errors.append(f'{relative}: use the resolved platform selector')
         if re.search(r'\bfn\s+(?:(?:nxrs_)?host_wifi_\w+|(?:nxrs_)?host_ble_scan_\w+|'
                      r'(?:nxrs_)?ble_gatt_(?:open|submit|poll|recover|close)|'
                      r'(?:nxrs_)?ble_peer_lookup(?:_rust)?)\s*\(', text):
             errors.append(f'{relative}: internal HAL calls must use typed Rust, not a C protocol')
-        if (path.name not in shared and '/shared/' not in relative
+        if (path.name not in shared and '/shared/' not in relative and '/runtime/' not in relative
                 and '/model/' not in relative
                 and '/replay/' not in relative
                 and '/recording/' not in relative
@@ -633,14 +681,14 @@ def inspect_hal_boundaries(root: Path) -> list[str]:
         if path in declared:
             errors.append(f'{path}: duplicate native boundary entry')
         declared[path] = entry
-    native_roots = [root / 'hal', root / 'driver', root / 'tools']
+    native_roots = [root / name for name in ('hal', 'driver', 'shared', 'tools')]
     actual = {path.relative_to(root).as_posix(): path for native_root in native_roots for path in native_root.rglob('*')
               if path.is_file() and path.suffix in {'.c', '.h', '.m', '.mm', '.cc', '.cpp', '.hpp'}}
     for path in sorted(declared.keys() - actual.keys()):
         errors.append(f'{path}: stale native boundary entry')
     ordinary = r'\b(open|read|write|lseek|ftruncate|fsync|socket|send|recv|close|malloc|calloc|realloc|pthread_create|pthread_mutex_lock|pthread_mutex_trylock|clock_gettime|usleep|nanosleep|g_thread_try_new|g_usleep|g_get_monotonic_time)\s*\('
     for relative, path in actual.items():
-        if not (re.fullmatch(r'hal/[^/]+/src/platform/(?:[^/]+/)+ffi/.+', relative)
+        if not (re.fullmatch(r'(?:hal|shared)/[^/]+/src/platform/(?:[^/]+/)+ffi/.+', relative)
                 or re.fullmatch(r'driver/(?:[^/]+/)+src/platform/(?:[^/]+/)+ffi/.+', relative)
                 or re.fullmatch(r'tools/[^/]+/src/ffi/.+', relative)
                 or re.fullmatch(r'hal/tls/src/sdk/ffi/.+', relative)):

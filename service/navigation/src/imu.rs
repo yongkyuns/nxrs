@@ -1,5 +1,5 @@
 use std::io;
-use std::sync::mpsc::{sync_channel, SyncSender, TrySendError};
+use std::sync::mpsc::{sync_channel, SyncSender};
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,
@@ -7,7 +7,7 @@ use std::sync::{
 use std::thread::{self, JoinHandle};
 
 use crate::fusion::{ImuInput, Submit};
-use imu::{DeliveryError, DeviceError, ImuSample, Rejected, Session};
+use imu::{DeviceError, ImuSample, Session};
 use messaging::{bounded, Inbox, Sender};
 
 const INBOX_CAPACITY: usize = 32;
@@ -79,19 +79,8 @@ impl ImuService {
     /// Acquire the caller's logical device while keeping service policy portable.
     pub fn start_on(self, selected: &'static impl imu::Device) -> io::Result<ImuHandle> {
         let (control, inbox) = bounded(INBOX_CAPACITY);
-        let sender = control.clone();
         // This endpoint only admits messages; acquisition invokes it in task context.
-        let sink = move |value: imu::Event| {
-            sender
-                .try_send(Event::Device(value))
-                .map_err(|error| Rejected {
-                    value,
-                    error: match error {
-                        TrySendError::Full(_) => DeliveryError::Full,
-                        TrySendError::Disconnected(_) => DeliveryError::Closed,
-                    },
-                })
-        };
+        let sink = crate::inbox_sink(control.clone(), |event| Some(Event::Device(event)));
         let device = selected.open_default(sink).map_err(hal_error)?;
         Self::start_device(self, device, control, inbox)
     }

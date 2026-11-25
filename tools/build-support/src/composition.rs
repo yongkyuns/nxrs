@@ -112,6 +112,15 @@ impl Composition {
                     ),
                 ));
             }
+            if let Some(period) = device.navigation_period_ms {
+                if owners[0] != "gnss" || !(40..=10_000).contains(&period) {
+                    return Err(diagnostic(
+                        origins,
+                        &format!("devices.{id}.navigation-period-ms"),
+                        "requires a GNSS device and a period of 40–10000 ms",
+                    ));
+                }
+            }
         }
         for (capability, _) in catalogs.packages() {
             self.accessors(catalogs, capability)
@@ -281,6 +290,12 @@ pub(crate) struct Device {
     #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) wake: Option<Wake>,
+    #[serde(
+        default,
+        rename = "navigation-period-ms",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub(crate) navigation_period_ms: Option<u16>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
@@ -397,6 +412,9 @@ pub(crate) fn resolve_with_providers_and_origins(
         }
         if imu_provider == "nuttx"
             || gnss_provider == "nuttx"
+            || catalogs.packages().any(|(capability, package)| {
+                data["hal"][capability] == "nuttx" && !package.drivers.is_empty()
+            })
             || ["imu", "gnss", "simulation"]
                 .iter()
                 .any(|field| data.get(*field).is_some())
@@ -613,7 +631,14 @@ pub(crate) fn resolve_with_providers_and_origins(
     let resources = normalize_resources(resources, origins)?;
     validate_ids(&resources, &devices, &aliases, origins)?;
     validate_aliases(&aliases, catalogs).map_err(|e| diagnostic(origins, "aliases", &e))?;
-    for (capability, provider) in [("imu", imu_provider), ("gnss", gnss_provider)] {
+    let other_devices = catalogs
+        .packages()
+        .filter(|(cap, package)| !matches!(*cap, "imu" | "gnss") && !package.drivers.is_empty())
+        .map(|(cap, _)| (cap, data["hal"][cap].as_str().unwrap_or("none")));
+    for (capability, provider) in [("imu", imu_provider), ("gnss", gnss_provider)]
+        .into_iter()
+        .chain(other_devices)
+    {
         if provider != "nuttx" {
             let prefix = format!("{capability}_");
             if let Some(alias) = aliases
@@ -665,6 +690,7 @@ pub(crate) fn resolve_with_providers_and_origins(
             .collect::<Result<Vec<_>>>()?,
     };
     let (imu_implementation, gnss_implementation) = validate_graph(
+        catalogs,
         &catalog,
         &gnss_catalog,
         &resources,
@@ -845,6 +871,7 @@ fn validate_resource_claims(
 }
 
 fn validate_graph(
+    catalogs: &Catalogs,
     catalog: &Catalog,
     gnss_catalog: &GnssCatalog,
     resources: &BTreeMap<String, Resource>,
@@ -854,34 +881,24 @@ fn validate_graph(
 ) -> Result<(Option<String>, Option<String>)> {
     // Validate every physical instance, including devices not selected by an alias.
     // Discovery is limited to explicit [hal] capability keys, including "none".
+    let mut imu_implementation = None;
+    let mut gnss_implementation = None;
     for (id, device) in devices {
-        if !catalog
-            .binding
-            .iter()
-            .any(|binding| binding.compatible == device.compatible)
-            && !gnss_catalog
-                .binding
-                .iter()
-                .any(|binding| binding.compatible == device.compatible)
-        {
-            return Err(diagnostic(
+        let capability = catalogs
+            .packages()
+            .map(|(capability, _)| capability)
+            .find(|capability| {
+                catalogs.values(capability).any(|binding| binding["compatible"] == device.compatible)
+            })
+            .ok_or_else(|| diagnostic(
                 origins,
                 &format!("devices.{id}.compatible"),
                 &format!(
                     "unsupported compatible/bus binding: {}; declare the owning capability in [hal] (provider may be none) and its package bindings in Cargo metadata; catalogue discovery reads local path packages, including workspace inheritance",
                     device.compatible
                 ),
-            ));
-        }
-    }
-    let mut imu_implementation = None;
-    let mut gnss_implementation = None;
-    for (id, device) in devices {
-        let is_gnss = gnss_catalog
-            .binding
-            .iter()
-            .any(|b| b.compatible == device.compatible);
-        if is_gnss {
+            ))?;
+        if capability == "gnss" {
             let binding = gnss_catalog
                 .binding
                 .iter()
@@ -949,8 +966,15 @@ fn validate_graph(
                 ))
             }
         };
-        let binding = binding_for(catalog, &device.compatible, kind)
+        let binding = catalogs
+            .binding(capability, &device.compatible, kind)
             .map_err(|error| diagnostic(origins, &format!("devices.{id}.compatible"), &error))?;
+        let binding: CatalogBinding = decode(binding, "invalid register-bus binding")?;
+        let label = if capability == "imu" {
+            "IMU"
+        } else {
+            capability
+        };
         if kind == "i2c" {
             if device.chip_select.is_some() || device.spi_mode.is_some() {
                 return Err(diagnostic(
@@ -963,14 +987,14 @@ fn validate_graph(
                 diagnostic(
                     origins,
                     &format!("devices.{id}.address"),
-                    "IMU device requires address",
+                    &format!("{label} device requires address"),
                 )
             })?;
             if !binding.addresses.contains(&address) {
                 return Err(diagnostic(
                     origins,
                     &format!("devices.{id}.address"),
-                    "unsupported IMU address",
+                    &format!("unsupported {label} address"),
                 ));
             }
         } else {
@@ -1003,18 +1027,25 @@ fn validate_graph(
                 ));
             }
         };
-        if device.wake.is_none() {
+        if capability == "imu" && device.wake.is_none() {
             return Err(diagnostic(
                 origins,
                 &format!("devices.{id}.wake"),
                 "IMU device requires wake configuration",
             ));
         }
+        if capability != "imu" && device.wake.is_some() {
+            return Err(diagnostic(
+                origins,
+                &format!("devices.{id}.wake"),
+                &format!("{label} device does not accept wake configuration"),
+            ));
+        }
         if !binding.frequencies.contains(frequency) {
             return Err(diagnostic(
                 origins,
                 &format!("resources.{}.frequency", device.bus),
-                "unsupported IMU bus frequency",
+                &format!("unsupported {label} bus frequency"),
             ));
         }
         if matches!(device.wake, Some(Wake::Interrupt { .. })) && !binding.interrupt {

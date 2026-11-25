@@ -107,8 +107,21 @@ fn replace(path: &Path, bytes: &[u8]) -> Result<()> {
 }
 
 fn sync(path: &Path) -> Result<()> {
-    File::open(path)
-        .and_then(|file| file.sync_all())
+    // Windows' standard File::open refuses directories (ERROR_ACCESS_DENIED).
+    // Retain file-data durability, but do not require a directory fsync that
+    // std cannot perform on Windows. Unix still syncs renamed directories.
+    #[cfg(windows)]
+    if path.is_dir() {
+        return Ok(());
+    }
+    // FlushFileBuffers on Windows requires a writable handle. File::open is
+    // read-only and fails with ERROR_ACCESS_DENIED even for writable files.
+    // Open only the regular file for writing; Unix can sync through a read handle.
+    #[cfg(windows)]
+    let file = OpenOptions::new().write(true).open(path);
+    #[cfg(not(windows))]
+    let file = File::open(path);
+    file.and_then(|file| file.sync_all())
         .map_err(|e| format!("{}: {e}", path.display()))
 }
 

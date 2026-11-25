@@ -1,0 +1,150 @@
+--- a/rs-matter-im/src/lib.rs
++++ b/rs-matter-im/src/lib.rs
+@@ -56,6 +56,8 @@
+ };
+ use crate::tlv::{get_root_node_struct, FromTLV, Nullable, TLVElement, TLVTag, TLVWrite, ToTLV};
+ use crate::transport::exchange::{Exchange, ExchangeId, MAX_EXCHANGE_TX_BUF_SIZE};
++use crate::transport::network::MAX_TX_PACKET_SIZE;
++use crate::transport::packet::PacketHdr;
+ use crate::utils::epoch::UtcTime;
+ use crate::utils::futures::{select, select3, Coalesce};
+ use crate::utils::init::{init, Init};
+@@ -1364,8 +1366,7 @@
+             Exchange::initiate(matter, crypto, ids.fab_idx, ids.peer_node_id).await?;
+
+         if let Some(mut tx) = self.buffers.get().await {
+-            // Always safe as `IMBuffer` is defined to be `MAX_EXCHANGE_RX_BUF_SIZE`, which is bigger than `MAX_EXCHANGE_TX_BUF_SIZE`
+-            unwrap!(tx.resize_default(MAX_EXCHANGE_TX_BUF_SIZE));
++            unwrap!(tx.resize_default(Self::tx_payload_capacity(&exchange)?));
+
+             let primed = self
+                 .report_data(rctx, &mut tx, &mut exchange, false, send_if_empty)
+@@ -1501,7 +1502,7 @@
+     ///
+     /// Upon returning:
+     /// - The RX buffer will contain the payload of the received Interaction Model request
+-    /// - The TX buffer will be resized to `MAX_EXCHANGE_TX_BUF_SIZE` and will be ready to be written to
++    /// - The TX buffer will be sized for the exchange's transport and ready to be written to
+     ///
+     /// Returns:
+     /// - `Ok(Some((tx, rx)))` - if both TX and RX buffers are available
+@@ -1548,11 +1549,21 @@
+         }
+     }
+
++    fn tx_payload_capacity(exchange: &Exchange<'_>) -> Result<usize, Error> {
++        if exchange.supports_large_payload()? {
++            return Ok(MAX_EXCHANGE_TX_BUF_SIZE);
++        }
++
++        let datagram_payload =
++            MAX_TX_PACKET_SIZE - PacketHdr::HDR_RESERVE - PacketHdr::TAIL_RESERVE;
++        Ok(MAX_EXCHANGE_TX_BUF_SIZE.min(datagram_payload))
++    }
++
+     /// A utility to fetch a TX buffer for processing an Interaction Model request.
+     ///
+     /// If there are no free buffers available, this method will send a `Busy` status response to the peer.
+     ///
+-    /// Upon returning, the TX buffer will be resized to `MAX_EXCHANGE_TX_BUF_SIZE` and will be ready to be written to.
++    /// Upon returning, the TX buffer will be sized for the exchange's transport and ready to be written to.
+     ///
+     /// Returns:
+     /// - `Ok(Some(tx))` - if a TX buffer is available
+@@ -1560,8 +1571,7 @@
+     /// - `Err(Error)` - if an error occurred while fetching the buffer or sending the status response
+     async fn tx_buffer(&self, exchange: &mut Exchange<'_>) -> Result<Option<B::Buffer<'a>>, Error> {
+         if let Some(mut buffer) = self.buffer(exchange).await? {
+-            // Always safe as `IMBuffer` is defined to be `MAX_EXCHANGE_RX_BUF_SIZE`, which is bigger than `MAX_EXCHANGE_TX_BUF_SIZE`
+-            unwrap!(buffer.resize_default(MAX_EXCHANGE_TX_BUF_SIZE));
++            unwrap!(buffer.resize_default(Self::tx_payload_capacity(exchange)?));
+
+             Ok(Some(buffer))
+         } else {
+--- a/rs-matter/tests/im/subscription_reboot.rs
++++ b/rs-matter/tests/im/subscription_reboot.rs
+@@ -156,13 +156,13 @@
+     );
+ }
+
+-/// A [`ReportDataHandler`] that records the first report it is handed and signals
++/// A [`ReportDataHandler`] that records each report chunk and signals
+ /// completion, so the test can await the delivery and inspect it.
+ #[derive(Default)]
+ struct CapturingReports {
+     seen: Cell<u32>,
+     subscription: Cell<Option<SubscriptionCtx>>,
+-    attrs: Cell<u32>,
++    attrs: Cell<usize>,
+     done: Notification,
+ }
+
+@@ -183,12 +183,14 @@
+                 }
+             }
+         }
+-        self.attrs.set(attrs);
++        self.attrs.set(self.attrs.get() + attrs);
+
+         // Ambient `HandlerContext` access is available too — e.g. `ctx.utc_time()`.
+         let _ = ctx.utc_time();
+
+-        self.done.notify();
++        if report.more_chunks != Some(true) {
++            self.done.notify();
++        }
+
+         Ok(())
+     }
+@@ -210,14 +212,11 @@
+
+     let kv = MemKvBlobStore::default();
+
+-    let path = AttrPath::from_gp(&GenericPath::new(
+-        Some(0),
+-        Some(echo_cluster::ID),
+-        Some(echo_cluster::AttributesDiscriminants::Att1 as u32),
+-    ));
+-    let paths = [path];
++    // A wildcard subscription fills more than one UDP packet, even with large buffers enabled.
++    let paths = [AttrPath::from_gp(&GenericPath::new(None, None, None))];
+
+     // ---- Boot 1: subscribe and let the server persist the subscription. ----
++    let priming_attrs = Cell::new(0);
+     block_on(
+         select(
+             im.run_with(im.handler(), &im.state, kv.clone(), false),
+@@ -241,7 +240,11 @@
+                 };
+
+                 let established = loop {
+-                    let _ = chunk.response()?;
++                    if let Some(reports) = chunk.response()?.attr_reports {
++                        priming_attrs.set(
++                            priming_attrs.get() + reports.iter().filter(Result::is_ok).count(),
++                        );
++                    }
+                     match chunk.complete().await? {
+                         SubscribeOutcome::NextChunk(next) => chunk = next,
+                         SubscribeOutcome::Established(est) => break est,
+@@ -299,15 +302,14 @@
+         }
+     });
+
+-    assert_eq!(
+-        reports.seen.get(),
+-        1,
+-        "the ReportDataHandler should have been invoked exactly once"
++    assert!(
++        reports.seen.get() > 1,
++        "the resumed UDP report should be chunked"
+     );
+     assert_eq!(
+         reports.attrs.get(),
+-        1,
+-        "the report should carry the single subscribed attribute"
++        priming_attrs.get(),
++        "the resumed report should carry all the subscribed attributes"
+     );
+     let sub = reports
+         .subscription

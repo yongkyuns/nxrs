@@ -1,7 +1,9 @@
 //! One JPEG encoder and a copy-only publisher. The bounded Rust stage inserts
 //! frame metadata into H.264; it does not implement RTSP/RTP or encode pixels.
-use crate::{tls::Prepared, config::Config, detections::Sample, protocol::Reader, runner, Error, Result};
-use detection_wire::{Version, VideoFrame};
+use crate::{
+    config::Config, detections::Sample, protocol::Reader, runner, tls::Prepared, Error, Result,
+};
+use detection_service::wire::{Version, VideoFrame};
 use std::time::Duration;
 use tokio::{
     io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt},
@@ -108,7 +110,7 @@ async fn pump(
     loop {
         timeout(budget, async {
             let frame = source.next_frame().await?;
-            lag.observe(frame, Instant::now())?;
+            lag.observe(frame.capture_ms, Instant::now())?;
             identities
                 .try_send(VideoFrame {
                     api_version: Version::V1,
@@ -142,13 +144,15 @@ pub(crate) async fn attempt(
     stop: &mut watch::Receiver<bool>,
 ) -> Result<()> {
     let source = runner::camera_source(c, policy, stop).await?;
-    let mut bytes = [0; 16];
-    getrandom::fill(&mut bytes).map_err(|_| Error::Configuration)?;
-    let epoch: String = bytes.iter().map(|v| format!("{v:02x}")).collect();
-    let mut encoder = runner::encoder(c, runner::EncodedMedia::AnnexB)
+    let format = if c.camera_audio {
+        runner::EncodedMedia::MatroskaAv
+    } else {
+        runner::EncodedMedia::AnnexB
+    };
+    let mut encoder = runner::encoder(c, format)
         .spawn()
         .map_err(|_| Error::Encoder)?;
-    let mut publisher = match runner::publisher(c, runner::EncodedMedia::AnnexB).spawn() {
+    let mut publisher = match runner::publisher(c, format).spawn() {
         Ok(p) => p,
         Err(_) => {
             runner::retire(&mut encoder).await?;
@@ -158,17 +162,15 @@ pub(crate) async fn attempt(
     let (tx, rx) = mpsc::channel(32);
     let (metadata, watch) = watch::channel(None);
     let (end, ended) = watch::channel(false);
-    let detection = c
-        .detections
-        .clone()
-        .expect("annotated path requires detection configuration");
-    let forwarding = tokio::spawn(crate::detections::run(
-        detection,
-        c.publisher_user.clone(),
-        token.to_owned(),
-        watch,
-        ended,
-    ));
+    let forwarding = c.detections.clone().map(|detection| {
+        tokio::spawn(crate::detections::run(
+            detection,
+            c.publisher_user.clone(),
+            token.to_owned(),
+            watch,
+            ended,
+        ))
+    });
     let outcome = match (
         encoder.stdin.take(),
         encoder.stdout.take(),
@@ -178,21 +180,51 @@ pub(crate) async fn attempt(
     ) {
         (Some(input), Some(encoded), Some(progress), Some(mut output), Some(published)) => {
             let budget = Duration::from_millis(c.frame_timeout_ms);
-            tokio::select! {biased;_=stop.changed()=>Err(Error::Stopped),error=policy.guard()=>Err(error),_=encoder.wait()=>Err(Error::Encoder),_=publisher.wait()=>Err(Error::Encoder),
-            r=pump(source,input,tx,metadata,epoch,budget)=>r,
-            r=async { runner::preamble(&mut output,token).await?; relay(encoded,output,rx,budget.max(Duration::from_secs(5))).await }=>r,
-            r=runner::encoder_progress(progress,budget.max(Duration::from_secs(3)))=>r,
-            r=runner::publisher_progress(published,budget.max(Duration::from_secs(3)))=>r}
+            let encoded_budget = budget.max(Duration::from_secs(5));
+            let progress_budget = budget.max(Duration::from_secs(3));
+            tokio::select! {
+                biased;
+                _=stop.changed()=>Err(Error::Stopped),
+                error=policy.guard()=>Err(error),
+                _=encoder.wait()=>Err(Error::Encoder),
+                _=publisher.wait()=>Err(Error::Encoder),
+                result=async {
+                    if c.camera_audio {
+                        crate::av::pump(source,input,c,metadata,token).await
+                    } else {
+                        pump(source,input,tx,metadata,runner::epoch()?,budget).await
+                    }
+                }=>result,
+                result=async {
+                    if c.camera_audio {
+                        runner::relay(encoded,output,token,encoded_budget).await
+                    } else {
+                        runner::preamble(&mut output,token).await?;
+                        relay(encoded,output,rx,encoded_budget).await
+                    }
+                }=>result,
+                result=runner::encoder_progress(progress,progress_budget)=>result,
+                result=async {
+                    if c.camera_audio {
+                        runner::av_progress(published,progress_budget).await
+                    } else {
+                        runner::publisher_progress(published,progress_budget).await
+                    }
+                }=>result,
+            }
         }
         _ => Err(Error::Encoder),
     };
     let _ = end.send(true);
-    let forward = forwarding.await;
+    let forward_failed = match forwarding {
+        Some(task) => task.await.is_err(),
+        None => false,
+    };
     // Attempt both barriers even if one child fails to reap. A second source
     // is never admitted until both old children and the metadata task retire.
     let a = runner::retire(&mut encoder).await;
     let b = runner::retire(&mut publisher).await;
-    if a.is_err() || b.is_err() || forward.is_err() {
+    if a.is_err() || b.is_err() || forward_failed {
         return Err(Error::Cleanup);
     }
     outcome

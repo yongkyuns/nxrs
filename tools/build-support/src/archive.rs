@@ -2,7 +2,7 @@
 use crate::Result;
 use std::{
     fs,
-    io::Read,
+    io::{self, Read},
     path::{Component, Path, PathBuf},
     process::{Command, Stdio},
 };
@@ -18,11 +18,20 @@ fn extract_root(
 ) -> Result<()> {
     extract_scoped(reader, out, max_files, max_bytes, root, Path::new(""))
 }
-pub fn source_tree(reader: impl Read, out: &Path, max_files: usize, max_bytes: u64) -> Result<()> {
+pub fn source_tree(
+    mut reader: impl Read,
+    out: &Path,
+    max_files: usize,
+    max_bytes: u64,
+) -> Result<()> {
     // NuttX deliberately links fs/zipfs/zlib to the sibling apps archive.
     // Both are isolated under the same owned build directory.
     let prefix = Path::new(out.file_name().ok_or("source tree needs a name")?);
-    extract_scoped(reader, out, max_files, max_bytes, None, prefix)
+    extract_scoped(&mut reader, out, max_files, max_bytes, None, prefix)?;
+    // The tar parser stops at the first zero block. Drain Git's final tar
+    // padding so its writer can finish before the pipe closes.
+    io::copy(&mut reader, &mut io::sink()).map_err(|e| e.to_string())?;
+    Ok(())
 }
 fn extract_scoped(
     reader: impl Read,
@@ -146,6 +155,15 @@ pub fn compressed(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn source_archive_consumes_padding_after_the_tar_end_marker() {
+        let temp = crate::TempDir::new(&std::env::temp_dir()).unwrap();
+        let mut stream = &[0; 10240][..];
+        source_tree(&mut stream, &temp.0.join("source"), 10, 1024).unwrap();
+        assert!(stream.is_empty());
+    }
+
     fn release(link: &str) -> Vec<u8> {
         let mut tar = tar::Builder::new(Vec::new());
         let mut h = tar::Header::new_gnu();
