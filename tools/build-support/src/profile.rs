@@ -48,6 +48,7 @@ pub struct Profile {
     sdk_root: Option<PathBuf>,
     origins: overlay::Origins,
     native_config: Option<NativeConfig>,
+    native_overlays: Vec<(PathBuf, String)>,
     pub(crate) cli_overlays: Vec<PathBuf>,
     pub(crate) product_manifest: Option<PathBuf>,
 }
@@ -93,7 +94,7 @@ fn parse_manifest(path: &Path, input: &str) -> Result<Value> {
 }
 pub type SourceEdits = BTreeMap<PathBuf, String>;
 
-fn read_input(path: PathBuf, kind: InputKind, edits: &SourceEdits) -> Result<(Value, Input)> {
+fn read_source(path: PathBuf, kind: InputKind, edits: &SourceEdits) -> Result<(String, Input)> {
     if path.to_str().is_none_or(|s| s.contains(['\r', '\n'])) {
         return Err(format!("invalid profile input path {}", path.display()));
     }
@@ -101,9 +102,14 @@ fn read_input(path: PathBuf, kind: InputKind, edits: &SourceEdits) -> Result<(Va
         Some(contents) => contents.clone(),
         None => read(&path)?,
     };
-    let data = parse_manifest(&path, &contents)?;
     let sha256 = hash_bytes(contents.as_bytes());
-    Ok((data, Input { path, kind, sha256 }))
+    Ok((contents, Input { path, kind, sha256 }))
+}
+
+fn read_input(path: PathBuf, kind: InputKind, edits: &SourceEdits) -> Result<(Value, Input)> {
+    let (contents, input) = read_source(path, kind, edits)?;
+    let data = parse_manifest(&input.path, &contents)?;
+    Ok((data, input))
 }
 fn matches(value: &str, pattern: &str) -> bool {
     Regex::new(pattern).expect("static pattern").is_match(value)
@@ -291,6 +297,7 @@ impl Profile {
             sdk_root: None,
             origins,
             native_config: None,
+            native_overlays: Vec::new(),
             cli_overlays: Vec::new(),
             product_manifest: None,
         }
@@ -407,9 +414,7 @@ impl Profile {
         if declared.len() + cli.len() > 64 {
             return Err("at most 64 overlays can be selected for a profile".into());
         }
-        if (!declared.is_empty() || !cli.is_empty()) && profile.data.get("composition").is_none() {
-            return Err("overlays require a v1 peripheral composition".into());
-        }
+        profile.load_native_config(edits)?;
         for (path, kind) in declared
             .into_iter()
             .map(|path| (path, InputKind::DeclaredOverlay))
@@ -418,20 +423,36 @@ impl Profile {
                     .map(|path| (root.join(path), InputKind::CommandLineOverlay)),
             )
         {
+            let native = path.extension().is_some_and(|ext| ext == "conf");
+            if native && profile.data.get("board").is_none() {
+                return Err(format!(
+                    "{}: Kconfig overlays require a NuttX board",
+                    path.display()
+                ));
+            }
+            if !native && profile.data.get("composition").is_none() {
+                return Err("device overlays require a v1 peripheral composition".into());
+            }
             let canonical = path
                 .canonicalize()
                 .map_err(|error| format!("overlay {}: {error}", path.display()))?;
-            let (patch, input) = read_input(canonical, kind, edits)?;
-            overlay::merge(
-                &mut profile.data,
-                &patch,
-                &input.path,
-                &mut profile.origins,
-                true,
-            )?;
+            let input = if native {
+                let (contents, input) = read_source(canonical, kind, edits)?;
+                profile.native_overlays.push((input.path.clone(), contents));
+                input
+            } else {
+                let (patch, input) = read_input(canonical, kind, edits)?;
+                overlay::merge(
+                    &mut profile.data,
+                    &patch,
+                    &input.path,
+                    &mut profile.origins,
+                    true,
+                )?;
+                input
+            };
             profile.inputs.push(input);
         }
-        profile.load_native_config(edits)?;
         profile.load_catalogs(root)?;
         profile.resolve_nuttx_resources(root)?;
         profile.validate_resources()?;
@@ -464,21 +485,30 @@ impl Profile {
         } else {
             path.canonicalize().map_err(|error| format!("{}: {error}", path.display()))?
         };
-        let contents = match edits.get(&path) {
-            Some(contents) => contents.clone(),
-            None => read(&path)?,
-        };
-        self.inputs.push(Input {
-            path: path.clone(),
-            kind: InputKind::NativeConfig,
-            sha256: hash_bytes(contents.as_bytes()),
+        let (contents, input) = read_source(path, InputKind::NativeConfig, edits)?;
+        self.native_config = Some(NativeConfig {
+            declared_in: declared_in.clone(),
+            path: input.path.clone(),
+            contents,
         });
-        self.native_config = Some(NativeConfig { declared_in: declared_in.clone(), path, contents });
+        self.inputs.push(input);
         Ok(())
     }
 
     pub fn native_config(&self) -> Option<&NativeConfig> {
         self.native_config.as_ref()
+    }
+
+    /// The profile's native config followed by declared and CLI Kconfig overlays.
+    pub fn native_config_fragments(&self) -> impl Iterator<Item = (&Path, &str)> {
+        self.native_config
+            .iter()
+            .map(|config| (config.path.as_path(), config.contents.as_str()))
+            .chain(
+                self.native_overlays
+                    .iter()
+                    .map(|(path, contents)| (path.as_path(), contents.as_str())),
+            )
     }
 
     pub fn source_of(&self, field: &str) -> Option<&Path> {

@@ -231,9 +231,13 @@ reference keeps that location unless the child replaces it. If there is no
 reference, the review shows the new fragment and reference in the selected
 profile. The fragment stores explicit assignments such as
 `CONFIG_DEBUG_ASSERTIONS=y` or `# CONFIG_DEBUG_ASSERTIONS is not set`.
-Legacy `[kconfig]` settings supply defaults. The fragment overrides defaults
-and ordinary CLI requests override the fragment. Mandatory settings and
-BSP resources retain their ownership.
+Legacy `[kconfig]` settings supply defaults. The profile's fragment overrides
+those defaults. Pass `--overlay path/to/extra.conf` or include a `.conf` path in
+a profile's `overlays` list to apply additional NuttX settings. Declared fragments
+apply in inheritance order, followed by command-line overlays in argument
+order. Direct `--kconfig-*` requests apply last. Mandatory settings and BSP
+resources retain their ownership. The editor saves native changes in the
+profile's authored fragment.
 
 Save & sync prepares native headers and Rust inputs without compiling the
 firmware. It refreshes a Zed context already bound to the selected output.
