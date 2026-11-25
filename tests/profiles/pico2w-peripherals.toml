@@ -1,0 +1,65 @@
+# Scratch partition in the final 64 KiB of the Pico 2 W's 4 MiB flash.
+board = "raspberrypi-pico-2:usbnsh"
+target = "thumbv8m.main-nuttx-eabi"
+crossdev = "arm-none-eabi-"
+machine = "ARM"
+image = "nuttx.bin"
+requires-qemu = false
+hal = { boot = "nuttx", rtc = "nuttx", watchdog = "nuttx", flash = "nuttx" }
+
+[build]
+size-optimized = true
+trace-only-backtrace = true
+panic-immediate-abort = true
+
+[kconfig]
+enable = [
+  "BOARDCTL_USBDEVCTRL", "RAW_BINARY", "BOOT_RUNFROMFLASH", "PTHREAD_MUTEX_TYPES",
+  "CDCACM_1200BPS_BOOTLOADER", "RP23XX_USB_BOOTSEL_DISABLE_MSD",
+  "RAMLOG", "RAMLOG_SYSLOG", "RAMLOG_NONBLOCKING", "BOARDCTL_RESET_CAUSE",
+  "RP23XX_RTC", "RTC_DRIVER", "WATCHDOG", "MTD", "MTD_PARTITION", "BCH",
+  "RP23XX_FLASH_MTD", "RP23XX_FLASH_MTD_SAFE_XIP",
+  "DEV_GPIO", "RASPBERRYPI_PICO_2_GPIO_IRQ_RISING", "PIPES",
+  "RP23XX_PWM", "RP23XX_PWM7", "ANALOG", "ADC", "RP23XX_ADC", "RP23XX_ADC_TEMPERATURE",
+]
+disable = [
+  "BOOT_COPYTORAM", "RP23XX_UF2_BINARY", "ARCH_FPU", "SMP", "NET",
+  "DISABLE_PTHREAD", "ARCH_LEDS", "USERLED", "SYSLOG_CONSOLE", "SYSLOG_DEFAULT",
+  "SYSLOG_CDCACM", "FS_XIPFS", "WATCHDOG_AUTOMONITOR", "WATCHDOG_PANIC_NOTIFIER",
+  "RP23XX_PWM0", "RP23XX_PWM_MULTICHAN", "GPIO_LOWER_HALF", "RTC_ALARM", "LIBC_LOCALTIME", "NSH_PIPELINE",
+]
+set = [
+  "USEC_PER_TICK=1000", "PTHREAD_STACK_DEFAULT=8192", "RAMLOG_BUFSIZE=4096",
+  "RP23XX_FLASH_MTD_OFFSET=0x3f0000", "RP23XX_FLASH_MTD_SIZE=0x10000",
+  "RASPBERRYPI_PICO_2_GPIO_OUTPUT_PIN=6", "DEV_GPIO_NPOLLWAITERS=1",
+  # PWM drives the IRQ pad. RP2350 can sense pad input while PWM owns the mux.
+  "DEV_GPIO_NSIGNALS=0", "RP23XX_PWM7A_GPIO=14", "PWM_NCHANNELS=1",
+]
+require = [
+  "CONFIG_BOOT_RUNFROMFLASH=y", "CONFIG_BOARDCTL_RESET_CAUSE=y", "CONFIG_RP23XX_RTC=y",
+  "CONFIG_RTC_DRIVER=y", "CONFIG_WATCHDOG=y", "CONFIG_PIPES=y", "CONFIG_BCH=y",
+  "CONFIG_RP23XX_FLASH_MTD=y", "CONFIG_RP23XX_FLASH_MTD_OFFSET=0x3f0000",
+  "CONFIG_RP23XX_FLASH_MTD_SIZE=0x10000", "CONFIG_CDCACM_1200BPS_BOOTLOADER=y",
+  "CONFIG_BOARD_USBDEV_BOOTLOADER=y",
+  "CONFIG_RASPBERRYPI_PICO_2_GPIO_OUTPUT_PIN=6", "CONFIG_RASPBERRYPI_PICO_2_GPIO_IRQ_RISING=y",
+  "CONFIG_DEV_GPIO_NPOLLWAITERS=1", "CONFIG_RP23XX_PWM7A_GPIO=14", "CONFIG_PWM_NCHANNELS=1",
+  "CONFIG_RP23XX_ADC_TEMPERATURE=y",
+]
+forbid-regex = "^CONFIG_(SMP|BOOT_COPYTORAM|RTC_ALARM|FS_XIPFS|GPIO_LOWER_HALF|WATCHDOG_AUTOMONITOR|WATCHDOG_PANIC_NOTIFIER)=y$"
+
+[rtc]
+device = "/dev/rtc0"
+
+[watchdog]
+device = "/dev/watchdog0"
+mode = "runtime"
+
+[flash]
+device = "/dev/rpflash"
+
+[composition]
+version = 1
+mode = "qualification"
+
+[resources]
+[devices]

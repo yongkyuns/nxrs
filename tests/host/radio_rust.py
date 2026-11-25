@@ -14,9 +14,9 @@ def static_backend(directory, source, *, test=False, capability=None, linux=Fals
     if capability:
         messaging = directory / "libmessaging.rlib"
         subprocess.run([os.environ.get("RUSTC", "rustc"), "--edition=2021", "--crate-name=messaging", "--crate-type=rlib", str(ROOT / "shared/messaging/src/lib.rs"), "-o", str(messaging)], check=True, capture_output=True)
-        common = directory / "libhal_common.rlib"
-        subprocess.run([os.environ.get("RUSTC", "rustc"), "--edition=2021", "--crate-name=hal_common", "--crate-type=rlib", str(ROOT / "hal/common/src/lib.rs"), "-o", str(common)], check=True, capture_output=True)
-        extra = ["--extern", "hal_common=" + str(common), "--extern", "messaging=" + str(messaging)]
+        radio_types = directory / "libradio_types.rlib"
+        subprocess.run([os.environ.get("RUSTC", "rustc"), "--edition=2021", "--crate-name=radio_types", "--crate-type=rlib", str(ROOT / "hal/radio-types/src/lib.rs"), "-o", str(radio_types)], check=True, capture_output=True)
+        extra = ["--extern", "radio_types=" + str(radio_types), "--extern", "messaging=" + str(messaging)]
         source = f'#[path = {json.dumps(str(ROOT / ("hal/" + capability + "/src/api.rs")))}] mod api; pub use api::*;\n' + source
     if linux:
         gio = directory / "liblinux_gio.rlib"
@@ -29,8 +29,19 @@ def static_backend(directory, source, *, test=False, capability=None, linux=Fals
     if capability == 'ble':
         controller = json.dumps(str(ROOT / 'hal/ble/src/controller.rs'))
         client = json.dumps(str(ROOT / 'hal/ble/src/gatt/client.rs'))
-        raw = json.dumps(str(ROOT / 'hal/ble/src/gatt_backend.rs'))
-        source = f'#[path = {raw}] mod gatt_backend;\n#[path = {controller}] mod controller; pub use controller::*;\n#[path = {client}] pub mod gatt;\n' + source
+        raw = json.dumps(str(ROOT / 'hal/ble/src/runtime/gatt_backend.rs'))
+        worker = json.dumps(str(ROOT / 'hal/ble/src/runtime/worker.rs'))
+        source = f"""
+mod platform {{
+    pub(crate) mod runtime {{
+        #[path = {raw}] pub(crate) mod gatt_backend;
+        #[path = {worker}] pub(crate) mod worker;
+    }}
+}}
+#[path = {controller}] mod controller;
+pub use controller::*;
+#[path = {client}] pub mod gatt;
+""" + source
     wrapper = directory / 'radio-backend.rs'
     wrapper.write_text("#![no_std]\n#![allow(dead_code)] // SDK witnesses intentionally use a subset of the real capability API.\nextern crate std;\n" + source)
     library = directory / 'libradio_backend.a'
@@ -47,7 +58,6 @@ def static_backend(directory, source, *, test=False, capability=None, linux=Fals
 
 
 def nuttx_gatt(directory):
-    raw = json.dumps(str(ROOT / 'hal/ble/src/gatt_backend.rs'))
     behavior = json.dumps(str(ROOT / 'hal/ble/src/platform/nuttx/gatt.rs'))
     return static_backend(directory, f'''
 #[path = {behavior}] mod behavior;
@@ -74,9 +84,7 @@ def macos_wifi(directory):
 
 def scan_contract():
     contract = json.dumps(str(ROOT / 'hal/ble/src/shared/scan.rs'))
-    worker = json.dumps(str(ROOT / 'hal/ble/src/worker.rs'))
     return f"""
-#[path = {worker}] mod worker;
 #[path = {contract}] mod scan_contract;
 use scan_contract::{{ScanBackend, Report}};
 """
@@ -92,7 +100,6 @@ def macos_ble_scan(directory):
 
 
 def macos_ble_gatt(directory):
-    raw = json.dumps(str(ROOT / 'hal/ble/src/gatt_backend.rs'))
     uuid = json.dumps(str(ROOT / 'hal/ble/src/platform/macos/uuid.rs'))
     behavior = json.dumps(str(ROOT / 'hal/ble/src/platform/macos/gatt.rs'))
     return static_backend(directory, f"""
@@ -108,7 +115,6 @@ def linux_wifi(directory):
 def linux_ble(directory):
     modules = {name: json.dumps(str(ROOT / ('hal/ble/src/platform/linux/' + name + '.rs')))
                for name in ('identity', 'scan', 'gatt')}
-    raw = json.dumps(str(ROOT / 'hal/ble/src/gatt_backend.rs'))
     source = '\n'.join(f'#[path = {path}] mod {"backend_impl" if name == "gatt" else name};' for name, path in modules.items())
     return static_backend(directory, scan_contract() + f"""
 use linux_gio as gio;

@@ -1,14 +1,14 @@
 //! Desktop scan normalization; lifecycle and consumer delivery use the common worker.
 #![deny(unsafe_code)]
 
-use crate::worker::{ScanReport, Scanner};
+use crate::platform::runtime::worker::{ScanReport, Scanner};
 use crate::{Error, Uuid};
 
 mod peers;
 
 #[cfg_attr(test, allow(dead_code))]
 pub(crate) struct DesktopPeer;
-impl crate::gatt_driver::PeerResolver for DesktopPeer {
+impl crate::platform::runtime::gatt_driver::PeerResolver for DesktopPeer {
     fn resolve(peer: crate::gatt::Peer) -> Result<Option<[u8; 16]>, Error> {
         peers::resolve(peer).map(Some)
     }
@@ -35,18 +35,20 @@ impl<B: ScanBackend> Native<B> {
 }
 
 #[cfg_attr(test, allow(dead_code))]
-pub(crate) fn open<B: ScanBackend, S>(sink: S) -> Result<crate::worker::Worker, Error>
+pub(crate) fn open<B: ScanBackend, S>(
+    sink: S,
+) -> Result<crate::platform::runtime::worker::Worker, Error>
 where
     S: FnMut(crate::Event) -> messaging::DeliveryResult<crate::Event> + Send + 'static,
 {
-    crate::worker::Worker::start_with_stack(
+    crate::platform::runtime::worker::Worker::start_with_stack(
         Native::<B> {
             bridge: None,
             filter: None,
             session: None,
         },
         sink,
-        crate::worker::Lease::acquire()?,
+        crate::platform::runtime::worker::Lease::acquire()?,
         128 * 1024,
     )
 }

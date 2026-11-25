@@ -514,6 +514,10 @@ fn applied_config_matches_default_and_reports_a_negotiated_nondefault_rate() {
         accel_range_g: 4,
         gyro_range_dps: 2000,
         delivery_interval_us: 10_000,
+        counts_scale: Some([
+            (9.80665f32 * 4.0 / 32768.0).to_bits(),
+            (core::f32::consts::PI / 180.0 * 2000.0 / 32768.0).to_bits(),
+        ]),
     };
     let device = acquire_bmi270(binding(file.path(), None), defaults).unwrap();
     assert_eq!(device.applied_config(), expected_defaults);
@@ -591,14 +595,9 @@ fn join_device(device: device::Device<Bmi270Sensor>) {
     })
     .unwrap();
     let wake = cancel.reader.clone();
-    let mut worker = acquisition::Worker::start(
-        "imu-test",
-        16384,
-        cancel,
-        |_| Ok(()),
-        crate::Event::Failed,
-        move |stop, emit| run(device, stop, &wake, emit),
-    )
+    let mut worker = crate::session::start(16384, cancel, (|_| Ok(()), ()), move |stop, emit| {
+        run(device, stop, &wake, emit)
+    })
     .unwrap();
     crate::Session::join(&mut worker).unwrap();
     assert!(worker.is_finished());

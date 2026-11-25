@@ -8,8 +8,8 @@
 
 use crate::{ControllerError, Error, PeerId, Rejected, RequestId, SessionId, Uuid};
 use core::num::NonZeroU16;
-pub use hal_common::BoundedBytes as Value;
-use hal_common::OperationId;
+pub use radio_types::BoundedBytes as Value;
+use radio_types::OperationId;
 
 /// A scan-local peer identity must travel with the session that issued it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

@@ -6,8 +6,10 @@ on:
       - '.github/scripts/install-ubuntu-packages.sh'
       - 'app/home-cam/**'
       - 'service/detection/**'
-      - 'service/detection-wire/**'
+      - 'service/stream/**'
       - 'service/firmware-update/**'
+      - 'hal/audio/**'
+      - 'shared/acquisition/**'
       - 'hal/detector/**'
       - 'tools/detector-build-support/**'
       - 'upstream/esp-dl/**'
@@ -89,9 +91,16 @@ jobs:
           python3 -m unittest discover -s tests/host -p test_detector_alternatives.py
       - name: Actual models, ownership, alerts and shutdown
         run: |
-          cargo test --locked -p nxrs-firmware-update -p nxrs-detection-wire -p nxrs-detector -p nxrs-detection-service -p nxrs-home-cam -p nxrs-std-stream -p nxrs-console -p nxrs-execution \
+          cargo test --locked -p nxrs-detection-service --no-default-features --features wire
+          cargo tree --locked -p nxrs-detection-service --no-default-features --features wire -e normal --prefix none > "$RUNNER_TEMP/wire-deps"
+          cargo tree --locked -p nxrs-stream-service --no-default-features -e normal --prefix none >> "$RUNNER_TEMP/wire-deps"
+          if grep -Eq '^nxrs-(detector|camera) ' "$RUNNER_TEMP/wire-deps"; then
+            cat "$RUNNER_TEMP/wire-deps"
+            exit 1
+          fi
+          cargo test --locked -p nxrs-firmware-update -p nxrs-detector -p nxrs-detection-service -p nxrs-stream-service -p nxrs-home-cam -p nxrs-audio -p nxrs-std-stream -p nxrs-console -p nxrs-execution \
             --features nxrs-detector/pico-model,nxrs-detector/person-model,nxrs-std-stream/probe
-          cargo clippy --locked -p nxrs-detection-wire -p nxrs-detector -p nxrs-detection-service -p nxrs-home-cam -p nxrs-std-stream -p nxrs-console -p nxrs-execution \
+          cargo clippy --locked -p nxrs-detector -p nxrs-detection-service -p nxrs-stream-service -p nxrs-home-cam -p nxrs-audio -p nxrs-std-stream -p nxrs-console -p nxrs-execution \
             --all-targets --features nxrs-detector/pico-model,nxrs-detector/person-model,nxrs-std-stream/probe -- -D warnings
       - name: Native SDK ownership with AddressSanitizer
         run: python3 tests/detection/check_pico_asan.py

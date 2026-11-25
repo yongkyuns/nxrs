@@ -327,19 +327,17 @@ function navigationDataflow(p) {
 
 function serviceDependencies(p) {
   return guideFigure(p, 'Capability dependencies in portable service qualification',
-    'The camera-support test composition depends on camera, recording and telemetry services. Each service uses its corresponding camera, storage or transport capability contract. Separately, navigation services depend on IMU and GNSS capability contracts, each with a build-selected provider. Production applications do not depend on the camera-support fixture.', 744, `
+    'The camera-support fixture uses the camera HAL capture session, a recording adapter and an injected packet output. Navigation services use IMU and GNSS contracts with build-selected providers.', 744, `
   ${group(p, 'test', 24, 24, 752, 392, 'Camera qualification fixture')}
   ${panel({ id: 'fixture', x: 188, y: 80, w: 424, h: 68, title: 'tests/camera-support' })}
-  ${panel({ id: 'camera-service', x: 44, y: 204, w: 218, title: 'Camera service', lines: ['nxrs-camera-service'] })}
-  ${panel({ id: 'recording-service', x: 290, y: 204, w: 218, title: 'Recording service', lines: ['nxrs-recording-service'] })}
-  ${panel({ id: 'telemetry-service', x: 536, y: 204, w: 218, title: 'Telemetry service', lines: ['nxrs-telemetry-service'] })}
-  ${panel({ id: 'camera', x: 44, y: 332, w: 218, h: 60, title: 'nxrs-camera', accent: p.blue })}
+  ${panel({ id: 'camera', x: 44, y: 204, w: 218, title: 'nxrs-camera', lines: ['capture::Session'], accent: p.blue })}
+  ${panel({ id: 'recording-service', x: 290, y: 204, w: 218, title: 'Recording adapter', lines: ['Camera test support'] })}
+  ${panel({ id: 'telemetry-service', x: 536, y: 204, w: 218, title: 'Packet summary', lines: ['Camera test support'] })}
   ${panel({ id: 'storage', x: 290, y: 332, w: 218, h: 60, title: 'nxrs-storage', accent: p.blue })}
-  ${panel({ id: 'transport', x: 536, y: 332, w: 218, h: 60, title: 'nxrs-transport', accent: p.blue })}
-  ${edge('fixture', 'camera-service', 'M272 148 V174 H153 V202')}
+  ${panel({ id: 'transport', x: 536, y: 332, w: 218, h: 60, title: 'std::net / fixture' })}
+  ${edge('fixture', 'camera', 'M272 148 V174 H153 V202')}
   ${edge('fixture', 'recording-service', 'M400 148 V202')}
   ${edge('fixture', 'telemetry-service', 'M528 148 V174 H645 V202')}
-  ${edge('camera-service', 'camera', 'M153 292 V330')}
   ${edge('recording-service', 'storage', 'M399 292 V330')}
   ${edge('telemetry-service', 'transport', 'M645 292 V330')}
   ${group(p, 'navigation', 24, 456, 752, 264, 'Navigation service dependencies')}
@@ -375,9 +373,9 @@ function aoStress(p) {
 
 function cameraPipeline(p) {
   return guideFigure(p, 'Independent streaming and bounded inference paths',
-    'The camera HAL feeds CameraService, which supplies MJPEG streaming and offers one owned JPEG to an inference worker. The worker invokes the detector HAL synchronously; Monitor turns results into typed state and events. The bounded copy separates inference lifetime from camera buffers, and an occupied worker rejects additional offers instead of queuing video frames.', 792, `
-  ${panel({ id: 'camera-hal', x: 240, y: 24, w: 320, title: 'Camera HAL', lines: ['Capture ownership'] })}
-  ${panel({ id: 'camera-service', x: 240, y: 150, w: 320, title: 'CameraService', lines: ['Frame history and delivery'], accent: p.blue })}
+    'Home-cam polls the camera HAL capture session. Its frames feed MJPEG streaming and a bounded inference worker. The worker invokes the detector HAL synchronously; Monitor turns results into typed state and events. The bounded copy separates inference lifetime from camera buffers, and an occupied worker rejects additional offers instead of queuing video frames.', 792, `
+  ${panel({ id: 'camera-hal', x: 240, y: 24, w: 320, title: 'Home-cam', lines: ['Polls capture and consumers'] })}
+  ${panel({ id: 'camera-service', x: 240, y: 150, w: 320, title: 'Camera HAL', lines: ['Capture session and frame history'], accent: p.blue })}
   ${edge('camera-hal', 'camera-service', 'M400 112 V148')}
   ${panel({ id: 'stream', x: 24, y: 302, w: 320, title: 'MJPEG service', lines: ['Streaming keeps progressing'] })}
   ${panel({ id: 'jpeg', x: 436, y: 302, w: 340, title: 'One owned JPEG', lines: ['Bounded copy; excess offers drop'], accent: p.orange })}
@@ -391,6 +389,117 @@ function cameraPipeline(p) {
   ${edge('worker', 'detector', 'M606 518 V556')}
   ${edge('detector', 'monitor', 'M436 602 H346')}
   ${edge('monitor', 'events', 'M184 646 V684')}
+`);
+}
+
+function matterRoomToApp(p) {
+  return guideFigure(p, 'From a room to an app',
+    'The camera board runs Nxrs firmware. It sends video and person updates to the gateway computer. The gateway’s Matter bridge presents a camera and a room sensor. The Home Assistant server adds the device, opens the video session, and runs automations. The phone or browser receives live video directly from the bridge.', 810, `
+  ${panel({ id: 'board', x: 24, y: 24, w: 752, h: 94, title: 'Camera board in the room',
+    lines: ['Nxrs firmware captures video and detects people'], accent: p.blue })}
+  ${group(p, 'host', 24, 171, 752, 315, 'Gateway computer')}
+  ${edge('board', 'gateway', 'M298 118 V224')}
+  ${label(314, 149, 'Video and person updates', 'start')}
+  ${panel({ id: 'gateway', x: 52, y: 226, w: 492, h: 82, title: 'Nxrs gateway',
+    lines: ['Shares live video and room occupancy'] })}
+  ${edge('gateway', 'bridge', 'M298 308 V365')}
+  ${label(314, 342, 'Camera feed and room status', 'start')}
+  ${panel({ id: 'bridge', x: 52, y: 367, w: 492, h: 88, title: 'Matter bridge',
+    lines: ['Presents a camera and a room occupancy sensor'], accent: p.blue })}
+  ${edge('home-assistant', 'bridge', 'M298 538 V457')}
+  ${label(314, 515, 'Pairing and camera commands', 'start')}
+  ${panel({ id: 'home-assistant', x: 52, y: 538, w: 492, h: 88, title: 'Home Assistant server',
+    lines: ['Adds the device, opens live view and runs rules'], accent: p.orange })}
+  ${edge('bridge', 'app', 'M544 411 H669 V697')}
+  ${label(655, 565, 'Live video', 'end')}
+  ${label(655, 588, 'direct to app', 'end')}
+  ${edge('home-assistant', 'app', 'M298 626 V697')}
+  ${label(314, 664, 'Controls and room status', 'start')}
+  ${panel({ id: 'app', x: 52, y: 699, w: 696, h: 87, title: 'Phone app or web dashboard',
+    lines: ['See the live image and check whether the room is occupied'], accent: p.blue })}
+`);
+}
+
+function matterArchitecture(p) {
+  return guideFigure(p, 'Nxrs camera and Matter gateway',
+    'The ESP32 sends one authenticated feed to gateway ingest. MediaMTX serves Nxrs viewers and a shared RTSP reader in the Matter bridge. Gateway control feeds a separate detection subscription. The bridge serves snapshots and occupancy through Matter commands, and streams WebRTC media directly to each receiver.', 970, `
+  ${panel({ id: 'camera', x: 24, y: 24, w: 752, h: 100, title: 'ESP32 camera · Nxrs on NuttX',
+    lines: ['Product profile → camera and detector HALs → home-cam'], accent: p.blue })}
+  ${group(p, 'gateway', 24, 176, 752, 274, 'Nxrs gateway')}
+  ${group(p, 'bridge', 24, 517, 502, 279, 'Matter bridge')}
+  ${edge('camera', 'ingest', 'M400 124 V220')}
+  ${label(416, 152, 'Authenticated camera feed', 'start')}
+  ${panel({ id: 'ingest', x: 224, y: 222, w: 352, h: 80, title: 'Camera ingest',
+    lines: ['Encodes H.264 and optional Opus'] })}
+  ${edge('ingest', 'media', 'M313 302 V327 H203 V349')}
+  ${label(186, 321, 'Encoded media')}
+  ${edge('ingest', 'control', 'M487 302 V327 H597 V349')}
+  ${label(632, 321, 'Validated detection')}
+  ${panel({ id: 'media', x: 46, y: 351, w: 314, h: 80, title: 'RTSP publisher · MediaMTX',
+    lines: ['One publication per camera'] })}
+  ${panel({ id: 'control', x: 440, y: 351, w: 314, h: 80, title: 'Gateway control',
+    lines: ['Catalogue · grants · detection SSE'] })}
+  ${edge('media', 'reader', 'M146 431 V505 H204 V571')}
+  ${label(158, 479, 'Scoped loopback RTSP', 'start')}
+  ${edge('control', 'occupancy', 'M548 431 V496 H406 V571')}
+  ${label(437, 479, 'Scoped loopback SSE')}
+  ${edge('gateway', 'native', 'M662 450 V571')}
+  ${panel({ id: 'native', x: 548, y: 573, w: 228, h: 112, title: 'Nxrs Home / API',
+    lines: ['HTTPS API and WHEP', 'WebRTC media'] })}
+  ${panel({ id: 'reader', x: 40, y: 573, w: 212, h: 80, title: 'Shared RTSP input',
+    lines: ['H.264 and snapshots'] })}
+  ${panel({ id: 'occupancy', x: 284, y: 573, w: 222, h: 80, title: 'Occupancy',
+    lines: ['Freshness · reachability'] })}
+  ${edge('reader', 'peer', 'M146 653 V684')}
+  ${edge('reader', 'matter', 'M220 653 V673 H313 V684')}
+  ${label(268, 667, 'JPEG')}
+  ${edge('occupancy', 'matter', 'M406 653 V684')}
+  ${panel({ id: 'peer', x: 40, y: 686, w: 212, h: 76, title: 'WebRTC per viewer' })}
+  ${panel({ id: 'matter', x: 284, y: 686, w: 222, h: 100, title: 'Matter node',
+    lines: ['0 Root · 1 Camera', '2 Aggregator · 3 Sensor'] })}
+  ${edge('peer', 'receiver', 'M146 762 V847')}
+  ${label(158, 829, 'Direct ICE and media', 'start')}
+  ${edge('controller', 'matter', 'M395 849 V788')}
+  ${label(408, 829, 'LAN discovery and control', 'start')}
+  ${panel({ id: 'receiver', x: 40, y: 849, w: 212, h: 96, title: 'Video receiver',
+    lines: ['Home Assistant or app'] })}
+  ${panel({ id: 'controller', x: 284, y: 849, w: 222, h: 96, title: 'Matter controller',
+    lines: ['Home Assistant or SDK'] })}
+`);
+}
+
+function matterPlayback(p) {
+  const lanes = [
+    { id: 'receiver', x: 106, title: 'Video receiver' },
+    { id: 'controller', x: 302, title: 'Matter controller' },
+    { id: 'bridge', x: 498, title: 'Matter bridge' },
+    { id: 'media', x: 694, title: 'Gateway media' },
+  ];
+  const messages = [
+    [1, 2, 'Commission and discover endpoints'],
+    [1, 2, 'Subscribe to occupancy and reachability'],
+    [0, 1, 'Open with a WebRTC offer'],
+    [1, 2, 'ProvideOffer on Camera'],
+    [2, 3, 'Use the shared RTSP source'],
+    [3, 2, 'H.264 access units', true],
+    [2, 1, 'Session, SDP answer and ICE', true],
+    [1, 0, 'SDP answer and ICE', true],
+    [0, 2, 'Direct ICE negotiation'],
+    [2, 0, 'Encrypted WebRTC media', true],
+    [0, 1, 'Close the live view'],
+    [1, 2, 'EndSession'],
+    [2, 1, 'Release viewer session', true],
+  ];
+  return guideFigure(p, 'Matter camera playback session',
+    'A Matter controller commissions the bridge, subscribes to occupancy, and passes the receiver’s WebRTC offer to the bridge. A shared RTSP stream supplies H.264. The receiver negotiates ICE and receives encrypted video directly from the bridge. Closing the live view sends EndSession through the controller.', 705, `
+  ${lanes.map(({id, x, title}) => `
+  <path d="M${x} 91 V680" stroke="${p.line}" stroke-width="1" stroke-dasharray="4 6"/>
+  ${panel({ id, x: x - 90, y: 24, w: 180, h: 67, title })}`).join('\n')}
+  ${messages.map(([from, to, text, dashed], i) => {
+    const a = lanes[from], b = lanes[to], y = 133 + i * 44;
+    return `  ${edge(a.id + '-' + i, b.id, `M${a.x} ${y} H${b.x}`, dashed)}
+  ${label((a.x + b.x) / 2, y - 8, text)}`;
+  }).join('\n')}
 `);
 }
 
@@ -453,7 +562,66 @@ function acquisitionBoundary(p) {
 }
 
 
+function latencyBoundaries(p) {
+  return guideFigure(p, 'Measure the path that matters',
+    'An event is acquired, admitted to a queue, received by a worker and processed into output. Channel delivery covers admission through receive; end-to-end response includes acquisition and useful processing. Widths and spacing are conceptual, not durations.', 640, `
+  <text x="400" y="42" text-anchor="middle" class="label" font-size="26">Measure the path that matters</text>
+  ${panel({ id: 'acquire', x: 240, y: 80, w: 320, title: 'Acquire and normalize', lines: ['Device readiness → typed event'] })}
+  ${panel({ id: 'admit', x: 240, y: 206, w: 320, title: 'Offer to the inbox', lines: ['Queue admission / full policy'], accent: p.blue })}
+  ${panel({ id: 'receive', x: 240, y: 332, w: 320, title: 'Worker receives', lines: ['Queue residence + scheduling'], accent: p.blue })}
+  ${panel({ id: 'output', x: 240, y: 458, w: 320, title: 'Handle and output', lines: ['Useful work completes'], accent: p.orange })}
+  ${edge('acquire', 'admit', 'M400 168 V204')}
+  ${edge('admit', 'receive', 'M400 294 V330')}
+  ${edge('receive', 'output', 'M400 420 V456')}
+  <path d="M204 80 H180 V546 H204 M596 206 H620 V420 H596" fill="none" stroke="${p.line}" stroke-width="2"/>
+  <text transform="translate(152 313) rotate(-90)" text-anchor="middle" class="label" font-size="22">End-to-end response</text>
+  <text transform="translate(654 313) rotate(-90)" text-anchor="middle" class="label" font-size="22">Channel delivery</text>
+  <text x="400" y="592" text-anchor="middle" class="subtitle">Elapsed time includes waiting and preemption.</text>
+  <text x="400" y="618" text-anchor="middle" class="subtitle">CPU time counts execution; measure it separately.</text>
+`);
+}
+
+function messageComparison(p) {
+  const evidence = JSON.parse(readFileSync(new URL('../../tests/rtos-characterization/wroom-review-2026-11-17.json', import.meta.url), 'utf8'));
+  const cases = [
+    ['stream-p4-b16-q8', '16-byte messages'],
+    ['stream-p4-b64-q8', '64-byte messages'],
+  ];
+  const arms = [['timing-std', 'NuttX std', p.blue], ['timing-zephyr', 'Zephyr native', p.orange]];
+  const x = 230, scale = 500 / 100;
+  const ticks = [0, 25, 50, 75, 100];
+  const rows = cases.map(([key, title], groupIndex) => {
+    const top = 126 + groupIndex * 140;
+    return `<text x="30" y="${top}" class="label" font-size="22">${xml(title)}</text>\n`
+      + arms.map(([build, name, color], i) => {
+        const runs = evidence.timing.filter(run => run.case === key && run.build === build);
+        if (runs.length !== 3 || new Set(runs.map(run => run.pass)).size !== 3 ||
+            runs.some(run => !run.normal_loss_gate || !Number.isFinite(run.delivery_p99_us))) {
+          throw new Error(`Missing or invalid comparison evidence: ${key} ${build}`);
+        }
+        const value = Math.max(...runs.map(run => run.delivery_p99_us));
+        if (value <= 0 || value > 100) throw new Error(`Comparison value outside chart: ${value}`);
+        const y = top + 22 + i * 36, width = value * scale;
+        return `<text x="30" y="${y + 15}" class="subtitle">${name}</text>
+  <rect x="${x}" y="${y}" width="${width.toFixed(2)}" height="20" rx="4" fill="${color}"/>
+  <text x="${x + width + 9}" y="${y + 15}" class="subtitle">${value.toFixed(3)}</text>`;
+      }).join('\n');
+  }).join('\n');
+  return guideFigure(p, 'WROOM stream delivery latency',
+    'Maximum of three per-run delivery p99 values in microseconds; lower is better. Four producers, eight slots. 16-byte messages: NuttX std 50.375, Zephyr 52.000. 64-byte messages: NuttX std 85.438, Zephyr 85.313. One physical WROOM; nominal on-chip clock. November 17, 2026.', 480, `
+  <text x="30" y="43" class="label" font-size="26">WROOM stream delivery p99</text>
+  <text x="30" y="75" class="subtitle">Four producers · eight slots · lower is better</text>
+  ${ticks.map(t => `<path d="M${x + t * scale} 146 V354" stroke="${p.border}" stroke-width="1"/>`).join('\n  ')}
+  ${rows}
+  ${ticks.map(t => `<text x="${x + t * scale}" y="390" text-anchor="middle" class="subtitle">${t}</text>`).join('\n  ')}
+  <text x="480" y="423" text-anchor="middle" class="subtitle">Delivery latency (µs) · nominal on-chip clock</text>
+  <text x="30" y="458" class="subtitle">Maximum per-run p99 across three boots; not a worst-case bound.</text>
+`);
+}
+
 const guideDiagrams = [
+  ['nxrs-latency-boundaries', latencyBoundaries],
+  ['nxrs-message-comparison', messageComparison],
   ['nxrs-build-workflow', buildWorkflow],
   ['nxrs-profile-composition', profileComposition],
   ['nxrs-interface-boundaries', interfaceBoundaries],
@@ -464,6 +632,9 @@ const guideDiagrams = [
   ['nxrs-service-dependencies', serviceDependencies],
   ['nxrs-ao-stress', aoStress],
   ['nxrs-camera-pipeline', cameraPipeline],
+  ['nxrs-matter-room-to-app', matterRoomToApp],
+  ['nxrs-matter-architecture', matterArchitecture],
+  ['nxrs-matter-playback', matterPlayback],
   ['nxrs-device-access', deviceAccess],
   ['nxrs-priority-inboxes', priorityInboxes],
   ['nxrs-acquisition-boundary', acquisitionBoundary],

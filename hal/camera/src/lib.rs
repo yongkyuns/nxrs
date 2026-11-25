@@ -11,6 +11,7 @@ extern crate alloc;
 extern crate std;
 
 mod api;
+pub mod capture;
 mod platform;
 pub use api::{Camera, Capture, DeviceError, Format, Frame, JpegQuality, PixelFormat};
 

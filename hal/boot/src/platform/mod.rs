@@ -9,4 +9,4 @@ cfg_if::cfg_if! {
     }
 }
 
-pub use selected::open;
+pub use selected::{open, reset_cause};

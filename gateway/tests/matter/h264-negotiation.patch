@@ -1,0 +1,169 @@
+diff --git a/examples/src/bin/webrtc_camera.rs b/examples/src/bin/webrtc_camera.rs
+--- a/examples/src/bin/webrtc_camera.rs
++++ b/examples/src/bin/webrtc_camera.rs
+@@ -128,7 +128,7 @@
+ use static_cell::StaticCell;
+
+ use str0m::change::{SdpAnswer, SdpOffer, SdpPendingOffer};
+-use str0m::format::Codec;
++use str0m::format::{Codec, CodecConfig};
+ use str0m::media::{Direction, Frequency, MediaKind, MediaTime, Mid, Pt};
+ use str0m::net::{Protocol, Receive};
+ use str0m::{Candidate, Event, IceConnectionState, Input, Output, Rtc};
+@@ -165,12 +165,13 @@
+ /// currently relevant to WebRTC signaling with SmartThings / Google Home.
+ const CAM_AV_STREAM_USAGES: &[StreamUsageEnum] = &[StreamUsageEnum::LiveView];
+
+-/// One advertised `RateDistortionTradeOffPoints` operating point: H.264
+-/// at 640x360 minimum, 500 kbps minimum bitrate. SmartThings inspects
+-/// this list before issuing a `VideoStreamAllocate`.
++// The home camera publishes QVGA. The bridge also accepts larger H.264
++// publications within the camera cluster's bounds.
++const CAM_AV_MIN_RESOLUTION: (u16, u16) = (320, 240);
++
+ const CAM_AV_RATE_DISTORTION: &[RateDistortionPoint] = &[RateDistortionPoint {
+     codec: VideoCodecEnum::H264,
+-    min_resolution: (640, 360),
++    min_resolution: CAM_AV_MIN_RESOLUTION,
+     min_bit_rate: 500_000,
+ }];
+
+@@ -944,7 +945,7 @@
+ // ---------------------------------------------------------------------------
+
+ fn new_peer(
+-    lan: Lan, audio: bool,
++    lan: Lan, audio: bool, mut codecs: CodecConfig,
+ ) -> Result<(Rtc, Async<UdpSocket>, SocketAddr, String), WebRtcError> {
+     let bind_addr: SocketAddr = (lan.ipv4(), 0).into();
+     let socket = lan.bind_udp(bind_addr).and_then(Async::new).map_err(|e| {
+@@ -956,11 +957,10 @@
+         WebRtcError::Failure
+     })?;
+
+-    let mut rtc = Rtc::builder()
+-        .clear_codecs()
+-        .enable_h264(true)
+-        .enable_opus(audio)
+-        .build(Instant::now());
++    codecs.enable_opus(audio);
++    let mut config = Rtc::builder();
++    *config.codec_config() = codecs;
++    let mut rtc = config.build(Instant::now());
+     if audio {
+         rtc.sdp_api().synchronize_local_tracks();
+     }
+@@ -1026,6 +1026,30 @@
+         changes.apply().unwrap().0
+     }
+
++    #[test]
++    fn h264_answer_selects_a_receiver_with_sufficient_level() {
++        let mut low = offer(&[MediaKind::Video]);
++        assert!(low.select_h264_receiver(0x42c028).is_none());
++        assert!(low.select_h264_receiver(0x42c016).is_some());
++
++        let mut config = Rtc::builder().clear_codecs();
++        config.codec_config().add_h264(101.into(), None, true, 0x42e01f);
++        config.codec_config().add_h264(103.into(), None, true, 0x42e028);
++        let mut receiver = config.build(Instant::now());
++        let mut changes = receiver.sdp_api();
++        changes.add_media(MediaKind::Video, Direction::RecvOnly, None, None, None);
++        let (mut offered, _) = changes.apply().unwrap();
++        let selected = offered.select_h264_receiver(0x42c028).unwrap();
++        assert_eq!(selected.pt(), 103.into());
++        let mut config = Rtc::builder();
++        *config.codec_config() = CodecConfig::new_from_payload_params(vec![selected]);
++        let mut sender = config.build(Instant::now());
++        let (answer, _) = accept_offer(&mut sender, offered, false).unwrap();
++        let [video] = answer.media_lines.as_slice() else { panic!("expected one video m-line") };
++        assert_eq!(video.pts, [103.into()]);
++        assert!(video.rtp_params()[0].accepts_h264_source(0x42c028));
++    }
++
+     fn video_peer() -> Rtc {
+         Rtc::builder()
+             .clear_codecs()
+@@ -1196,8 +1220,19 @@
+         params: &OfferParams,
+     ) -> Result<SolicitOutcome, WebRtcError> {
+         let (refs, pictures, sound) = self.shared.streams(session_id, params)?;
++        let profile = pictures.h264_profile_level_id().ok_or(WebRtcError::InvalidInState)?;
++        let mut defaults = CodecConfig::empty();
++        defaults.enable_h264(true);
++        let mut codecs = CodecConfig::empty();
++        if let Some(codec) = defaults.find(|p| p.accepts_h264_source(profile)) {
++            // Keep the usual WebRTC decoding level for compatible lower-level publications.
++            codecs = CodecConfig::new_from_payload_params(vec![*codec]);
++        } else {
++            codecs.add_h264(108.into(), Some(109.into()), true, profile);
++        }
+         let revoked = refs.revoked.clone();
+-        let (mut rtc, socket, local_addr, local_cand_sdp) = new_peer(self.shared.lan, sound.is_some())?;
++        let (mut rtc, socket, local_addr, local_cand_sdp) =
++            new_peer(self.shared.lan, sound.is_some(), codecs)?;
+         let mut changes = rtc.sdp_api();
+         let mid = changes.add_media(MediaKind::Video, Direction::SendOnly, None, None, None);
+         let audio_mid = sound
+@@ -1260,14 +1295,18 @@
+             sdp.len()
+         );
+
+-        let offer = SdpOffer::from_sdp_string(sdp).map_err(|e| {
++        let mut offer = SdpOffer::from_sdp_string(sdp).map_err(|e| {
+             warn!("webrtc_camera: SDP offer parse failed: {e}");
+             WebRtcError::DynamicConstraint
+         })?;
+
+         let (refs, pictures, sound) = self.shared.streams(session_id, params)?;
++        let profile = pictures.h264_profile_level_id().ok_or(WebRtcError::InvalidInState)?;
++        let codec = offer.select_h264_receiver(profile).ok_or(WebRtcError::DynamicConstraint)?;
++        let codecs = CodecConfig::new_from_payload_params(vec![codec]);
+         let revoked = refs.revoked.clone();
+-        let (mut rtc, socket, local_addr, local_cand_sdp) = new_peer(self.shared.lan, sound.is_some())?;
++        let (mut rtc, socket, local_addr, local_cand_sdp) =
++            new_peer(self.shared.lan, sound.is_some(), codecs)?;
+         let (answer, ice_mline_index) = accept_offer(&mut rtc, offer, sound.is_some())?;
+         let answer_sdp = answer.to_sdp_string();
+
+@@ -1339,8 +1378,19 @@
+         {
+             return Err(WebRtcError::DynamicConstraint);
+         }
++        let profile = peer.pictures.h264_profile_level_id().ok_or(WebRtcError::InvalidInState)?;
++        let video = &answer.media_lines[0];
++        if !video.rtp_params().iter().any(|params| {
++            video.pts.contains(&params.pt()) && params.accepts_h264_source(profile)
++        }) {
++            return Err(WebRtcError::DynamicConstraint);
++        }
+         let (offer, mut peer) = pending.take().unwrap();
+-        if peer.rtc.sdp_api().accept_answer(offer, answer).is_err() {
++        if peer.rtc.sdp_api().accept_answer(offer, answer).is_err()
++            || !peer.local_video_mid.and_then(|mid| peer.rtc.writer(mid)).is_some_and(|writer| {
++                writer.payload_params().any(|params| params.accepts_h264_source(profile))
++            })
++        {
+             drop(peer);
+             self.shared.end(ctrl, WebRTCEndReasonEnum::ICEFailed);
+             return Err(WebRtcError::DynamicConstraint);
+@@ -1670,7 +1720,7 @@
+             max_fps: 30,
+             max_hdrfps: None,
+         },
+-        min_viewport: (640, 360),
++        min_viewport: CAM_AV_MIN_RESOLUTION,
+         max_content_buffer_size: nxrs_gateway_matter::snapshot::MAX_JPEG as u32,
+         max_network_bandwidth: 10_000,
+         supported_stream_usages: CAM_AV_STREAM_USAGES,
+@@ -1698,8 +1748,8 @@
+         video_codec: VideoCodecEnum::H264,
+         min_frame_rate: 1,
+         max_frame_rate: 30,
+-        min_width: 640,
+-        min_height: 360,
++        min_width: CAM_AV_MIN_RESOLUTION.0,
++        min_height: CAM_AV_MIN_RESOLUTION.1,
+         max_width: 1920,
+         max_height: 1080,
+         min_bit_rate: 500_000,

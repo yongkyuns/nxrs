@@ -1,0 +1,468 @@
+diff --git a/examples/src/bin/webrtc_camera.rs b/examples/src/bin/webrtc_camera.rs
+index 51da73a..0feb9bf 100644
+--- a/examples/src/bin/webrtc_camera.rs
++++ b/examples/src/bin/webrtc_camera.rs
+@@ -63,8 +63,8 @@
+ //!   -an -f h264 loop_ok.h264
+ //!
+ //! # Run the example:
+-//! WEBRTC_CAMERA_H264=$PWD/loop.h264 WEBRTC_CAMERA_FPS=30 \
+-//!   cargo run -p rs-matter-examples --bin webrtc_camera --features webrtc
++//! Set WEBRTC_RTSP_ADDR, WEBRTC_RTSP_PATH, WEBRTC_RTSP_USER and
++//! WEBRTC_RTSP_TOKEN_FILE to the local MediaMTX source before starting the node.
+ //! ```
+ 
+ #![recursion_limit = "256"]
+@@ -74,8 +74,8 @@ use core::pin::pin;
+ 
+ use std::net::{SocketAddr, TcpListener, UdpSocket};
+ use std::rc::Rc;
+-use std::sync::Arc;
+-use std::time::{Duration, Instant};
++use nxrs_gateway_matter::media::{AccessUnit, Pictures, Reader, Video};
++use std::time::Instant;
+ 
+ use async_channel::{Receiver, Sender};
+ use async_executor::LocalExecutor;
+@@ -275,110 +275,6 @@ impl ZoneMgmtHooks<ZONE_NV> for DemoZoneHooks {
+ /// One H.264 access unit, stored as Annex-B (NAL units prefixed by
+ /// `00 00 00 01`). Fed verbatim to `str0m`'s `Writer::write`, which
+ /// parses the start codes and emits STAP-A / FU-A as needed.
+-#[derive(Clone)]
+-struct H264Frame {
+-    data: Vec<u8>,
+-    is_keyframe: bool,
+-}
+-
+-/// Parse an Annex-B H.264 file into access units.
+-///
+-/// Grouping rule: a new AU begins at the first non-VCL NAL that follows a
+-/// VCL NAL. VCL NALs are types 1 (non-IDR slice) and 5 (IDR). All other
+-/// NALs that appear before the next VCL are attached to the current AU.
+-/// This matches how zero-latency encoders (e.g. `ffmpeg -tune zerolatency`)
+-/// lay out `[SPS][PPS][IDR]` and `[P]` access units.
+-fn parse_annex_b(data: &[u8]) -> Vec<H264Frame> {
+-    // Yield NAL-unit byte slices (without the start code).
+-    fn iter_nals(data: &[u8]) -> Vec<(usize, usize)> {
+-        let mut out = Vec::new();
+-        let mut i = 0usize;
+-        let mut cur_start: Option<usize> = None;
+-        while i < data.len() {
+-            let sc_len = if i + 2 < data.len() && data[i] == 0 && data[i + 1] == 0 {
+-                if data[i + 2] == 1 {
+-                    3
+-                } else if i + 3 < data.len() && data[i + 2] == 0 && data[i + 3] == 1 {
+-                    4
+-                } else {
+-                    0
+-                }
+-            } else {
+-                0
+-            };
+-            if sc_len > 0 {
+-                if let Some(s) = cur_start.take() {
+-                    out.push((s, i));
+-                }
+-                cur_start = Some(i + sc_len);
+-                i += sc_len;
+-            } else {
+-                i += 1;
+-            }
+-        }
+-        if let Some(s) = cur_start {
+-            out.push((s, data.len()));
+-        }
+-        out
+-    }
+-
+-    let mut frames = Vec::new();
+-    let mut cur: Vec<u8> = Vec::new();
+-    let mut cur_is_key = false;
+-    let mut cur_has_vcl = false;
+-
+-    for (s, e) in iter_nals(data) {
+-        if s >= e {
+-            continue;
+-        }
+-        let nal = &data[s..e];
+-        let nal_type = nal[0] & 0x1F;
+-        let is_vcl = matches!(nal_type, 1 | 5);
+-
+-        // Determine whether this VCL NAL starts a new picture. The first
+-        // syntax element of slice_header() is `first_mb_in_slice` (ue(v)).
+-        // In Exp-Golomb, value 0 is encoded as a single `1` bit, so a
+-        // slice that begins a picture has its first RBSP bit set. Any
+-        // other leading bit pattern means this is a continuation slice
+-        // belonging to the same picture as the previous VCL — typical of
+-        // multi-slice encodings (e.g. baseline with ASO/FMO or simply
+-        // `-slices N`).
+-        let starts_new_picture = is_vcl && nal.len() > 1 && (nal[1] & 0x80) != 0;
+-
+-        // Flush the in-progress AU when:
+-        //   - a non-VCL NAL appears AFTER a VCL (classic boundary, e.g.
+-        //     AUD/SEI/SPS/PPS preceding the next picture), OR
+-        //   - a VCL NAL starts a new picture while the current AU
+-        //     already has a VCL.
+-        let flush = cur_has_vcl && !cur.is_empty() && (!is_vcl || starts_new_picture);
+-        if flush {
+-            frames.push(H264Frame {
+-                data: core::mem::take(&mut cur),
+-                is_keyframe: cur_is_key,
+-            });
+-            cur_is_key = false;
+-            cur_has_vcl = false;
+-        }
+-
+-        cur.extend_from_slice(&[0, 0, 0, 1]);
+-        cur.extend_from_slice(nal);
+-        if nal_type == 5 {
+-            cur_is_key = true;
+-        }
+-        if is_vcl {
+-            cur_has_vcl = true;
+-        }
+-    }
+-    if !cur.is_empty() {
+-        frames.push(H264Frame {
+-            data: cur,
+-            is_keyframe: cur_is_key,
+-        });
+-    }
+-    frames
+-}
+-
+-// ---------------------------------------------------------------------------
+ // Shared state between hooks (Matter-side) and driver (str0m-side)
+ // ---------------------------------------------------------------------------
+ 
+@@ -393,8 +289,7 @@ struct NewSession {
+     shutdown_rx: Receiver<()>,
+     trickle_buf: Rc<RefCell<Vec<String>>>,
+     outbound_tx: Sender<OutboundWork>,
+-    frames: Arc<Vec<H264Frame>>,
+-    fps: u32,
++    video: Video,
+ }
+ 
+ /// Hook-side handle to a live session.
+@@ -425,12 +320,11 @@ struct Str0mShared {
+     new_session_rx: Receiver<NewSession>,
+     outbound_tx: Sender<OutboundWork>,
+     outbound_rx: Receiver<OutboundWork>,
+-    frames: Arc<Vec<H264Frame>>,
+-    fps: u32,
++    video: Video,
+ }
+ 
+ impl Str0mShared {
+-    fn new(frames: Arc<Vec<H264Frame>>, fps: u32) -> Self {
++    fn new(video: Video) -> Self {
+         let (new_session_tx, new_session_rx) = async_channel::unbounded();
+         let (outbound_tx, outbound_rx) = async_channel::unbounded();
+         Self {
+@@ -441,8 +335,7 @@ impl Str0mShared {
+             new_session_rx,
+             outbound_tx,
+             outbound_rx,
+-            frames,
+-            fps,
++            video,
+         }
+     }
+ 
+@@ -521,22 +414,14 @@ async fn session_loop(session: NewSession) {
+         shutdown_rx,
+         trickle_buf: _trickle_buf,
+         outbound_tx,
+-        frames,
+-        fps,
++        video,
+     } = session;
+ 
+     let mut buf = vec![0u8; 2048];
+     let mut end_reason = WebRTCEndReasonEnum::ICEFailed;
+ 
+     // Media bookkeeping.
+-    let frame_interval = if fps > 0 {
+-        Duration::from_nanos(1_000_000_000 / fps as u64)
+-    } else {
+-        Duration::from_millis(33)
+-    };
+-    // RTP timestamp step at 90 kHz for the chosen fps (video clock rate).
+-    let rtp_step: u64 = if fps > 0 { 90_000 / fps as u64 } else { 3_000 };
+-    let has_media = !frames.is_empty();
++    let Some(mut pictures) = video.subscribe() else { return };
+     let mut video_mid: Option<Mid> = local_video_mid;
+     // Locally added media does not produce the remote MediaAdded event.
+     let mut video_pt: Option<Pt> = video_mid.and_then(|mid| {
+@@ -548,10 +433,6 @@ async fn session_loop(session: NewSession) {
+         })
+     });
+     let mut connected = false;
+-    let mut next_frame_at: Option<Instant> = None;
+-    let mut next_frame_idx: usize = 0;
+-    let mut rtp_ts: u64 = 0;
+-
+     'outer: loop {
+         // Non-blocking drain of control messages.
+         while let Ok(c) = remote_cand_rx.try_recv() {
+@@ -563,44 +444,6 @@ async fn session_loop(session: NewSession) {
+             break 'outer;
+         }
+ 
+-        // If a frame is due and we can send, send it before the next poll.
+-        // IMPORTANT: after `writer.write` we must let the loop fall through
+-        // to `poll_output` — str0m requires `poll_output` to be called
+-        // between consecutive `write()`s. Falling through (no `continue`)
+-        // guarantees that invariant even when we are behind schedule.
+-        if has_media && connected {
+-            if let (Some(mid), Some(pt), Some(at)) = (video_mid, video_pt, next_frame_at) {
+-                let now = Instant::now();
+-                if at <= now {
+-                    let frame = &frames[next_frame_idx];
+-                    if let Some(writer) = rtc.writer(mid) {
+-                        let wallclock = now;
+-                        let mtime = MediaTime::from_90khz(rtp_ts);
+-                        if let Err(e) = writer.write(pt, wallclock, mtime, frame.data.clone()) {
+-                            warn!("webrtc_camera[{id}]: Writer::write failed: {e}");
+-                        }
+-                    } else {
+-                        warn!("webrtc_camera[{id}]: no writer for mid {mid:?}");
+-                    }
+-                    next_frame_idx = (next_frame_idx + 1) % frames.len();
+-                    rtp_ts = rtp_ts.wrapping_add(rtp_step);
+-                    // Cap catch-up: if we are more than one frame_interval
+-                    // behind, snap next_frame_at to `now + frame_interval`
+-                    // so we do not burst the backlog at the decoder. This
+-                    // keeps wallclock pacing real-time even if we briefly
+-                    // lagged. Without this, repeated fall-through would
+-                    // emit several frames in a tight loop.
+-                    let next = at + frame_interval;
+-                    next_frame_at = Some(if next + frame_interval < now {
+-                        now + frame_interval
+-                    } else {
+-                        next
+-                    });
+-                    // Fall through to poll_output (do NOT `continue`).
+-                }
+-            }
+-        }
+-
+         let out = match rtc.poll_output() {
+             Ok(o) => o,
+             Err(e) => {
+@@ -624,12 +467,7 @@ async fn session_loop(session: NewSession) {
+             }
+             Output::Timeout(at) => {
+                 let now = Instant::now();
+-                // Tighten the wait to whichever comes first: str0m deadline
+-                // or the next frame emission.
+-                let deadline = match next_frame_at {
+-                    Some(f) if connected && has_media => at.min(f),
+-                    _ => at,
+-                };
++                let deadline = at;
+                 if deadline <= now {
+                     // If the str0m deadline is past, feed it a Timeout.
+                     if at <= now {
+@@ -642,7 +480,8 @@ async fn session_loop(session: NewSession) {
+                 }
+                 // Race: UDP recv | deadline timer | new remote candidate | shutdown.
+                 let ev =
+-                    race_next_event(&socket, &mut buf, deadline, &remote_cand_rx, &shutdown_rx)
++                    race_next_event(&socket, &mut buf, deadline, &remote_cand_rx, &shutdown_rx,
++                        if connected && video_pt.is_some() { Some(&mut pictures) } else { None })
+                         .await;
+                 match ev {
+                     DriverEvent::Recv(Ok((n, from))) => {
+@@ -678,6 +517,17 @@ async fn session_loop(session: NewSession) {
+                             }
+                         }
+                     }
++                    DriverEvent::Picture(Some(frame)) => {
++                        let (Some(mid), Some(pt)) = (video_mid, video_pt) else { break 'outer };
++                        let Some(writer) = rtc.writer(mid) else { break 'outer };
++                        if writer.write(pt, Instant::now(), MediaTime::from_90khz(frame.pts_90khz), frame.annex_b).is_err() {
++                            break 'outer;
++                        }
++                    }
++                    DriverEvent::Picture(None) => {
++                        end_reason = WebRTCEndReasonEnum::NoUserMedia;
++                        break 'outer;
++                    }
+                     DriverEvent::NewRemote(c) => {
+                         log::debug!("webrtc_camera[{id}]: remote candidate {c:?}");
+                         rtc.add_remote_candidate(c);
+@@ -692,9 +542,6 @@ async fn session_loop(session: NewSession) {
+                 Event::Connected => {
+                     info!("webrtc_camera[{id}]: ICE+DTLS connected");
+                     connected = true;
+-                    if has_media && video_pt.is_some() {
+-                        next_frame_at = Some(Instant::now());
+-                    }
+                 }
+                 Event::IceConnectionStateChange(s) => {
+                     info!("webrtc_camera[{id}]: ICE state -> {s:?}");
+@@ -708,7 +555,7 @@ async fn session_loop(session: NewSession) {
+                         "webrtc_camera[{id}]: MediaAdded mid={:?} kind={:?} dir={:?}",
+                         m.mid, m.kind, m.direction
+                     );
+-                    if has_media && m.kind == MediaKind::Video && video_mid.is_none() {
++                    if m.kind == MediaKind::Video && video_mid.is_none() {
+                         video_mid = Some(m.mid);
+                         // Resolve an H.264 payload type for this mid.
+                         if let Some(writer) = rtc.writer(m.mid) {
+@@ -722,9 +569,6 @@ async fn session_loop(session: NewSession) {
+                                     m.mid
+                                 );
+                                 video_pt = Some(pt);
+-                                if connected {
+-                                    next_frame_at = Some(Instant::now());
+-                                }
+                             } else {
+                                 warn!(
+                                     "webrtc_camera[{id}]: no H264 payload type negotiated for mid {:?}",
+@@ -741,6 +585,10 @@ async fn session_loop(session: NewSession) {
+         }
+     }
+ 
++    // Relinquish this peer's I/O before the provider releases its slot.
++    drop(rtc);
++    drop(socket);
++    drop(pictures);
+     // Notify the controller that we are tearing down.
+     if let Err(e) = outbound_tx
+         .send(OutboundWork::End {
+@@ -755,6 +603,7 @@ async fn session_loop(session: NewSession) {
+ }
+ 
+ enum DriverEvent {
++    Picture(Option<AccessUnit>),
+     Recv(std::io::Result<(usize, SocketAddr)>),
+     Timeout,
+     NewRemote(Candidate),
+@@ -807,6 +656,7 @@ async fn race_next_event(
+     deadline: Instant,
+     remote_cand_rx: &Receiver<Candidate>,
+     shutdown_rx: &Receiver<()>,
++    pictures: Option<&mut Pictures>,
+ ) -> DriverEvent {
+     use futures_lite::future::or;
+ 
+@@ -826,7 +676,12 @@ async fn race_next_event(
+         DriverEvent::Shutdown
+     };
+ 
+-    or(or(recv_fut, timer_fut), or(remote_fut, shutdown_fut)).await
++    let network = or(or(recv_fut, timer_fut), or(remote_fut, shutdown_fut));
++    if let Some(pictures) = pictures {
++        or(network, async { DriverEvent::Picture(pictures.next().await) }).await
++    } else {
++        network.await
++    }
+ }
+ 
+ // ---------------------------------------------------------------------------
+@@ -1007,8 +862,7 @@ impl WebRtcHooks for Str0mHooks {
+             shutdown_rx,
+             trickle_buf: trickle_buf.clone(),
+             outbound_tx: self.shared.outbound_tx.clone(),
+-            frames: self.shared.frames.clone(),
+-            fps: self.shared.fps,
++            video: self.shared.video.clone(),
+         };
+         self.shared.inner.borrow_mut().sessions.insert(
+             session_id,
+@@ -1108,8 +962,7 @@ impl WebRtcHooks for Str0mHooks {
+                 shutdown_rx,
+                 trickle_buf,
+                 outbound_tx: self.shared.outbound_tx.clone(),
+-                frames: self.shared.frames.clone(),
+-                fps: self.shared.fps,
++                video: self.shared.video.clone(),
+             })
+             .await
+             .map_err(|e| {
+@@ -1398,46 +1251,11 @@ fn main() -> Result<(), Error> {
+     let crypto = default_crypto(rand::rng(), DAC_PRIVKEY);
+     let mut rand = crypto.rand()?;
+ 
+-    // Optional H.264 Annex-B media source. Set `WEBRTC_CAMERA_H264` to a
+-    // path to enable; with no source the example negotiates ICE+DTLS but
+-    // sends no media. FPS defaults to 30; override via `WEBRTC_CAMERA_FPS`.
+-    let fps: u32 = std::env::var("WEBRTC_CAMERA_FPS")
+-        .ok()
+-        .and_then(|s| s.parse().ok())
+-        .filter(|&v: &u32| v > 0 && v <= 120)
+-        .unwrap_or(30);
+-    let frames: Arc<Vec<H264Frame>> = match std::env::var("WEBRTC_CAMERA_H264").ok() {
+-        Some(path) if !path.is_empty() => match std::fs::read(&path) {
+-            Ok(bytes) => {
+-                let frames = parse_annex_b(&bytes);
+-                let keyframes = frames.iter().filter(|f| f.is_keyframe).count();
+-                info!(
+-                    "webrtc_camera: loaded {} ({} bytes) → {} access units ({} keyframes) @ {fps} fps",
+-                    path,
+-                    bytes.len(),
+-                    frames.len(),
+-                    keyframes
+-                );
+-                if frames.is_empty() {
+-                    warn!("webrtc_camera: no NAL units found in {path}; media plane disabled");
+-                }
+-                Arc::new(frames)
+-            }
+-            Err(e) => {
+-                warn!("webrtc_camera: failed to read {path}: {e}; media plane disabled");
+-                Arc::new(Vec::new())
+-            }
+-        },
+-        _ => {
+-            info!(
+-                "webrtc_camera: WEBRTC_CAMERA_H264 not set; media plane disabled \
+-                 (ICE+DTLS only — no video will be sent)"
+-            );
+-            Arc::new(Vec::new())
+-        }
+-    };
+-
+-    let shared: &'static Str0mShared = SHARED.init(Str0mShared::new(frames, fps));
++    let value = |name| std::env::var(name).map_err(|_| ErrorCode::Invalid);
++    let (reader, video) = Reader::open(value("WEBRTC_RTSP_ADDR")?.parse().map_err(|_| ErrorCode::Invalid)?,
++        &value("WEBRTC_RTSP_PATH")?, &value("WEBRTC_RTSP_USER")?,
++        std::path::Path::new(&value("WEBRTC_RTSP_TOKEN_FILE")?)).map_err(|_| ErrorCode::Invalid)?;
++    let shared = SHARED.init(Str0mShared::new(video));
+     let webrtc = WEBRTC.init(WebRtcProvHandler::new(
+         Dataver::new_rand(&mut rand),
+         matter,
+@@ -1603,7 +1421,8 @@ fn main() -> Result<(), Error> {
+     }
+ 
+     let matter_core = select4(&mut transport, &mut mdns, &mut respond, &mut im_job).coalesce();
+-    let all = select(matter_core, &mut driver).coalesce();
++    let media = async { reader.run().await; Err(Error::from(ErrorCode::StdIoError)) };
++    let all = select(select(matter_core, &mut driver).coalesce(), media).coalesce();
+     let failed_store = async {
+         let _ = persistence_failure.recv().await;
+         Err(Error::from(ErrorCode::StdIoError))
+diff --git a/rs-matter-dm/src/clusters/app/webrtc_prov.rs b/rs-matter-dm/src/clusters/app/webrtc_prov.rs
+index f9b323c..a46d353 100644
+--- a/rs-matter-dm/src/clusters/app/webrtc_prov.rs
++++ b/rs-matter-dm/src/clusters/app/webrtc_prov.rs
+@@ -737,6 +737,16 @@ impl<
+             return Ok(());
+         };
+ 
++        // A local End has already retired this peer's media. Release the hook
++        // and table row even when the requestor is offline. The copied entry
++        // retains the destination for the best-effort notification below.
++        if let OutboundWork::End { session_id, reason } = &work {
++            let _ = self.hooks.on_end_session(*session_id, *reason).await;
++            self.remove_session(*session_id);
++            self.dataver.changed();
++            ctx.notify_attr_changed(self.endpoint_id, Self::CLUSTER.id, AttributeId::CurrentSessions as _);
++        }
++
+         // Pre-fetch any async-supplied request payload (SDPs for
+         // Offer/Answer; the ICE-candidate snapshot is similarly
+         // taken outside its own build closure further down). The

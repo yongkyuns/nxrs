@@ -88,8 +88,12 @@ class ContentTests(unittest.TestCase):
     def test_reference_groups_are_valid_and_unique(self):
         pages = [name for group in self.config['reference_groups'] for name in group['pages']]
         self.assertEqual(len(pages), len(set(pages)))
+        sources = self.config.get('reference_sources', {})
+        self.assertLessEqual(sources.keys(), set(pages))
         for name in pages:
-            self.assertTrue((ROOT / 'docs' / name).is_file(), name)
+            self.assertTrue(self.config['reference_descriptions'].get(name), name)
+        for name in self.config['reference_descriptions']:
+            self.assertTrue((ROOT / (name if name in sources else 'docs/' + name)).is_file(), name)
 
     def test_documented_std_cases_exist(self):
         source = (ROOT / 'app/std-demo/src/main.rs').read_text()
@@ -100,11 +104,15 @@ class ContentTests(unittest.TestCase):
             for case in re.findall(command, guide.read_text()):
                 self.assertIn(case, cases | {'all'}, (guide.name, case))
 
-    def test_site_has_no_embedded_application(self):
+    def test_tracker_is_the_opt_in_embedded_application(self):
         layout = (ROOT / 'website/layout.html').read_text()
         script = (ROOT / 'website/static/site.js').read_text()
+        embed = (ROOT / 'website/tracker-demo.html').read_text()
         self.assertIn("frame-src 'none'", layout)
+        self.assertIn("route == 'guide/motion-tracker/' %}frame-src 'self'", layout)
         self.assertNotIn('<iframe', layout.lower())
+        self.assertIn('data-src="{{ demo_url }}"', embed)
+        self.assertNotRegex(embed, r'\s+src=')
         self.assertNotRegex(script, r'createElement\([\'\"]iframe[\'\"]\)')
 
 

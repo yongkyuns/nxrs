@@ -22,6 +22,10 @@
 	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>Connect to your motion tracker and show live sensor readings.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Scan the pairing code on your motion tracker.</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Connect to your enrolled nxrs camera gateway to view live video on your local or private VPN network.</string>
 	<key>UIApplicationSceneManifest</key>

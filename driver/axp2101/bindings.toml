@@ -1,0 +1,9 @@
+version = 2
+
+[[binding]]
+compatible = "x-powers,axp2101-fuel-gauge"
+bus = "i2c"
+implementation = "Axp2101"
+addresses = [0x34]
+frequencies = [100_000, 400_000]
+interrupt = false

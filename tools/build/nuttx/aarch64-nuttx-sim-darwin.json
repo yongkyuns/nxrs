@@ -1,0 +1,20 @@
+{
+  "arch": "aarch64",
+  "archive-format": "darwin",
+  "binary-format": "mach-o",
+  "cpu": "apple-m1",
+  "data-layout": "e-m:o-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-n32:64-S128-Fn32",
+  "eh-frame-header": false,
+  "emit-debug-gdb-scripts": false,
+  "frame-pointer": "non-leaf",
+  "function-sections": false,
+  "linker-flavor": "gnu",
+  "llvm-floatabi": "hard",
+  "llvm-target": "arm64-apple-macosx11.0.0",
+  "max-atomic-width": 128,
+  "os": "nuttx",
+  "panic-strategy": "abort",
+  "stack-probes": { "kind": "inline" },
+  "target-family": ["unix"],
+  "target-pointer-width": 64
+}

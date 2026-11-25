@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="800" height="792" viewBox="0 0 800 792" role="img" aria-labelledby="title description">
   <title id="title">Independent streaming and bounded inference paths</title>
-  <desc id="description">The camera HAL feeds CameraService, which supplies MJPEG streaming and offers one owned JPEG to an inference worker. The worker invokes the detector HAL synchronously; Monitor turns results into typed state and events. The bounded copy separates inference lifetime from camera buffers, and an occupied worker rejects additional offers instead of queuing video frames.</desc>
+  <desc id="description">Home-cam polls the camera HAL capture session. Its frames feed MJPEG streaming and a bounded inference worker. The worker invokes the detector HAL synchronously; Monitor turns results into typed state and events. The bounded copy separates inference lifetime from camera buffers, and an occupied worker rejects additional offers instead of queuing video frames.</desc>
   <defs>
     <marker id="arrow" viewBox="0 0 8 8" refX="6" refY="4" markerWidth="8" markerHeight="8" markerUnits="userSpaceOnUse" orient="auto">
       <path d="M1 1 L6 4 L1 7" fill="none" stroke="#8A9CAF" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
@@ -26,14 +26,14 @@
   <g id="node-camera-hal" data-panel="true">
     <rect x="240" y="24" width="320" height="88" rx="15" class="card" filter="url(#shadow)"/>
 
-    <text x="400" y="56" text-anchor="middle" class="label" font-size="22">Camera HAL</text>
-    <text x="400" y="83" text-anchor="middle" class="subtitle">Capture ownership</text>
+    <text x="400" y="56" text-anchor="middle" class="label" font-size="22">Home-cam</text>
+    <text x="400" y="83" text-anchor="middle" class="subtitle">Polls capture and consumers</text>
   </g>
   <g id="node-camera-service" data-panel="true">
     <rect x="240" y="150" width="320" height="88" rx="15" class="card" filter="url(#shadow)"/>
     <rect x="255" y="170" width="4" height="48" rx="2" fill="#73B9E2"/>
-    <text x="400" y="182" text-anchor="middle" class="label" font-size="22">CameraService</text>
-    <text x="400" y="209" text-anchor="middle" class="subtitle">Frame history and delivery</text>
+    <text x="400" y="182" text-anchor="middle" class="label" font-size="22">Camera HAL</text>
+    <text x="400" y="209" text-anchor="middle" class="subtitle">Capture session and frame history</text>
   </g>
   <path id="edge-camera-hal-camera-service" data-from="camera-hal" data-to="camera-service" d="M400 112 V148" class="edge"/>
   <g id="node-stream" data-panel="true">

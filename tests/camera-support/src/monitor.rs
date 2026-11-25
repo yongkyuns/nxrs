@@ -1,5 +1,5 @@
-use camera_service::Frames;
-use telemetry_service::Telemetry;
+use camera::capture::Frames;
+use crate::packet_summary::Telemetry;
 use crate::{reader::Reader, AppState, AppStats, Error, Progress};
 
 /// Composes Frames + Telemetry; needs neither storage nor recorder state.

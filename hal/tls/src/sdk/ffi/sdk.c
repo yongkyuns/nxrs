@@ -1,3 +1,4 @@
+#include <stdbool.h>
 /* Actual SDK header layouts, constants and inline attribute operations only. */
 #include <stddef.h>
 #include <stdint.h>
@@ -24,6 +25,13 @@
     defined(MBEDTLS_THREADING_C) || defined(MBEDTLS_PSA_CRYPTO_KEY_ID_ENCODES_OWNER)
 #error "Unsupported TLS identity entropy, storage or concurrency configuration"
 #endif
+#if !defined(MBEDTLS_PLATFORM_CALLOC_MACRO) || !defined(MBEDTLS_PLATFORM_FREE_MACRO) || \
+    defined(MBEDTLS_PSA_ASSUME_EXCLUSIVE_BUFFERS)
+#error "TLS requires record allocation callbacks and overlap-safe PSA copies"
+#endif
+_Static_assert(_Alignof(max_align_t) <= 16, "record allocation alignment");
+_Static_assert(MBEDTLS_SSL_IN_CONTENT_LEN == 4096 && MBEDTLS_SSL_OUT_CONTENT_LEN == 4096,
+               "record workspace assumes 4 KiB TLS content");
 _Static_assert(sizeof(psa_driver_get_entropy_flags_t) == sizeof(uint32_t), "entropy flags ABI");
 _Static_assert(sizeof(psa_status_t) == sizeof(int), "PSA status ABI");
 _Static_assert(sizeof(mbedtls_svc_key_id_t) == sizeof(uint32_t), "PSA key identifier ABI");
@@ -100,6 +108,19 @@ int tls_crt_sig_md(void *p) { return ((mbedtls_x509_crt *)p)->MBEDTLS_PRIVATE(si
 int tls_crt_sig_pk(void *p) { return ((mbedtls_x509_crt *)p)->MBEDTLS_PRIVATE(sig_pk); }
 int tls_crl_sig_md(void *p) { return ((mbedtls_x509_crl *)p)->MBEDTLS_PRIVATE(sig_md); }
 int tls_crl_sig_pk(void *p) { return ((mbedtls_x509_crl *)p)->MBEDTLS_PRIVATE(sig_pk); }
+size_t tls_pk_restart_size(void) { return sizeof(mbedtls_pk_restart_ctx); }
+size_t tls_pk_restart_align(void) { return _Alignof(mbedtls_pk_restart_ctx); }
+size_t tls_crt_restart_size(void) { return sizeof(mbedtls_x509_crt_restart_ctx); }
+size_t tls_crt_restart_align(void) { return _Alignof(mbedtls_x509_crt_restart_ctx); }
+int tls_ecc_in_progress(void) { return PSA_OPERATION_INCOMPLETE; }
+int tls_pk_verify_sha256(void *p, const unsigned char *hash, size_t hash_size,
+                         const unsigned char *signature, size_t signature_size, void *restart)
+{ return mbedtls_pk_verify_restartable(p, MBEDTLS_MD_SHA256, hash, hash_size,
+                                       signature, signature_size, restart); }
+int tls_crt_verify(void *leaf, void *issuer, uint32_t *flags, void *restart)
+{ return mbedtls_x509_crt_verify_restartable(leaf, issuer, NULL,
+                                             &mbedtls_x509_crt_profile_default, NULL,
+                                             flags, NULL, NULL, restart); }
 const void *tls_crt_from(void *p) { return &((mbedtls_x509_crt *)p)->valid_from; }
 const void *tls_crt_until(void *p) { return &((mbedtls_x509_crt *)p)->valid_to; }
 const void *tls_crl_from(void *p) { return &((mbedtls_x509_crl *)p)->this_update; }
@@ -108,6 +129,12 @@ const void *tls_crl_until(void *p) { return &((mbedtls_x509_crl *)p)->next_updat
 /* Read-only views into parsed SDK-owned storage, valid while its owner lives. */
 const unsigned char *tls_crt_raw(void *p, size_t *size)
 { mbedtls_x509_crt *v = p; *size = v->raw.len; return v->raw.p; }
+const unsigned char *tls_crt_public_key(void *p, size_t *size)
+{ mbedtls_x509_crt *v = p; *size = v->pk_raw.len; return v->pk_raw.p; }
+const unsigned char *tls_crl_signed_bytes(void *p, size_t *size)
+{ mbedtls_x509_crl *v = p; *size = v->tbs.len; return v->tbs.p; }
+const unsigned char *tls_crl_signature(void *p, size_t *size)
+{ mbedtls_x509_buf *v = &((mbedtls_x509_crl *)p)->MBEDTLS_PRIVATE(sig); *size = v->len; return v->p; }
 const unsigned char *tls_crt_issuer(void *p, size_t *size)
 { mbedtls_x509_crt *v = p; *size = v->issuer_raw.len; return v->issuer_raw.p; }
 const unsigned char *tls_crt_subject(void *p, size_t *size)
@@ -136,3 +163,23 @@ const unsigned char *tls_peer_raw(void *p, size_t *size)
   *size = peer == NULL ? 0 : peer->raw.len;
   return peer == NULL ? NULL : peer->raw.p;
 }
+
+#ifdef NXRS_TLS_PAIRING
+int tls_configure_pairing(void *config, const uint8_t *key, size_t length)
+{
+  static const unsigned char identity[] = "nxrs-tracker-v1";
+  static const int suites[] = { MBEDTLS_TLS_PSK_WITH_AES_128_GCM_SHA256, 0 };
+
+  mbedtls_ssl_conf_min_tls_version(config, MBEDTLS_SSL_VERSION_TLS1_2);
+  mbedtls_ssl_conf_max_tls_version(config, MBEDTLS_SSL_VERSION_TLS1_2);
+  mbedtls_ssl_conf_ciphersuites(config, suites);
+  return mbedtls_ssl_conf_psk(config, key, length, identity,
+                             sizeof(identity) - 1);
+}
+
+bool tls_pairing_cipher(void *ssl)
+{
+  return mbedtls_ssl_get_ciphersuite_id_from_ssl(ssl) ==
+         MBEDTLS_TLS_PSK_WITH_AES_128_GCM_SHA256;
+}
+#endif

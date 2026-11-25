@@ -1,14 +1,14 @@
 # Services and concurrency
 
-A service is reusable application behavior with a defined interface and lifecycle. It may be a synchronous object or an active component with its own worker. NXRS uses ordinary Rust functions, threads, and synchronization rather than requiring an async executor.
+A service packages reusable behavior behind a defined interface. Give it a worker when it needs to wait for I/O or make progress independently. A service that can finish in the caller can remain synchronous.
 
-This chapter extends [Your first application](first-application.md) into a complete bounded worker, then explains the additional decisions needed for a long-running firmware service. You need the host setup from that tutorial; target execution also needs [Building for NuttX](firmware.md).
+Extend [your first application](first-application.md) with a worker and a bounded channel. To run it in QEMU, complete [Building for NuttX](firmware.md) first. Look up existing service and messaging contracts in the [Rust API reference](../api.md).
 
 ## Start with ownership
 
 Keep mutable state with the code that updates it. When a component needs independent execution, give it one event loop and send typed commands to that loop. The application constructs the components, connects them, and controls startup and shutdown.
 
-A device controller, background recorder, or connection manager can use this pattern. A parser or calculation that runs as part of another operation can remain an ordinary function.
+The camera and Wi-Fi HALs own their device lifecycle and can be polled from the app. A HAL can also own a worker for device readiness and blocking reads. Extract a service when reusable policy or a protocol has an independent contract. A parser or calculation can stay an ordinary function.
 
 | Requirement | Start with |
 | --- | --- |
@@ -198,4 +198,4 @@ The [application design guide](designing-applications.md) works through startup 
 
 Test queue saturation, disconnects, partial startup, cancellation, and cleanup as well as normal processing. On fixed-priority targets, check the complete producer/consumer schedule: a nonblocking queue operation may still contend with other participants internally.
 
-[Testing and debugging](testing.md) covers test setup. [Performance and memory](performance.md) covers stack, queue, latency, and throughput measurements.
+Next, [build a controller](controller.md) that uses a worker to switch an output and report the result of each command. For your own tests, use [Testing and debugging](testing.md) and [Performance and memory](performance.md).

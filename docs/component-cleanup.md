@@ -8,7 +8,7 @@ functionality through additive Cargo features. Cargo owns dependencies,
 features, aliases and target conditions. There is no additional capability
 resolver or runtime provider registry.
 
-This cleanup completes the storage/transport API migration, gives shared Rust
+This cleanup simplifies the storage and socket APIs, gives shared Rust
 and build helpers real package owners, and makes native compilation follow the
 consumed Cargo graph. It restores verified reuse of completed native/SDK builds.
 The rules are defined in [HAL architecture](hal-platform-architecture.md) and
@@ -22,18 +22,12 @@ The rules are defined in [HAL architecture](hal-platform-architecture.md) and
 | Bounded queued directory recording | `storage::recording::FileRecorder::create_new(path, StorageLimits)` | Nondefault `nxrs-storage/recording` feature. |
 | Read one committed frame record | `storage::recording::read_record(path, max_frame_bytes)` | Same `recording` feature. |
 | Synchronous append/rollback record file | `storage::create_record_file(path, max_records, max_frame_bytes)` | Configured NuttX acquisition; `Unsupported` elsewhere. |
-| Numeric IPv4/IPv6 nonempty packets | `transport::udp::UdpTransport::connect(SocketAddr)` or `::bind(local, peer)` | Nondefault `nxrs-transport/udp` feature. |
-| IPv4 datagrams, including empty datagrams | `transport::udp::UdpSender::connect([u8; 4], port)` | Same `udp` feature. |
-| Packet-producing logic with an injected output | `transport::PacketSink` | Contract-only dependency; callbacks can implement it directly. |
+| UDP datagrams | `std::net::UdpSocket` | Qualified standard-library path. |
 
-Replay, recording and UDP require Rust std but have no OS whitelist or hardware
-profile requirement. Selecting them beside a mock profile still performs real
-file/socket I/O. `tests/native` enables all three features explicitly; shared
-qualification support in `tests/camera-support` enables none of them.
+Replay and recording use explicit Rust Cargo features. UDP uses the standard
+library directly. The qualified packet-output adapter lives with the camera
+test fixture, whose default build stays core-only.
 
-The profile-dependent storage and transport `open()`, `storage()` and
-`transport()` factories, concrete root aliases and the `Transport` trait alias
-are removed. Their in-tree callers and target fixtures use the explicit APIs.
 Camera's documented [fixed replay aliases](../hal/camera/README.md) remain:
 they always denote the same software operation and do not change signatures or
 meaning with the profile. Mock fixtures remain deliberately exported.
@@ -43,15 +37,15 @@ back partial writes, preserves quota after successful rollback and becomes
 permanently poisoned after failed rollback; flush synchronizes the file. Queued
 directory recording accepts into owned bounded buffers, uses a FIFO flush
 barrier and provides explicit `finish()` drain/join. Its `Drop` does not join.
-`UdpTransport` rejects empty packets; `UdpSender` preserves zero-length IPv4
-datagrams. Sharing implementation does not erase those differences.
+The standalone [UDP qualification](../tests/nuttx-std/udp/README.md) checks
+zero-length datagrams directly through the standard library.
 
 ## Package and source ownership
 
 | Owner | Responsibility |
 | --- | --- |
 | `hal/<capability>` | Public contract, errors, resource acquisition and device policy. |
-| `hal/acquisition` | Shared sensor worker, cancellation and scripted-session mechanics. |
+| `shared/acquisition` | Worker lifetimes, cancellation, readiness and mock timers. |
 | `driver/linux/gio` | Shared GLib/GIO Rust bindings and one native ABI archive for Wi-Fi and BLE. |
 | `tools/build-support` | Generic host build, profile, native-tool and source helpers. |
 | `tools/detector-build-support` | Detector-owned numerical SDK build code and its compatibility header. |
@@ -126,13 +120,12 @@ never treated as evidence that the current build succeeded.
 | [Cargo graph controls](../tools/build/tests/cargo_graph.rs) | Defaults, optional/target dependencies, aliases, compiler/configuration forwarding and excluded nonproduction edges. |
 | [Native helper ownership](../tools/build/tests/nuttx_helper_ownership.rs) and [header freshness](../tools/build/tests/native_header_freshness.rs) | Compile/link only consumed helpers; rerun or fail after header/source/configuration changes. |
 | [Reuse controls](../tools/build/src/reuse.rs) | Matching bytes, changed configuration, interrupted builds, explicit clean and unchanged-file timestamps. |
-| [Storage faults](../hal/storage/src/file_tests.rs), [worker lifecycle](../hal/storage/src/recording/writer.rs) and [UDP tests](../hal/transport/tests) | Rollback, poisoning, bounded buffers, barriers, completion, packet bytes, rejection and distinct empty-packet behavior. |
+| [Storage faults](../hal/storage/src/file_tests.rs), [worker lifecycle](../hal/storage/src/recording/writer.rs) and [UDP qualification](../tests/nuttx-std/udp) | Rollback, poisoning, bounded buffers, barriers, completion, packet bytes, rejection and distinct empty-packet behavior. |
 | [Native composition](../tests/native/tests/native.rs) | Independently decode persisted frames and UDP datagrams under unset/mock/host profiles; cover consumer restart, cleanup and small-stack buffers. |
 
 The portable workflow runs native consumers on Linux, macOS and Windows and
-retains core-only and WASM gates. Storage/transport workflows select their
-software features explicitly, including under mock profiles, and retain strict
-Clippy and lifecycle checks. Workflow path filters follow the new package owners.
+retains core-only and WASM gates. Storage qualification enables recording explicitly. The portable and NuttX
+jobs execute the UDP socket witness directly. Workflow path filters follow the new package owners.
 
 Representative commands:
 
@@ -143,7 +136,7 @@ python3 -m unittest discover -s tests/host -p test_hal_boundaries.py -v
 python3 -m unittest discover -s tests/host -p test_hal_isolation.py -v
 cargo test --locked -p nxrs-build-support -p nxrs-detector-build-support -p nxrs-build
 cargo test --locked -p nxrs-storage --features recording
-cargo test --locked -p nxrs-transport --features udp
+cargo run --locked -p nxrs-std-udp -- pass
 python3 -m unittest discover -s tests/host -p test_external_consumers.py -v
 python3 tests/native/qualify.py
 ```

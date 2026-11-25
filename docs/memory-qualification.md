@@ -1,8 +1,8 @@
 # Memory qualification of demos and acquisition
 
-This is the **Rust allocation/lifecycle** slice, on host test builds. It is not a
-new app, actor runtime, allocator policy, heap HAL, or RTOS benchmark. The separate
-RTOS benchmarking work is untouched.
+**Does this Rust path allocate during steady operation, and does it release its memory after shutdown?** The existing demo probes observe the Rust allocator at setup, first use, warmed operation and teardown. Use them to find hidden allocation or continuing retention before measuring the complete target memory budget.
+
+These are isolated host observations. They exclude native allocations, OS stacks and allocator metadata. Use [NuttX heap and stack qualification](nuttx-memory-qualification.md) for those resources, and [memory and image size](rust-std-footprint.md) to interpret the combined budget without double-counting.
 
 ## Run
 

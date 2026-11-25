@@ -267,6 +267,48 @@ class SshQualificationTests(unittest.TestCase):
             self.assertEqual(evidence["evidence_class"], "host_control")
             self.assertTrue(evidence["pending"])
 
+    def test_status_reply_accepts_serial_carriage_return_expansion(self):
+        console = CONSOLE.SerialLab.__new__(CONSOLE.SerialLab)
+        console.api, console.guard = SSH, SSH.SecretGuard(())
+        console.pending, console.event_line = bytearray(), bytearray()
+        console.connection = Mock()
+        console.connection.read.return_value = (
+            b"dropbear: state=listening pid=12 result=0\r\n"
+            b"native network log\r\r\n"
+            b"NXRS_SSH_LAB_CONTROL action=status result=0\r\r\n"
+        )
+        console.send = Mock()
+        self.assertEqual(console.state(), "listening")
+        console.send.assert_called_once_with(b"status\n")
+
+    def test_authentication_attempt_limit_requires_the_peer_to_close(self):
+        closed = b"Connection closed by remote host"
+        for output, elapsed, failure in (
+            (closed, 2, None),
+            (b"Permission denied", 2, "auth_limit_peer_disconnect_missing"),
+            (closed, 29, "auth_limit_disconnect_overlaps_authentication_deadline"),
+        ):
+            with self.subTest(output=output, elapsed=elapsed), patch.object(
+                SSH.time, "monotonic", side_effect=[100, 100 + elapsed]
+            ):
+                console = Mock(starts=1, server_exits=0)
+                client = Mock()
+                process = Mock(pending=output)
+                process.wait.return_value = 255
+                client.process.return_value = process
+                client.login.return_value.wait.return_value = 0
+                suite = SSH.Suite(client, None, console=console)
+                if failure:
+                    with self.assertRaisesRegex(SSH.CheckFailure, failure):
+                        suite.authentication_attempt_limit(3, 30)
+                    client.login.assert_not_called()
+                else:
+                    self.assertEqual(suite.authentication_attempt_limit(3, 30)["rejected_password_submissions"], 3)
+                    client.login.assert_called_once()
+                client.process.assert_called_once_with(password_prompts=4)
+                self.assertEqual(client.password_prompt.call_count, 3)
+                process.close.assert_called_once()
+
     def test_idle_deadline_requires_full_interval_after_terminal_activity(self):
         for elapsed, status, failure in (
             (60, 255, None),
@@ -372,7 +414,7 @@ sys.exit(7)
             public = key.with_suffix(".pub").read_text().split()
             known = Path(directory) / "known_hosts"
             known.write_text(f"[127.0.0.1]:2222 {public[0]} {public[1]}\n")
-            self.assertEqual(SSH.verify_known_hosts(known, "127.0.0.1", 2222, fingerprint), known)
+            self.assertEqual(SSH.verify_known_hosts(known, "127.0.0.1", 2222, fingerprint), known.resolve())
             with self.assertRaisesRegex(SSH.CheckFailure, "fingerprint_mismatch"):
                 SSH.verify_known_hosts(known, "127.0.0.1", 2222, "SHA256:deliberately-wrong")
 

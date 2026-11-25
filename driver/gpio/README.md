@@ -1,9 +1,13 @@
-# NuttX GPIO interrupt resource
+# NuttX GPIO resources
+
+`Input::open` and `Output::open` use the embedded-hal digital traits. The
+BSP supplies each pin's direction and electrical configuration. Level reads
+and writes use Rust `File` operations. Own each output exclusively and
+choose the output level before releasing it.
 
 `Interrupt::open_rising(path, on_cleanup_failure)` owns a NuttX rising-edge GPIO
 registration. It implements `embedded_hal::digital::InputPin` and lends its file
-to task-context readiness waits. Only this interrupt mode is currently supported;
-there are no host backends or additional profile/provider switches.
+to task-context readiness waits. The BSP supplies a rising-edge endpoint.
 
 The package also compiles when NuttX disables `CONFIG_DEV_GPIO`, as in the
 emulator mock profiles. Native operations then report unsupported without issuing

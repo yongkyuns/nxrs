@@ -144,7 +144,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "nxrs-hal-common"
+name = "nxrs-radio-types"
 version = "0.1.0"
 
 [[package]]
@@ -183,7 +183,7 @@ version = "0.1.0"
 dependencies = [
  "cfg-if",
  "nxrs-build-support",
- "nxrs-hal-common",
+ "nxrs-radio-types",
  "nxrs-linux-gio",
  "nxrs-messaging",
 ]

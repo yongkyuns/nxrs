@@ -1,5 +1,7 @@
 # Nxrs: portable embedded architecture and roadmap
 
+> **Design history.** These stages preserve earlier decisions and migration scope. Start with [architecture and source ownership](architecture.md) for the implemented boundaries and [current status](../website/guide/status.md) for validation.
+
 **Revision:** 10 — product-platform selection plus qualified multi-app/multi-instance composition.
 **Updated:** September 29, 2026.
 **Documentation baseline:** `686d59c46484a66d12085ab946e6a882970a869f` (merged PR #2).
@@ -117,7 +119,7 @@ This is the target structure, not a claim that these packages already exist:
 | `hal/imu/` | Public `nxrs-imu` facade |
 | `hal/imu/api/` | Common contract without backend dependencies |
 | `hal/imu/nuttx/`, `hal/imu/native/`, `hal/imu/web/`, `hal/imu/mock/` | Physical, OS and qualification providers where implemented |
-| `hal/gnss/`, `hal/camera/`, `hal/storage/`, `hal/transport/` | The same capability-local organization |
+| `hal/gnss/`, `hal/camera/`, `hal/storage/` | The same capability-local organization |
 | `driver/` | Repository-owned device protocols when needed |
 | `platform/`, `platform/nuttx/` | Board configuration and target startup/link integration |
 | `tools/` | Focused build and validation scripts |
@@ -493,10 +495,8 @@ deployment binds IMU/GNSS to mock implementations for the current
 event-demo qualification profiles. This is the preferred ownership model for
 sensor services, not a rule that apps can never use HAL facades directly.
 
-The native nxrs app acquires camera/storage/transport through
-`nxrs-camera`, `nxrs-storage`, and `nxrs-transport`. The build
-selects those bindings through the actual `linux`, `macos` or `windows` OS
-profile, reusing shared Rust file/socket code. Neither app nor service manifest
+The native camera qualification uses `nxrs-camera` and `nxrs-storage`
+for replay and recording. UDP uses `std::net::UdpSocket`. Neither app nor service manifest
 names concrete provider packages.
 
 Product-facing build selection is now `cargo firmware --app <app> --platform

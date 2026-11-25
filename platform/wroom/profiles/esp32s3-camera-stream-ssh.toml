@@ -1,0 +1,11 @@
+# Local maintenance image. Keep the ordinary two-core profile SSH-free.
+extends = "esp32s3-camera-stream-startup"
+hal = { ssh = "nuttx" }
+image-class = "c1009de2-e636-4382-91c4-049e8e43eb24"
+nuttx-config = "camera-ssh.conf"
+
+[detector]
+model = "pico"
+stack-bytes = 131072
+sample-ms = 750
+compute-core = 1

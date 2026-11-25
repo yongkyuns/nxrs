@@ -210,8 +210,36 @@ marker and publishes its verified JS/WASM pair under `site/`.
 Relative build paths (`--manifest-path`, `--out`, `--html` and
 `--target-c-source`) are relative to the selected NXRS workspace root. The
 standalone controller accepts `--workspace-root <path>` before its subcommand;
-this also applies to `profile`. `--help` and `build --help` need no workspace.
+this also applies to `profile` and `config`. Command help, including
+`config check --help` and `config explain --help`, needs no workspace.
 Application discovery reports malformed app manifests instead of hiding them.
+
+## NuttX configuration
+
+Use `cargo nxrs config --app event-demo --platform cores3` to edit the native
+configuration for a selected build. The [configuration guide](../website/guide/profiles.md#configure-nuttx)
+documents prerequisites, native group browsing, search and dependency navigation,
+review, source ownership, repeat saves, and failure recovery. `config check`,
+`config show`, and `config explain CONFIG_SYMBOL` use the same native
+`olddefconfig` resolution with the same selection flags. Preparation validates
+the subsequent Make context, and the build checks configuration and header
+identities after linking.
+
+A profile's optional top-level `nuttx-config = "nuttx.conf"` points to a
+native fragment relative to the profile that declares it. An inherited
+reference keeps that location unless the child replaces it. If there is no
+reference, the review shows the new fragment and reference in the selected
+profile. The fragment stores explicit assignments such as
+`CONFIG_DEBUG_ASSERTIONS=y` or `# CONFIG_DEBUG_ASSERTIONS is not set`.
+Legacy `[kconfig]` settings supply defaults. The fragment overrides defaults
+and ordinary CLI requests override the fragment. Mandatory settings and
+BSP resources retain their ownership.
+
+Save & sync prepares native headers and Rust inputs without compiling the
+firmware. It refreshes a Zed context already bound to the selected output.
+The next ordinary build reads the same sources; their content hashes participate
+in preparation and cache identity. Generated `resolved.config` and native
+headers are outputs, not configuration sources.
 
 ## Native qualification settings
 
@@ -423,7 +451,9 @@ for the declaration and normal build command. Catalogue sources remain local
 path packages; remote driver sources need a future resolved-package integration,
 not a second Cargo resolver.
 
-Shared acquisition/session code is the normal `nxrs-acquisition` dependency.
+Worker lifetimes and readiness come from the internal `nxrs-acquisition`
+dependency in `shared/acquisition`. Native preparation follows the consuming
+HAL's Cargo graph.
 Linux Wi-Fi and BLE share the `nxrs-linux-gio` package and one private GIO native
 archive; radio schemas and device policy stay in their HALs. Unbound and mock
 builds do not compile the GLib helper. `tests/host/test_external_consumers.py`

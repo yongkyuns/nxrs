@@ -1,14 +1,8 @@
 # Current status
 
-NXRS combines Rust standard-library integration for NuttX, reusable firmware components, platform profiles, and application build tooling.
-
-Use this page to decide which part of the repository to evaluate for your application. Support has three separate questions: does a configuration exist, is the needed provider implemented, and has the required behavior been exercised in that environment? A platform name alone answers none of the latter two.
+Check which targets and components NXRS supports, then follow the validation links for the behavior your project needs.
 
 ## Available components
-
-The repository includes Rust resource adapters and drivers, capability HALs, reusable services, and ordinary Cargo applications. The build frontend selects the application and profile, prepares the target integration, and records the resulting configuration and image.
-
-Applications can use standard-library facilities directly. [Standard-library APIs](standard-library.md), [Drivers and HALs](hardware.md), and [Profiles and overlays](profiles.md) describe the main interfaces and responsibilities.
 
 | Area | What is available | Where to begin |
 | --- | --- | --- |
@@ -31,10 +25,10 @@ Existing validation includes host unit and integration tests, target build and A
 | Simulator execution | [NuttX simulator](../../docs/nuttx-sim.md) |
 | Emulated target execution | [NuttX QEMU](../../docs/nuttx-qemu.md) |
 | Event delivery | [Channel performance](../../docs/std-channel-performance.md) |
-| Resource use | [Rust std footprint](../../docs/rust-std-footprint.md) |
-| Reference comparisons | [RTOS comparisons](../../docs/rtos-comparison.md) |
+| Resource use | [Memory and image size](../../docs/rust-std-footprint.md) |
+| Reference comparisons | [Same-board RTOS results](../../docs/rtos-comparison.md) |
 
-Each report records its tested configuration. Application-specific results are linked from [Examples](examples.md).
+Start with the [performance guide](performance.md) to distinguish a result summary, a measurement method and a historical report. Each report records its tested configuration. Application-specific results are linked from [Examples](examples.md).
 
 The [characterization campaign](../../tests/rtos-characterization/README.md) adds controlled messaging, memory, progress, and lifecycle observations. Read the results' source/image/configuration scope when using them. Historical reports retain their original cohorts; a later source change is not automatically covered by an earlier physical run.
 

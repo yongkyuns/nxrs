@@ -15,22 +15,30 @@ use std::{
 pub const CAPABILITIES: &[&str] = &[
     "console",
     "execution",
+    "ssh",
     "detector",
     "camera",
-    "config",
+    "audio",
+    "settings",
     "storage",
-    "transport",
     "led",
     "imu",
     "gnss",
     "wifi",
+    "cellular",
     "ble",
     "tls",
     "boot",
     "watchdog",
+    "battery",
+    "rtc",
+    "flash",
+    "display",
+    "touch",
 ];
 pub const HOST_OS: &[&str] = &["linux", "macos", "windows"];
-const NUTTX_ENDPOINTS: &[&str] = &["camera", "watchdog", "wifi"];
+const NUTTX_ENDPOINTS: &[&str] =
+    &["camera", "audio", "watchdog", "wifi", "rtc", "flash", "display", "touch"];
 #[derive(Debug, Clone)]
 pub struct Profile {
     pub data: Value,
@@ -39,8 +47,16 @@ pub struct Profile {
     catalogs: Catalogs,
     sdk_root: Option<PathBuf>,
     origins: overlay::Origins,
+    native_config: Option<NativeConfig>,
     pub(crate) cli_overlays: Vec<PathBuf>,
     pub(crate) product_manifest: Option<PathBuf>,
+}
+
+#[derive(Debug, Clone)]
+pub struct NativeConfig {
+    pub declared_in: PathBuf,
+    pub path: PathBuf,
+    pub contents: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -57,6 +73,7 @@ enum InputKind {
     DeclaredOverlay,
     CommandLineOverlay,
     BspResources,
+    NativeConfig,
 }
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Detector {
@@ -74,11 +91,16 @@ fn parse_manifest(path: &Path, input: &str) -> Result<Value> {
         toml::from_str(input).map_err(|e| format!("{}: {e}", path.display()))?;
     serde_json::to_value(value).map_err(|e| e.to_string())
 }
-fn read_input(path: PathBuf, kind: InputKind) -> Result<(Value, Input)> {
+pub type SourceEdits = BTreeMap<PathBuf, String>;
+
+fn read_input(path: PathBuf, kind: InputKind, edits: &SourceEdits) -> Result<(Value, Input)> {
     if path.to_str().is_none_or(|s| s.contains(['\r', '\n'])) {
         return Err(format!("invalid profile input path {}", path.display()));
     }
-    let contents = read(&path)?;
+    let contents = match edits.get(&path) {
+        Some(contents) => contents.clone(),
+        None => read(&path)?,
+    };
     let data = parse_manifest(&path, &contents)?;
     let sha256 = hash_bytes(contents.as_bytes());
     Ok((data, Input { path, kind, sha256 }))
@@ -108,9 +130,9 @@ pub(crate) fn sensor_stack(v: &Value) -> Result<u64> {
         .as_u64()
         .unwrap_or(16384);
     if v.get("stack-bytes")
-        .is_some_and(|x| !integer(x, 8192, 262144))
+        .is_some_and(|x| !integer(x, 3072, 262144))
     {
-        return Err("sensor stack-bytes must be between 8192 and 262144".into());
+        return Err("sensor stack-bytes must be between 3072 and 262144".into());
     }
     Ok(stack)
 }
@@ -268,6 +290,7 @@ impl Profile {
             catalogs: Catalogs::default(),
             sdk_root: None,
             origins,
+            native_config: None,
             cli_overlays: Vec::new(),
             product_manifest: None,
         }
@@ -358,9 +381,22 @@ impl Profile {
         cli: &[PathBuf],
         product_manifest: Option<&Path>,
     ) -> Result<Self> {
+        Self::resolve_with_source_edits(root, name, cli, product_manifest, &SourceEdits::new())
+    }
+
+    /// Resolve candidate source bytes through the same inheritance and BSP validation
+    /// as a saved profile. Keys are canonical paths or new names under a canonical parent.
+    pub fn resolve_with_source_edits(
+        root: &Path,
+        name: &str,
+        cli: &[PathBuf],
+        product_manifest: Option<&Path>,
+        edits: &SourceEdits,
+    ) -> Result<Self> {
+        crate::source_transaction::check(root)?;
         let mut declared = Vec::new();
         let profiles = ProfileFiles::read(root)?;
-        let mut profile = Self::inherit(root, &profiles, name, &[], &mut declared)?;
+        let mut profile = Self::inherit(root, &profiles, name, &[], &mut declared, edits)?;
         profile.cli_overlays = cli.to_vec();
         profile.product_manifest = product_manifest
             .map(|path| {
@@ -385,7 +421,7 @@ impl Profile {
             let canonical = path
                 .canonicalize()
                 .map_err(|error| format!("overlay {}: {error}", path.display()))?;
-            let (patch, input) = read_input(canonical, kind)?;
+            let (patch, input) = read_input(canonical, kind, edits)?;
             overlay::merge(
                 &mut profile.data,
                 &patch,
@@ -395,10 +431,64 @@ impl Profile {
             )?;
             profile.inputs.push(input);
         }
+        profile.load_native_config(edits)?;
         profile.load_catalogs(root)?;
         profile.resolve_nuttx_resources(root)?;
         profile.validate_resources()?;
+        crate::source_transaction::check(root)?;
+        for input in &profile.inputs {
+            if !edits.contains_key(&input.path) && crate::hash(&input.path)? != input.sha256 {
+                return Err(format!("{} changed while resolving the profile; reload", input.path.display()));
+            }
+        }
         Ok(profile)
+    }
+
+    fn load_native_config(&mut self, edits: &SourceEdits) -> Result<()> {
+        let Some(reference) = self.data.get("nuttx-config") else {
+            return Ok(());
+        };
+        let declared_in = self.origins.get("nuttx-config").ok_or("missing nuttx-config source")?;
+        if self.data.get("board").is_none() {
+            return Err(format!("{}: nuttx-config requires a NuttX board", declared_in.display()));
+        }
+        let relative = reference
+            .as_str()
+            .filter(|s| !s.is_empty() && !s.contains(['\0', '\r', '\n']))
+            .map(Path::new)
+            .filter(|path| path.is_relative())
+            .ok_or_else(|| format!("{}: nuttx-config must be a relative file path", declared_in.display()))?;
+        let path = declared_in.parent().unwrap().join(relative);
+        let path = if edits.contains_key(&path) {
+            path
+        } else {
+            path.canonicalize().map_err(|error| format!("{}: {error}", path.display()))?
+        };
+        let contents = match edits.get(&path) {
+            Some(contents) => contents.clone(),
+            None => read(&path)?,
+        };
+        self.inputs.push(Input {
+            path: path.clone(),
+            kind: InputKind::NativeConfig,
+            sha256: hash_bytes(contents.as_bytes()),
+        });
+        self.native_config = Some(NativeConfig { declared_in: declared_in.clone(), path, contents });
+        Ok(())
+    }
+
+    pub fn native_config(&self) -> Option<&NativeConfig> {
+        self.native_config.as_ref()
+    }
+
+    pub fn source_of(&self, field: &str) -> Option<&Path> {
+        self.origins.get(field).map(PathBuf::as_path)
+    }
+
+    pub fn with_source_edits(&self, root: &Path, edits: &SourceEdits) -> Result<Self> {
+        Self::resolve_with_source_edits(
+            root, self.name(), &self.cli_overlays, self.product_manifest.as_deref(), edits,
+        )
     }
 
     fn resolve_nuttx_resources(&mut self, root: &Path) -> Result<()> {
@@ -422,7 +512,7 @@ impl Profile {
             .join(format!("{board}.toml"))
             .canonicalize()
             .map_err(|e| format!("BSP resource mapping for {board}: {e}"))?;
-        let (_, input) = read_input(path, InputKind::BspResources)?;
+        let (_, input) = read_input(path, InputKind::BspResources, &SourceEdits::new())?;
         crate::nuttx_resources::resolve(&mut self.data, &input.path)?;
         self.inputs.push(input);
         Ok(())
@@ -434,12 +524,13 @@ impl Profile {
         name: &str,
         chain: &[String],
         declared: &mut Vec<PathBuf>,
+        edits: &SourceEdits,
     ) -> Result<Self> {
         if chain.len() >= 16 || chain.iter().any(|s| s == name) {
             return Err(format!("platform inheritance cycle/depth: {name}"));
         }
         let path = profiles.path(name)?;
-        let (mut child, input) = read_input(path.clone(), InputKind::Profile)?;
+        let (mut child, input) = read_input(path.clone(), InputKind::Profile, edits)?;
         child.as_object_mut().unwrap().remove("name");
         if child.get("hal-features").is_some() {
             return Err("retired hal-features; platform must own [hal] bindings".into());
@@ -449,7 +540,7 @@ impl Profile {
             let parent = parent.as_str().ok_or("extends must name one platform")?;
             let mut chain = chain.to_vec();
             chain.push(name.into());
-            Self::inherit(root, profiles, parent, &chain, declared)?
+            Self::inherit(root, profiles, parent, &chain, declared, edits)?
         } else {
             Self::from_data(json!({"hal":{}}), Vec::new())
         };
@@ -497,7 +588,7 @@ impl Profile {
                 }
                 _ => {
                     resolved.data[k] = v.clone();
-                    if matches!(k.as_str(), "composition" | "imu") {
+                    if matches!(k.as_str(), "composition" | "imu" | "kconfig" | "nuttx-config") {
                         resolved.origins.insert(k.clone(), path.clone());
                     }
                 }
@@ -751,6 +842,7 @@ impl Profile {
     }
     pub fn validate_resources(&self) -> Result<()> {
         self.detector()?;
+        self.cellular_uart()?;
         if let Some(v) = self.data.get("scheduling") {
             if self.binding("execution") == "none"
                 || !keys(v, &["background", "normal"], &[])
@@ -802,8 +894,25 @@ impl Profile {
                 } else {
                     device(&value[field])
                 };
-                if !keys(value, &[field], &[]) || !valid {
+                let (required, optional): (&[&str], &[&str]) = match capability {
+                    "audio" => (&[field, "slot"], &[]),
+                    "watchdog" => (&[field], &["mode"]),
+                    _ => (&[field], &[]),
+                };
+                if !keys(value, required, optional) || !valid {
                     return Err(format!("{capability} requires a valid profile {field}"));
+                }
+                if capability == "audio"
+                    && (value["device"].as_str() != Some("/dev/audio/pcm_in0")
+                        || !matches!(value["slot"].as_str(), Some("left" | "right")))
+                {
+                    return Err("audio requires the I2S0 capture endpoint and a left or right slot".into());
+                }
+                if capability == "watchdog"
+                    && value.get("mode").is_some()
+                    && !matches!(value["mode"].as_str(), Some("inherited" | "runtime"))
+                {
+                    return Err("watchdog mode must be inherited or runtime".into());
                 }
             } else if !value.is_null() {
                 return Err(format!("{capability} resource requires its NuttX binding"));
@@ -834,6 +943,41 @@ impl Profile {
         }
         Ok(())
     }
+    fn cellular_uart(&self) -> Result<Option<&str>> {
+        let value = &self.data["cellular"];
+        if self.binding("cellular") != "nuttx" {
+            if !value.is_null() {
+                return Err("cellular UART requires its NuttX binding".into());
+            }
+            return Ok(None);
+        }
+        let uart = value["uart"]
+            .as_str()
+            .filter(|_| keys(value, &["uart"], &[]))
+            .ok_or("cellular requires one named UART resource")?;
+        let resource = &self.data["resources"][uart];
+        let assigned = self.data["devices"].as_object().is_some_and(|devices| {
+            devices.values().any(|device| {
+                self.data["resources"][device["bus"].as_str().unwrap_or_default()]["device"]
+                    == resource["device"]
+            })
+        });
+        if assigned
+            || resource["kind"] != "uart"
+            || resource["baud"] != 115200
+            || !device(&resource["device"])
+        {
+            return Err("cellular requires a dedicated 115200-baud BSP UART".into());
+        }
+        Ok(resource["device"].as_str())
+    }
+
+    pub fn watchdog_mode(&self) -> &str {
+        self.data["watchdog"]["mode"]
+            .as_str()
+            .unwrap_or("inherited")
+    }
+
     pub fn network_initialization(&self) -> Result<&str> {
         let Some(init) = self.data.get("init") else {
             return Ok("external");
@@ -929,6 +1073,14 @@ impl Profile {
         let mut env =
             |name: &str, value: String| output.push(format!("cargo:rustc-env={name}={value}"));
         match capability {
+            "cellular" => {
+                if let Some(uart) = self.cellular_uart()? {
+                    env("CELLULAR_DEVICE", uart.into());
+                }
+            }
+            "boot" if self.binding(capability) == "nuttx" && self.data.get("mcuboot").is_some() => {
+                env("BOOT_UPDATE_CONTROL", "1".into());
+            }
             "detector" => {
                 if let Some(c) = self.detector()? {
                     if let Some(core) = c.compute_core {
@@ -946,7 +1098,9 @@ impl Profile {
                         .into(),
                 );
             }
-            "camera" | "watchdog" if self.binding(capability) == "nuttx" => {
+            "camera" | "audio" | "watchdog" | "rtc" | "flash" | "display" | "touch"
+                if self.binding(capability) == "nuttx" =>
+            {
                 env(
                     &format!("{}_DEVICE", capability.to_uppercase()),
                     self.data[capability]["device"]
@@ -954,6 +1108,18 @@ impl Profile {
                         .ok_or("missing device path")?
                         .into(),
                 );
+                if capability == "audio" {
+                    env(
+                        "AUDIO_SLOT",
+                        self.data["audio"]["slot"]
+                            .as_str()
+                            .ok_or("missing audio slot")?
+                            .into(),
+                    );
+                }
+                if capability == "watchdog" {
+                    env("WATCHDOG_MODE", self.watchdog_mode().into());
+                }
             }
             "console" if self.binding(capability) != "none" => env(
                 "CONSOLE_DEVICE",
@@ -1010,6 +1176,73 @@ mod tests {
             .canonicalize()
             .unwrap()
     }
+
+    #[test]
+    fn native_config_reference_is_relative_to_its_declaring_profile() {
+        let temporary = crate::TempDir::new(&std::env::temp_dir()).unwrap();
+        let root = temporary.0.canonicalize().unwrap();
+        fs::write(root.join("Cargo.toml"), "[workspace]\n").unwrap();
+        let platform = root.join("platform/board");
+        let variants = platform.join("profiles");
+        fs::create_dir_all(&variants).unwrap();
+        let parent = platform.join("profile.toml");
+        let parent_fragment = platform.join("native.conf");
+        let child = variants.join("variant.toml");
+        let child_fragment = variants.join("native.conf");
+        fs::write(&parent, "name='board'\nboard='test:nsh'\nnuttx-config='native.conf'\n[kconfig]\nenable=['DEBUG_FEATURES']\n").unwrap();
+        fs::write(&parent_fragment, "CONFIG_DEBUG_ASSERTIONS=y\n").unwrap();
+        fs::write(&child, "extends='board'\n").unwrap();
+        let inherited = Profile::resolve(&root, "variant").unwrap();
+        assert_eq!(inherited.native_config().unwrap().declared_in, parent);
+        assert_eq!(inherited.native_config().unwrap().path, parent_fragment);
+        assert!(inherited.source_paths().any(|path| path == &parent_fragment));
+        fs::write(&parent_fragment, "# CONFIG_DEBUG_ASSERTIONS is not set\n").unwrap();
+        let changed = Profile::resolve(&root, "variant").unwrap();
+        assert_ne!(changed.input_fingerprint(), inherited.input_fingerprint());
+
+        fs::write(&child, "extends='board'\nnuttx-config='native.conf'\n").unwrap();
+        fs::write(&child_fragment, "# child override\n").unwrap();
+        let replaced = Profile::resolve(&root, "variant").unwrap();
+        assert_eq!(replaced.native_config().unwrap().declared_in, child);
+        assert_eq!(replaced.native_config().unwrap().path, child_fragment);
+        assert!(!replaced.source_paths().any(|path| path == &parent_fragment));
+        assert_eq!(replaced.data["kconfig"], inherited.data["kconfig"]);
+    }
+    #[test]
+    fn stamp_uses_its_own_bsp_uart_at_the_fixed_modem_baud() {
+        let root = root();
+        for name in ["m5stack-cores3-stamp-catm", "esp32s3-qemu-tracker"] {
+            let mut profile = Profile::resolve(&root, name).unwrap();
+            assert_eq!(profile.cellular_uart().unwrap(), Some("/dev/ttyS2"));
+            assert_eq!(
+                profile.data["resources"]["receiver_uart"]["device"],
+                "/dev/ttyS1"
+            );
+            profile.data["resources"]["modem_uart"]["device"] = json!("/dev/ttyS1");
+            assert!(profile.cellular_uart().is_err());
+            profile.data["resources"]["modem_uart"]["device"] = json!("/dev/ttyS2");
+            profile.data["resources"]["modem_uart"]["baud"] = json!(9600);
+            assert!(profile.cellular_uart().is_err());
+        }
+    }
+
+    #[test]
+    fn microphone_profile_admits_only_the_bound_endpoint_and_a_valid_slot() {
+        let root = root();
+        let mut profile = Profile::resolve(&root, "esp32s3-camera-microphone").unwrap();
+        let output = profile.cargo_output(&root, "audio", "nuttx").unwrap();
+        assert!(output
+            .iter()
+            .any(|line| line == "cargo:rustc-env=AUDIO_DEVICE=/dev/audio/pcm_in0"));
+        assert!(output.iter().any(|line| line == "cargo:rustc-env=AUDIO_SLOT=left"));
+
+        profile.data["audio"]["slot"] = json!("center");
+        assert!(profile.validate_resources().is_err());
+        profile.data["audio"]["slot"] = json!("right");
+        profile.data["audio"]["device"] = json!("/dev/audio/pcm_in1");
+        assert!(profile.validate_resources().is_err());
+    }
+
     #[test]
     fn registered_endpoints_are_explicit_validated_profile_inputs() {
         let root = root();
@@ -1018,8 +1251,13 @@ mod tests {
             ("camera", "device", "CAMERA_DEVICE", "/dev/video1"),
             ("watchdog", "device", "WATCHDOG_DEVICE", "/dev/watchdog0"),
             ("wifi", "interface", "WIFI_INTERFACE", "wlan1"),
+            ("rtc", "device", "RTC_DEVICE", "/dev/rtc0"),
+            ("flash", "device", "FLASH_DEVICE", "/dev/mtdblock0"),
+            ("display", "device", "DISPLAY_DEVICE", "/dev/spi2"),
+            ("touch", "device", "TOUCH_DEVICE", "/dev/input0"),
         ] {
             let mut profile = base.clone();
+            profile.data["hal"][capability] = json!("nuttx");
             profile.data[capability][field] = json!(value);
             profile.validate_resources().unwrap();
             assert!(profile
@@ -1031,6 +1269,16 @@ mod tests {
                 assert!(profile.validate_resources().is_err());
             }
         }
+        let mut profile = base;
+        assert_eq!(profile.watchdog_mode(), "inherited");
+        profile.data["watchdog"]["mode"] = json!("runtime");
+        profile.validate_resources().unwrap();
+        assert!(profile
+            .cargo_output(&root, "watchdog", "nuttx")
+            .unwrap()
+            .contains(&"cargo:rustc-env=WATCHDOG_MODE=runtime".into()));
+        profile.data["watchdog"]["mode"] = json!("auto");
+        assert!(profile.validate_resources().is_err());
     }
 
     #[test]
@@ -1091,7 +1339,7 @@ mod tests {
             ("imu", "address", json!(0x70)),
             ("imu", "frequency", json!(0)),
             ("imu", "irq-device", json!(false)),
-            ("gnss", "stack-bytes", json!(1)),
+            ("gnss", "stack-bytes", json!(3071)),
         ] {
             let mut p = base.clone();
             p.data[cap][key] = bad;

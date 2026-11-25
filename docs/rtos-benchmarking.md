@@ -1,9 +1,8 @@
-# NuttX, Rust/std and active-object characterization
+# Thread-Metric and native primitive benchmark foundation
 
-This is an isolated qualification fixture under `tests/rtos-bench`, not a new
-production runtime or HAL. The ordinary Rust `main()` is a non-default workspace
-member because it intentionally measures OS APIs. Production apps, services,
-platform profiles and the existing event transport are unchanged.
+Use this fixture to investigate native primitive costs or reproduce the repository's Thread-Metric adaptation. It does not provide a matched physical NXRS-versus-PX5 score. For the maintained two-board transport comparison, start with [RTOS results](rtos-comparison.md) and the [MPSC fixture](../tests/mpsc-comparison/README.md).
+
+The procedure and original limits below belong to this benchmark foundation. Later [physical characterization](../tests/rtos-characterization/PHYSICAL-RESULTS.md) and [flat-build TLS cleanup work](nuttx-memory-qualification.md#flat-build-pthread-key-patchset) are separate evidence. In particular, the historical restart caveat below describes the runtime before that scoped cleanup work; fresh-boot comparison remains the fixture's measurement procedure.
 
 ## Three independent questions
 
@@ -188,6 +187,8 @@ The report's failed NuttX cooperative check is retained explicitly. The pinned
 upstream revision is our chosen reproducible source, not asserted to be his.
 
 ## Flat NuttX built-in restart caveat
+
+This section records the original failure mechanism. See the [later patch and qualification](nuttx-memory-qualification.md#flat-build-pthread-key-patchset) before applying its remaining-work statements to a current build.
 
 The production architecture runs one firmware application `main()` for the life
 of the MCU boot. Repeatedly invoking the same Rust program as an NSH built-in in

@@ -13,6 +13,8 @@ pub enum Error {
 pub struct Measurement {
     /// Receiver epoch in milliseconds; used to suppress repeated navigation reports.
     pub epoch_ms: u64,
+    /// Unix milliseconds from the receiver when its UTC date and time are valid.
+    pub receiver_utc_ms: Option<i64>,
     pub latitude_deg: f64,
     pub longitude_deg: f64,
     pub speed_mps: f32,

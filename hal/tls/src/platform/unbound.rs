@@ -1,6 +1,6 @@
 //! Admission without a selected backend: public contracts remain usable, but
 //! no SDK, entropy source or connection can be acquired.
-use crate::{Certificates, Error, TimeLease};
+use crate::{Certificates, Error, Stream, TimeLease};
 use std::io::{self, Read, Write};
 use std::marker::PhantomData;
 use std::net::TcpStream;
@@ -9,14 +9,15 @@ use std::rc::Rc;
 pub struct Identity {
     _private: PhantomData<Rc<()>>,
 }
-pub struct Connection<'a> {
+pub struct Connection<'a, T: Stream = TcpStream> {
+    _transport: PhantomData<T>,
     _identity: &'a mut Identity,
 }
 pub fn open() -> Result<Identity, Error> {
     Err(Error::Unsupported)
 }
 impl Identity {
-    pub fn request(&mut self, _: &str, output: &mut [u8]) -> Result<usize, Error> {
+    pub fn request(&self, _: &str, output: &mut [u8]) -> Result<usize, Error> {
         output.fill(0);
         Err(Error::Unsupported)
     }
@@ -26,7 +27,34 @@ impl Identity {
     pub fn configure(&mut self, _: Certificates<'_>, _: &TimeLease) -> Result<(), Error> {
         Err(Error::Unsupported)
     }
+    pub fn renew(
+        &self,
+        _: Certificates<'_>,
+        _: &TimeLease,
+        _: impl FnMut() -> Result<(), Error>,
+    ) -> Result<(), Error> {
+        Err(Error::Unsupported)
+    }
     pub fn accept<'a>(&'a self, _: TcpStream, _: TimeLease) -> Result<Connection<'a>, Error> {
+        Err(Error::Unsupported)
+    }
+    #[cfg(feature = "pairing")]
+    pub fn pairing_key(&self) -> Result<[u8; 32], Error> {
+        Err(Error::Unsupported)
+    }
+    #[cfg(feature = "pairing")]
+    pub fn accept_pairing<'a, T: Stream>(
+        &'a self,
+        _: T,
+        _: &[u8; 32],
+    ) -> Result<Connection<'a, T>, Error> {
+        Err(Error::Unsupported)
+    }
+    pub fn accept_stream<'a, T: Stream>(
+        &'a self,
+        _: T,
+        _: TimeLease,
+    ) -> Result<Connection<'a, T>, Error> {
         Err(Error::Unsupported)
     }
     pub fn connect_pinned(
@@ -38,7 +66,7 @@ impl Identity {
         Err(Error::Unsupported)
     }
 }
-impl Connection<'_> {
+impl<T: Stream> Connection<'_, T> {
     pub fn poll(&mut self) -> Result<bool, Error> {
         Err(Error::Unsupported)
     }
@@ -49,13 +77,13 @@ impl Connection<'_> {
         Err(Error::Unsupported)
     }
 }
-impl Read for Connection<'_> {
+impl<T: Stream> Read for Connection<'_, T> {
     fn read(&mut self, output: &mut [u8]) -> io::Result<usize> {
         output.fill(0);
         Err(io::ErrorKind::Unsupported.into())
     }
 }
-impl Write for Connection<'_> {
+impl<T: Stream> Write for Connection<'_, T> {
     fn write(&mut self, _: &[u8]) -> io::Result<usize> {
         Err(io::ErrorKind::Unsupported.into())
     }

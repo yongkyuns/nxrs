@@ -1,0 +1,390 @@
+--- a/examples/src/bin/webrtc_camera.rs
++++ b/examples/src/bin/webrtc_camera.rs
+@@ -29,10 +29,11 @@
+
+ use core::cell::{Cell, RefCell};
+ use core::pin::pin;
+
++use nxrs_gateway_matter::lan::Lan;
+ use nxrs_gateway_matter::media::{AccessUnit, Audio, AudioPacket, Pictures, Video};
+-use std::net::{Ipv4Addr, SocketAddr, TcpListener, UdpSocket};
++use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr, UdpSocket};
+ use std::rc::Rc;
+ use std::time::{Duration, Instant};
+
+ use async_channel::{Receiver, Sender};
+@@ -73,8 +74,9 @@
+ use rs_matter::error::{Error, ErrorCode};
+ use rs_matter::im::{InteractionModel, InteractionModelState};
+ use nxrs_gateway_matter::commissioning::FactoryData;
+ use rs_matter::VerifierCommData;
++mod lan;
+ mod persistence;
+ use nxrs_gateway_matter::privacy::{self, LiveView, Privacy, Setting};
+ use rs_matter::dm::clusters::app::cam_av_stream::AttributeId as CameraAttr;
+ use rs_matter::persist::{KvBlobStoreAccess, VENDOR_KEYS_START};
+@@ -108,9 +110,8 @@
+ use rs_matter::respond::DefaultResponder;
+ use rs_matter::sc::pase::MIN_COMM_WINDOW_TIMEOUT_SECS;
+ use rs_matter::tlv::TLVArray;
+ use rs_matter::transport::exchange::MatterBuffers;
+-use rs_matter::transport::MATTER_SOCKET_BIND_ADDR;
+ use rs_matter::utils::futures::{select, select4, Coalesce};
+ use rs_matter::utils::init::InitMaybeUninit;
+ use rs_matter::{clusters, devices, root_endpoint, Matter, MATTER_PORT};
+ use topology::{Bridged, Occupancy};
+@@ -363,9 +364,9 @@
+
+ /// Lives in a `StaticCell`; both the hooks (embedded in `WebRtcProvHandler`)
+ /// and the driver future hold a `&'static` borrow.
+ struct Str0mShared {
+-    ice_address: Ipv4Addr,
++    lan: Lan,
+     privacy: Privacy,
+     camera: &'static CamAv,
+     inner: RefCell<Str0mInner>,
+     new_session_tx: Sender<NewSession>,
+@@ -378,14 +379,14 @@
+     video: Video,
+ }
+
+ impl Str0mShared {
+-    fn new(ice_address: Ipv4Addr, video: Video, camera: &'static CamAv, privacy: Privacy) -> Self {
++    fn new(lan: Lan, video: Video, camera: &'static CamAv, privacy: Privacy) -> Self {
+         let (new_session_tx, new_session_rx) = async_channel::bounded(N_SESSIONS);
+         let (signal_tx, signal_rx) = async_channel::bounded(1);
+         let (pending_tx, pending_rx) = async_channel::bounded(1);
+         Self {
+-            ice_address,
++            lan,
+             inner: RefCell::new(Str0mInner {
+                 sessions: AllocMap::new(),
+             }),
+             camera, privacy,
+@@ -978,12 +979,12 @@
+ // WebRtcHooks impl
+ // ---------------------------------------------------------------------------
+
+ fn new_peer(
+-    ice_address: Ipv4Addr, audio: bool,
++    lan: Lan, audio: bool,
+ ) -> Result<(Rtc, Async<UdpSocket>, SocketAddr, String), WebRtcError> {
+-    let bind_addr: SocketAddr = (ice_address, 0).into();
+-    let socket = Async::<UdpSocket>::bind(bind_addr).map_err(|e| {
++    let bind_addr: SocketAddr = (lan.ipv4(), 0).into();
++    let socket = lan.bind_udp(bind_addr).and_then(Async::new).map_err(|e| {
+         warn!("webrtc_camera: udp bind failed: {e}");
+         WebRtcError::Failure
+     })?;
+     let local_addr = socket.as_ref().local_addr().map_err(|e| {
+@@ -1196,9 +1197,9 @@
+         params: &OfferParams,
+     ) -> Result<SolicitOutcome, WebRtcError> {
+         let (refs, pictures, sound) = self.shared.streams(session_id, params)?;
+         let revoked = refs.revoked.clone();
+-        let (mut rtc, socket, local_addr, local_cand_sdp) = new_peer(self.shared.ice_address, sound.is_some())?;
++        let (mut rtc, socket, local_addr, local_cand_sdp) = new_peer(self.shared.lan, sound.is_some())?;
+         let mut changes = rtc.sdp_api();
+         let mid = changes.add_media(MediaKind::Video, Direction::SendOnly, None, None, None);
+         let audio_mid = sound
+             .as_ref()
+@@ -1266,9 +1267,9 @@
+         })?;
+
+         let (refs, pictures, sound) = self.shared.streams(session_id, params)?;
+         let revoked = refs.revoked.clone();
+-        let (mut rtc, socket, local_addr, local_cand_sdp) = new_peer(self.shared.ice_address, sound.is_some())?;
++        let (mut rtc, socket, local_addr, local_cand_sdp) = new_peer(self.shared.lan, sound.is_some())?;
+         let (answer, ice_mline_index) = accept_offer(&mut rtc, offer, sound.is_some())?;
+         let answer_sdp = answer.to_sdp_string();
+
+         // Plumb the session over to the driver task.
+@@ -1588,9 +1589,11 @@
+         .map_err(|_| ErrorCode::Invalid)?;
+     let snapshot_path = deployment.snapshot_ffmpeg.as_deref().ok_or(ErrorCode::Invalid)?;
+     let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
+     let inputs = if maintenance.is_none() {
+-        Some(runtime.block_on(deployment.inputs(initialize)).map_err(|_| ErrorCode::Invalid)?)
++        let lan = Lan::select(deployment.ice_address, deployment.lan_interface.as_deref())?;
++        let inputs = runtime.block_on(deployment.inputs(initialize)).map_err(|_| ErrorCode::Invalid)?;
++        Some((lan, inputs))
+     } else {
+         None
+     };
+     let factory = FACTORY.init(
+@@ -1617,9 +1620,9 @@
+             Maintenance::RemoveSoleFabric(index) => store.remove_sole_fabric(index)?,
+         }
+         return Ok(());
+     }
+-    let (reader, video, feed) = inputs.ok_or(ErrorCode::Invalid)?;
++    let (lan, (reader, video, feed)) = inputs.ok_or(ErrorCode::Invalid)?;
+     let matter = MATTER.uninit().init_with(Matter::init(
+         &BASIC_INFO, verifier.into(), &TEST_DEV_ATT, MATTER_PORT,
+     ));
+
+@@ -1699,9 +1702,9 @@
+         VIDEO_ALLOCATIONS_KEY,
+         AUDIO_ALLOCATIONS_KEY,
+         initial_video,
+     )?);
+-    let shared = SHARED.init(Str0mShared::new(deployment.ice_address, video, cam_av, privacy));
++    let shared = SHARED.init(Str0mShared::new(lan, video, cam_av, privacy));
+     let webrtc = WEBRTC.init(WebRtcProvHandler::new(
+         Dataver::new_rand(&mut rand),
+         matter,
+         1,
+@@ -1774,15 +1777,16 @@
+     }
+     let responder = DefaultResponder::new(&im);
+     let mut signals = Signals::new([Signal::Term, Signal::Int])?;
+
+-    let udp_socket = Async::<UdpSocket>::bind(MATTER_SOCKET_BIND_ADDR)?;
++    let udp4 = Async::new(lan.bind_matter_udp((Ipv4Addr::UNSPECIFIED, MATTER_PORT).into())?)?;
++    let udp6 = Async::new(lan.bind_matter_udp((Ipv6Addr::UNSPECIFIED, MATTER_PORT).into())?)?;
+
+     // WebRTC ICE / STUN / DTLS messages routed over Matter can easily
+     // exceed Matter's UDP MRU (~1200 B post-PASE); attach a TCP transport
+     // and publish live TCP capability on `Transport` so the controller can
+     // fall back to TCP for large payloads.
+-    let tcp_socket = Async::<TcpListener>::bind(MATTER_SOCKET_BIND_ADDR)?;
++    let tcp_socket = lan::TcpSockets::bind(lan, MATTER_PORT)?;
+     let tcp_buffers = TCP_BUFFERS
+         .uninit()
+         .init_with(rs_matter::transport::network::tcp::TcpNetworkBuffers::init());
+     let tcp = rs_matter::transport::network::tcp::TcpNetwork::new(
+@@ -1794,19 +1798,17 @@
+         rs_matter::transport::network::tcp::TcpCapability::ClientAndServer(
+             rs_matter::transport::MAX_RX_BUF_SIZE as u32,
+         ),
+     );
+-    info!(
+-        "TCP transport enabled, listening on {}",
+-        MATTER_SOCKET_BIND_ADDR
+-    );
+-
+     let (mut net_send, mut net_recv, mut net_multicast) = {
+         use rs_matter::transport::network::{Address, ChainedNetwork};
+-
+-        let net_send = ChainedNetwork::new(|addr: &Address| addr.is_tcp(), &tcp, &udp_socket);
+-        let net_recv = ChainedNetwork::new(|addr: &Address| addr.is_tcp(), &tcp, &udp_socket);
+-        (net_send, net_recv, &udp_socket)
++        let is_ipv6 = |addr: &Address| addr.udp().is_some_and(|a| a.is_ipv6());
++        let udp_send = ChainedNetwork::new(is_ipv6, &udp6, &udp4);
++        let udp_recv = ChainedNetwork::new(is_ipv6,
++            lan::UdpReceiver { lan, socket: &udp6 }, lan::UdpReceiver { lan, socket: &udp4 });
++        let net_send = ChainedNetwork::new(|addr: &Address| addr.is_tcp(), &tcp, udp_send);
++        let net_recv = ChainedNetwork::new(|addr: &Address| addr.is_tcp(), &tcp, udp_recv);
++        (net_send, net_recv, lan::Multicast { lan, v4: udp4.get_ref(), v6: udp6.get_ref() })
+     };
+
+     if open_window {
+         matter.open_basic_comm_window(MIN_COMM_WINDOW_TIMEOUT_SECS, &crypto, &())?;
+@@ -1817,9 +1819,10 @@
+         let mut worker = pin!(snapshot_worker.run(stopped));
+         let mut service = pin!(async {
+             let mut respond = pin!(responder.run::<4, 4>());
+             let mut im_job = pin!(im.run());
+-            let mut mdns = pin!(mdns::run_mdns(matter, &crypto));
++            let mut discovery = rs_matter::transport::network::mdns::astro::AstroMdns::on_interface(lan.index());
++            let mut mdns = pin!(discovery.run(matter));
+             let mut transport = pin!(select(
+                 matter.run(&crypto, &mut net_send, &mut net_recv, &mut net_multicast),
+                 tcp.run(),
+             ).coalesce());
+--- a/rs-matter-transport/src/network/mdns/astro.rs
++++ b/rs-matter-transport/src/network/mdns/astro.rs
+@@ -45,8 +45,9 @@
+ /// NOTE: For Linux, you need to install the avahi-compat libraries. E.g., on Ubuntu:
+ /// `sudo apt install -y libavahi-compat-libdnssd-dev libavahi-compat-libdnssd1`
+ pub struct AstroMdns {
+     services: HashMap<MatterLocalService, RegisteredDnsService>,
++    interface_index: u32,
+ }
+
+ impl Default for AstroMdns {
+     fn default() -> Self {
+@@ -58,20 +59,28 @@
+     /// Create a new `AstroMdns`.
+     pub fn new() -> Self {
+         Self {
+             services: HashMap::new(),
+-        }
++            interface_index: 0,
++        }
++    }
++
++    /// Use one interface for registrations and outbound discovery.
++    #[cfg(unix)]
++    pub fn on_interface(index: u32) -> Self {
++        Self { interface_index: index, ..Self::new() }
+     }
+
+     /// Run the mDNS responder + querier.
+     ///
+     /// # Arguments
+     /// - `matter`: A reference to the Matter instance to get mDNS services from.
+     pub async fn run(&mut self, node: &dyn TransportHost) -> Result<(), Error> {
+         let responder = node.transport().mdns_responder();
++        let interface_index = self.interface_index;
+         let mut respond = core::pin::pin!(self.run_respond(node));
+-        let mut resolve = core::pin::pin!(Self::run_resolve(node, &responder));
+-        let mut browse = core::pin::pin!(Self::run_browse(node, &responder));
++        let mut resolve = core::pin::pin!(Self::run_resolve(node, &responder, interface_index));
++        let mut browse = core::pin::pin!(Self::run_browse(node, &responder, interface_index));
+
+         select3(&mut respond, &mut resolve, &mut browse)
+             .coalesce()
+             .await
+@@ -105,17 +114,18 @@
+     /// the resolve is in flight.
+     async fn run_resolve(
+         node: &dyn TransportHost,
+         responder: &MdnsResponder<'_>,
++        interface_index: u32,
+     ) -> Result<(), Error> {
+         loop {
+             let service = responder.wait_resolve_request().await;
+
+             let mut name_buf: storage::String<128> = storage::String::new();
+             service.instance_name(&mut name_buf);
+             let label = name_buf.split('.').next().unwrap_or("").to_string();
+
+-            let browser = ServiceBrowserBuilder::new(service.service_type())
++            let browser = Self::browser(service.service_type(), interface_index)
+                 .browse()
+                 .map_err(|e| {
+                     error!("Failed to create service browser: {:?}", e);
+                     ErrorCode::MdnsError
+@@ -174,13 +184,14 @@
+     /// while the browse is in flight, so the Matter transport is not starved.
+     async fn run_browse(
+         node: &dyn TransportHost,
+         responder: &MdnsResponder<'_>,
++        interface_index: u32,
+     ) -> Result<(), Error> {
+         loop {
+             let query = responder.wait_browse_request().await;
+
+-            let browser = ServiceBrowserBuilder::new(query.base_service_type())
++            let browser = Self::browser(query.base_service_type(), interface_index)
+                 .browse()
+                 .map_err(|e| {
+                     error!("Failed to create service browser: {:?}", e);
+                     ErrorCode::MdnsError
+@@ -230,8 +241,15 @@
+             }
+         }
+     }
+
++    fn browser(regtype: &str, _interface_index: u32) -> ServiceBrowserBuilder {
++        let builder = ServiceBrowserBuilder::new(regtype);
++        #[cfg(unix)]
++        let builder = builder.with_interface_index(_interface_index);
++        builder
++    }
++
+     fn update_services(
+         &mut self,
+         node: &dyn TransportHost,
+         services: &HashSet<MatterLocalService>,
+@@ -284,9 +302,11 @@
+             format!("{}.{}", service.service, service.protocol)
+         };
+
+         let mut builder =
+-            DNSServiceBuilder::new(&composite_service_type, service.port).with_name(service.name);
++            DNSServiceBuilder::new(&composite_service_type, service.port)
++                .with_interface_index(self.interface_index)
++                .with_name(service.name);
+
+         for (k, v) in service.txt_kvs.clone() {
+             trace!("mDNS TXT key {} val {}", k, v);
+             builder = builder.with_key_value(k.to_string(), v.to_string());
+--- /dev/null
++++ b/examples/src/bin/lan/mod.rs
+@@ -0,0 +1,84 @@
++//! Adapt the scoped host sockets to the pinned SDK transport contracts.
++
++use std::net::{IpAddr, SocketAddr, TcpListener, TcpStream, UdpSocket};
++
++use async_io::Async;
++use nxrs_gateway_matter::lan::Lan;
++use rs_matter::{
++    error::Error,
++    transport::network::{tcp::TcpNetworkSockets, Address, NetworkMulticast, NetworkReceive},
++};
++
++pub struct TcpSockets {
++    lan: Lan,
++    listeners: Vec<Async<TcpListener>>,
++}
++
++impl TcpSockets {
++    pub fn bind(lan: Lan, port: u16) -> Result<Self, Error> {
++        let listeners = lan.listen_tcp(port)?.into_iter().map(Async::new)
++            .collect::<std::io::Result<_>>()?;
++        Ok(Self { lan, listeners })
++    }
++}
++
++impl TcpNetworkSockets for TcpSockets {
++    type Socket = Async<TcpStream>;
++
++    async fn accept(&self) -> Result<(SocketAddr, Self::Socket), Error> {
++        let listeners = self.listeners.iter().map(|listener| Box::pin(TcpNetworkSockets::accept(listener)));
++        futures_util::future::select_all(listeners).await.0
++    }
++
++    async fn connect(&self, addr: SocketAddr) -> Result<Self::Socket, Error> {
++        let stream = self.lan.connect_tcp(addr).await?;
++        let _ = stream.set_nodelay(true);
++        Ok(Async::new(stream)?)
++    }
++}
++
++pub struct UdpReceiver<'a> {
++    pub lan: Lan,
++    pub socket: &'a Async<UdpSocket>,
++}
++
++impl NetworkReceive for UdpReceiver<'_> {
++    async fn wait_available(&mut self) -> Result<(), Error> {
++        Ok(self.socket.readable().await?)
++    }
++
++    async fn recv_from(&mut self, buffer: &mut [u8]) -> Result<(usize, Address), Error> {
++        loop {
++            let datagram = self.socket.read_with(|socket| self.lan.recv_matter_udp(socket, buffer)).await?;
++            if let Some((count, peer)) = datagram {
++                return Ok((count, Address::Udp(peer)));
++            }
++            // An excluded interface must not monopolize the shared transport.
++            futures_lite::future::yield_now().await;
++        }
++    }
++}
++
++pub struct Multicast<'a> {
++    pub lan: Lan,
++    pub v4: &'a UdpSocket,
++    pub v6: &'a UdpSocket,
++}
++
++impl NetworkMulticast for Multicast<'_> {
++    async fn join(&mut self, addr: IpAddr) -> Result<(), Error> {
++        match addr {
++            IpAddr::V4(addr) => self.v4.join_multicast_v4(&addr, &self.lan.ipv4())?,
++            IpAddr::V6(addr) => self.v6.join_multicast_v6(&addr, self.lan.index())?,
++        }
++        Ok(())
++    }
++
++    async fn leave(&mut self, addr: IpAddr) -> Result<(), Error> {
++        match addr {
++            IpAddr::V4(addr) => self.v4.leave_multicast_v4(&addr, &self.lan.ipv4())?,
++            IpAddr::V6(addr) => self.v6.leave_multicast_v6(&addr, self.lan.index())?,
++        }
++        Ok(())
++    }
++}

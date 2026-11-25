@@ -88,7 +88,12 @@ int main(void) {
             (work / "nuttx/ioexpander").mkdir(parents=True)
             (work / "nuttx/config.h").write_text("#define CONFIG_DEV_GPIO 1\n")
             (work / "nuttx/ioexpander/gpio.h").write_text("""
- enum gpio_pintype_e { GPIO_OUTPUT_PIN, GPIO_INTERRUPT_RISING_PIN };
+ enum gpio_pintype_e {
+   GPIO_INPUT_PIN, GPIO_INPUT_PIN_PULLUP, GPIO_INPUT_PIN_PULLDOWN,
+   GPIO_OUTPUT_PIN, GPIO_OUTPUT_PIN_OPENDRAIN, GPIO_INTERRUPT_PIN,
+   GPIO_INTERRUPT_HIGH_PIN, GPIO_INTERRUPT_LOW_PIN, GPIO_INTERRUPT_RISING_PIN,
+   GPIO_NPINTYPES
+ };
  #define GPIOC_READ 1001
  #define GPIOC_PINTYPE 1002
  #define GPIOC_REGISTER 1003
@@ -109,8 +114,10 @@ int main(void) {
 #include <sys/ioctl.h>
 #include <nuttx/ioexpander/gpio.h>
 int acquisition_event_pipe(int[2]);
+int acquisition_event_poll(int, int, int);
 int acquisition_event_wait(int, int);
 int acquisition_event_tick(int, int);
+int gpio_check_pin(int, bool);
 int gpio_resource_irq_check(int);
 int gpio_resource_irq_register(int);
 int gpio_resource_irq_unregister(int);
@@ -144,7 +151,9 @@ static void *waiter(void *opaque) {
 static void check(int (*create)(int[2]), int (*wait)(int,int)) {
   int device[2], cancel[2]; char value;
   assert(create(device) == 0 && create(cancel) == 0);
+  assert(acquisition_event_poll(device[0], -1, 0) == 2);
   assert(write(device[1], "d", 1) == 1);
+  assert(acquisition_event_poll(device[0], -1, 0) == 1);
   assert(wait(device[0], cancel[0]) == 1);
   assert(read(device[0], &value, 1) == 1);
   pthread_t thread;
@@ -153,6 +162,7 @@ static void check(int (*create)(int[2]), int (*wait)(int,int)) {
   assert(write(cancel[1], "s", 1) == 1);
   assert(pthread_join(thread, NULL) == 0);
   assert(write(device[1], "d", 1) == 1);
+  assert(acquisition_event_poll(device[0], cancel[0], 0) == 0);
   assert(wait(device[0], cancel[0]) == 0); /* cancellation wins */
   for (int i = 0; i < 2; i++) { close(device[i]); close(cancel[i]); }
 }
@@ -171,8 +181,16 @@ int main(void) {
   assert(acquisition_event_tick(timer[0], 0) == 0); /* cancellation wins expiry */
   close(timer[0]); close(timer[1]);
   assert(gpio_resource_irq_check(42) == 0);
+  assert(gpio_check_pin(42, false) == 0);
+  assert(gpio_check_pin(42, true) == -1 && errno == EINVAL);
   type = GPIO_OUTPUT_PIN;
   assert(gpio_resource_irq_check(42) == -1 && errno == EINVAL);
+  assert(gpio_check_pin(42, true) == 0);
+  assert(gpio_check_pin(42, false) == -1 && errno == EINVAL);
+  type = GPIO_OUTPUT_PIN_OPENDRAIN;
+  assert(gpio_check_pin(42, true) == 0);
+  type = GPIO_INPUT_PIN_PULLUP;
+  assert(gpio_check_pin(42, false) == 0);
   assert(gpio_resource_irq_register(42) == 0 && registered == 1);
   assert(gpio_resource_irq_read(42) == 1);
   assert(gpio_resource_irq_unregister(42) == 0 && registered == 0);
@@ -182,7 +200,7 @@ int main(void) {
             subprocess.run(["cc", "-std=c11", "-Wall", "-Wextra", "-Werror", "-pthread",
                             "-D_GNU_SOURCE", "-Dpipe2=sensor_test_pipe2", "-include", str(work / "compat.h"),
                             "-I", str(work), str(harness),
-                            str(ROOT / "hal/acquisition/src/platform/nuttx/ffi/events.c"),
+                            str(ROOT / "shared/acquisition/src/platform/nuttx/ffi/events.c"),
                             str(ROOT / "driver/gpio/src/platform/nuttx/ffi/gpio.c"),
                             "-o", str(executable)], check=True, timeout=30)
             subprocess.run([str(executable)], check=True, timeout=5)

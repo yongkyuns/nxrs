@@ -26,12 +26,26 @@ python3 tools/build-recording-media.py /tmp/nxrs-recording-build
 ```
 
 The builder selects Go 1.27.3, verifies pinned upstream module sums, and applies
-the small [recorder queue patch](../../upstream/mediamtx/recorder-drain.patch).
+the [recorder queue](../../upstream/mediamtx/recorder-drain.patch) and
+[recorder permit](../../upstream/mediamtx/recording-permit.patch) patches.
 Install its `nxrs-mediamtx-recording` output root-owned and executable at
 `/usr/local/libexec/nxrs-mediamtx-recording`. Recording units require this separate
 binary: upstream 1.21.2 discards queued samples during recorder retirement.
 The patch drains only recorder queues before native fMP4 finalization; live
 viewer cancellation and finite service stop/resource limits still apply.
+
+The authenticated loopback `GET /v3/paths/get/<path>` reports effective
+`recordingEnabled` and whether the native recorder is still present. An
+optional `recordRequiresPermit` path setting starts recording disabled and
+does so again on each restart. Its `recordingPermit` identifies the current
+path incarnation and revision. An authenticated `POST /v3/paths/recording-permit/<path>`
+accepts those IDs and an `enable` boolean. Permission expires after three
+seconds without renewal. Explicit denial replies after recorder finalization.
+Stale updates return HTTP 409, including across restart. Select
+`--recording-privacy` when rendering a strict deployment with a Matter bridge.
+Standalone archival uses the operator's recording configuration. The
+[Matter bridge setup](../matter/README.md#capture-and-privacy) configures scoped
+renewal and durable policy for a guarded path.
 
 * Install the generated strict units and `var-lib-nxrs\x2drecordings.mount` under
   `/etc/systemd/system/`. Include `nxrs-recording-volume.service`,

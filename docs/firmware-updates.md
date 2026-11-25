@@ -1,5 +1,19 @@
 # Signed firmware updates
 
+A signed update must be authenticated, staged without damaging the active image, tried under a startup deadline, and confirmed only after health checks pass. MCUboot owns authentication and recovery; the Rust boot HAL owns staging/lifecycle access; the application decides when it is healthy enough to confirm.
+
+This reference covers the WROOM camera integration and its recorded checks. It separates the update contract from the individual hardware trials.
+
+| Task | Read |
+| --- | --- |
+| Build a signed image and matching bootloader | [Image preparation](#prepare-the-image) and [bootloader](#build-the-bootloader) |
+| Understand staging and confirmation ownership | [Boot HAL and startup health](#boot-hal-and-startup-health) |
+| Inspect exercised fault cases and remaining limits | [Physical update trials](#physical-update-trials) |
+| Deliver an update over the network | [OTA delivery](#ota-delivery) |
+| Understand credentials and renewal | [Network enrollment and time](#network-enrollment-and-time) |
+
+## Prepare the image
+
 Select `home-cam` with platform `esp32s3-camera-stream-startup` for a signed MCUboot camera/TLS/PICO image with
 TLS autostart and trial confirmation. Unsigned qualification builds require an
 explicit `--platform`; missing signing inputs fail before building.
@@ -8,6 +22,16 @@ It inherits the existing camera
 configuration without copying its HAL implementations or resource budgets.
 The pinned Espressif port reserves swap status for 512 sectors; signing includes
 that trailer budget and rejects an image that no longer fits.
+
+WROOM streaming profiles read the ESP32-S3 hardware counter for Rust's
+monotonic capture timestamps and keep the periodic scheduler. Delayed timer
+interrupts do not slow down the clock. The gateway retires streams when
+capture-to-arrival delay grows by more than one second above the connection's
+best observed offset.
+
+WROOM streaming profiles share the regular camera's fixed TCP write pool,
+including the SSH maintenance image. Buffered sends let the TLS worker keep
+polling while TCP waits for acknowledgements.
 
 Install the NuttX-pinned upstream tool with `pip install -r tools/mcuboot-requirements.txt`.
 The PyPI 2.2.0 release lacks the pinned source's EC public-key verification fix. Supply
@@ -44,6 +68,18 @@ within the same security epoch. Factory preparation requires one protected
 An unconfirmed trial may still revert. Confirmation retains the newer image and
 its counter for subsequent admissions. This uses authenticated image state, not
 an eFuse counter; it does not prevent replay of an entire external-flash snapshot.
+
+In the single-core, unencrypted WROOM campaign, four pending images were
+rejected for a wrong signing key, a corrupted payload, a wrong signed image
+class, and a signed
+security counter of 6 against the confirmed image's 7. In each case the
+confirmed camera reached commissioning, its signed primary bytes and
+confirmation flag verified, and the secondary header and trailer were erased.
+The same candidate payload with the trusted key, matching class and counter 8
+booted as an unconfirmed trial. The test seeded pending images over USB to
+exercise MCUboot admission. The original 16 MiB flash was restored and verified.
+
+## Boot HAL and startup health
 
 MCUboot owns image authentication, swapping and recovery. `hal/boot` exposes
 `state`, `stage_update`, `request_trial` and `confirm`. Shared Rust admits staging
@@ -90,6 +126,8 @@ service or automatic startup confirmation policy. Product wiring owns layout.
 The packager uses upstream signing/verification and explicit geometry, independent
 of the ESP32-S3 boot ROM.
 
+## Build the bootloader
+
 Build the matching signature-enforcing second stage with:
 
 ```sh
@@ -121,6 +159,8 @@ credential/enrollment input; trial boots retain the deadline while waiting.
 The register model checks both modes, locked/unlocked entry,
 preserved bits and repeated handoff; it does not qualify reset timing.
 
+## Physical update trials
+
 Trial health requires capture, authenticated full-image write completion and
 any configured real-frame inference within five seconds. Consuming retirement
 joins TLS, camera and detection; the product then disconnects/stops/joins Wi-Fi,
@@ -136,10 +176,12 @@ has passed Stable autostart and a changed-code Trial: joined confirmation, fresh
 TLS enrollment, camera/inference reacquisition and 200 seconds of sampled
 progress, with confirmed primary-image readback. A credential-input failure also
 led to restart and reversion to the previous confirmed image, verified by primary
-readback and 200 seconds of recovered TLS/inference progress. That observation
-included one USB reopen and no explicit host reset command; the reset cause was
-not measured. A separate attribution witness observed USB reset causes and failed
-the RTC-watchdog check; it does not establish physical watchdog causation.
+readback and 200 seconds of recovered TLS/inference progress. A single-core
+WROOM follow-up left commissioning incomplete with a 70-second test watchdog
+budget. With USB serial closed, a test loader recorded reset code `0x10`
+(RTC watchdog system reset) at entry to the first boot after the trial and
+recorded selection of the confirmed baseline. Primary flash readback verified
+the full signed baseline and its confirmation flag.
 Separately, after joining camera/TLS/detection and stopping Wi-Fi,
 the unprotected target staged a 2,000,000-byte prefix of its own signed image
 from the primary device into the inactive slot. Pending readback, subsequent
@@ -148,8 +190,21 @@ TLS/inference progress passed. A reset after one completed 256-byte staging
 write and readback left the rest of the checked prefix and trailer erased and
 the confirmed primary unchanged; TLS/inference recovered. Full 16 MiB restoration,
 digest verification and ordinary-camera recovery passed after each experiment.
-These tests do not qualify network delivery, changed-code staging, physical bus
-quiescence, torn writes, power loss or encrypted-write timing.
+In the single-core, unencrypted WROOM campaign, a test MCUboot build
+injected one software reset during the forward swap and one during reversion. Each
+reset followed the primary-slot erase for the second 256 KiB swap block and
+preceded the copy from scratch. Both swaps resumed from the primary trailer. The bootloader
+selected trial `0.0.2` after the forward swap and confirmed `0.0.1` after
+reversion. Flash readback verified both signed images and the primary
+confirmation flag. The original 16 MiB flash was restored and verified.
+Two USB hub cycles at the erase trigger recorded erase completion and
+`USB_UART_CHIP_RESET`. A separate ROM diagnostic left the hub port off for
+12 seconds. The WROOM's RTC counter advanced by 13.44 seconds over 13.43
+seconds of host time, including reconnect. This setup kept the RTC domain
+powered despite the hub reporting the port off. Testing interrupted erase or
+programming requires a switch on the board's actual power supply and a
+measured rail drop. Physical bus quiescence and encrypted-write timing also
+remain unqualified.
 The separate `joined-update` qualification binary reuses the camera composition,
 then stages a complete externally supplied image after successful resource
 retirement. Build it with the startup profile and `build.sh --bin joined-update`;
@@ -176,6 +231,23 @@ and Wi-Fi, quiesces the radio, stages through `hal/boot`, requests a trial and
 checks Pending. MCUboot authenticates the image after reset. A failed transfer
 does not request a trial; an unauthentic image is rejected by MCUboot.
 
+On the single-core, unencrypted WROOM, the gateway committed a 1,832,836-byte
+signed `home-cam` update over mutual TLS with an initially erased secondary slot.
+The candidate changed JPEG quality from 81 to 65. The test decoded camera
+frames directly over mutual TLS and observed fresh PICO results during trial,
+after confirmation, and after a separate reboot. The new JPEG quantization
+tables persisted across the reboot. Flash readback verified signed `0.0.2`
+and its primary confirmation flag before and after reboot. The original
+16 MiB flash was restored and verified.
+
+The WROOM also recovered from mutual-TLS disconnects after the sender sent
+64 KiB of the image and after the camera returned `NXOK` for the full image
+but before `CMIT`. Video and PICO observations advanced in the same boot
+after each disconnect. Full-slot readback matched the confirmed primary and
+an erased secondary. After the reboot used for readback, a fresh upload
+confirmed signed `0.0.2` and resumed video and PICO observations. The original
+16 MiB flash was restored and verified.
+
 The default startup profile uses network enrollment below. Stop and join the
 normal ingest owner, then run `nxrs-camera-ingest INGEST_JSON --require-camera-tls
 --update SIGNED_IMAGE` with the same bootstrap configuration. This replacement
@@ -199,7 +271,7 @@ No hardware protection setting or eFuse is changed.
 
 One-time commissioning stores the gateway's last-known private IPv4 endpoint, exact
 certificate SHA-256 pin, per-camera token and approved camera/site/gateway names
-in `hal/config`, beside the saved Wi-Fi profile. Device signing keys stay volatile
+in `hal/settings`, beside the saved Wi-Fi profile. Device signing keys stay volatile
 and non-exportable. No USB certificate or clock service runs after commissioning.
 The existing Rust ingest process owns one TLS1.3 bootstrap listener, signs a
 verified P-256 CSR with server-assigned names/usages, and joins old ingest workers
@@ -253,7 +325,7 @@ otherwise block without a reader. Rust opens `/dev/ttyACM0` only for missing
 commissioning/Wi-Fi input, restores its termios and closes it before networking.
 The tool also resumes Wi-Fi-only input after an interrupted first setup.
 Firmware erasure of the
-reserved config partition resets both records; keep ROM recovery available.
+reserved settings partition resets both records. Keep ROM recovery available.
 With hardware flash encryption off, stored Wi-Fi/token data is readable from
 flash. This change performs no eFuse or protection provisioning.
 
@@ -265,9 +337,15 @@ image. This keeps crypto/network delay out of a partially sent JPEG without
 relaxing the gateway's freshness limit. Requests have a 5-second total budget
 and measured delivery uncertainty. Cloning a lease preserves its original expiry;
 backward disjoint observations fail closed. Exact-peer mutual TLS still guards
-media and updates. The gateway host's UTC must be trustworthy. Camera sessions
-renew before their one-hour grant expires and retry unavailable enrollment after
-joined Wi-Fi cleanup. Losing time closes the authenticated stream.
+media and updates. The gateway host's UTC must be trustworthy. The camera
+requests fresh certificates and revocation data after 45 minutes, before the
+one-hour grant expires. Renewal proves possession of the existing camera key
+over the pinned bootstrap channel and retains the gateway key. Both sides
+validate the refreshed grant and apply it to the active TLS transport. The
+camera, detector, and gateway publisher keep running. Initial enrollment or
+replacement of a camera key still retires the prior grant and its publisher.
+Losing trusted time or reaching the grant deadline closes the authenticated
+stream. Seamless renewal requires the updated camera and gateway together.
 
 `gateway/tests/network_enrollment.py` tests the actual SDK camera and Rust gateway
 with synthetic media: enrollment, large JPEGs with a bounded clock-refresh stall,
@@ -326,8 +404,8 @@ The pre-activation software and bounded qualification milestone is complete.
 Protected runtime admission and a shipping startup cohort remain deferred pending
 separate configuration review and physical qualification. ROM enforcement,
 encrypted torn-write/power-loss recovery, cache/AES timing, a comprehensive
-DMA/MSPI fence and physical watchdog attribution remain unproved. Hardware
-protections remain OFF; no permanent device setting has been changed.
+DMA/MSPI fence and watchdog attribution on protected hardware remain unproved.
+Hardware protections remain OFF; no permanent device setting has been changed.
 
 Prepare those files offline from the protected boot build and a confirmed
 factory application:

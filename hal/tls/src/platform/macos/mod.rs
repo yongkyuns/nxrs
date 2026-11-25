@@ -1,9 +1,7 @@
 #![allow(unsafe_code)]
 use crate::sdk::{Entropy, EntropyUnavailable};
-use std::ffi::{c_int, c_void};
-unsafe extern "C" {
-    fn getentropy(buffer: *mut c_void, size: usize) -> c_int;
-}
+mod ffi;
+use self::ffi::getentropy;
 pub(crate) struct Source;
 impl Entropy for Source {
     fn fill(&mut self, output: &mut [u8]) -> Result<(), EntropyUnavailable> {

@@ -1,10 +1,12 @@
 # Build a controller
 
-Run a small controller, send typed commands to an output owner, and wait for each command's result. Then close admission, finish accepted work, switch the output off and join the worker. The same ordinary Rust application runs on your host and on NuttX in QEMU.
+Run a controller that switches a simulated LED. You’ll send commands, check the resulting state, and shut down the worker after it finishes queued work. The same program runs on your computer and on NuttX in QEMU.
 
 **Before you start:** complete [Your first application](first-application.md) and the [bounded worker](services.md#run-the-worker-in-your-application). Target execution also needs the Ubuntu tool setup in [Building for NuttX](firmware.md). Run the commands in this chapter from the NXRS checkout.
 
-This tutorial uses the existing LED capability with an explicit mock provider. It exercises the Rust application and target integration without needing a board. The reported state records command results; physical LED behavior needs a separately configured and tested device.
+The mock LED reports the result of each command. You can follow the entire tutorial without a board.
+
+The [Rust API reference](../api.md) links the `led` library's `Led`, `LedSet`, `DeviceError`, and `open` documentation. The application-specific controller types are defined in the source package below.
 
 ## Run the controller on your host
 
@@ -384,6 +386,9 @@ The repository's [First firmware tutorial workflow](../../.github/workflows/firs
 
 ## Adapt the application
 
-Start with the command and state definitions when adding behavior. Keep output effects in the owner, give every new command an explicit result, and decide how failures affect subsequent commands. If the application needs recording or networking, define those operations' completion and capacity contracts before introducing another owner.
+The [Matter LED example](../examples/matter-led/README.md) uses this controller
+to switch the simulated LED from Home Assistant.
+
+Start by defining the new command, its result, and how failure affects later commands. Keep output operations in the controller. If you add a recorder or network worker, decide how much work it can queue and when it reports success.
 
 [Designing an application](designing-applications.md) covers those choices. [Networking and storage](io.md) links the existing I/O contracts, and [Testing and debugging](testing.md) explains how to move from controlled fixtures to target and physical-device evidence.

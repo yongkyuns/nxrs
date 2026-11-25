@@ -1,9 +1,9 @@
 # Optional Dropbear access to NSH
 
 NXRS can select the native NuttX Apps Dropbear utility as an optional maintenance
-service. SSH is default off. Applications continue to use ordinary Rust `std`
-I/O, networking and threads; there is no mandatory SSH HAL, Rust protocol wrapper,
-broker, launcher or executor. The implementation and qualification plan is
+service. SSH is default off. The [home-cam maintenance image](../app/home-cam/README.md#ssh-maintenance)
+owns the optional native task through a small Rust lifecycle API. Dropbear
+still owns the protocol, authentication and shell. The implementation and qualification plan is
 [issue #327](https://github.com/yongkyuns/nxrs/issues/327).
 
 The ESP32-S3 lab verified that a provisioned host key and password database
@@ -36,7 +36,7 @@ close. A competing listener still blocks the bind.
 | Native NuttX password database | Public-key authentication and authorized-key policy |
 | Unique ECDSA P-256 native Dropbear host key | Automatic replacement of an existing identity |
 | PTY input/output and explicit foreground-command SIGINT | Generic forced cleanup of arbitrary uncooperative Rust commands |
-| Explicit local start/status/stop | NSH autostart, direct-init startup, multiple administrative sessions |
+| Explicit local start/status/stop, or ownership by the camera maintenance image | NSH autostart and multiple administrative sessions |
 | Bounded authentication, idle/retry and stop settings | SCP, SFTP, compression, forwarding, agent forwarding and NSH command pipelines |
 
 The profile is a flat administrative environment. A password-protected NSH shell
@@ -116,9 +116,11 @@ hardware RNG devices, and software cryptodev with its software-AES prerequisite.
 A backport of [ESP HAL PR #13](https://github.com/espressif/esp-hal-3rdparty/pull/13)
 prefixes the Wi-Fi AES helpers on NuttX so they can coexist with software
 cryptodev's AES implementation. The pinned dependency revision is retained.
-The native service is admitted only for a flat, non-SMP image. Kernel pipes remain
-enabled for PTYs and session signaling, while `NSH_PIPELINE=n` disables shell
-pipeline syntax alongside `NSH_DISABLEBG=y`.
+The native service requires a flat build. ESP32-S3 also supports SMP using the
+board's serialized RF entropy and PSRAM-safe libc atomics. Other targets
+retain their single-core requirement. Kernel pipes remain enabled for PTYs and
+session signaling, while `NSH_PIPELINE=n` disables shell pipeline syntax alongside
+`NSH_DISABLEBG=y`.
 SCP, compression, host-key generation and NSH Dropbear autostart are excluded.
 The exact prepared algorithm header and effective configuration are retained
 beside the image. Negotiated algorithm names are recorded only by real OpenSSH
@@ -264,6 +266,27 @@ records the configuration and commands. This run covers clean reboot and
 read-only use on the stated board. Interrupted provisioning and the remaining
 device cases are tracked in [issue #327](https://github.com/yongkyuns/nxrs/issues/327).
 
+## Invalid credentials on ESP32-S3
+
+With provisioned credentials on LittleFS, the Freenove ESP32-S3 refused
+startup when the host key was missing, malformed, or a directory. It also
+refused startup when the password database was missing, empty, or a
+directory. Each rejected start exited, reported a native failure, and left
+the SSH port unreachable. Missing paths stayed absent.
+
+A nonempty malformed password record allowed the listener to start. NuttX
+rejected login with the original password when it read that record. An
+unknown username was also rejected with a valid database. Restoring both
+original files restored login with the same pinned host key and password.
+
+To reproduce on the disposable lab volume, stop the fixture before each
+change, move the original file aside, and introduce one bad input at a time.
+A short text file is a malformed host key. For the password database, use
+an empty file or a line containing the test username followed by
+`:invalid`. Check the local daemon status and whether the SSH port is open.
+Restore the original file before starting the next case. Permission and
+storage I/O errors still need separate device checks.
+
 ## Recovering after Wi-Fi loss
 
 The SSH lab uses the Wi-Fi connectivity service to rejoin. When the station
@@ -290,6 +313,12 @@ interval extended the session. A fresh pinned login succeeded on the same
 Dropbear process after the idle disconnect. The
 [focused deadline cases](../tests/nuttx-std/ssh/README.md) reproduce these checks.
 
+With the wrong-password limit set to three, the earlier image let OpenSSH
+submit a fourth password. The corrected NuttX port closed the connection
+after the third wrong password, before the 30-second authentication
+deadline. A fresh pinned login succeeded on the same Dropbear process.
+Use `--case auth-attempts` to repeat the check.
+
 ## Repeated SSH sessions on ESP32-S3
 
 After five warm-up sessions, the Freenove ESP32-S3 served 100 pinned OpenSSH
@@ -299,11 +328,44 @@ process in one boot. The listening snapshots both showed 10 tasks and 43
 file descriptor rows. After active stop, restart and joined shutdown, the
 stopped snapshot matched its baseline of 9 tasks and 39 descriptor rows.
 
-This run used the existing reconnect harness with a local adjustment. It
-checked serial listener status every tenth session and waited 350 ms before
-other attempts. Every SSH attempt kept the normal checks. Earlier runs with
-per-session status checks timed out on the serial console after 65, 86 and
-89 authenticated logins. The serial failure remains open.
+Earlier runs with a listener status check before every login timed out on
+the serial console after 65, 86 and 89 authenticated sessions. A run that
+sampled status every tenth session passed. After the fixture began formatting
+each serial response before writing and the host accepted extra carriage
+returns on control replies, a fresh run passed all 100 sessions and ten
+password rejections with a status check before every login. The task and
+descriptor counts matched again. The source of the earlier timeouts remains
+unconfirmed.
+
+## Two-core WROOM maintenance image
+
+The signed `esp32s3-camera-stream-ssh` image was tested on the WROOM with
+video and PICO running. OpenSSH verified the existing host key, authenticated
+with a password, ran shell commands during playback, and completed two rekeys.
+Both orderly logout and an abrupt client disconnect let a new client log in.
+
+With the same 750 ms PICO sampling setting and unbuffered TCP, one 20-second
+viewer sample per case measured:
+
+| SSH activity | Single-core FPS | Two-core FPS | Single-core p95 gap | Two-core p95 gap |
+| --- | ---: | ---: | ---: | ---: |
+| Listener idle | 13.93 | 14.67 | 209 ms | 156 ms |
+| Active shell | 12.33 | 12.86 | 196 ms | 183 ms |
+
+The longest two-core gap with an active shell was 844 ms. These short samples
+measure decoded video through the gateway.
+
+A follow-up on the physical WROOM used the shared buffered TCP settings.
+The signed lab image passed three host-key-pinned interactive sessions and nine
+rekeys, with fresh logins after both a clean logout and a forced disconnect.
+During the ten-second SSH sample, the gateway received 153 timestamped frames
+with zero source retirements or freshness rejections. Firmware `0.0.6` was
+restored and the full flash matched its pre-test backup. The disposable
+credentials were erased and the camera resumed streaming.
+[Shared TCP profile change](https://github.com/yongkyuns/nxrs/pull/401)
+
+The WROOM maintenance profile schedules the SSH transport and shell below
+the camera TLS worker to prioritize video delivery during bulk terminal output.
 
 ## Qualification still required on hardware
 
@@ -313,14 +375,13 @@ hardware identity, test commands and acceptance budgets before declaring a pass.
 
 | Area | Required device evidence |
 | --- | --- |
-| Authentication storage | Correct/wrong password, unknown user, empty/unprovisioned, corrupt and unreadable database; maximum-attempt and authentication deadlines |
-| Identity | Correct native format; missing/invalid/unreadable key refusal; stable public fingerprint across restart/reboot and read-only mounts; no silent replacement |
+| Authentication storage | Permission and storage I/O errors while opening or reading the password database |
+| Identity | Permission and storage I/O errors while opening or reading the host key |
 | Terminal/application behavior | NSH, partial input, resize, Ctrl-C, Rust stdin/stdout/stderr, ordinary threads, success/failure return, return to the owning shell and continuing local workload |
 | Admission | One transport and one channel, bounded incomplete handshakes and second requests, unavailable address/address-in-use, bounded listen retries |
 | Recovery | Abrupt client death, sustained output/backpressure, rekey, physical access-point loss/recovery, idle and active stop, restart without reboot |
 | Negative controls | Deliberately failed login, missing output, changed identity, injected task/FD leak and incomplete shutdown must be detected; host controls do not replace device injection |
 | Resource cost | Matched baseline, dependencies selected but not running, listening, authenticated shell, handshake/rekey/failure peaks, post-disconnect and post-stop |
-| Long runs | Repeat the 100-session campaign with reliable per-session serial status checks |
 | Coexistence | Independent firmware progress during authentication/output/rekey plus product-workload latency, missed deadlines, buffer pressure and recovery |
 
 Use `/proc/meminfo`, task status/stack coloration, descriptor/TCP/PTY observations

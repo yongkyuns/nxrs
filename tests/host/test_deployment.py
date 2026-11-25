@@ -135,7 +135,7 @@ class DeploymentTests(unittest.TestCase):
     def test_provider_cfg_names_the_validated_binding(self):
         for name in ('linux', 'macos', 'windows'):
             profile = PLATFORM.resolve(name)
-            for capability in ('camera', 'storage', 'transport', 'detector'):
+            for capability in ('camera', 'storage', 'detector'):
                 binding = name if capability == 'detector' else None
                 self.assertEqual(profile['hal'].get(capability), binding)
                 cfgs = [line for line in PLATFORM.cargo_output(profile, capability, name)

@@ -1,8 +1,8 @@
 # Networking and storage
 
-Many firmware applications combine device control with communication and persistent data. Use standard Rust APIs for ordinary file and IP operations, then add an explicit ownership or delivery boundary where the workload needs one.
+Use standard Rust APIs for files and IP sockets. Add a worker when the application needs to keep making progress while I/O waits. The examples run from the NXRS checkout on your computer. On a device, enable the required network and filesystem resources in its profile.
 
-This chapter assumes you can run the [first application](first-application.md). The exercises below run on the host from the NXRS checkout. Target use additionally needs the selected profile's network and filesystem resources.
+See the [Rust API reference](../api.md) for `storage::recording` and the related service contracts.
 
 ## Networking
 
@@ -12,23 +12,14 @@ A connection-handling component can own its socket, receive commands through a b
 
 Protocol choice remains with the application. A destination can receive dedicated commands or records. Broadcast and remote acknowledgement are separate protocol choices, not consequences of using Rust channels or sockets.
 
-### Try the packet-output example
+### Run the UDP qualification
 
-The [transport crate](../../hal/transport/README.md) provides a small `PacketSink` contract and optional UDP implementation. Run its host tests:
-
-```sh
-cargo test --locked -p nxrs-transport --features udp
-```
-
-The tests check actual loopback packet bytes as well as invalid inputs and independent socket ownership. No profile is required: `udp` explicitly enables shared Rust socket functionality.
-
-To send the example’s two datagrams to a receiver you are running on your own host:
+The loopback fixture uses `std::net::UdpSocket` directly. It checks datagram
+contents, timeout and nonblocking behavior, and release of the bound port.
 
 ```sh
-cargo run --locked -p nxrs-transport --features udp --example native_send -- 127.0.0.1:9000
+cargo run --locked -p nxrs-std-udp -- pass
 ```
-
-A successful send only means the local socket accepted the datagram. The example does not prove a receiver exists or that it processed the packet. Use the loopback tests for a self-contained receive check, or inspect the bytes at your receiver.
 
 ### Decide what success means
 
@@ -38,8 +29,6 @@ A successful send only means the local socket accepted the datagram. The example
 | UDP packet submitted | Local socket acceptance | Sequence IDs, acknowledgements and retry/deduplication policy |
 | Bytes written to a TCP stream | Acceptance by the stream's write operation | Message framing and application-level response |
 | Peer reports an operation complete | The meaning defined by your protocol | Durable-state or exactly-once guarantees, if required and implemented |
-
-The [UDP API](../../hal/transport/src/udp.rs) accepts numeric addresses and reports backpressure. Its explicit constructor does not silently substitute a mock transport when a network is unavailable.
 
 ### Optional remote shell
 

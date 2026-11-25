@@ -1,8 +1,6 @@
 # Getting started
 
-This walkthrough takes one Rust application from source code on your computer to a NuttX image running in QEMU. You create the application with Cargo, edit its source, and build it locally. There is no precompiled application to download or copy.
-
-You need basic familiarity with Rust, Cargo, and a terminal. Start with the host steps even if your eventual target is a physical board: they establish that your source package and Rust toolchain work before adding a cross compiler and an operating-system build.
+Set up the tools to build a small Rust program on your computer. In the next guide you’ll write the program, and in the firmware tutorial you’ll run it under NuttX in QEMU. You’ll need basic familiarity with Rust, Cargo, and a terminal.
 
 ## Choose your starting point
 
@@ -16,9 +14,13 @@ You need basic familiarity with Rust, Cargo, and a terminal. Start with the host
 
 ## Install the host tools
 
-Install Git and Rust through [rustup](https://rustup.rs/), together with your operating system's native build tools: a C compiler and linker on Linux, the Xcode command-line tools on macOS, or Visual Studio C++ build tools with the Rust MSVC toolchain on Windows.
+Install [Git](https://git-scm.com/install/) and [Rust through rustup](https://rustup.rs/). Install the native build tools for your host:
 
-The host application works on these platforms. The next chapter's pinned ESP32-S3 compiler and QEMU bundle requires **Linux x86-64**; use an Ubuntu 24.04 x86-64 environment for the complete target walkthrough. It does not require a physical board. Python 3.11 or newer is used by the documentation tests and firmware tooling.
+- **Linux:** a C compiler and linker, such as Ubuntu’s `build-essential` package.
+- **macOS:** Xcode Command Line Tools (`xcode-select --install`).
+- **Windows:** Visual Studio C++ Build Tools with the Rust MSVC toolchain.
+
+The host steps work on all three operating systems. For the full firmware walkthrough, use Ubuntu 24.04 on x86-64. The pinned ESP32-S3 compiler and emulator run in that environment. The firmware and documentation tools also use Python 3.11 or newer.
 
 ## Get the NXRS source
 
@@ -28,37 +30,15 @@ cd nxrs
 rustup show
 ```
 
-The checkout's `rust-toolchain.toml` selects the Rust toolchain. `rustup show` should report that override rather than an unrelated global default. Keep this terminal in the NXRS repository root throughout the walkthrough. The application will live beside the checkout, with these relative paths:
-
-| Path from the NXRS root | Purpose |
-| --- | --- |
-| `.` | NXRS source, platform profiles, and build tools |
-| `../my-firmware/` | Your independent Cargo package and Rust source |
-| `target/` | NXRS tooling and generated build outputs |
-
-Choose an unused application directory. `cargo new` refuses to overwrite an existing one.
-
-The host-only first application does not need NuttX submodules, a board SDK, or an emulator yet. [Building for NuttX](firmware.md#prepare-ubuntu) initializes and installs those inputs when they are needed.
+`rustup show` should list the toolchain selected by the checkout’s `rust-toolchain.toml`. Keep the terminal in the NXRS root. The next guide creates your program in an unused sibling directory, `../my-firmware`. The host steps can run before you initialize the NuttX submodules or install the target tools.
 
 ## Create and run your application
 
-Continue with [Your first application](first-application.md). It shows the complete source and manifest, generates a local lockfile, and runs the program on your host. [Building for NuttX](firmware.md) then builds and boots **that same source**, changes its greeting, and rebuilds it.
-
-The sequence is:
-
-1. Create `my-firmware` with `cargo new` and run `hello` on the host.
-2. Install the target tools and build `hello` with an NXRS profile.
-3. Boot the image in QEMU and run `hello` at the NuttX shell.
-4. Edit the source, rebuild, and check the changed output.
-5. Add the bounded worker from [Services and concurrency](services.md).
-
-Every command block in the walkthrough runs on the host unless it explicitly shows an `nsh>` prompt. That prompt is the NuttX shell inside the emulator. The Rust binary name, its NSH command, and the product profile are explained as they first appear.
+Follow [Your first application](first-application.md) to write a greeting and run it on your computer. Then [build it for NuttX](firmware.md), boot it in QEMU, and run `hello` at the `nsh>` prompt. Until you see that prompt, enter the commands in your computer’s terminal.
 
 ## Where to look when a step fails
 
-Keep the first failing command and its output. A host compiler error belongs to the source package or host setup; a target-tool error belongs to the firmware setup; an NSH command failure happens after the image has booted. [Troubleshooting](troubleshooting.md) follows those boundaries.
-
-You can read the [architecture overview](overview.md) at any point, but the first program needs no custom service, hardware abstraction, or build script. Add those pieces when your application needs their behavior.
+Keep the first failing command and its output. [Troubleshooting](troubleshooting.md) walks through setup, build, and boot errors in order.
 
 ## Further examples
 
@@ -69,4 +49,4 @@ cargo run --locked -p nxrs-std-demo -- --list
 cargo run --locked -p nxrs-std-demo -- --case channels
 ```
 
-These are optional exercises, not a replacement for your application. See [Standard-library APIs](standard-library.md), [Examples](examples.md), and [Troubleshooting](troubleshooting.md) for more detail.
+See [Standard-library APIs](standard-library.md) for more recipes.

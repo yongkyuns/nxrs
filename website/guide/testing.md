@@ -1,8 +1,6 @@
 # Testing and debugging
 
-Use host tests for application and component behavior, target builds for integration, and device runs for hardware behavior and resource measurements.
-
-Choose the smallest test that answers the question you are working on. A parsing change should be reproducible on the host. A change to native device control needs the matching target integration and device test as well.
+Choose the smallest test that answers your question. A host test can reproduce a parser error. A change to native device control also needs the matching NuttX build and a test on the board.
 
 ## Choose a test level
 
@@ -43,10 +41,10 @@ For example, these software capabilities have explicit feature-selected host tes
 ```sh
 cargo test --locked -p nxrs-camera --features replay
 cargo test --locked -p nxrs-storage --features recording
-cargo test --locked -p nxrs-transport --features udp
+cargo run --locked -p nxrs-std-udp -- pass
 ```
 
-They exercise replay, file recording, and UDP behavior through their owning packages. Their [camera](../../hal/camera/README.md), [storage](../../hal/storage/README.md), and [transport](../../hal/transport/README.md) references describe the assertions and limits. A feature enabling software I/O is separate from a profile admitting hardware acquisition.
+They exercise camera replay, file recording, and standard-library UDP. Their [camera](../../hal/camera/README.md), [storage](../../hal/storage/README.md), and [UDP qualification](../../tests/nuttx-std/udp/README.md) references describe the assertions and limits. A feature enabling software I/O is separate from a profile admitting hardware acquisition.
 
 When changing architectural boundaries, run the audit and its regression suite:
 
