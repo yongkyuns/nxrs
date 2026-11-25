@@ -1,0 +1,364 @@
+diff --git a/examples/src/bin/webrtc_camera.rs b/examples/src/bin/webrtc_camera.rs
+--- a/examples/src/bin/webrtc_camera.rs
++++ b/examples/src/bin/webrtc_camera.rs
+@@ -63,8 +63,7 @@
+ //!   -an -f h264 loop_ok.h264
+ //!
+ //! # Run the example:
+-//! Set WEBRTC_RTSP_ADDR, WEBRTC_RTSP_PATH, WEBRTC_RTSP_USER and
+-//! WEBRTC_RTSP_TOKEN_FILE to the local MediaMTX source before starting the node.
++//! Pass --config with the Nxrs gateway camera deployment file.
+ //! ```
+
+ #![recursion_limit = "256"]
+@@ -72,8 +71,8 @@
+ use core::cell::{Cell, RefCell};
+ use core::pin::pin;
+
+-use nxrs_gateway_matter::media::{AccessUnit, Audio, AudioPacket, Pictures, Reader, Video};
+-use std::net::{SocketAddr, TcpListener, UdpSocket};
++use nxrs_gateway_matter::media::{AccessUnit, Audio, AudioPacket, Pictures, Video};
++use std::net::{Ipv4Addr, SocketAddr, TcpListener, UdpSocket};
+ use std::rc::Rc;
+ use std::time::Instant;
+
+@@ -125,6 +124,7 @@
+ const VIDEO_ALLOCATIONS_KEY: u16 = VENDOR_KEYS_START + 1;
+ const AUDIO_ALLOCATIONS_KEY: u16 = VENDOR_KEYS_START + 2;
+ const ONBOARDING_ID_KEY: u16 = VENDOR_KEYS_START + 3;
++const CAMERA_ID_KEY: u16 = VENDOR_KEYS_START + 4;
+ fn privacy_setting(id: CameraAttr) -> Result<Setting, Error> {
+     match id {
+         CameraAttr::MicrophoneMuted => Ok(Setting::MicrophoneMuted),
+@@ -382,6 +382,7 @@
+ /// Lives in a `StaticCell`; both the hooks (embedded in `WebRtcProvHandler`)
+ /// and the driver future hold a `&'static` borrow.
+ struct Str0mShared {
++    ice_address: Ipv4Addr,
+     privacy: Privacy,
+     camera: &'static CamAv,
+     inner: RefCell<Str0mInner>,
+@@ -393,10 +394,11 @@
+ }
+
+ impl Str0mShared {
+-    fn new(video: Video, camera: &'static CamAv, privacy: Privacy) -> Self {
++    fn new(ice_address: Ipv4Addr, video: Video, camera: &'static CamAv, privacy: Privacy) -> Self {
+         let (new_session_tx, new_session_rx) = async_channel::unbounded();
+         let (outbound_tx, outbound_rx) = async_channel::unbounded();
+         Self {
++            ice_address,
+             inner: RefCell::new(Str0mInner {
+                 sessions: AllocMap::new(),
+             }),
+@@ -924,9 +926,9 @@
+ // ---------------------------------------------------------------------------
+
+ fn new_peer(
+-    audio: bool,
+-) -> Result<(Rtc, Async<UdpSocket>, SocketAddr, SocketAddr, String), WebRtcError> {
+-    let bind_addr: SocketAddr = ([0u8, 0, 0, 0], 0u16).into();
++    ice_address: Ipv4Addr, audio: bool,
++) -> Result<(Rtc, Async<UdpSocket>, SocketAddr, String), WebRtcError> {
++    let bind_addr: SocketAddr = (ice_address, 0).into();
+     let socket = Async::<UdpSocket>::bind(bind_addr).map_err(|e| {
+         warn!("webrtc_camera: udp bind failed: {e}");
+         WebRtcError::Failure
+@@ -936,25 +938,6 @@
+         WebRtcError::Failure
+     })?;
+
+-    // The socket is bound to 0.0.0.0 so it can receive from any interface,
+-    // but ICE requires a concrete routable IP in the host candidate. Probe
+-    // the kernel's routing table by UDP-connecting to a dummy public address
+-    // (TEST-NET-2, no packets actually sent) to discover the preferred
+-    // outbound IPv4.
+-    let host_ip = UdpSocket::bind(SocketAddr::from(([0u8, 0, 0, 0], 0u16)))
+-        .and_then(|s| {
+-            s.connect(SocketAddr::from(([198u8, 51, 100, 1], 80)))?;
+-            s.local_addr()
+-        })
+-        .ok()
+-        .map(|a| a.ip())
+-        .filter(|ip| !ip.is_unspecified())
+-        .ok_or_else(|| {
+-            warn!("webrtc_camera: could not determine local routable IP");
+-            WebRtcError::Failure
+-        })?;
+-    let host_addr = SocketAddr::new(host_ip, local_addr.port());
+-
+     let mut rtc = Rtc::builder()
+         .clear_codecs()
+         .enable_h264(true)
+@@ -963,14 +946,14 @@
+     if audio {
+         rtc.sdp_api().synchronize_local_tracks();
+     }
+-    let cand = Candidate::host(host_addr, "udp").map_err(|e| {
++    let cand = Candidate::host(local_addr, "udp").map_err(|e| {
+         warn!("webrtc_camera: Candidate::host failed: {e}");
+         WebRtcError::Failure
+     })?;
+     let local_cand_sdp = cand.to_sdp_string();
+     rtc.add_local_candidate(cand);
+
+-    Ok((rtc, socket, local_addr, host_addr, local_cand_sdp))
++    Ok((rtc, socket, local_addr, local_cand_sdp))
+ }
+
+ fn accept_offer(
+@@ -1163,7 +1146,7 @@
+     ) -> Result<SolicitOutcome, WebRtcError> {
+         let (refs, pictures, sound) = self.shared.streams(session_id, params)?;
+         let revoked = refs.revoked.clone();
+-        let (mut rtc, socket, _, local_addr, local_cand_sdp) = new_peer(sound.is_some())?;
++        let (mut rtc, socket, local_addr, local_cand_sdp) = new_peer(self.shared.ice_address, sound.is_some())?;
+         let mut changes = rtc.sdp_api();
+         let mid = changes.add_media(MediaKind::Video, Direction::SendOnly, None, None, None);
+         let audio_mid = sound
+@@ -1235,7 +1218,7 @@
+
+         let (refs, pictures, sound) = self.shared.streams(session_id, params)?;
+         let revoked = refs.revoked.clone();
+-        let (mut rtc, socket, local_addr, host_addr, local_cand_sdp) = new_peer(sound.is_some())?;
++        let (mut rtc, socket, local_addr, local_cand_sdp) = new_peer(self.shared.ice_address, sound.is_some())?;
+         let (answer, ice_mline_index) = accept_offer(&mut rtc, offer, sound.is_some())?;
+         let answer_sdp = answer.to_sdp_string();
+
+@@ -1262,7 +1245,7 @@
+             );
+             info!(
+                 "webrtc_camera: session {session_id} established, bind = {local_addr}, \
+-                 host candidate = {host_addr}, active sessions = {}",
++                 host candidate = {local_addr}, active sessions = {}",
+                 inner.sessions.len()
+             );
+         }
+@@ -1276,11 +1259,7 @@
+                 local_video_mid: None, local_audio_mid: None, sound, refs,
+                 rtc,
+                 socket,
+-                // Use the routable host address (not the 0.0.0.0 bind
+-                // address), because str0m's ICE agent matches incoming
+-                // packets' `destination` against the local candidate list,
+-                // which contains the host address.
+-                local_addr: host_addr,
++                local_addr,
+                 remote_cand_rx,
+                 shutdown_rx,
+                 trickle_buf,
+@@ -1566,21 +1545,25 @@
+
+     let mut initialize = false;
+     let mut open_window = false;
+-    let mut factory_path = None;
++    let mut config_path = None;
+     let mut args = std::env::args_os().skip(1);
+     while let Some(arg) = args.next() {
+         match arg.to_str() {
+             Some("--initialize-state") if !initialize => initialize = true,
+             Some("--open-commissioning-window") if !open_window => open_window = true,
+-            Some("--factory-data") if factory_path.is_none() => {
+-                factory_path = Some(args.next().ok_or(ErrorCode::Invalid)?);
++            Some("--config") if config_path.is_none() => {
++                config_path = Some(args.next().ok_or(ErrorCode::Invalid)?);
+             }
+             _ => return Err(ErrorCode::Invalid.into()),
+         }
+     }
+-    let factory_path = factory_path.ok_or(ErrorCode::Invalid)?;
++    let config_path = config_path.ok_or(ErrorCode::Invalid)?;
++    let deployment = nxrs_gateway_matter::config::Deployment::load(std::path::Path::new(&config_path))
++        .map_err(|_| ErrorCode::Invalid)?;
++    let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
++    let (reader, video, feed) = runtime.block_on(deployment.inputs(initialize)).map_err(|_| ErrorCode::Invalid)?;
+     let factory = FACTORY.init(
+-        FactoryData::load(std::path::Path::new(&factory_path)).map_err(|_| ErrorCode::Invalid)?,
++        FactoryData::load(&deployment.factory_data).map_err(|_| ErrorCode::Invalid)?,
+     );
+     let verifier = VerifierCommData::new(
+         factory.discriminator, &factory.verifier, &factory.salt, factory.iterations,
+@@ -1590,10 +1573,10 @@
+     let (w0, point) = factory.verifier.split_at(32);
+     crypto.ec_scalar(CanonEcScalarRef::new(w0.try_into().map_err(|_| ErrorCode::Invalid)?))?;
+     crypto.ec_point(CanonEcPointRef::new(point.try_into().map_err(|_| ErrorCode::Invalid)?))?;
+-    let state_dir = std::env::var_os("WEBRTC_CAMERA_STATE").ok_or(ErrorCode::Invalid)?;
+-    let (store, persistence_failure) = persistence::StoreAdapter::open(
+-        std::path::Path::new(&state_dir), initialize, factory, ONBOARDING_ID_KEY,
++    let (mut store, persistence_failure) = persistence::StoreAdapter::open(
++        &deployment.state_directory, initialize, factory, ONBOARDING_ID_KEY,
+     )?;
++    let (camera_id, sensor_id) = store.bind_camera(&deployment, CAMERA_ID_KEY, initialize)?;
+     let matter = MATTER.uninit().init_with(Matter::init(
+         &BASIC_INFO, verifier.into(), &TEST_DEV_ATT, MATTER_PORT,
+     ));
+@@ -1618,10 +1601,6 @@
+
+     let mut rand = crypto.rand()?;
+
+-    let value = |name| std::env::var(name).map_err(|_| ErrorCode::Invalid);
+-    let (reader, video) = Reader::open(value("WEBRTC_RTSP_ADDR")?.parse().map_err(|_| ErrorCode::Invalid)?,
+-        &value("WEBRTC_RTSP_PATH")?, &value("WEBRTC_RTSP_USER")?,
+-        std::path::Path::new(&value("WEBRTC_RTSP_TOKEN_FILE")?)).map_err(|_| ErrorCode::Invalid)?;
+     let cam_av_config = CameraAvStreamConfig {
+         max_concurrent_encoders: 1,
+         max_encoded_pixel_rate: 1920 * 1080 * 30,
+@@ -1676,7 +1655,7 @@
+         AUDIO_ALLOCATIONS_KEY,
+         initial_video,
+     )?);
+-    let shared = SHARED.init(Str0mShared::new(video, cam_av, privacy));
++    let shared = SHARED.init(Str0mShared::new(deployment.ice_address, video, cam_av, privacy));
+     let webrtc = WEBRTC.init(WebRtcProvHandler::new(
+         Dataver::new_rand(&mut rand),
+         matter,
+@@ -1719,7 +1698,7 @@
+     let occupancy = Occupancy::new(Dataver::new_rand(&mut rand));
+     let sensor = Bridged::new(
+         Dataver::new_rand(&mut rand),
+-        "nxrs-fixture-occupancy",
++        sensor_id,
+         false,
+     );
+     let im = InteractionModel::new(
+@@ -1733,6 +1712,7 @@
+             cam_av,
+             cam_av_settings,
+             zone_mgmt,
++            camera_id,
+             &sensor,
+             &occupancy,
+         ),
+@@ -1803,11 +1783,8 @@
+         let _ = persistence_failure.recv().await;
+         Err(Error::from(ErrorCode::StdIoError))
+     };
+-    let controls = topology::drive(&im, &sensor, &occupancy);
+-    tokio::runtime::Builder::new_current_thread()
+-        .enable_all()
+-        .build()?
+-        .block_on(select(select(all, failed_store).coalesce(), controls).coalesce())
++    let controls = topology::drive(feed, &im, &sensor, &occupancy);
++    runtime.block_on(select(select(all, failed_store).coalesce(), controls).coalesce())
+ }
+
+ // ---------------------------------------------------------------------------
+@@ -1861,6 +1838,7 @@
+         CAM_AV_SETTINGS_NS,
+     >,
+     zone_mgmt: &'a ZoneMgmtHandler<DemoZoneHooks, ZONE_NZ, ZONE_NV, ZONE_NT>,
++    camera_id: String,
+     sensor: &'a Bridged,
+     occupancy: &'a Occupancy,
+ ) -> impl DataModel + 'a {
+@@ -1885,7 +1863,7 @@
+                 |e, c| e == 1 && c == Bridged::CLUSTER.id,
+                 DmAsync(bridge::HandlerAdaptor(Bridged::new(
+                     Dataver::new_rand(&mut rand),
+-                    "nxrs-fixture-camera",
++                    camera_id,
+                     true,
+                 ))),
+             )
+diff --git a/examples/src/bin/persistence/mod.rs b/examples/src/bin/persistence/mod.rs
+--- a/examples/src/bin/persistence/mod.rs
++++ b/examples/src/bin/persistence/mod.rs
+@@ -26,6 +26,11 @@
+         let (failure, receiver) = async_channel::bounded(1);
+         Ok((Self { inner, failure }, receiver))
+     }
++    pub fn bind_camera(&mut self, config: &nxrs_gateway_matter::config::Deployment, key: u16, initializing: bool)
++        -> Result<(String, String), Error> {
++        config.bind(&mut self.inner, key, initializing, rand::random)
++            .map_err(|_| ErrorCode::Invalid.into())
++    }
+     fn checked<T>(
+         &self,
+         result: Result<T, nxrs_gateway_matter::persistence::Error>,
+diff --git a/examples/src/bin/topology/mod.rs b/examples/src/bin/topology/mod.rs
+--- a/examples/src/bin/topology/mod.rs
++++ b/examples/src/bin/topology/mod.rs
+@@ -1,6 +1,4 @@
+-//! Generated-source bridge qualification. The private datagram socket lets a
+-//! test drive Matter attribute reports independently of camera playback.
+-use async_io::Async;
++//! Independent camera and occupancy endpoints for the selected gateway device.
+ use nxrs_gateway_matter::occupancy::{Feed, Presence};
+ use rs_matter::dm::clusters::decl::{
+     bridged_device_basic_information as bridge, occupancy_sensing as occ,
+@@ -10,16 +8,14 @@
+ use rs_matter::tlv::{TLVBuilderParent, Utf8StrBuilder};
+ use rs_matter::with;
+ use std::cell::Cell;
+-use std::os::unix::net::UnixDatagram;
+-use std::path::Path;
+
+ pub struct Bridged {
+     version: Dataver,
+-    id: &'static str,
++    id: String,
+     pub reachable: Cell<bool>,
+ }
+ impl Bridged {
+-    pub fn new(version: Dataver, id: &'static str, reachable: bool) -> Self {
++    pub fn new(version: Dataver, id: String, reachable: bool) -> Self {
+         Self {
+             version,
+             id,
+@@ -46,7 +42,7 @@
+         _: impl ReadContext,
+         b: Utf8StrBuilder<P>,
+     ) -> Result<P, Error> {
+-        b.set(self.id)
++        b.set(&self.id)
+     }
+     fn handle_keep_active(
+         &self,
+@@ -102,6 +98,7 @@
+ }
+
+ pub async fn drive(
++    feed: Feed,
+     notifier: &impl AttrChangeNotifier,
+     status: &Bridged,
+     occupancy: &Occupancy,
+@@ -123,37 +120,6 @@
+             notifier.notify_cluster_changed(3, bridge::FULL_CLUSTER.id);
+         }
+     };
+-    let trial = std::env::var_os("WEBRTC_CAMERA_TRIAL_DIR");
+-    let control = std::env::var_os("WEBRTC_CAMERA_CONTROL");
+-    match (trial, control) {
+-        (None, Some(addr)) => {
+-            let addr = addr
+-                .to_str()
+-                .and_then(|s| s.parse().ok())
+-                .ok_or(ErrorCode::Invalid)?;
+-            let camera = std::env::var("WEBRTC_CAMERA_ID").map_err(|_| ErrorCode::Invalid)?;
+-            let token = std::env::var_os("WEBRTC_CAMERA_TOKEN_FILE").ok_or(ErrorCode::Invalid)?;
+-            let feed =
+-                Feed::open(addr, &camera, Path::new(&token)).map_err(|_| ErrorCode::Invalid)?;
+-            feed.run(publish).await;
+-            Ok(())
+-        }
+-        (Some(directory), None) => {
+-            let socket = Async::new(UnixDatagram::bind(
+-                Path::new(&directory).join("occupancy.sock"),
+-            )?)?;
+-            let mut bytes = [0; 16];
+-            loop {
+-                let size = socket.recv(&mut bytes).await?;
+-                let state = match &bytes[..size] {
+-                    b"person" => Presence::Person,
+-                    b"clear" => Presence::Clear,
+-                    b"unavailable" => Presence::Unavailable,
+-                    _ => continue,
+-                };
+-                publish(state);
+-            }
+-        }
+-        _ => Err(ErrorCode::Invalid.into()),
+-    }
++    feed.run(publish).await;
++    Ok(())
+ }

@@ -2,9 +2,9 @@
 #![forbid(unsafe_code)]
 
 use core::fmt;
-use hal_common::BoundedBytes;
-pub use hal_common::{OperationId, RequestId, SessionId};
 pub use messaging::{DeliveryError, Rejected};
+use radio_types::BoundedBytes;
+pub use radio_types::{OperationId, RequestId, SessionId};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Error {

@@ -1,5 +1,7 @@
 # Pico 2 W and ESP32-S3 WROOM characterization
 
+The [November 17 WROOM review](WROOM-REVIEW.md) is a separate fresh cohort with improved placement inspection and matched usable-stack RAM controls. The historical records below remain unchanged.
+
 The physical runs covered 151 Pico captures and 304 WROOM evidence entries.
 Each block replayed against its own frozen artifacts. The IRQ and native RAM
 corrections used separate cohorts, so these results summarize the measured
@@ -48,19 +50,54 @@ returned to baseline. Linked resident RAM was 57,688 B for the baseline,
 57,704 B for threads, 57,720 B for std inboxes and 62,040 B for Crossbeam.
 Rust allocation observations are included in the native heap accounting.
 
-| Native RAM image | Accounted RAM | `work-long` deadline misses by pass |
+The four-way WROOM service control used 20 contexts, 480 event slots of 64 B,
+1 ms timers and lean reporting. The native arms requested 4 KiB per worker.
+Embassy reserved one 8 KiB shared stack plus static task state.
+
+| Native RAM image | Accounted RAM | `work-long` misses by pass (3,900 events each) |
 | --- | ---: | ---: |
 | NuttX C | 218,940 B | 0, 1, 0 |
 | NuttX Rust | 218,940 B | 1, 1, 7 |
 | Zephyr C | 204,060 B | 0, 6, 6 |
 | Embassy Rust | 61,184 B | 1,286, 1,286, 1,285 |
 
-All four images delivered 3,900 of 3,900 `work-long` offers per pass. NuttX
-accounting combines resident sections with observed heap high water. Zephyr
-and Embassy count resident sections, including reserved stacks. The stack
-observations qualify the exercised workload and settings.
+All four images delivered every offer. A miss counts completion after the
+class's 20, 40 or 80 ms deadline from scheduled release. Embassy used 28% of
+native NuttX Rust's RAM and missed about a third of the deadlines when long
+synchronous work occupied the cooperative executor. NuttX totals combine
+resident sections with observed heap high water. Zephyr and Embassy totals
+include static stack and buffer reservations in the resident sections.
 
-## Build provenance
+The [November 17 matched usable-stack rerun](WROOM-REVIEW.md#ram-separate-requests-usable-stacks-and-queue-costs)
+covers native NuttX C and Zephyr C. For the application implications and the
+earlier telemetry and execution-storage breakdown, see the
+[comparison report](../../docs/rtos-comparison.md#service-ram-and-deadline-behavior).
+
+## Supplemental board checks
+
+These November 10, 2026 checks used separate firmware and are outside the
+campaign census above.
+
+- **Pico 2 W timer to Rust worker.** A flat, single-core NuttX fixture used the
+  RP2350 hardware timer to wake a blocked Rust thread. All 600 alarms reached
+  the worker. In each of the three loaded batches of 100, the ISR interrupted
+  the lower-priority task on every alarm. Each loaded batch had a 6 µs median
+  from alarm deadline to the worker's first counter read. The three observed
+  maxima were 32, 26 and 22 µs. Timing uses the nominal on-chip counter.
+  The fixture image SHA-256 is
+  `953b4039f94f57b5ec1de9b32f77d0d736c49c10f816f780aaca7eb1d79e12eb`.
+  Physical IMU IRQ-to-sample timing still needs the
+  [wired BMI270 fixture](../nuttx-std/imu-qualification/README.md) and the
+  external timing reference in the
+  [S8 plan](../../docs/peripheral-composition-plan.md#s8--qualify-protected-execution-and-physical-deadlines).
+- **WROOM camera read recovery.** The signed camera diagnostic recovered in
+  the same boot and Wi-Fi session after an injected read error on the mutual
+  TLS path. The reconnecting RTSP viewer observed a 7.83 s gap between decoded
+  frames, and the gateway detection viewer received fresh PICO metadata 4.87 s
+  after the fault. See the [camera trial](https://github.com/yongkyuns/nxrs/pull/323)
+  and the separate [watchdog and update evidence](../../docs/firmware-updates.md).
+
+## Campaign build provenance
 
 The starting fixture revision was `797c00ca`. The physical reruns used the
 Pico flash-resident reset helpers and owned Zephyr USB transfers, the NuttX

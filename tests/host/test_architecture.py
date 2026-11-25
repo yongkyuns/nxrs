@@ -22,11 +22,12 @@ class ArchitectureTests(unittest.TestCase):
         self.packages = {}
         for name, location in [('app', 'app/demo'), ('service', 'service/demo'),
                                ('camera', 'hal/camera'), ('storage', 'hal/storage'),
-                               ('common', 'hal/common'), ('support', 'tests/nuttx/support'),
+                               ('radio-types', 'hal/radio-types'), ('support', 'tests/nuttx/support'),
                                ('messaging', 'shared/messaging'),
+                               ('acquisition', 'shared/acquisition'),
                                ('driver', 'driver/demo'), ('platform', 'tools/build'),
                                ('bmi270', 'driver/bmi270'), ('imu', 'hal/imu'),
-                               ('devices', 'platform'),
+                               ('devices', 'platform'), ('platform-adapter', 'platform/adapter'),
                                ('build-support', 'tools/build-support'),
                                ('camera-build', 'tools/camera-build-support'),
                                ('test', 'tests/portable'), ('target', 'tests/nuttx')]:
@@ -54,6 +55,29 @@ class ArchitectureTests(unittest.TestCase):
     def violations(self):
         return CHECK.inspect(self.metadata, self.root) + CHECK.inspect_sources(self.metadata, self.root)
 
+    def test_acquisition_is_internal_support(self):
+        self.add('imu', 'acquisition')
+        self.add('devices', 'acquisition')
+        self.add('acquisition', 'build-support', kind='build')
+        self.assertEqual(self.violations(), [])
+        for source in ('app', 'service'):
+            self.add(source, 'acquisition')
+            self.assertTrue(any(f'forbidden {source} -> support edge' in error
+                                for error in self.violations()))
+
+    def test_detection_owns_only_the_optional_detector_hal(self):
+        for name, path in [('detection', 'service/detection'), ('detector', 'hal/detector')]:
+            self.metadata['packages'].append(self.package(name, path))
+            self.metadata['workspace_members'].append(name)
+        self.add('detection', 'detector', optional=True)
+        self.assertEqual(CHECK.inspect(self.metadata, self.root), [])
+        for target, optional in [('camera', True), ('detector', False)]:
+            with self.subTest(target=target, optional=optional):
+                self.add('detection', target, optional=optional, rename='inference_backend')
+                self.assertTrue(any('only use the optional detector HAL' in error
+                                    for error in CHECK.inspect(self.metadata, self.root)))
+                self.packages['detection']['dependencies'].pop()
+
     def test_catalogue_wires_drivers_but_only_apps_select_devices(self):
         for source, target in [('app', 'devices'), ('devices', 'imu'), ('devices', 'bmi270')]:
             self.add(source, target)
@@ -73,23 +97,19 @@ class ArchitectureTests(unittest.TestCase):
         directory = self.root / 'hal/camera/src/platform'
         directory.mkdir()
         selector = directory / 'mod.rs'
+        grouped = ('cfg_if::cfg_if! { if #[cfg(platform = "nuttx")] '
+                   '{ mod nuttx; use nuttx as selected; } else '
+                   '{ mod unbound; use unbound as selected; } }\n')
         for exports in ['pub(super) use selected::open;',
                         'pub use selected::{open, Camera};',
                         'pub(super) use selected::open;\n#[cfg(platform = "mock")] pub use selected::{CameraAction, MockCamera, FORMAT};']:
             with self.subTest(exports=exports):
-                selector.write_text('#[path="unbound.rs"] mod selected;\n' + exports + '\n')
+                selector.write_text(grouped + exports + '\n')
                 self.assertEqual(CHECK.inspect_hal_boundaries(self.root), [])
-        valid = '#[path="unbound.rs"] mod selected;\npub use selected::open;\n'
-        selector.write_text('mod unbound; pub use unbound as selected; pub use selected::open;')
-        self.assertEqual(CHECK.inspect_hal_boundaries(self.root), [])
-        grouped = ('cfg_if::cfg_if! { if #[cfg(platform = "nuttx")] '
-                   '{ mod nuttx; use nuttx as selected; } else '
-                   '{ mod unbound; use unbound as selected; } } pub use selected::open;')
-        selector.write_text(grouped)
-        self.assertEqual(CHECK.inspect_hal_boundaries(self.root), [])
+        valid = grouped + 'pub use selected::open;\n'
         with (directory.parent / 'lib.rs').open('a') as source:
             source.write('mod model; // mod missing;')
-        selector.write_text('use crate::model as selected; pub use selected::open;')
+        selector.write_text(valid.replace('mod nuttx; use nuttx as selected;', 'use crate::model as selected;'))
         self.assertEqual(CHECK.inspect_hal_boundaries(self.root), [])
         for code in [valid + 'pub fn open() {}', valid + 'pub use other::Camera;',
                      grouped.replace('mod nuttx;', 'mod nuttx; fn hidden() {}'),
@@ -103,6 +123,18 @@ class ArchitectureTests(unittest.TestCase):
                 selector.write_text(code)
                 self.assertTrue(any('select source modules' in error
                                     for error in CHECK.inspect_hal_boundaries(self.root)))
+        for invalid in ('#[path="unbound.rs"] mod selected; pub use selected::open;',
+                        'mod nuttx; use nuttx as selected; pub use selected::open;',
+                        'cfg_if::cfg_if! {} mod nuttx; use nuttx as selected; pub use selected::open;',
+                        grouped.replace('mod nuttx;', '#[path="nuttx.rs"] mod nuttx;') + 'pub use selected::open;'):
+            with self.subTest(selector=invalid):
+                selector.write_text(invalid)
+                self.assertTrue(any('one cfg_if::cfg_if! block' in error
+                                    for error in CHECK.inspect_hal_boundaries(self.root)))
+        selector.write_text(valid)
+        (directory / 'nuttx.rs').write_text('')
+        self.assertTrue(any('put provider nuttx in nuttx/mod.rs' in error
+                            for error in CHECK.inspect_hal_boundaries(self.root)))
 
     def test_hal_root_wildcard_exports_are_rejected(self):
         source = self.root / 'hal/camera/src/lib.rs'
@@ -241,11 +273,14 @@ class ArchitectureTests(unittest.TestCase):
                 self.assertTrue(any('cross-package Rust source' in error for error in self.violations()))
 
     def test_portability_boundary_has_no_app_or_target_exceptions(self):
-        for source, target in [('app', 'platform'), ('service', 'platform'), ('platform', 'app')]:
-            for extra in ({}, {'kind': 'dev'}, {'kind': 'build'}, {'target': 'cfg(target_os = "nuttx")'}):
-                self.add(source, target, **extra)
-                self.assertTrue(self.violations())
-                self.packages[source]['dependencies'].clear()
+        for source, target in [('app', 'platform'), ('service', 'platform'), ('platform', 'app'),
+                               ('platform-adapter', 'service'), ('devices', 'service')]:
+            for extra in ({}, {'kind': 'dev'}, {'kind': 'build'}, {'optional': True},
+                          {'target': 'cfg(target_os = "nuttx")'}):
+                with self.subTest(source=source, dependency=target, **extra):
+                    self.add(source, target, **extra)
+                    self.assertTrue(self.violations())
+                    self.packages[source]['dependencies'].pop()
         directory = Path(self.packages['app']['manifest_path']).parent
         for code in ['#[cfg(target_os = "nuttx")] fn f() {}', 'fn f() { cfg!(unix); }',
                      '#[cfg(platform = "mock")] fn f() {}', 'fn f() { cfg!(platform = "simulation"); }',
@@ -280,19 +315,22 @@ class ArchitectureTests(unittest.TestCase):
             (self.root / 'hal' / name / 'src/lib.rs').write_text('#![no_std]\n#![deny(unsafe_code)]\n')
             self.metadata['packages'].append(self.packages[name])
             self.metadata['workspace_members'].append(name)
-            self.add(name, 'common')
+            self.add(name, 'radio-types')
         self.assertEqual(self.violations(), [])
-        for name in ('camera', 'storage'):
+        for name in ('app', 'service', 'camera', 'storage'):
             with self.subTest(package=name):
-                self.add(name, 'common')
-                self.assertTrue(self.violations())
+                self.add(name, 'radio-types')
+                self.assertTrue(any('only Wi-Fi and BLE' in issue for issue in self.violations()))
                 self.packages[name]['dependencies'].clear()
+        self.add('radio-types', 'messaging', kind='dev')
+        self.assertTrue(any('radio types must remain dependency-free' in issue
+                            for issue in self.violations()))
 
     def test_messaging_is_portable_and_cannot_depend_on_upper_layers(self):
         for name in ('app', 'service', 'camera', 'driver'):
             self.add(name, 'messaging')
         self.assertEqual(self.violations(), [])
-        for name in ('app', 'service', 'camera', 'driver', 'platform', 'common'):
+        for name in ('app', 'service', 'camera', 'driver', 'platform', 'radio-types'):
             self.add('messaging', name)
             self.assertTrue(self.violations())
             self.packages['messaging']['dependencies'].clear()
@@ -310,7 +348,7 @@ class ArchitectureTests(unittest.TestCase):
         self.assertTrue(any('package omitted' in error for error in self.violations()))
 
     def test_reverse_edges_and_optional_build_target_backdoors(self):
-        for source, target in [('service', 'app'), ('camera', 'service'), ('common', 'camera'),
+        for source, target in [('service', 'app'), ('camera', 'service'), ('radio-types', 'camera'),
                                ('camera', 'support'), ('app', 'test'), ('driver', 'platform')]:
             for extra in ({}, {'optional': True}, {'kind': 'build'}, {'target': 'cfg(windows)'}, {'rename': 'innocent'}):
                 with self.subTest(edge=(source, target), extra=extra):
@@ -490,7 +528,7 @@ class PublicNamespaceTests(unittest.TestCase):
             self.assertNotIn(name, names)
             names.add(name)
             if path.parts[0] == 'hal' and len(path.parts) == 2:
-                self.assertEqual(name, 'hal_common' if path.name == 'common' else path.name)
+                self.assertEqual(name, path.name.replace('-', '_'))
 
 
 class DependencyCapsuleTests(unittest.TestCase):

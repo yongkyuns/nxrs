@@ -1,0 +1,133 @@
+--- a/examples/src/bin/webrtc_camera.rs
++++ b/examples/src/bin/webrtc_camera.rs
+@@ -133,8 +133,9 @@
+ // ---------------------------------------------------------------------------
+
+ const N_SESSIONS: usize = 4;
+ const NEGOTIATION_TIMEOUT: Duration = Duration::from_secs(20);
++const SHUTDOWN_DRAIN: Duration = Duration::from_secs(1);
+ const SDP_LEN: usize = 8 * 1024;
+ // Must be large enough to hold an outbound `Answer(sdp)` invoke payload,
+ // i.e. the full SDP plus TLV framing overhead.
+ const OUT_LEN: usize = SDP_LEN + 1024;
+@@ -372,8 +373,9 @@
+     signal_tx: Sender<()>,
+     signal_rx: Receiver<()>,
+     pending_tx: Sender<()>,
+     pending_rx: Receiver<()>,
++    stopping: Cell<bool>,
+     video: Video,
+ }
+
+ impl Str0mShared {
+@@ -392,15 +394,19 @@
+             signal_tx,
+             signal_rx,
+             pending_tx,
+             pending_rx,
++            stopping: Cell::new(false),
+             video,
+         }
+     }
+
+     fn streams(&self, session_id: u16, params: &OfferParams) -> Result<(StreamRefs, Pictures, Option<Audio>), WebRtcError> {
+         // This example negotiates a fresh peer per offer. Keep the previous worker
+         // and its access guard in the table until its session has ended.
++        if self.stopping.get() {
++            return Err(WebRtcError::InvalidInState);
++        }
+         let inner = self.inner.borrow();
+         if inner.sessions.get(&session_id).is_some() {
+             return Err(WebRtcError::InvalidInState);
+         }
+@@ -452,8 +458,19 @@
+     fn end(&self, ctrl: &SessionCtrl, reason: WebRTCEndReasonEnum) {
+         if !ctrl.closing.replace(true) {
+             ctrl.end.set(Some(reason));
+             self.notify_signaling();
++        }
++    }
++
++    fn stop_accepting(&self) {
++        self.stopping.set(true);
++        for (_, ctrl) in &self.inner.borrow().sessions.entries {
++            if ctrl.pending_offer.borrow_mut().take().is_some() {
++                self.end(ctrl, WebRTCEndReasonEnum::UserHangup);
++            } else {
++                let _ = ctrl.shutdown_tx.try_send(());
++            }
+         }
+     }
+
+     async fn drive(&self) -> Result<(), Error> {
+@@ -1797,9 +1814,9 @@
+
+     runtime.block_on(async {
+         let (stop, stopped) = tokio::sync::watch::channel(false);
+         let mut worker = pin!(snapshot_worker.run(stopped));
+-        let service = async {
++        let mut service = pin!(async {
+             let mut respond = pin!(responder.run::<4, 4>());
+             let mut im_job = pin!(im.run());
+             let mut mdns = pin!(mdns::run_mdns(matter, &crypto));
+             let mut transport = pin!(select(
+@@ -1815,23 +1832,47 @@
+                 Err(ErrorCode::StdIoError.into())
+             };
+             let controls = topology::drive(feed, &im, &sensor, &occupancy);
+             select(select(all, failed_store).coalesce(), controls).coalesce().await
+-        };
+-        // This select owns the service future. Retire peers and transport
+-        // before joining the snapshot worker, which reaps its encoder child.
+-        let result = tokio::select! {
++        });
++        tokio::select! {
+             biased;
+-            signal = signals.next() => match signal {
+-                Some(Ok(_)) => Ok(()),
+-                _ => Err(ErrorCode::StdIoError.into()),
+-            },
+-            result = service => result,
++            signal = signals.next() => {
++                if !matches!(signal, Some(Ok(_))) {
++                    stop.send_replace(true);
++                    worker.as_mut().await.map_err(|_| ErrorCode::StdIoError)?;
++                    return Err(ErrorCode::StdIoError.into());
++                }
++            }
++            result = &mut service => {
++                stop.send_replace(true);
++                worker.as_mut().await.map_err(|_| ErrorCode::StdIoError)?;
++                return result;
++            }
+             _ = &mut worker => return Err(ErrorCode::StdIoError.into()),
+-        };
++        }
++
++        shared.stop_accepting();
+         stop.send_replace(true);
+-        worker.as_mut().await.map_err(|_| ErrorCode::StdIoError)?;
+-        result
++        tokio::select! {
++            result = &mut service => {
++                worker.as_mut().await.map_err(|_| ErrorCode::StdIoError)?;
++                return result;
++            }
++            result = &mut worker => result.map_err(|_| ErrorCode::StdIoError)?,
++        }
++        // The worker has reaped the encoder. Keep the IM and transport alive
++        // for cancellation replies and WebRTC End notifications before
++        // ShutDown prompts the controller to close its Matter connection.
++        tokio::select! {
++            result = &mut service => return result,
++            _ = Timer::after(SHUTDOWN_DRAIN) => {}
++        }
++        let _ = im.emit_shut_down();
++        tokio::select! {
++            result = &mut service => result,
++            _ = Timer::after(SHUTDOWN_DRAIN) => Ok(()),
++        }
+     })
+ }
+
+ // ---------------------------------------------------------------------------

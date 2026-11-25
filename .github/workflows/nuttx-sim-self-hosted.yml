@@ -7,7 +7,6 @@ on:
     paths:
       - 'hal/camera/**'
       - 'hal/storage/**'
-      - 'hal/transport/**'
       - 'tools/build-support/**'
       - 'platform/*/profile.toml'
       - 'platform/*/profiles/**'

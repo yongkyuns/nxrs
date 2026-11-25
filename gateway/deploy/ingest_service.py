@@ -8,7 +8,8 @@ TLS_FILES = dict(ca_certificate_file='camera-ca.pem', camera_certificate_file='c
                  crl_file='camera-crl.pem')
 
 
-def configuration(camera, width=640, height=480, acknowledge_http=False, detections=False, *, camera_tls=None):
+def configuration(camera, width=640, height=480, acknowledge_http=False, detections=False, *,
+                  camera_tls=None, camera_audio=False):
     if type(acknowledge_http) is not bool or acknowledge_http == (camera_tls is not None):
         raise ValueError('choose TLS enrollment or explicit trusted-LAN HTTP acknowledgement')
     if not isinstance(camera, str):
@@ -26,6 +27,8 @@ def configuration(camera, width=640, height=480, acknowledge_http=False, detecti
         raise ValueError('invalid source, dimensions or publisher collision')
     if type(detections) is not bool:
         raise ValueError('explicit metadata option required')
+    if type(camera_audio) is not bool or (camera_audio and camera_tls is None):
+        raise ValueError('camera audio requires TLS enrollment')
     config = dict(camera=f'{address}:{int(port)}', allow_insecure_camera_http=acknowledge_http,
         rtsp='127.0.0.1:8554', stream_path='reference', publisher_user='publisher_reference',
         publisher_token_file='/run/nxrs-ingest/publisher.token', ffmpeg='/usr/bin/ffmpeg',
@@ -45,6 +48,9 @@ def configuration(camera, width=640, height=480, acknowledge_http=False, detecti
         config['camera_tls'] = {**camera_tls, **{k: '/run/nxrs-ingest/'+v for k, v in TLS_FILES.items()}}
     if detections:
         config['detections'] = dict(control='127.0.0.1:18081', camera_id='cam_reference')
+    if camera_audio:
+        config['camera_audio'] = True
+        config['microphone_control'] = '127.0.0.1:18081'
     return config
 
 

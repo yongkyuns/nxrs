@@ -1,5 +1,9 @@
 # Camera HAL
 
+Use `camera::capture::Session` for caller-polled capture with fixed frame history,
+validated publication and explicit stop. Applications supply the buffers and
+drive the session from their existing loop.
+
 One `nxrs-camera` crate owns the camera contract, configured acquisition and
 optional explicit replay. Read `src/lib.rs` for the public surface; the private
 `src/platform/mod.rs` selects acquisition only, with no implementation bodies.
@@ -43,7 +47,7 @@ Ordinary execution timekeeping continues to use `std::time`.
 ## Source and dependency boundaries
 
 `src/api.rs` owns the portable contract and `camera::DeviceError`. Storage and
-transport own separate error types. Camera does not depend on `hal/common`,
+transport own separate error types. Camera does not depend on `hal/radio-types`,
 which holds radio request identities and bounded payload storage.
 
 `src/platform/mod.rs` maps the configured acquisition to one source module and
@@ -72,6 +76,11 @@ and requeues only after the copy. It retains a ready frame if the caller's
 buffer is too small, and normalizes big-endian sensor RGB565 to the contract's
 little-endian RGB565. Stop must quiesce DMA before storage is released. Failed
 stream-off retains storage for retry; Drop fails closed if quiescence is unknown.
+
+The ESP32-S3 NuttX lower half keeps the static camera's interrupt registered on
+its original CPU across opens. Stream-off masks VSYNC at the camera and
+synchronizes with the active callback before releasing DMA storage, including
+when the camera owner closes the file from another CPU.
 
 A driver-flagged corrupt frame is discarded and requeued without copying its
 payload. `Camera::discarded_frames()` counts these events since the last successful

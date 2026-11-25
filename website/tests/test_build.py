@@ -37,6 +37,23 @@ class WebsiteBuildTests(unittest.TestCase):
         self.assertEqual(report['reference_pages'], 1)
         self.assertIn('docs/a.md', report['source_sha256'])
 
+    def test_component_references_are_rendered_and_cross_linked(self):
+        source = self.root / 'app/demo/usage.md'
+        source.write_text('# Component usage\n\n[Reference](../../docs/a.md#same)\n')
+        doc = self.root / 'docs/a.md'
+        doc.write_text(doc.read_text() + '\n[Usage](../app/demo/usage.md)\n')
+        config = self.root / 'website/site.json'
+        data = json.loads(config.read_text())
+        data['reference_sources'] = {'app/demo/usage.md': 'demo/usage'}
+        config.write_text(json.dumps(data))
+        report = build.Site(self.root).build(self.out)
+        self.assertEqual(report['reference_pages'], 2)
+        self.assertIn('app/demo/usage.md', report['source_sha256'])
+        self.assertIn('/nxrs/reference/demo/usage/', (self.out / 'reference/a/index.html').read_text())
+        self.assertIn('/nxrs/reference/a/#same', (self.out / 'reference/demo/usage/index.html').read_text())
+        search = json.loads((self.out / 'search.json').read_text())
+        self.assertIn('/nxrs/reference/demo/usage/', {page['url'] for page in search})
+
     def test_duplicate_heading_ids_and_tables(self):
         build.Site(self.root).build(self.out)
         text = (self.out / 'reference/a/index.html').read_text()

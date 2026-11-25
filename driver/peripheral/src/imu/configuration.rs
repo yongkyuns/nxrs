@@ -26,6 +26,9 @@ pub struct AppliedConfig {
     pub gyro_range_dps: u16,
     /// Nominal interval between delivery opportunities in microseconds.
     pub delivery_interval_us: u32,
+    /// Exact f32 bits of the acceleration and angular rate per signed 16-bit
+    /// count, when the driver can represent its normalized samples this way.
+    pub counts_scale: Option<[u32; 2]>,
 }
 
 /// Select the slowest driver rate satisfying the requested sampling and delivery bounds.
@@ -58,6 +61,7 @@ pub fn select_rate<R: Copy>(
                     accel_range_g: config.accel_range_g,
                     gyro_range_dps: config.gyro_range_dps,
                     delivery_interval_us: 1_000_000_000u32.div_ceil(rate_millihz),
+                    counts_scale: None,
                 },
             )
         })

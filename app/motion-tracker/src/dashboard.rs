@@ -1,0 +1,537 @@
+use crate::{charts, communications, screen, tracker, wire, ReportOptions};
+use battery::Device as _;
+use charts::{History, SAMPLE_INTERVAL};
+use communications::{
+    Capture, CellularConfig, Communications, Endpoint, LinkStatus, Pairing, View,
+};
+use messaging::bounded;
+use navigation::observations::{Measurement, Observation, ObservationService};
+use screen::{Action, Dashboard, Screen};
+use std::io::{self, Write};
+use std::sync::{
+    mpsc::{RecvTimeoutError, TrySendError},
+    Arc, Mutex,
+};
+use std::time::Instant;
+use touch::Session as _;
+use tracker::{report_fault, Snapshot, FIX_FRESH, IMU_FRESH};
+
+struct Options {
+    reports: ReportOptions,
+    ble: bool,
+    battery: bool,
+    cellular: Option<CellularConfig>,
+    tile_relay: Option<Endpoint>,
+    zoom: Option<crate::map::Zoom>,
+}
+
+impl Options {
+    fn parse(mut args: impl Iterator<Item = String>) -> io::Result<Self> {
+        let mut options = Self {
+            reports: ReportOptions::default(),
+            ble: false,
+            battery: false,
+            cellular: None,
+            tile_relay: None,
+            zoom: None,
+        };
+        let mut apn = None;
+        let mut collector = None;
+        let mut pin = None;
+        let mut tile_relay = None;
+        let mut tile_pin = None;
+        while let Some(arg) = args.next() {
+            if options.reports.parse(&arg, &mut args)? {
+                continue;
+            }
+            let value = |args: &mut dyn Iterator<Item = String>| {
+                args.next().ok_or(io::ErrorKind::InvalidInput)
+            };
+            match arg.as_str() {
+                "--ble" => options.ble = true,
+                "--cellular-apn" => apn = Some(value(&mut args)?),
+                "--collector" => collector = Some(value(&mut args)?),
+                "--collector-pin" => pin = Some(value(&mut args)?),
+                "--map-relay" => tile_relay = Some(value(&mut args)?),
+                "--map-pin" => tile_pin = Some(value(&mut args)?),
+                "--map-zoom" => {
+                    options.zoom = Some(
+                        value(&mut args)?
+                            .parse()
+                            .ok()
+                            .and_then(crate::map::Zoom::new)
+                            .ok_or_else(|| {
+                                io::Error::new(
+                                    io::ErrorKind::InvalidInput,
+                                    "--map-zoom expects 15 through 18",
+                                )
+                            })?,
+                    );
+                }
+                "--battery" => options.battery = true,
+                _ => return Err(io::Error::new(io::ErrorKind::InvalidInput, arg)),
+            }
+        }
+        let collector = match (collector, pin) {
+            (None, None) => None,
+            (Some(address), Some(pin)) if apn.is_some() => Some(Endpoint::parse(&address, &pin)?),
+            _ => {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "--collector and --collector-pin require each other and --cellular-apn",
+                ));
+            }
+        };
+        options.tile_relay = match (tile_relay, tile_pin) {
+            (None, None) => None,
+            (Some(address), Some(pin)) => Some(Endpoint::parse(&address, &pin)?),
+            _ => {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "--map-relay and --map-pin require each other",
+                ))
+            }
+        };
+        options.cellular = apn.map(|apn| CellularConfig { apn, collector });
+        if options.battery
+            && (options.reports.interval.is_some()
+                || options.reports.frames.is_some()
+                || options.reports.usb_stream
+                || options.ble
+                || options.cellular.is_some()
+                || options.tile_relay.is_some()
+                || options.zoom.is_some())
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "--battery must be used on its own",
+            ));
+        }
+        Ok(options)
+    }
+}
+
+enum Event {
+    Sensor(Observation),
+    LinksUpdated,
+    Touch { event: touch::Event, missed: bool },
+}
+
+pub(super) const USAGE: &str = "motion_tracker [--interval-ms 100..2000] [--frames N] [--stream-usb] [--ble] [--cellular-apn APN [--collector IPv4:PORT --collector-pin SHA256]] [--map-relay IPv4:PORT --map-pin SHA256] [--map-zoom 15..18] or motion_tracker --battery";
+
+pub(super) fn run(args: impl Iterator<Item = String>) -> io::Result<()> {
+    let options = Options::parse(args)?;
+    if options.battery {
+        return report_battery();
+    }
+    crate::health::run(|timer| track(options, timer))
+}
+
+fn track(
+    options: Options,
+    mut timer: Option<&mut dyn watchdog::RuntimeWatchdog>,
+) -> io::Result<()> {
+    let interval = crate::preferences(options.reports.interval)?.duration();
+    let mut screen = Screen::new(display::open().map_err(display_error)?).map_err(display_error)?;
+    let mut dashboard = Dashboard::default();
+    let zoom = options.zoom.unwrap_or_default();
+    let mut history = History::new(zoom);
+    let mut map = crate::map::View::default();
+    let (events, inbox) = bounded(32);
+    let notify_links = {
+        let events = events.clone();
+        move || {
+            // The current view remains available if the inbox is full.
+            let _ = events.try_send(Event::LinksUpdated);
+        }
+    };
+    use imu::Device as _;
+    let primary = composition::imu::primary_imu();
+    let secondary = composition::imu::secondary();
+    let primary_scale = primary
+        .default_config()
+        .and_then(|config| primary.resolve(config));
+    let secondary_scale = secondary
+        .default_config()
+        .and_then(|config| secondary.resolve(config));
+    let capture = Arc::new(Capture::new(
+        [primary_scale, secondary_scale]
+            .map(|applied| applied.ok().and_then(|config| config.counts_scale)),
+    ));
+    let latest = Arc::new(Mutex::new([None, None, None]));
+    let sensor_event = {
+        let capture = capture.clone();
+        let latest = latest.clone();
+        move |event: Observation| {
+            let Some(sample) = event.measurement() else {
+                return Some(Event::Sensor(event));
+            };
+            capture.record(sample);
+            let index = match sample {
+                Measurement::Imu(index, _) => index,
+                Measurement::Gnss(_) => 2,
+            };
+            latest.lock().unwrap()[index] = Some(event);
+            None
+        }
+    };
+    let mut communications =
+        (options.ble || options.cellular.is_some() || options.tile_relay.is_some())
+            .then(|| {
+                Communications::start(
+                    options.ble,
+                    options.cellular,
+                    options.tile_relay,
+                    capture.clone(),
+                    notify_links.clone(),
+                )
+            })
+            .transpose()?;
+    let mut view = View::default();
+    let mut sensors = ObservationService::<2>::new(IMU_FRESH, Some(FIX_FRESH));
+    for result in [
+        sensors.start_imu_with(0, primary, events.clone(), sensor_event.clone()),
+        sensors.start_imu_with(1, secondary, events.clone(), sensor_event.clone()),
+        sensors.start_gnss_with(
+            composition::gnss::primary_gnss(),
+            events.clone(),
+            sensor_event.clone(),
+        ),
+    ] {
+        if let Err(fault) = result {
+            report_fault(fault);
+        }
+    }
+    let mut missed = false;
+    let mut touch = touch::open(move |event| {
+        match events.try_send(Event::Touch { event, missed }) {
+            Ok(()) => missed = false,
+            Err(TrySendError::Full(_)) => missed = true,
+            Err(TrySendError::Disconnected(_)) => return false,
+        }
+        true
+    })
+    .inspect_err(|error| log::warn!("motion-tracker touch: {error:?}"))
+    .ok();
+
+    let mut serial = options.reports.usb_stream.then(io::stdout);
+    let mut reported_drops = [0; 3];
+    let mut rendered = 0_u32;
+    let mut next = Instant::now();
+    let mut next_plot = next;
+    let mut redraw = true;
+    let mut links_changed = false;
+    let result = loop {
+        let now = Instant::now();
+        let report_due = now >= next;
+        let plot_due = now >= next_plot;
+        if links_changed || report_due || plot_due {
+            links_changed = false;
+            if let Some(links) = &communications {
+                let update = links.view(view);
+                if update != view {
+                    redraw = true;
+                    if let Some(key) = update.key {
+                        if let Err(error) = dashboard.show_code(&key) {
+                            break Err(display_error(error));
+                        }
+                    } else {
+                        dashboard.hide_code();
+                        if update.link == LinkStatus::Paired {
+                            dashboard.open_menu();
+                        }
+                    }
+                    view = update;
+                }
+            }
+        }
+        if report_due || plot_due || redraw {
+            let current = std::mem::take(&mut *latest.lock().unwrap());
+            for event in current.into_iter().flatten() {
+                if let Some(fault) = sensors.observe(event) {
+                    report_fault(fault);
+                }
+            }
+        }
+        if report_due {
+            if serial.is_some() {
+                let ([primary, secondary], gnss) = sensors.dropped();
+                for ((name, count), reported) in ["IMU 1", "IMU 2", "GNSS"]
+                    .into_iter()
+                    .zip([primary, secondary, gnss])
+                    .zip(&mut reported_drops)
+                {
+                    if let Some(count) = count.filter(|count| *count > *reported) {
+                        log::warn!("motion-tracker {name} queue drops: {count}");
+                        *reported = count;
+                    }
+                }
+            }
+            sensors.reap_finished(report_fault);
+            if touch.as_ref().is_some_and(touch::Session::is_finished) {
+                let mut finished = touch.take().unwrap();
+                let result = finished.join();
+                log::warn!("motion-tracker touch stopped: {result:?}");
+            }
+        }
+        if report_due {
+            let mut snapshot = Snapshot::from(sensors.snapshot(now));
+            snapshot.clock = capture.clock();
+            if let Some(serial) = &mut serial {
+                let mut writer = serial.lock();
+                let written = wire::frame(&snapshot)
+                    .and_then(|frame| writer.write_all(frame.bytes()))
+                    .and_then(|()| writer.flush());
+                if let Err(error) = written {
+                    break Err(error);
+                }
+            }
+            if let Some(links) = &communications {
+                links.offer(snapshot);
+            }
+            if options.reports.frames.is_some() {
+                rendered += 1;
+                if options.reports.frames == Some(rendered) {
+                    let _ = writeln!(
+                        io::stderr().lock(),
+                        "motion-tracker: {rendered} frames, interval={} ms, IMU 1 {}, IMU 2 {}, GNSS {}",
+                        interval.as_millis(),
+                        tracker::reading_status(&snapshot.imu[0]),
+                        tracker::reading_status(&snapshot.imu[1]),
+                        tracker::reading_status(&snapshot.gnss),
+                    );
+                    // Preserve a failing status for bring-up scripts.
+                    use tracker::Reading::{Fault, Live};
+                    break if !matches!(snapshot.imu[0], Live(_))
+                        || !matches!(snapshot.imu[1], Live(_))
+                        || matches!(snapshot.gnss, Fault)
+                    {
+                        Err(io::Error::other(
+                            "sensor acquisition failed or an IMU never reported",
+                        ))
+                    } else {
+                        Ok(())
+                    };
+                }
+            }
+            next = now + interval;
+        }
+        if plot_due || redraw {
+            let snapshot = Snapshot::from(sensors.snapshot(now));
+            if plot_due {
+                history.record(&snapshot, now);
+                next_plot = now + SAMPLE_INTERVAL;
+            }
+            let viewport = map.select(dashboard.map_position(view.link, &snapshot, zoom));
+            if let Some(links) = &communications {
+                if let Some(tile) = links.map(viewport.and_then(|viewport| map.wanted(viewport))) {
+                    if let Some(viewport) = viewport {
+                        map.accept(viewport, tile);
+                    }
+                }
+            }
+            if let Err(error) = render(view.link, || {
+                screen.render(
+                    &dashboard,
+                    view.link,
+                    &snapshot,
+                    &history,
+                    now,
+                    viewport.map(|viewport| (viewport, &map)),
+                )
+            }) {
+                break Err(error);
+            }
+            redraw = false;
+            let finished = Instant::now();
+            if finished >= next_plot {
+                // Skip the missed paint and leave time to receive sensor and touch events.
+                next_plot = finished + SAMPLE_INTERVAL;
+            }
+        }
+        if report_due {
+            if let Err(error) = crate::health::progress(&mut timer) {
+                break Err(error);
+            }
+        }
+        let wake = next.min(next_plot);
+        match inbox.wait(Some(wake.saturating_duration_since(Instant::now()))) {
+            Ok(Event::LinksUpdated) => {
+                links_changed = true;
+                redraw = true;
+            }
+            Ok(Event::Sensor(event)) => {
+                if let Some(fault) = sensors.observe(event) {
+                    report_fault(fault);
+                }
+            }
+            Ok(Event::Touch { event, missed }) => {
+                if missed {
+                    dashboard.cancel_touch();
+                }
+                match screen.input(&mut dashboard, view.link, event) {
+                    Some(Action::Pair) => match &communications {
+                        Some(links) => links.pair(Pairing::Start),
+                        None => match Communications::start(
+                            true,
+                            None,
+                            None,
+                            capture.clone(),
+                            notify_links.clone(),
+                        ) {
+                            Ok(links) => communications = Some(links),
+                            Err(error) => log::warn!("motion-tracker pairing: {error}"),
+                        },
+                    },
+                    Some(Action::CancelPairing) => {
+                        if let Some(links) = &communications {
+                            links.pair(Pairing::Cancel);
+                        }
+                    }
+                    Some(Action::Redraw) => redraw = true,
+                    None => {}
+                }
+            }
+            Err(RecvTimeoutError::Timeout) => {}
+            Err(RecvTimeoutError::Disconnected) => {
+                break Err(io::Error::other("tracker event inbox closed"));
+            }
+        }
+    };
+
+    // Ask all workers to stop before waiting for any one join.
+    let mut sensor_failed = false;
+    let mut report = |fault| {
+        sensor_failed = true;
+        report_fault(fault);
+    };
+    sensors.request_stop(&mut report);
+    let stop_touch = touch.as_mut().map(touch::Session::request_stop);
+    sensors.join(report);
+    let join_touch = touch.as_mut().map(touch::Session::join);
+    let stop_links = communications.as_mut().map(Communications::stop);
+    for (operation, failed) in [
+        ("stop touch", failed(stop_touch)),
+        ("join touch", failed(join_touch)),
+        ("stop communications", failed(stop_links)),
+    ] {
+        if failed {
+            log::error!("motion-tracker: {operation} failed");
+            if result.is_ok() {
+                return Err(io::Error::other(operation));
+            }
+        }
+    }
+    if sensor_failed && result.is_ok() {
+        return Err(io::Error::other("stop sensor acquisition"));
+    }
+    result
+}
+
+fn failed<T>(result: Option<Result<(), T>>) -> bool {
+    result.is_some_and(|result| result.is_err())
+}
+
+fn display_error(error: display::Error) -> io::Error {
+    io::Error::other(format!("tracker display: {error:?}"))
+}
+
+fn render(link: LinkStatus, paint: impl FnOnce() -> Result<(), display::Error>) -> io::Result<()> {
+    if link != LinkStatus::Connected {
+        return paint().map_err(display_error);
+    }
+    // The display provider's synchronous SPI draws run at the product's
+    // background priority, below acquisition and Bluetooth host workers.
+    match execution::configure_current(execution::Priority::Background) {
+        Ok(()) => {}
+        Err(execution::Error::Unsupported) => return paint().map_err(display_error),
+        Err(error) => {
+            return Err(io::Error::other(format!(
+                "tracker display priority: {error:?}"
+            )))
+        }
+    }
+    let painted = paint().map_err(display_error);
+    let restored = execution::configure_current(execution::Priority::Normal)
+        .map_err(|error| io::Error::other(format!("tracker restore priority: {error:?}")));
+    painted.and(restored)
+}
+
+fn report_battery() -> io::Result<()> {
+    let status = composition::battery::primary_battery()
+        .status()
+        .map_err(|error| io::Error::other(format!("battery status: {error:?}")))?;
+    let input = if status.external_power {
+        "external power present"
+    } else {
+        "external power absent"
+    };
+    let mut output = io::stdout().lock();
+    match status.battery {
+        Some(battery) => match battery.percent {
+            Some(percent) => writeln!(
+                output,
+                "Battery {percent}% ({:?}, {input})",
+                battery.charge_state
+            ),
+            None => writeln!(
+                output,
+                "Battery estimate unavailable ({:?}, {input})",
+                battery.charge_state
+            ),
+        },
+        None => writeln!(output, "No battery detected ({input})"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn map_relay_requires_an_address_and_pin_without_requiring_a_modem() {
+        let parse = |args: &[&str]| Options::parse(args.iter().map(ToString::to_string));
+        let pin = "ab".repeat(32);
+        assert!(parse(&["--map-relay", "192.0.2.3:8444"]).is_err());
+        assert!(parse(&["--map-pin", &pin]).is_err());
+        let options = parse(&["--map-relay", "192.0.2.3:8444", "--map-pin", &pin]).unwrap();
+        assert!(options.cellular.is_none());
+        assert_eq!(options.tile_relay.unwrap().pin, [0xab; 32]);
+    }
+
+    #[test]
+    fn cellular_collector_requires_an_address_pin_and_apn() {
+        let pin = "aB".repeat(32);
+        let parse = |args: &[&str]| Options::parse(args.iter().map(ToString::to_string));
+        assert!(parse(&["--collector", "192.0.2.3:1234", "--collector-pin", &pin]).is_err());
+        assert!(parse(&["--cellular-apn", "example", "--collector", "192.0.2.3:1234"]).is_err());
+        assert!(parse(&["--cellular-apn", "example", "--collector-pin", &pin]).is_err());
+
+        let launch = |address: &str, pin: &str| {
+            parse(&[
+                "--cellular-apn",
+                "example",
+                "--collector",
+                address,
+                "--collector-pin",
+                pin,
+            ])
+        };
+        assert!(launch("192.0.2.3:0", &pin).is_err());
+        assert!(launch("192.0.2.3:1234", &"00".repeat(32)).is_err());
+        assert!(launch("192.0.2.3:1234", &"é".repeat(32)).is_err());
+        let collector = launch("192.0.2.3:1234", &pin)
+            .unwrap()
+            .cellular
+            .unwrap()
+            .collector
+            .unwrap();
+        assert_eq!(collector.pin, [0xab; 32]);
+        assert!(parse(&["--cellular-apn", "example"])
+            .unwrap()
+            .cellular
+            .unwrap()
+            .collector
+            .is_none());
+    }
+}

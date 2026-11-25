@@ -34,6 +34,7 @@ impl<R: Protocol> Receiver<R> {
                 emit(Ok(GnssFix {
                     sequence: self.sequence,
                     timestamp_ms: now_ms,
+                    receiver_utc_ms: report.receiver_utc_ms,
                     latitude_deg: report.latitude_deg,
                     longitude_deg: report.longitude_deg,
                     speed_mps: report.speed_mps,

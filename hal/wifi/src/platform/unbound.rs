@@ -31,22 +31,11 @@ impl Wifi for Unavailable {
         Err(Error::Unsupported)
     }
 }
-impl QuiescenceControl for Unavailable {
-    fn quiesce(&mut self) -> Result<(), Error> {
-        Err(Error::Unsupported)
-    }
-    fn resume(&mut self) -> Result<(), Error> {
-        Err(Error::Unsupported)
-    }
-}
+pub(crate) use super::unsupported_quiescence::open_quiescence;
 
-#[cfg(not(any(platform = "nuttx", platform = "linux", platform = "macos")))]
 pub(crate) fn open<S>(_: S, _: CredentialStorage) -> Result<impl Wifi + Send, Error>
 where
     S: FnMut(Event) -> messaging::DeliveryResult<Event> + Send + 'static,
 {
-    Err::<Unavailable, _>(Error::Unsupported)
-}
-pub(crate) fn open_quiescence() -> Result<impl QuiescenceControl, Error> {
     Err::<Unavailable, _>(Error::Unsupported)
 }

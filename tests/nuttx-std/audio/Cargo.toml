@@ -1,0 +1,15 @@
+[package]
+name = "nxrs-std-audio"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[dependencies]
+nxrs-audio = { path = "../../../hal/audio" }
+
+[package.metadata.nxrs]
+required-capabilities = ["audio"]
+
+[[bin]]
+name = "audio-capture"
+path = "src/main.rs"

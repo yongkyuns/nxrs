@@ -561,14 +561,32 @@ impl Configuration {
 }
 
 pub(crate) fn seed(nuttx: &Path, board: &str, command: impl Fn(&str) -> Command) -> Result<String> {
+    let host = if board.starts_with("sim:") && cfg!(target_os = "macos") {
+        "-m"
+    } else {
+        "-l"
+    };
     crate::output(
         command("bash")
             .current_dir(nuttx)
             .arg("tools/configure.sh")
-            .args(["-l", board, "KCONFIG_OLDDEFCONFIG=olddefconfig"])
+            .args([host, board, "KCONFIG_OLDDEFCONFIG=olddefconfig"])
             .env_remove("KCONFIG_CONFIG"),
     )?;
     read(&nuttx.join(".config"))
+}
+
+// Select the interpreter by its PATH entry, not its canonical target: Python
+// recognizes virtual environments from the path used to invoke their symlink.
+fn kconfig_python(path: &std::ffi::OsStr) -> Result<std::path::PathBuf> {
+    let name = format!("python3{}", std::env::consts::EXE_SUFFIX);
+    for directory in std::env::split_paths(path) {
+        let candidate = directory.join(&name);
+        if candidate.is_file() {
+            return std::path::absolute(candidate).map_err(|error| error.to_string());
+        }
+    }
+    Err(format!("{name} not found in PATH for NuttX Kconfig"))
 }
 
 /// Configure only the native inputs. Make supplies the exact Kconfig environment
@@ -594,6 +612,12 @@ pub(crate) fn resolve(
         })
         .collect::<serde_json::Map<_, _>>();
     crate::write_json(&query, &json!({"requests": requests, "catalog": catalog}))?;
+    // Resolve the Python entry before invoking NuttX Make. Make can modify PATH,
+    // and canonicalizing a venv symlink would lose its site-packages context.
+    let python = kconfig_python(&std::env::var_os("PATH").unwrap_or_default())?;
+    let python = python
+        .to_str()
+        .ok_or("NuttX Kconfig Python path must be UTF-8")?;
     let adapter = root.join("tools/build/nuttx/kconfig.py");
     let adapter = adapter
         .to_str()
@@ -610,7 +634,8 @@ pub(crate) fn resolve(
         .current_dir(nuttx)
         .arg("olddefconfig")
         .arg(format!(
-            "KCONFIG_OLDDEFCONFIG=python3 {}",
+            "KCONFIG_OLDDEFCONFIG={} {}",
+            crate::shell_quote(python),
             crate::shell_quote(adapter)
         ))
         .env_remove("KCONFIG_CONFIG")
@@ -718,6 +743,26 @@ impl Finalized {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn olddefconfig_preserves_python_virtualenv_entry() {
+        let temp = crate::TempDir::new(&std::env::temp_dir()).unwrap();
+        let venv = temp.0.join("venv with spaces/bin");
+        let system = temp.0.join("system/bin");
+        fs::create_dir_all(&venv).unwrap();
+        fs::create_dir_all(&system).unwrap();
+        let name = format!("python3{}", std::env::consts::EXE_SUFFIX);
+        let binary = system.join(&name);
+        fs::write(&binary, "stub").unwrap();
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(&binary, venv.join(&name)).unwrap();
+        #[cfg(not(unix))]
+        fs::copy(&binary, venv.join(&name)).unwrap();
+        let path = std::env::join_paths([venv.clone(), system]).unwrap();
+        assert_eq!(kconfig_python(&path).unwrap(), venv.join(&name));
+        let recipe = crate::shell_quote(venv.join(name).to_str().unwrap());
+        assert!(recipe.contains("venv with spaces"));
+    }
 
     #[test]
     fn direct_application_init_does_not_require_a_shell() {

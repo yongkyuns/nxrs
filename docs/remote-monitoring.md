@@ -1,5 +1,7 @@
 # Remote monitoring: architecture, coordination and qualification
 
+> **Design history.** This page records the original monitoring integration and its then-open gates. Use [camera detection delivery](camera-detection-delivery.md), [native clients](client-camera-architecture.md), [home-cam](../app/home-cam/README.md) and the [gateway guide](../gateway/README.md) for the maintained contracts and setup.
+
 Tracks [#20](https://github.com/yongkyuns/nxrs/issues/20) and draft
 [#21](https://github.com/yongkyuns/nxrs/pull/21). No full epic milestone is complete
 merely because these components build. The PR records exact tested commits/runs.

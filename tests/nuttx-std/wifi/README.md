@@ -12,7 +12,7 @@ forwarding them. Console output is outside
 dispatch and includes only a result count, not network names.
 
 Wi-Fi is one crate (`nxrs-wifi`, imported as `wifi`). Its contract is in
-`hal/wifi/src/api.rs`; private std execution is in `hal/wifi/src/worker.rs`.
+`hal/wifi/src/api.rs`; private std execution is in `hal/wifi/src/worker/mod.rs`.
 The NuttX implementation is private under
 `hal/wifi/src/platform/nuttx/`, and its target C helpers are under
 `hal/wifi/src/platform/nuttx/ffi/`. The platform builder adds those helpers automatically.

@@ -142,6 +142,7 @@ def reviewed_hash_controls(scanner, source, config, token, alphabet):
         ("tests/event-path-perf/results/2026-11-04-esp32s3/board/runs/pass-3-ready-std-try/build.json", pthread[:2]),
         ("tests/channel-progress/results/2026-11-04-esp32s3/runs/crossbeam/select-published/run/acceptance.json", pthread[:2]),
         ("tests/channel-progress/results/2026-11-04-esp32s3/fifo-physical.json", pthread[:2]),
+        ("tests/rtos-characterization/wroom-review-2026-11-17.json", pthread[:2]),
     ]
     cases.extend(("tests/host/fixtures/dropbear-native/upstream.json", item)
                  for item in reviewed_dropbear_preimages())

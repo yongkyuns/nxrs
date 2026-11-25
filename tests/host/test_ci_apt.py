@@ -55,10 +55,22 @@ if name == 'timeout':
         self.assertEqual(calls[4][-7:], ['install', '-y', '--no-install-recommends', '--', *packages])
         # Use the actual substitution on a temporary mirror list, preserving
         # unrelated entries and both supported Ubuntu runner suite choices.
-        mirrors = 'http://azure.archive.ubuntu.com/ubuntu\nhttps://azure.archive.ubuntu.com/ubuntu\nhttps://example.invalid/ubuntu\n'
-        changed = subprocess.run(['sed', '-E', calls[0][3]], input=mirrors,
+        primary = 'https://archive.ubuntu.com/ubuntu'
+        mirrors = (
+            'http://azure.archive.ubuntu.com/ubuntu\n'
+            'https://azure.archive.ubuntu.com/ubuntu\n'
+            'http://us-east-2.ec2.archive.ubuntu.com/ubuntu\n'
+            'https://eu-west-1.ec2.archive.ubuntu.com/ubuntu/ priority:2\n'
+        )
+        untouched = (
+            'http://security.ubuntu.com/ubuntu\n'
+            f'{primary}\n'
+            'http://azure.archive.ubuntu.com/ubuntu-ports\n'
+            'https://example.invalid/ubuntu\n'
+        )
+        changed = subprocess.run(['sed', '-E', calls[0][3]], input=mirrors + untouched,
                                  text=True, capture_output=True, check=True)
-        self.assertEqual(changed.stdout, 'https://archive.ubuntu.com/ubuntu\n' * 2 + 'https://example.invalid/ubuntu\n')
+        self.assertEqual(changed.stdout, (primary + '\n') * 3 + primary + '/ priority:2\n' + untouched)
 
     def test_no_packages_never_mutates_runner(self):
         result, calls = self.run_setup()

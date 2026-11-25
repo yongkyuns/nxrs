@@ -11,15 +11,16 @@ the difference between twenty 4 KiB worker requests and Embassy's 8 KiB shared
 stack plus 4,320 B service task pool. The task pool includes executor headers
 as well as future state. Both sides had 30,720 B of payload capacity. There
 were no per-worker stack observations proving the 4 KiB requests necessary.
-See the [review](../../docs/rtos-comparison.md#what-the-ram-ratio-establishes)
-for the accounting limits.
+See the [October accounting](../../docs/rtos-comparison-accounting.md#what-the-ram-ratio-establishes)
+and [later four-way physical results](../rtos-characterization/PHYSICAL-RESULTS.md#ram)
+for the measured deadline outcomes alongside RAM.
 
 ## Experiments
 
 | Control | What it isolates | Accounting limit |
 | --- | --- | --- |
 | `alloc-baseline` | Initialized command/coordinator environment | The linked fixture still contains static platform and adapter objects |
-| `alloc-threads-0/1/5/10/20` | Gates and native worker lifecycle without opening queues | NuttX heap deltas include native thread resources; Zephyr's entire static stack array exists at every count |
+| `alloc-threads-0/1/5/10/20` | Gates and native worker lifecycle without opening queues | NuttX heap deltas include native thread resources; a runtime count alone retains the linked stack array; use separately linked `--worker-capacity` controls |
 | `alloc-queues` | Empty, full, drained and released queues without workers | Statically allocated buffers remain in the baseline; full capacity is 480 × 64 B |
 | `normal`, `burst`, `work-medium`, `work-long`, `io-wait` | Stack use under different existing workloads | Observed high water does not cover all error, interrupt or teardown paths |
 | `saturation` | Three full/drain cycles while all twenty service contexts are alive | Reserve all slots even when normal traffic rarely fills them |
@@ -47,14 +48,26 @@ counted the arena through its ELF section.
 
 ## Build a new cohort
 
+The [physical WROOM review](../rtos-characterization/WROOM-REVIEW.md) found
+that equal 4 KiB requests yielded less usable stack on NuttX. Its matched
+minimum-usable-capacity control requested 4,336 / 4,096 B; always inspect
+`ES_STACK` rather than treating the request as usable capacity.
+
 The existing defaults remain 4,096 B per native worker and 8,192 B for Embassy's
 shared stack. The builder now accepts:
 
 ```text
+--worker-capacity N         native C linked capacity: 0/1/5/10/20 (default 20)
 --worker-stack-bytes BYTES   native pthread/k_thread request
 --shared-stack-bytes BYTES   Embassy main/executor/interrupt reservation
 --stack-watermark            enable observation support
 ```
+
+A reduced linked capacity admits allocation controls only; full traffic and
+saturation still require twenty workers. Application and queue storage remain
+linked, so zero workers is not a bare-kernel baseline. Zephyr may use
+`--cross-prefix PREFIX` instead of `--sdk` to compare the same native compiler
+as NuttX; record this as a new cohort.
 
 Requests must be aligned to 16 bytes. Validation is a build constraint, not a
 claim that the smallest accepted request is executable. Every fresh provenance

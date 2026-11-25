@@ -1,0 +1,14 @@
+[package]
+name = "nxrs-axp2101"
+version.workspace = true
+edition.workspace = true
+
+[package.metadata.nxrs]
+bindings = ["bindings.toml"]
+
+[package.metadata.nxrs.device]
+capability = "battery"
+
+[dependencies]
+embedded-hal = "=1.0.0"
+nxrs-peripheral = { path = "../peripheral" }

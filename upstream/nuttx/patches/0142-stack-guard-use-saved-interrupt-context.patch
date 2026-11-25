@@ -1,0 +1,20 @@
+diff --git a/sched/sched/nxsched_checkstackoverflow.c b/sched/sched/nxsched_checkstackoverflow.c
+--- a/sched/sched/nxsched_checkstackoverflow.c
++++ b/sched/sched/nxsched_checkstackoverflow.c
+@@ -89,6 +89,15 @@
+    * Allow some reserved margin area before reporting overflow.
+    */
+ 
+-  DEBUGASSERT(up_check_tcbstack(tcb, CONFIG_STACKCHECK_MARGIN) == 0);
++  if (up_check_tcbstack(tcb, CONFIG_STACKCHECK_MARGIN) != 0)
++    {
++      /* On an interrupt-driven switch, use the context already saved
++       * for the outgoing task instead of saving a new one in the ISR.
++       */
++
++      _assert(__DEBUG_ASSERT_FILE__, __DEBUG_ASSERT_LINE__,
++              "stack margin overwritten",
++              up_interrupt_context() ? tcb->xcp.regs : NULL);
++    }
+ #endif
+ }

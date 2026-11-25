@@ -47,6 +47,8 @@ def digest(data):
 
 def validate_configuration(provenance):
     config = provenance.get("configuration", {})
+    if config.get("worker_capacity", 20) != 20:
+        raise ValueError("traffic RAM matrix requires all twenty linked workers")
     if type(config.get("ram_contract")) is not int or config["ram_contract"] != 1 or config.get("stack_watermark") is not True:
         raise ValueError("RAM controls require fresh --stack-watermark builds with ram_contract=1")
     if config.get("psram") is True or type(config.get("cores")) is not int or config["cores"] != 1:

@@ -37,6 +37,7 @@ struct fake_hw {
   struct { bool cam_vs_eof_en, cam_update; } cam_ctrl;
 };
 struct imgdata_s { int unused; };
+typedef unsigned int irqstate_t;
 typedef struct { uint16_t width, height; uint32_t pixelformat; } imgdata_format_t;
 struct esp32s3_dmadesc_s { uint32_t ctrl; struct esp32s3_dmadesc_s *next; };
 struct esp32s3_cam_s {
@@ -50,9 +51,24 @@ struct esp32s3_cam_s {
   uint8_t *fb;
   uint32_t fb_size, pixfmt, width, height;
   bool fb_allocated;
+  bool lock;
   void (*cb)(int, uint32_t, struct timeval *, void *);
   void *cb_arg;
 };
+
+static irqstate_t rspin_lock_irqsave(bool *locked)
+{
+  assert(!*locked);
+  *locked = true;
+  return 0;
+}
+
+static void rspin_unlock_irqrestore(bool *locked, irqstate_t state)
+{
+  assert(*locked && state == 0);
+  *locked = false;
+}
+
 static char events[128];
 static unsigned int event_count;
 static bool dma_enabled;
@@ -217,6 +233,7 @@ static uint32_t expected_size;
 static void complete(int error, uint32_t bytes, struct timeval *ts, void *arg)
 {
   struct esp32s3_cam_s *camera = arg;
+  assert(camera->lock);
   assert(!dma_enabled); /* No DMA alias while the upper half replaces storage. */
   assert(error == expected_error && bytes == expected_size && ts != NULL);
   if (++completions == stop_at) camera->capturing = false;
@@ -227,6 +244,7 @@ static void boundary(struct esp32s3_cam_s *camera)
   event_count = 0;
   camera->hw->pending = LCD_CAM_CAM_VSYNC_INT_ST_M;
   assert(cam_interrupt(0, NULL, camera) == 0);
+  assert(!camera->lock);
 }
 
 int main(void)

@@ -21,7 +21,7 @@ jobs:
   esp32s3:
     name: Xtensa firmware execution (qualification)
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -32,7 +32,10 @@ jobs:
           toolchain: 1.90.0
       - name: Install build and emulator dependencies
         run: |
-          bash .github/scripts/install-ubuntu-packages.sh bison flex gperf kconfig-frontends genromfs libncurses-dev zlib1g-dev libgcrypt20 libglib2.0-0 libpixman-1-0 libsdl2-2.0-0 libslirp0
+          bash .github/scripts/install-ubuntu-packages.sh \
+            bison flex gperf kconfig-frontends genromfs libncurses-dev zlib1g-dev \
+            libgcrypt20-dev libglib2.0-dev libpixman-1-dev libsdl2-2.0-0 libslirp-dev libfdt-dev \
+            ninja-build cmake netcat-openbsd pkg-config
           python3 -m venv target/qemu-venv
           target/qemu-venv/bin/pip install kconfiglib==14.1.0 esptool==4.8.1
           echo "$GITHUB_WORKSPACE/target/qemu-venv/bin" >> "$GITHUB_PATH"
@@ -53,6 +56,80 @@ jobs:
         run: |
           source target/qemu-tools/environment.sh
           python3 tests/host/test-nuttx-sim.py "$(command -v qemu-system-xtensa)" --qemu-image target/nuttx-qemu/nuttx/nuttx.merged.bin --log target/nuttx-qemu/console.log --cycles 1 --require-std-main
+      - name: Run one-IMU Motion Tracker and archive service logs
+        shell: bash
+        run: |
+          source target/qemu-tools/environment.sh
+          cargo nxrs build --manifest-path tests/nuttx-std/tracker-sim/logging/Cargo.toml \
+            --profile esp32s3-qemu-tracker-logging \
+            --target-c-source tests/nuttx-std/tracker-sim/devices.c \
+            --target-c-source tests/nuttx-std/tracker-sim/logging/init.c \
+            --out target/nuttx-qemu/tracker
+          node tests/nuttx-std/tracker-sim/headless.mjs \
+            target/nuttx-qemu/tracker/nuttx/nuttx.merged.bin target/nuttx-qemu/tracker-report.json
+
+      - name: Build the tracker emulator with UART2 and user networking
+        run: bash tools/build-tracker-qemu.sh
+      - name: Build the production motion tracker for the modem fixture
+        shell: bash
+        run: |
+          cargo nxrs fetch tls
+          cargo nxrs build --app motion-tracker --profile esp32s3-qemu-tracker-upload \
+            --target-c-source tests/nuttx-std/tracker-sim/devices.c \
+            --target-c-source tests/nuttx-std/tracker-sim/dashboard_init.c \
+            --out target/tracker-upload-sim 2>&1 | tee target/tracker-upload-build.log
+      - name: Guard tracker firmware footprint
+        shell: bash
+        run: |
+          set -o pipefail
+          source target/qemu-tools/environment.sh
+          export PYTHONPATH=tests
+          python3 -m rtos_harness.footprint_budget target/nuttx-qemu/tracker \
+            --linked-flash 470016 --image 540672 --static-ram 61440 | tee -a "$GITHUB_STEP_SUMMARY"
+          python3 -m rtos_harness.footprint_budget target/tracker-upload-sim \
+            --linked-flash 786432 --image 835584 --static-ram 104448 | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Verify live sensor reports and TLS recovery after PPP loss
+        run: |
+          python3 tests/nuttx-std/tracker-sim/upload.py \
+            target/tracker-upload-sim/nuttx/nuttx.merged.bin \
+            --qemu target/tracker-qemu/qemu-system-xtensa --qemu-data target/tracker-qemu \
+            --network-qemu target/tracker-qemu/qemu-system-xtensa \
+            --wall-clock --log target/tracker-upload-sim/upload.log
+      - name: Build the Motion Tracker BLE export fixture
+        shell: bash
+        run: |
+          set -o pipefail
+          cargo nxrs build --app motion-tracker --profile esp32s3-qemu-tracker-coexist \
+            --target-c-source tests/nuttx-std/tracker-sim/devices.c \
+            --target-c-source tests/nuttx-std/tracker-sim/dashboard_init.c \
+            --out target/tracker-coexist-sim 2>&1 | tee target/tracker-coexist-build.log
+          source target/qemu-tools/environment.sh
+          # The coexistence build includes map rendering and both BLE and PPP tile delivery.
+          PYTHONPATH=tests python3 -m rtos_harness.footprint_budget target/tracker-coexist-sim \
+            --linked-flash 737280 --image 786432 --static-ram 151552 | tee -a "$GITHUB_STEP_SUMMARY"
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        id: tracker-python
+        with:
+          python-version: '3.13'
+      - name: Verify BLE export, map write recovery, and memory safeguards
+        shell: bash
+        env:
+          TRACKER_PYTHON: ${{ steps.tracker-python.outputs.python-path }}
+        run: |
+          "$TRACKER_PYTHON" -m venv target/tracker-peer
+          target/tracker-peer/bin/pip install bumble==0.0.236 pillow==13.0.0 zxing-cpp==3.0.0
+          target/tracker-peer/bin/python -m unittest discover -s tests/nuttx-std/tracker-sim -p test_coexist.py
+          source target/qemu-tools/environment.sh
+          target/tracker-peer/bin/python tests/nuttx-std/tracker-sim/coexist.py \
+            target/tracker-coexist-sim/nuttx/nuttx.merged.bin \
+            --qemu target/tracker-qemu/qemu-system-xtensa --qemu-data target/tracker-qemu \
+            --network-qemu target/tracker-qemu/qemu-system-xtensa \
+            --wall-clock --export --timeout 190 --log target/tracker-coexist-sim/coexist.log
+          target/tracker-peer/bin/python tests/nuttx-std/tracker-sim/coexist.py \
+            target/tracker-coexist-sim/nuttx/nuttx.merged.bin \
+            --qemu target/tracker-qemu/qemu-system-xtensa --qemu-data target/tracker-qemu \
+            --network-qemu target/tracker-qemu/qemu-system-xtensa \
+            --wall-clock --tiles --tile-write-loss --timeout 140 --log target/tracker-coexist-sim/tiles.log
       - name: Retain firmware, provenance, linkage and execution evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -66,4 +143,12 @@ jobs:
             target/nuttx-qemu/*.config
             target/nuttx-qemu/*.sha256
             target/nuttx-qemu/*.log
+            target/nuttx-qemu/tracker-report.json
             target/nuttx-qemu/harness-source.tar
+            target/tracker-upload-build.log
+            target/tracker-upload-sim/*upload*.log
+            target/tracker-upload-sim/abi-report.json
+            target/tracker-upload-sim/provenance.txt
+            target/tracker-coexist-build.log
+            target/tracker-coexist-sim/*tiles*.log
+            target/tracker-coexist-sim/coexist.log

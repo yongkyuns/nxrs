@@ -13,7 +13,7 @@
 
 _Static_assert(sizeof(struct es_event) == ES_EVENT_BYTES,
                "event layout must occupy exactly 64 bytes");
-K_THREAD_STACK_ARRAY_DEFINE(worker_stacks, ES_SERVICES, ES_STACK_BYTES);
+K_THREAD_STACK_ARRAY_DEFINE(worker_stacks, ES_WORKER_CAPACITY, ES_STACK_BYTES);
 
 struct es_role {
   void *(*entry)(void *);
@@ -27,9 +27,9 @@ _Static_assert(sizeof(queue_buffers) == 30720,
                "all queue storage must total 30,720 bytes");
 static struct k_poll_event poll_events[ES_SERVICES][ES_QUEUES_PER_SERVICE];
 static unsigned ready_cursor[ES_SERVICES];
-static struct k_thread threads[ES_SERVICES];
-static struct es_role roles[ES_SERVICES];
-static int thread_joined[ES_SERVICES];
+static struct k_thread threads[ES_WORKER_CAPACITY];
+static struct es_role roles[ES_WORKER_CAPACITY];
+static int thread_joined[ES_WORKER_CAPACITY];
 K_SEM_DEFINE(ready_gate, 0, ES_SERVICES);
 K_SEM_DEFINE(go_gate, 0, ES_SERVICES);
 static unsigned spawned;
@@ -40,7 +40,7 @@ static int released;
 static int spawn_failed;
 static unsigned completed_workers;
 #if ES_STACK_WATERMARK
-static struct es_stack_sample stack_observations[ES_SERVICES];
+static struct es_stack_sample stack_observations[ES_WORKER_CAPACITY];
 #endif
 static _Atomic unsigned queue_peak;
 
@@ -99,6 +99,8 @@ static void es_thread_trampoline(void *argument, void *unused1, void *unused2) {
 }
 
 static unsigned es_qindex(unsigned kind) { return ES_MAILBOX ? 0u : kind; }
+
+unsigned es_platform_worker_capacity(void) { return ES_WORKER_CAPACITY; }
 
 static int es_initialize(int with_queues) {
 #ifdef __XTENSA__
@@ -214,7 +216,7 @@ uint32_t es_platform_cycles(void) {
 }
 
 int es_platform_spawn(void *(*entry)(void *)) {
-  if (!initialized || !entry || spawned >= ES_SERVICES || released) {
+  if (!initialized || !entry || spawned >= ES_WORKER_CAPACITY || released) {
     return -1;
   }
   unsigned slot = spawned;
@@ -414,7 +416,7 @@ void es_platform_resources(void) {
   size_t thread_objects = sizeof(threads) + sizeof(thread_joined);
   size_t entry_storage = sizeof(roles);
   size_t stack_storage =
-      (size_t)ES_SERVICES * K_THREAD_STACK_SIZEOF(worker_stacks[0]);
+      sizeof(worker_stacks);
   printf("ES_RESOURCES queue_buffers=30720 queue_objects=%zu "
          "thread_objects=%zu entry_storage=%zu stack_storage=%zu "
          "heap_allocated=%u diagnostics_queue_peaks=%zu diagnostics_stack=%zu "

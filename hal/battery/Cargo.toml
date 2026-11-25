@@ -1,0 +1,19 @@
+[package]
+name = "nxrs-battery"
+version.workspace = true
+edition.workspace = true
+build = "../../tools/build-support/cargo/hal.rs"
+
+[lib]
+name = "battery"
+
+[package.metadata.nxrs]
+kind = "hal-capability"
+platforms = ["nuttx"]
+
+[dependencies]
+cfg-if = "=1.0.5"
+nxrs-peripheral = { path = "../../driver/peripheral" }
+
+[build-dependencies]
+nxrs-build-support = { path = "../../tools/build-support" }

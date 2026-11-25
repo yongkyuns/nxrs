@@ -6,7 +6,7 @@ on:
       - 'clients/ios/Tests/NxrsMonitorCoreTests/Fixtures/**'
       - 'clients/tests/**'
       - 'gateway/**'
-      - 'service/detection-wire/**'
+      - 'service/detection/**'
       - '.github/scripts/install-ubuntu-packages.sh'
       - '.github/workflows/monitoring-android.yml'
   workflow_dispatch:

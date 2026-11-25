@@ -1,0 +1,80 @@
+board = "sim:nsh"
+target = "aarch64-nuttx-sim-darwin"
+crossdev = ""
+machine = "ARM64"
+image = "nuttx"
+requires-qemu = false
+hal = { imu = "nuttx", gnss = "nuttx", battery = "nuttx", touch = "nuttx", display = "nuttx", settings = "nuttx", ble = "nuttx", tls = "nuttx" }
+
+[build]
+size-optimized = true
+
+[composition]
+version = 1
+mode = "hardware"
+
+[resources.receiver_uart]
+binding = "uart0"
+baud = 38400
+
+[resources.sensor_bus]
+binding = "tracker_i2c"
+frequency = 400000
+
+[devices.navigation]
+compatible = "u-blox,neo-m9n"
+bus = "receiver_uart"
+
+[devices.onboard]
+compatible = "bosch,bmi270"
+bus = "sensor_bus"
+address = 0x69
+wake = { kind = "periodic" }
+
+[devices.module]
+compatible = "bosch,bmi270"
+bus = "sensor_bus"
+address = 0x68
+wake = { kind = "periodic" }
+
+[devices.fuel_gauge]
+compatible = "x-powers,axp2101-fuel-gauge"
+bus = "sensor_bus"
+address = 0x34
+
+[aliases]
+gnss = "navigation"
+imu = "onboard"
+imu_secondary = "module"
+battery = "fuel_gauge"
+
+[display]
+device = "/dev/spi2"
+
+[touch]
+device = "/dev/input0"
+
+[gnss]
+stack-bytes = 32768
+
+[imu]
+stack-bytes = 32768
+
+[kconfig]
+enable = [
+  "HOST_ARM64", "SIM_WALLTIME_SLEEP", "LIBM", "PIPES", "SCHED_LPWORK", "SPI", "SPI_DRIVER",
+  "SPI_EXCHANGE", "SPI_CMDDATA", "INPUT", "INPUT_FT5X06", "FT5X06_POLLMODE",
+  "FT5X06_SINGLEPOINT", "MTD", "RAMMTD", "RAMMTD_FLASHSIM", "MTD_CONFIG_NVS",
+  "MTD_CONFIG_NAMED", "ALLOW_BSD_COMPONENTS", "NET", "NET_SOCKOPTS", "NET_BLUETOOTH", "NETDEV_LATEINIT",
+  "NETDEV_IOCTL", "DRIVERS_WIRELESS", "DRIVERS_BLUETOOTH", "WIRELESS",
+  "WIRELESS_BLUETOOTH", "WIRELESS_BLUETOOTH_HOST", "DEV_RANDOM",
+]
+disable = ["SMP", "NSH_PIPELINE", "NSH_NETINIT", "NETUTILS_NETINIT", "SPI_HWFEATURES", "MTD_CONFIG_NONE"]
+set = [
+  'INIT_ENTRYPOINT="tracker_sim_init"', 'INIT_ENTRYNAME="tracker_sim_init"',
+  "FS_LOCK_BUCKET_SIZE=16", "USEC_PER_TICK=1000", "PTHREAD_STACK_DEFAULT=32768",
+  "SCHED_LPWORKSTACKSIZE=8192", "MTD_CONFIG_NAME_LEN=32", "RAMMTD_ERASESIZE=4096",
+  "RAMMTD_BLOCKSIZE=256",
+]
+require = ["CONFIG_HOST_MACOS=y", "CONFIG_HOST_ARM64=y", "CONFIG_SIM_UART_PTY=y"]
+forbid-regex = "^CONFIG_SMP=y$"

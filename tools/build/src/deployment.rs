@@ -43,6 +43,7 @@ pub fn validate(root: &Path, path: &Path, profile: &Profile, os: &str) -> Result
         .as_ref()
         .is_some_and(|graph| graph.mode() == nxrs_build_support::composition::Mode::Qualification);
     let hal = root.join("hal").canonicalize().map_err(|e| e.to_string())?;
+    let acquisition = hal.with_file_name("shared").join("acquisition");
     if let Some(deps) = app["dependencies"].as_object() {
         for (alias, dep) in deps {
             let Some(p) = dep["path"].as_str() else {
@@ -51,19 +52,26 @@ pub fn validate(root: &Path, path: &Path, profile: &Profile, os: &str) -> Result
             let target = path.parent().unwrap().join(p).canonicalize().map_err(|e| {
                 format!("application dependency {alias} selects an unavailable path: {e}")
             })?;
-            if let Ok(relative) = target.strip_prefix(&hal) {
+            let hal_package = target.strip_prefix(&hal).ok();
+            if let Some(relative) = hal_package {
                 let name = relative.to_str().ok_or("invalid HAL dependency path")?;
-                // Runtime witnesses exercise the shared worker directly, without
-                // admitting implementation helpers to ordinary applications.
-                let runtime_witness = qualification_only && qualification && name == "acquisition";
                 if relative.components().count() != 1
-                    || (!CAPABILITIES.contains(&name) && name != "common" && !runtime_witness)
+                    || (!CAPABILITIES.contains(&name) && name != "common")
                 {
                     return Err(format!(
                         "application dependency {alias} selects a concrete HAL implementation"
                     ));
                 }
-                if dep["features"].as_array().is_some_and(|v| {
+            }
+            let internal = target.starts_with(&acquisition);
+            // Runtime witnesses exercise the shared worker directly.
+            if internal && !(qualification_only && qualification && target == acquisition) {
+                return Err(format!(
+                    "application dependency {alias} selects a concrete HAL implementation"
+                ));
+            }
+            if (hal_package.is_some() || internal)
+                && dep["features"].as_array().is_some_and(|v| {
                     v.iter().any(|v| {
                         v.as_str().is_some_and(|s| {
                             [
@@ -72,11 +80,11 @@ pub fn validate(root: &Path, path: &Path, profile: &Profile, os: &str) -> Result
                             .contains(&s)
                         })
                     })
-                }) {
-                    return Err(format!(
-                        "application dependency {alias} selects a provider feature; choose one platform"
-                    ));
-                }
+                })
+            {
+                return Err(format!(
+                    "application dependency {alias} selects a provider feature; choose one platform"
+                ));
             }
         }
     }

@@ -4,8 +4,6 @@ on:
     paths:
       - '.github/scripts/install-ubuntu-packages.sh'
       - 'tests/nuttx-std/**'
-      - 'hal/transport/**'
-      - 'hal/common/**'
       - 'tools/build-support/**'
       - 'platform/*/profile.toml'
       - 'platform/*/profiles/**'

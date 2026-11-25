@@ -9,6 +9,7 @@ name = "tls"
 
 [features]
 probe = []
+pairing = []
 
 [package.metadata.nxrs]
 kind = "hal-capability"

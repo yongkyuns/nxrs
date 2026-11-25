@@ -21,26 +21,19 @@ fn receive(socket: &UdpSocket, expected: &[u8], peer: SocketAddr) -> io::Result<
 }
 
 
-#[cfg(target_os = "nuttx")]
-fn qualify_packet_sink(receiver: &UdpSocket, endpoint: SocketAddr) -> io::Result<()> {
-    use transport::PacketSink;
-
-    let mut sender = transport::udp::UdpSender::connect(
-        [127, 0, 0, 1],
-        endpoint.port(),
-    )
-    .map_err(|error| io::Error::other(format!("NuttX PacketSink connect: {error:?}")))?;
+fn qualify_wildcard_sender(receiver: &UdpSocket, endpoint: SocketAddr) -> io::Result<()> {
+    let sender = UdpSocket::bind((Ipv4Addr::UNSPECIFIED, 0))?;
+    sender.connect(endpoint)?;
+    sender.set_nonblocking(true)?;
     let bound = sender.local_addr()?;
     assert_ne!(bound.port(), 0);
     // A socket bound to 0.0.0.0 keeps that wildcard in getsockname() on the
     // pinned NuttX stack, while loopback routing emits 127.0.0.1 on the wire.
     // The ephemeral source port must be preserved across that routing choice.
     let source = SocketAddr::from((Ipv4Addr::LOCALHOST, bound.port()));
-    sender
-        .send(b"packet-sink")
-        .map_err(|error| io::Error::other(format!("NuttX PacketSink send: {error:?}")))?;
-    receive(receiver, b"packet-sink", source)?;
-    println!("NXRS_UDP_PROVIDER_PASS");
+    let packet = b"wildcard";
+    assert_eq!(sender.send(packet)?, packet.len());
+    receive(receiver, packet, source)?;
     Ok(())
 }
 
@@ -108,8 +101,7 @@ fn qualify() -> io::Result<()> {
     receive(&receiver, &[], independent_addr)?;
     assert!(independent.take_error()?.is_none());
 
-    #[cfg(target_os = "nuttx")]
-    qualify_packet_sink(&receiver, endpoint)?;
+    qualify_wildcard_sender(&receiver, endpoint)?;
     drop(independent);
 
     // No SO_REUSEADDR: successful bind proves the receiver released its port.

@@ -1,8 +1,8 @@
 [workspace]
 resolver = "2"
-members = ["control", "ingest", "publisher", "fuzz"]
+members = ["control", "ingest", "publisher", "fuzz", "matter"]
 # The SDK helper is built explicitly; portable controller/ingest checks need no media headers.
-default-members = ["control", "ingest"]
+default-members = ["control", "ingest", "matter"]
 
 [workspace.package]
 edition = "2021"

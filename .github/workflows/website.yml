@@ -3,9 +3,9 @@ name: Website
 on:
   push:
     branches: [main]
-    paths: ['website/**', 'docs/**', 'README.md', 'app/std-demo/**', 'hal/**', 'service/**', 'shared/messaging/**', 'shared/simulation/**', 'driver/**', 'platform/**', 'tools/build-support/**', 'tools/detector-build-support/**', 'vendor/microflow/**', '.cargo/**', 'Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml', '.github/workflows/website.yml']
+    paths: ['website/**', 'docs/**', 'gateway/matter/*.md', 'gateway/tests/matter/*.md', 'tests/browser/tracker-demo/**', 'tests/browser/esp32s3-preemption/browser_devices.js', 'tests/rtos-characterization/PHYSICAL-RESULTS.md', 'tests/rtos-characterization/wroom-review-2026-11-17.json', 'README.md', 'app/std-demo/**', 'hal/**', 'service/**', 'shared/acquisition/**', 'shared/messaging/**', 'shared/simulation/**', 'driver/**', 'platform/**', 'tools/build-support/**', 'tools/detector-build-support/**', 'vendor/microflow/**', '.cargo/**', 'Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml', '.github/workflows/website.yml']
   pull_request:
-    paths: ['website/**', 'docs/**', 'README.md', 'app/std-demo/**', 'hal/**', 'service/**', 'shared/messaging/**', 'shared/simulation/**', 'driver/**', 'platform/**', 'tools/build-support/**', 'tools/detector-build-support/**', 'vendor/microflow/**', '.cargo/**', 'Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml', '.github/workflows/website.yml']
+    paths: ['website/**', 'docs/**', 'gateway/matter/*.md', 'gateway/tests/matter/*.md', 'tests/browser/tracker-demo/**', 'tests/browser/esp32s3-preemption/browser_devices.js', 'tests/rtos-characterization/PHYSICAL-RESULTS.md', 'tests/rtos-characterization/wroom-review-2026-11-17.json', 'README.md', 'app/std-demo/**', 'hal/**', 'service/**', 'shared/acquisition/**', 'shared/messaging/**', 'shared/simulation/**', 'driver/**', 'platform/**', 'tools/build-support/**', 'tools/detector-build-support/**', 'vendor/microflow/**', '.cargo/**', 'Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml', '.github/workflows/website.yml']
   workflow_dispatch:
 
 permissions:

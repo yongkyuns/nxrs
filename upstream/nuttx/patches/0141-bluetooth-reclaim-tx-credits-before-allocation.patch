@@ -1,0 +1,84 @@
+Subject: [PATCH] Bluetooth: Reclaim controller credits before RX allocation
+
+H4 receive workers can deliver bursts of packet-completion events from
+HPWORK. Allocating an IOB for each event can exhaust the pool while
+completion work is pending on the same queue. Reclaim credits directly
+in task context and leave interrupt-context handling deferred.
+
+--- a/wireless/bluetooth/bt_hcicore.c
++++ b/wireless/bluetooth/bt_hcicore.c
+@@ -433,13 +433,13 @@
+     }
+ }
+ 
+-static void hci_num_completed_packets(FAR struct bt_buf_s *buf)
+-{
+-  FAR struct bt_hci_evt_num_completed_packets_s *evt = (FAR void *)buf->data;
++static void hci_num_completed_packets(FAR const void *data, size_t len)
++{
++  FAR const struct bt_hci_evt_num_completed_packets_s *evt = data;
+   uint8_t num_handles;
+   uint8_t i;
+ 
+-  if (buf->len < sizeof(*evt))
++  if (len < sizeof(*evt))
+     {
+       wlerr("ERROR: Truncated Number Of Completed Packets event\n");
+       return;
+@@ -456,10 +456,10 @@
+    * received before they can be read.
+    */
+ 
+-  if (buf->len < sizeof(*evt) + num_handles * sizeof(evt->h[0]))
+-    {
+-      wlerr("ERROR: Event declares %u handles but carries %u octets\n",
+-            num_handles, buf->len);
++  if (len < sizeof(*evt) + num_handles * sizeof(evt->h[0]))
++    {
++      wlerr("ERROR: Event declares %u handles but carries %zu octets\n",
++            num_handles, len);
+       return;
+     }
+ 
+@@ -1344,7 +1344,7 @@
+             break;
+ 
+           case BT_HCI_EVT_NUM_COMPLETED_PACKETS:
+-            hci_num_completed_packets(buf);
++            hci_num_completed_packets(buf->data, buf->len);
+             break;
+ 
+           default:
+@@ -1982,6 +1982,32 @@
+ 
+   wlinfo("data %p len %zu\n", data, len);
+ 
++#ifdef CONFIG_WIRELESS_BLUETOOTH_HOST
++  /* In task context return controller credits before allocating an IOB.
++   * A UART receive worker can deliver a whole batch from HPWORK. Queuing
++   * each completion to the same worker consumes the IOB pool before that
++   * worker can run its completion handler and release any of those buffers.
++   * Credit accounting allocates nothing. Interrupt-context callers keep
++   * their deferred path.
++   */
++
++  if (type == BT_EVT && !up_interrupt_context() && len >= sizeof(*hdr))
++    {
++      hdr = data;
++      if (hdr->evt == BT_HCI_EVT_NUM_COMPLETED_PACKETS)
++        {
++          if (hdr->len > len - sizeof(*hdr))
++            {
++              return -EINVAL;
++            }
++
++          hci_num_completed_packets((FAR uint8_t *)data + sizeof(*hdr),
++                                    hdr->len);
++          return OK;
++        }
++    }
++#endif
++
+   /* Critical command complete/status events use the high priority work
+    * queue.
+    */

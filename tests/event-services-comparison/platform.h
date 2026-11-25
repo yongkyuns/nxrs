@@ -10,6 +10,14 @@
 #ifndef ES_STACK_BYTES
 #define ES_STACK_BYTES 4096u
 #endif
+/* Linked worker reservation for allocation-only controls. Traffic still uses
+ * the fixed twenty-service contract. Runtime counts cannot shrink static RAM. */
+#ifndef ES_WORKER_CAPACITY
+#define ES_WORKER_CAPACITY ES_SERVICES
+#endif
+#if ES_WORKER_CAPACITY < 0 || ES_WORKER_CAPACITY > ES_SERVICES
+#error "ES_WORKER_CAPACITY must be between zero and ES_SERVICES"
+#endif
 #ifndef ES_STACK_WATERMARK
 #define ES_STACK_WATERMARK 0
 #endif
@@ -22,6 +30,7 @@
 int es_platform_init(void);
 /* Gates and thread bookkeeping only: never constructs application queues. */
 int es_platform_init_threads(void);
+unsigned es_platform_worker_capacity(void);
 void es_platform_close(void);
 /* 0 accepted, 1 full/rejected, -1 platform error. NEVER waits for capacity. */
 int es_platform_send(unsigned destination, unsigned kind,

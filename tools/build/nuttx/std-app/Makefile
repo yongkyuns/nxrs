@@ -6,9 +6,18 @@ STACKSIZE = $(NXRS_APP_STACKSIZE)
 MODULE = $(CONFIG_EXAMPLES_NXRS_STD_APP)
 EXTOBJS = nxrs_app.o
 
+# An application that owns boot must not also be launched from an NSH session.
+ifeq ($(subst ",,$(CONFIG_INIT_ENTRYPOINT)),$(NXRS_APP_COMMAND)_main)
+DO_REGISTRATION = n
+endif
+
 nxrs_app.o: $(NXRS_STD_ELF)
 	@test -n "$(NXRS_APP_COMMAND)"
+ifeq ($(CONFIG_ARCH_SIM)$(CONFIG_HOST_MACOS),yy)
+	cp $< $@
+else
 	$(OBJCOPY) --redefine-sym main=$(NXRS_APP_COMMAND)_main $< $@
+endif
 
 ifneq ($(NXRS_TARGET_C_SOURCE),)
 CSRCS += $(NXRS_TARGET_C_SOURCE)

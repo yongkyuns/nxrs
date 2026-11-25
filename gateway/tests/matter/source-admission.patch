@@ -1,0 +1,209 @@
+diff --git a/examples/src/bin/webrtc_camera.rs b/examples/src/bin/webrtc_camera.rs
+--- a/examples/src/bin/webrtc_camera.rs
++++ b/examples/src/bin/webrtc_camera.rs
+@@ -333,7 +333,7 @@
+     shutdown_rx: Receiver<()>,
+     trickle_buf: Rc<RefCell<Vec<String>>>,
+     outbound_tx: Sender<OutboundWork>,
+-    video: Video,
++    pictures: Pictures,
+ }
+
+ /// Hook-side handle to a live session.
+@@ -409,7 +409,7 @@
+         }
+     }
+
+-    fn streams(&self, session_id: u16, params: &OfferParams) -> Result<(StreamRefs, Option<Audio>), WebRtcError> {
++    fn streams(&self, session_id: u16, params: &OfferParams) -> Result<(StreamRefs, Pictures, Option<Audio>), WebRtcError> {
+         // This example negotiates a fresh peer per offer. Keep the previous worker
+         // and its access guard in the table until its session has ended.
+         if self.inner.borrow().sessions.get(&session_id).is_some() {
+@@ -422,6 +422,7 @@
+             .privacy
+             .live_view()
+             .ok_or(WebRtcError::InvalidInState)?;
++        let pictures = self.video.subscribe_current().ok_or(WebRtcError::InvalidInState)?;
+         let video = params
+             .video_stream_id
+             .flatten()
+@@ -448,7 +449,7 @@
+                 .map_err(|_| WebRtcError::DynamicConstraint)?;
+             refs.audio = Some(id);
+         }
+-        Ok((refs, audio))
++        Ok((refs, pictures, audio))
+     }
+
+     /// Main async driver future. Joined into the top-level `select` and
+@@ -462,7 +463,7 @@
+                 ex.spawn(session_loop(new)).detach();
+             }
+         };
+-        let retire_pending = self.privacy.observe(async || {
++        let retire_pending = async || {
+             loop {
+                 let retired = self
+                     .inner
+@@ -472,31 +473,33 @@
+                     .iter()
+                     .find_map(|(id, ctrl)| {
+                         let mut pending = ctrl.pending_offer.borrow_mut();
+-                        if pending
+-                            .as_ref()
+-                            .is_some_and(|(_, new)| new.refs.view.retired())
+-                        {
+-                            pending.take();
+-                            Some(*id)
++                        let (_, new) = pending.as_ref()?;
++                        let reason = if new.refs.view.retired() {
++                            WebRTCEndReasonEnum::PrivacyMode
++                        } else if new.pictures.retired() {
++                            WebRTCEndReasonEnum::NoUserMedia
+                         } else {
+-                            None
+-                        }
++                            return None;
++                        };
++                        pending.take();
++                        Some((*id, reason))
+                     });
+-                let Some(id) = retired else { break };
++                let Some((session_id, reason)) = retired else { break };
+                 if self
+                     .outbound_tx
+-                    .send(OutboundWork::End {
+-                        session_id: id,
+-                        reason: WebRTCEndReasonEnum::PrivacyMode,
+-                    })
++                    .send(OutboundWork::End { session_id, reason })
+                     .await
+                     .is_err()
+                 {
+                     break;
+                 }
+             }
+-        });
+-        ex.run(futures_lite::future::or(accept, retire_pending))
++        };
++        let changes = futures_lite::future::or(
++            self.privacy.observe(retire_pending),
++            self.video.observe_source(retire_pending),
++        );
++        ex.run(futures_lite::future::or(accept, changes))
+             .await;
+         Ok(())
+     }
+@@ -561,14 +564,13 @@
+         shutdown_rx,
+         trickle_buf: _trickle_buf,
+         outbound_tx,
+-        video,
++        mut pictures,
+     } = session;
+
+     let mut buf = vec![0u8; 2048];
+     let mut end_reason = WebRTCEndReasonEnum::ICEFailed;
+
+     // Media bookkeeping.
+-    let Some(mut pictures) = video.subscribe() else { return };
+     let mut video_mid: Option<Mid> = local_video_mid;
+     // Locally added media does not produce the remote MediaAdded event.
+     let mut video_pt: Option<Pt> = video_mid.and_then(|mid| {
+@@ -589,7 +591,7 @@
+     });
+     let mut connected = false;
+     'outer: loop {
+-        if refs.revoked.get() {
++        if refs.revoked.get() || pictures.retired() {
+             end_reason = WebRTCEndReasonEnum::NoUserMedia;
+             break;
+         }
+@@ -657,7 +659,7 @@
+                     deadline,
+                     &remote_cand_rx,
+                     &shutdown_rx,
+-                    if connected && video_pt.is_some() { Some(&mut pictures) } else { None },
++                    &mut pictures, connected && video_pt.is_some(),
+                     if connected && audio_pt.is_some() { sound.as_mut() } else { None },
+                 );
+                 let ev = futures_lite::future::or(
+@@ -667,7 +669,7 @@
+                     },
+                     media_event,
+                 ).await;
+-                if refs.revoked.get() {
++                if refs.revoked.get() || pictures.retired() {
+                     end_reason = WebRTCEndReasonEnum::NoUserMedia;
+                     break;
+                 }
+@@ -877,7 +879,8 @@
+     deadline: Instant,
+     remote_cand_rx: &Receiver<Candidate>,
+     shutdown_rx: &Receiver<()>,
+-    pictures: Option<&mut Pictures>,
++    pictures: &mut Pictures,
++    send_pictures: bool,
+     sound: Option<&mut Audio>,
+ ) -> DriverEvent {
+     use futures_lite::future::or;
+@@ -906,9 +909,11 @@
+         }
+     };
+     let media = async {
+-        match pictures {
+-            Some(pictures) => DriverEvent::Picture(pictures.next().await),
+-            None => core::future::pending().await,
++        if send_pictures {
++            DriverEvent::Picture(pictures.next().await)
++        } else {
++            pictures.wait_until_retired().await;
++            DriverEvent::Picture(None)
+         }
+     };
+     or(network, or(media, audio)).await
+@@ -1156,7 +1161,7 @@
+         session_id: u16,
+         params: &OfferParams,
+     ) -> Result<SolicitOutcome, WebRtcError> {
+-        let (refs, sound) = self.shared.streams(session_id, params)?;
++        let (refs, pictures, sound) = self.shared.streams(session_id, params)?;
+         let revoked = refs.revoked.clone();
+         let (mut rtc, socket, _, local_addr, local_cand_sdp) = new_peer(sound.is_some())?;
+         let mut changes = rtc.sdp_api();
+@@ -1179,7 +1184,7 @@
+             shutdown_rx,
+             trickle_buf: trickle_buf.clone(),
+             outbound_tx: self.shared.outbound_tx.clone(),
+-            video: self.shared.video.clone(),
++            pictures,
+         };
+         self.shared.inner.borrow_mut().sessions.insert(
+             session_id,
+@@ -1228,7 +1233,7 @@
+             WebRtcError::DynamicConstraint
+         })?;
+
+-        let (refs, sound) = self.shared.streams(session_id, params)?;
++        let (refs, pictures, sound) = self.shared.streams(session_id, params)?;
+         let revoked = refs.revoked.clone();
+         let (mut rtc, socket, local_addr, host_addr, local_cand_sdp) = new_peer(sound.is_some())?;
+         let (answer, ice_mline_index) = accept_offer(&mut rtc, offer, sound.is_some())?;
+@@ -1280,7 +1285,7 @@
+                 shutdown_rx,
+                 trickle_buf,
+                 outbound_tx: self.shared.outbound_tx.clone(),
+-                video: self.shared.video.clone(),
++                pictures,
+             })
+             .await
+             .map_err(|e| {
+@@ -1326,7 +1331,7 @@
+                 .pending_offer
+                 .borrow()
+                 .as_ref()
+-                .is_some_and(|(_, new)| new.refs.view.retired())
++                .is_some_and(|(_, new)| new.refs.view.retired() || new.pictures.retired())
+             {
+                 return Err(WebRtcError::InvalidInState);
+             }
