@@ -1043,6 +1043,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "nxrs-imu-qemu"
+version = "0.1.0"
+dependencies = [
+ "nxrs-composition",
+ "nxrs-imu",
+ "nxrs-messaging",
+]
+
+[[package]]
 name = "nxrs-imu-qualification"
 version = "0.1.0"
 dependencies = [

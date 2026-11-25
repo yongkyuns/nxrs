@@ -33,7 +33,7 @@ jobs:
       - name: Install build and emulator dependencies
         run: |
           bash .github/scripts/install-ubuntu-packages.sh \
-            bison flex gperf kconfig-frontends genromfs libncurses-dev zlib1g-dev \
+            bison flex gperf kconfig-frontends genromfs xxd libncurses-dev zlib1g-dev \
             libgcrypt20-dev libglib2.0-dev libpixman-1-dev libsdl2-2.0-0 libslirp-dev libfdt-dev \
             ninja-build cmake netcat-openbsd pkg-config
           python3 -m venv target/qemu-venv
@@ -56,6 +56,18 @@ jobs:
         run: |
           source target/qemu-tools/environment.sh
           python3 tests/host/test-nuttx-sim.py "$(command -v qemu-system-xtensa)" --qemu-image target/nuttx-qemu/nuttx/nuttx.merged.bin --log target/nuttx-qemu/console.log --cycles 1 --require-std-main
+      - name: Exercise DevKit BMI270 GPIO readiness and FIFO overflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          out=target/imu-qemu
+          mkdir -p "$out"
+          cargo nxrs build --manifest-path tests/nuttx-std/imu-qemu/Cargo.toml \
+            --profile esp32s3-devkit-imu-qemu \
+            --target-c-source tests/nuttx-std/imu-qemu/bmi270_lower.c \
+            --out "$out" 2>&1 | tee "$out/build-wrapper.log"
+          source target/qemu-tools/environment.sh
+          python3 tests/nuttx-std/imu-qemu/run.py "$out"
       - name: Run one-IMU Motion Tracker and archive service logs
         shell: bash
         run: |
@@ -143,6 +155,11 @@ jobs:
             target/nuttx-qemu/*.config
             target/nuttx-qemu/*.sha256
             target/nuttx-qemu/*.log
+            target/imu-qemu/*.log
+            target/imu-qemu/abi-report.json
+            target/imu-qemu/results.json
+            target/imu-qemu/resolved-profile.json
+            target/imu-qemu/provenance.txt
             target/nuttx-qemu/tracker-report.json
             target/nuttx-qemu/harness-source.tar
             target/tracker-upload-build.log

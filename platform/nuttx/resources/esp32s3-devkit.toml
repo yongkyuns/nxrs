@@ -73,14 +73,25 @@ ESP32S3_UART2 = "y"
 UART0_SERIAL_CONSOLE = "y"
 SERIAL_TERMIOS = "y"
 
-# QEMU test firmware supplies the I2C lower half at this endpoint.
-[resources.qemu_tracker_i2c]
+# QEMU fixtures supply the I2C and GPIO lower halves at these endpoints.
+[resources.qemu_i2c]
 kind = "i2c"
 device = "/dev/i2c0"
-[resources.qemu_tracker_i2c.kconfig]
+[resources.qemu_i2c.kconfig]
 ESP32S3_QEMU_IMAGE = "y"
 I2C = "y"
 I2C_DRIVER = "y"
+
+[resources.qemu_imu_irq]
+kind = "gpio-interrupt"
+device = "/dev/gpio-sim-imu"
+properties = { trigger = "rising" }
+[resources.qemu_imu_irq.kconfig]
+ESP32S3_QEMU_IMAGE = "y"
+DEV_GPIO = "y"
+ESPRESSIF_GPIO_IRQ = "y"
+DEV_GPIO_NPOLLWAITERS = "1"
+DEV_GPIO_NSIGNALS = "0"
 
 [resources.uart1]
 kind = "uart"

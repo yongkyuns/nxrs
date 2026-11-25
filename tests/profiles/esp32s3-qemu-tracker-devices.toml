@@ -16,7 +16,7 @@ kconfig = { ESP32S3_UART1_TXPIN = 17, ESP32S3_UART1_RXPIN = 18 }
 baud = 38400
 
 [resources.sensor_bus]
-binding = "qemu_tracker_i2c"
+binding = "qemu_i2c"
 frequency = 400000
 
 [display]

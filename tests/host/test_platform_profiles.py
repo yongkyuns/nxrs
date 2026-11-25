@@ -153,6 +153,7 @@ class FirmwareFrontendTests(unittest.TestCase):
                             ),
                             "cores3-imu-qualification": {"gnss": "nuttx", "imu": "nuttx"},
                             "cores3-protected-qualification": {"gnss": "nuttx", "imu": "nuttx"},
+                            "esp32s3-devkit-imu-qemu": {"imu": "nuttx", "gnss": "none"},
                             "esp32s3-devkit-imu-qualification": {"imu": "nuttx"},
                             "esp32s3-devkit-imu-protected-qualification": {"imu": "nuttx"},
                             "esp32s3-devkit-imu-sensor-reference": {"imu": "nuttx"},

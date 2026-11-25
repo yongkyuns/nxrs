@@ -11,7 +11,7 @@ version = 1
 mode = "hardware"
 
 [resources.sensor_bus]
-binding = "qemu_tracker_i2c"
+binding = "qemu_i2c"
 frequency = 400000
 
 [devices.motion]

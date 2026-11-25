@@ -1,0 +1,29 @@
+# DevKit QEMU with fixture-owned I2C and GPIO lower halves.
+extends = "esp32s3-qemu-mock"
+hal = { imu = "nuttx", gnss = "none" }
+
+[composition]
+version = 1
+mode = "qualification"
+
+[resources.sensor_bus]
+binding = "qemu_i2c"
+frequency = 400000
+
+[resources.imu_irq]
+binding = "qemu_imu_irq"
+
+[devices.imu]
+compatible = "bosch,bmi270"
+bus = "sensor_bus"
+address = 0x68
+wake = { kind = "interrupt", resource = "imu_irq" }
+
+[imu]
+stack-bytes = 16384
+
+[kconfig]
+enable = ["PIPES"]
+disable = ["ESPRESSIF_WIFI", "ESPRESSIF_BLE", "ESP32S3_I2C0", "ESP32S3_I2C1", "NSH_PIPELINE"]
+require = ["CONFIG_PIPES=y", "# CONFIG_NSH_PIPELINE is not set"]
+forbid-regex = "^CONFIG_(NET|SMP|DISABLE_PTHREAD|ESPRESSIF_WIFI|ESPRESSIF_BLE|ESP32S3_SPIRAM|ESP32S3_I2C[01]|NSH_PIPELINE)=y$"

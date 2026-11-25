@@ -69,6 +69,7 @@ members = [
     "tests/nuttx-std/device-composition/imu",
     "tests/nuttx-std/device-composition/gnss",
     "tests/nuttx-std/imu-protected/runtime",
+    "tests/nuttx-std/imu-qemu",
     "tests/nuttx-std/imu-qualification",
     "tests/nuttx-std/udp",
     "tests/nuttx-std/display",
