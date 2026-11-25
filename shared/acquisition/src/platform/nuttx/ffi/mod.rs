@@ -1,5 +1,28 @@
 //! Target poll/pipe ABI. Borrowed descriptors stay alive through each call.
-use std::{ffi::c_int, io};
+use std::{ffi::{c_int, c_long}, io};
+
+// Verified against the selected NuttX headers by events.c.
+const CLOCK_MONOTONIC: c_int = 1;
+#[repr(C)]
+struct Timespec {
+    seconds: i64,
+    nanoseconds: c_long,
+}
+
+unsafe extern "C" {
+    fn clock_gettime(clock_id: c_int, time: *mut Timespec) -> c_int;
+}
+
+/// The boot monotonic epoch also used by kernel timestamped GPIO edges.
+pub fn monotonic_us() -> u64 {
+    let mut time = std::mem::MaybeUninit::<Timespec>::uninit();
+    // SAFETY: the clock ID is valid and time points to writable native storage.
+    let status = unsafe { clock_gettime(CLOCK_MONOTONIC, time.as_mut_ptr()) };
+    assert_eq!(status, 0, "read CLOCK_MONOTONIC");
+    // SAFETY: a successful clock_gettime initialized the timespec.
+    let time = unsafe { time.assume_init() };
+    time.seconds as u64 * 1_000_000 + time.nanoseconds as u64 / 1_000
+}
 /// Own newly created descriptors immediately; native code retains neither.
 pub fn pipe() -> io::Result<(std::fs::File, std::fs::File)> {
     use std::os::fd::FromRawFd;

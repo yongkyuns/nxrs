@@ -12,6 +12,24 @@ mod physical;
 #[cfg(unix)]
 mod physical_tests;
 #[cfg(unix)]
+pub(crate) struct PpsLine;
+#[cfg(unix)]
+impl PpsLine {
+    pub(crate) fn open_rising_with_context(
+        _: &str,
+        _: &'static std::sync::atomic::AtomicU8,
+        _: fn(&&'static std::sync::atomic::AtomicU8),
+    ) -> std::io::Result<Self> {
+        Err(std::io::ErrorKind::Unsupported.into())
+    }
+    pub(crate) fn unregister(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+    pub(crate) fn take_timestamp(&self) -> std::io::Result<Option<(usize, u64)>> {
+        Ok(None)
+    }
+}
+#[cfg(unix)]
 pub(crate) mod ffi {
     use std::{ffi::c_int, io};
     pub static FAIL_RESTORE: std::sync::atomic::AtomicBool =

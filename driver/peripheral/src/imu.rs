@@ -25,9 +25,10 @@ pub enum Buffering {
     Latest,
 }
 
-/// Sensor-axis physical values. No host timestamp or delivery sequence is implied.
+/// Sensor-axis physical values with optional capture time on the caller's clock.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Measurement {
+    pub capture_us: Option<u64>,
     pub accel_mps2: [f32; 3],
     pub gyro_rps: [f32; 3],
 }
@@ -48,10 +49,12 @@ pub trait Imu {
     /// Read currently available complete measurements. A wake hint alone is not
     /// evidence of data. `Some(n)` counts offered measurements (zero is allowed);
     /// `None` means the consumer returned false and acquisition must stop.
+    /// `now_us` supplies the same monotonic microsecond clock for every drain.
     /// Never invoke the consumer again after false. Errors may follow an emitted
     /// prefix; they must not silently imply that sample continuity was retained.
     fn read_available(
         &mut self,
+        now_us: impl FnMut() -> u64,
         emit: impl FnMut(Measurement) -> bool,
     ) -> Result<Option<usize>, Error>;
 

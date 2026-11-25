@@ -28,8 +28,7 @@ impl Timer {
         period: Duration,
         mut tick: impl FnMut(u64) -> bool,
     ) -> io::Result<()> {
-        let origin = Instant::now();
-        let mut deadline = origin + period;
+        let mut deadline = Instant::now() + period;
         while !stop.load(Ordering::Acquire) {
             let (lock, changed) = &*self.0;
             let stopped = lock
@@ -46,7 +45,7 @@ impl Timer {
                 break;
             }
             drop(stopped);
-            if !tick(origin.elapsed().as_millis().try_into().unwrap_or(u64::MAX)) {
+            if !tick(crate::monotonic_us()) {
                 break;
             }
             deadline = Instant::now() + period;

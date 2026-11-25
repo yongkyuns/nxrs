@@ -4,7 +4,7 @@
 `I2c` or `SpiDevice` and a caller-supplied `DelayNs` instance. It uses Rust `std` and owns chip
 initialization, the exact configuration readback, bounded headerless FIFO
 decode, sensor-specific errors and stop operations. `Sample` contains physical
-SI values; reception time and delivery sequencing belong to the consuming
+SI values and capture time on the caller's monotonic clock. Delivery sequencing belongs to the consuming
 capability. Initialization and stop operations reuse the owned delay instance;
 the driver requires no `Default` delay constructor.
 
@@ -43,6 +43,11 @@ its 0.1.2 SPI transport (whose read/write framing is unsuitable here). The
 initialization sequence was adapted from that dependency and the datasheet;
 [its MIT notice](LICENSE-bmi2) is retained. Advanced
 power save remains disabled during FIFO acquisition on both transports.
+Each FIFO snapshot brackets the status and length reads with `SENSORTIME`
+reads. The driver accepts a snapshot within one output-data-rate slot and
+uses the sensor's sample phase and the host-clock bracket around the final
+counter read to date each frame. It validates consecutive sample slots across
+counter wrap and retries snapshots that straddle a slot boundary.
 The sequence follows the [Bosch BMI270 datasheet](https://www.bosch-sensortec.com/media/boschsensortec/downloads/datasheets/bst-bmi270-ds000.pdf).
 Host tests check reset/reselection, the full uploaded image, FIFO units and
 errors. Physical SPI timing and throughput remain unqualified.

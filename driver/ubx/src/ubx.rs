@@ -1,10 +1,17 @@
 //! M9 message admission and normalization; wire framing/codecs use kinavis-ubx.
 use crate::{DriverError, NavPvt};
 use kinavis_ubx::{config, ConfigKey, Deframer, Event as WireEvent, Layers, Message, PollLayer};
+use peripheral::gnss::TimePulse;
+
+pub(super) const TIM_TP_RATE: ConfigKey = match ConfigKey::new(0x2091_017e) {
+    Ok(key) => key,
+    Err(_) => panic!("TIM-TP UART1 key is U1"),
+};
 
 pub(super) enum Event {
     NavPvt(Result<NavPvt, DriverError>),
-    Rate(u8),
+    Rate(ConfigKey, u8),
+    Pulse(Option<TimePulse>),
     Navigation { measurement: u16, cycles: u16 },
     Ack(bool),
     Invalid,
@@ -56,6 +63,10 @@ impl Decoder {
                     }
                 }
                 (5, 0 | 1) | (6, 0x8b) => {}
+                (0x0d, 1) => {
+                    emit(Event::Pulse(time_pulse(frame.payload)));
+                    continue;
+                }
                 _ => continue,
             }
             match Message::decode(&frame) {
@@ -101,10 +112,11 @@ impl Decoder {
                         values.next(),
                         values.next(),
                     ) {
-                        (0, 0, Some(Ok((ConfigKey::MSGOUT_NAV_PVT_UART1, rate))), None, None)
-                            if rate <= u8::MAX.into() =>
+                        (0, 0, Some(Ok((key, rate))), None, None)
+                            if matches!(key, ConfigKey::MSGOUT_NAV_PVT_UART1 | TIM_TP_RATE)
+                                && rate <= u8::MAX.into() =>
                         {
-                            emit(Event::Rate(rate as u8))
+                            emit(Event::Rate(key, rate as u8))
                         }
                         (
                             0,
@@ -128,6 +140,23 @@ impl Decoder {
     }
 }
 
+fn time_pulse(raw: &[u8]) -> Option<TimePulse> {
+    // TpNotLocked describes the edge. qErrInvalid only describes the optional
+    // picosecond correction, which is below the device clock's resolution.
+    if raw.len() != 16 || raw[14] & 0x20 != 0 || raw[4..8] != [0; 4] {
+        return None;
+    }
+    let tow = u32::from_le_bytes(raw[..4].try_into().unwrap());
+    if tow >= 604_800_000 || tow % 1_000 != 0 {
+        return None;
+    }
+    match raw[14] & 3 {
+        0 | 2 if raw[15] & 0x0f == 0 => Some(TimePulse::Gps(tow)),
+        3 => Some(TimePulse::Utc(tow)),
+        _ => None,
+    }
+}
+
 #[derive(Default)]
 pub(super) struct Command {
     bytes: [u8; 24],
@@ -139,22 +168,22 @@ impl core::ops::Deref for Command {
         &self.bytes[..self.used]
     }
 }
-pub(super) fn get_rate() -> Command {
+pub(super) fn get_rate(key: ConfigKey) -> Command {
     let mut out = Command::default();
     out.used = config::valget(
         PollLayer::Ram,
         0,
-        &[ConfigKey::MSGOUT_NAV_PVT_UART1],
+        &[key],
         &mut out.bytes,
     )
     .expect("one U1 key fits the fixed command buffer");
     out
 }
-pub(super) fn set_rate(rate: u8) -> Command {
+pub(super) fn set_rate(key: ConfigKey, rate: u8) -> Command {
     let mut out = Command::default();
     out.used = config::valset(
         Layers::RAM,
-        &[(ConfigKey::MSGOUT_NAV_PVT_UART1, rate.into())],
+        &[(key, rate.into())],
         &mut out.bytes,
     )
     .expect("one U1 value fits the fixed command buffer");

@@ -353,6 +353,7 @@ impl Profile {
                 if let Some(composition::Wake::Interrupt { resource }) = &device.wake {
                     used.push(resource);
                 }
+                used.extend(device.pps.as_deref());
                 for id in used {
                     let resource = graph
                         .resources

@@ -43,6 +43,7 @@ impl<const MODEL: u8> Imu for Sensor<MODEL> {
     }
     fn read_available(
         &mut self,
+        _: impl FnMut() -> u64,
         mut emit: impl FnMut(Measurement) -> bool,
     ) -> Result<Option<usize>, Error> {
         if self.0.fail.load(Ordering::Acquire) {
@@ -50,6 +51,7 @@ impl<const MODEL: u8> Imu for Sensor<MODEL> {
         }
         let count = self.0.calls.fetch_add(1, Ordering::Relaxed);
         Ok(emit(Measurement {
+            capture_us: None,
             accel_mps2: [MODEL as f32, count as f32, 9.81],
             gyro_rps: [0.; 3],
         })

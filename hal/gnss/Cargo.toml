@@ -23,6 +23,7 @@ nxrs-simulation = { path = "../../shared/simulation" }
 
 [target.'cfg(target_os = "nuttx")'.dependencies]
 nxrs-peripheral = { path = "../../driver/peripheral" }
+nxrs-gpio = { path = "../../driver/gpio" }
 
 [dev-dependencies]
 nxrs-peripheral = { path = "../../driver/peripheral" }

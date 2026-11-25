@@ -20,7 +20,7 @@ look up profiles or choose concrete devices. Unbound acquisition returns
 `Unsupported`; mocks and coordinated simulation require explicit profiles.
 
 Drivers resolve `Config` into supported settings and SI measurements. The HAL
-adds sequence numbers, host reception timestamps and nominal sample intervals.
+supplies a shared monotonic clock and adds sequence numbers and nominal intervals.
 `device.resolve(config)` previews accepted settings without I/O or reservation.
 `open(config, sink)` resolves before opening resources and returns the session
 with `AppliedConfig`. Invalid requirements fail before I/O; unsupported settings
@@ -59,7 +59,12 @@ the catalogue reexports `Timing` for diagnostic callers. Sensor-reference setup 
 in catalogue diagnostics, with HAL cleanup retained on setup failure. Mock,
 simulation, unbound and non-probe acquisition reject physical diagnostics.
 
-Samples use SI units. Batch reception time is not a hardware sample timestamp.
+Samples use SI units and one `timestamp_us` on the device's monotonic clock.
+BMI270 uses its internal counter to estimate each FIFO frame's capture time.
+Accuracy depends on host clock resolution, bus timing and sensor clock drift.
+Other drivers can report reception time by leaving `is_capture_time` false.
+Fusion uses consecutive capture times when available and the nominal interval
+for reception-timed providers.
 Queue-full losses accumulate in `dropped()`; terminal errors remain observable
 through `join()`, independently of delivery. Bus wait, scheduling and sink
 backpressure affect observed latency separately from requested sampling rate.

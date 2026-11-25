@@ -37,10 +37,12 @@ impl<T: Registers> imu::Imu for Device<T> {
 
     fn read_available(
         &mut self,
+        _: impl FnMut() -> u64,
         mut emit: impl FnMut(imu::Measurement) -> bool,
     ) -> Result<Option<usize>, imu::Error> {
         self.drain(|sample| {
             emit(imu::Measurement {
+                capture_us: None,
                 accel_mps2: sample.accel_mps2,
                 gyro_rps: sample.gyro_rps,
             })

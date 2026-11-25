@@ -121,6 +121,9 @@ impl Composition {
                     ));
                 }
             }
+            if device.pps.is_some() && owners[0] != "gnss" {
+                return Err(diagnostic(origins, &format!("devices.{id}.pps"), "requires a GNSS device"));
+            }
         }
         for (capability, _) in catalogs.packages() {
             self.accessors(catalogs, capability)
@@ -290,6 +293,8 @@ pub(crate) struct Device {
     #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) wake: Option<Wake>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) pps: Option<String>,
     #[serde(
         default,
         rename = "navigation-period-ms",
@@ -840,28 +845,35 @@ fn validate_resource_claims(
                 },
             ));
         }
-        if let Some(Wake::Interrupt { resource }) = &device.wake {
+        let wake_irq = match &device.wake {
+            Some(Wake::Interrupt { resource }) => Some(("wake.resource", resource)),
+            _ => None,
+        };
+        for (field, resource) in wake_irq.into_iter().chain(device.pps.as_ref().map(|id| ("pps", id))) {
             let irq = resources.get(resource).ok_or_else(|| {
                 diagnostic_related(
                     origins,
-                    &format!("devices.{id}.wake.resource"),
+                    &format!("devices.{id}.{field}"),
                     &[&format!("resources.{resource}")],
                     &format!("references unknown IRQ resource {resource}"),
                 )
             })?;
-            let Resource::GpioInterrupt { device: path, .. } = irq else {
+            let Resource::GpioInterrupt { device: path, trigger } = irq else {
                 return Err(diagnostic_related(
                     origins,
-                    &format!("devices.{id}.wake.resource"),
+                    &format!("devices.{id}.{field}"),
                     &[&format!("resources.{resource}.kind")],
                     "IRQ reference is not a GPIO interrupt",
                 ));
             };
-            if let Some(previous_id) = irq_claims.insert(path.as_str(), id) {
+            if field == "pps" && *trigger != Trigger::Rising {
+                return Err(diagnostic(origins, &format!("devices.{id}.pps"), "requires a rising-edge GPIO"));
+            }
+            if let Some((previous_id, previous_field)) = irq_claims.insert(path.as_str(), (id, field)) {
                 return Err(diagnostic_related(
                     origins,
-                    &format!("devices.{id}.wake.resource"),
-                    &[&format!("devices.{previous_id}.wake.resource")],
+                    &format!("devices.{id}.{field}"),
+                    &[&format!("devices.{previous_id}.{previous_field}")],
                     "conflicting exclusive IRQ resource claim",
                 ));
             }

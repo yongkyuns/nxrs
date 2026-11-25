@@ -57,6 +57,8 @@ impl<S: Imu> Device<S> {
         // A configured IRQ failure must never select the periodic mode.
         let irq = irq_path.map(|path| open_irq(path, state)).transpose()?;
         let resources = open()?;
+        // Give the host timebase an origin before this sensor can capture data.
+        acquisition::monotonic_us();
         let sensor = initialize(resources, settings).inspect_err(|_| {
             // An interrupted configuration may have left the sensor active.
             state.mark_faulted();
@@ -101,12 +103,13 @@ impl<S: Imu> Device<S> {
                     break;
                 };
                 self.trace.wake(ready.periodic_deadline);
-                let now = acquisition::monotonic_ms();
-                let drained = self.sensor.read_available(|sample| {
+                let read_start_us = acquisition::monotonic_us();
+                let drained = self.sensor.read_available(acquisition::monotonic_us, |sample| {
                     sequence = sequence.saturating_add(1);
                     emit(Event::Sample(ImuSample {
                         sequence,
-                        timestamp_ms: now,
+                        timestamp_us: sample.capture_us.unwrap_or(read_start_us),
+                        is_capture_time: sample.capture_us.is_some(),
                         sample_interval_us,
                         accel_mps2: sample.accel_mps2,
                         gyro_rps: sample.gyro_rps,
@@ -163,6 +166,7 @@ mod tests {
         }
         fn read_available(
             &mut self,
+            _: impl FnMut() -> u64,
             _: impl FnMut(Measurement) -> bool,
         ) -> Result<Option<usize>, Error> {
             panic!("unsupported mode")

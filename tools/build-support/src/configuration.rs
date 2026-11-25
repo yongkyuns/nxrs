@@ -54,7 +54,13 @@ pub(crate) fn render_instances(
                     format!("resources::SpiResource, resources::open_spi, {config}, {irq:?}"),
                 )
             }
-            Resource::Uart { device: path, baud } => ("Serial", format!("{path:?}, {baud}")),
+            Resource::Uart { device: path, baud } => {
+                let pps = device.pps.as_ref().map(|resource| &graph.resources[resource]).map(|resource| match resource {
+                    Resource::GpioInterrupt { device, .. } => Ok(device.as_str()),
+                    _ => Err("PPS requires a GPIO interrupt resource"),
+                }).transpose()?;
+                ("Serial", format!("{path:?}, {baud}, {pps:?}"))
+            }
             _ => return Err(format!("device {id} requires a supported bus")),
         };
         let binding = catalogs.binding(capability, &device.compatible, resource.kind())?;
@@ -392,7 +398,7 @@ mod tests {
         assert!(imu
             .contains("(resource::Config { path: \"/dev/i2c0\", frequency: 400000 }, 104), None"));
         let gnss = render_instances(&graph, &catalogs, "gnss", 32768).unwrap();
-        assert!(gnss.contains("::r#ubx::NeoM9n<Serial>, \"/dev/ttyS1\", 38400, 32768"));
+        assert!(gnss.contains("::r#ubx::NeoM9n<Serial>, \"/dev/ttyS1\", 38400, None, 32768"));
         for invalid in [
             "",
             "Self",
@@ -465,7 +471,8 @@ mod tests {
                 struct Instance<R>(std::marker::PhantomData<R>);
                 impl<R> crate::Device for Instance<R> {{}}
                 macro_rules! declare_device {{
-                    ($name:ident, $id:literal, $receiver:ty, $path:literal, $baud:literal, $stack:literal, $reference:tt) => {{
+                    ($name:ident, $id:literal, $receiver:ty, $path:literal, $baud:literal, $pps:expr, $stack:literal, $reference:tt) => {{
+                        const _: Option<&str> = $pps;
                         static $name: Instance<$receiver> = Instance(std::marker::PhantomData);
                     }};
                 }}

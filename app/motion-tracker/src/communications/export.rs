@@ -104,7 +104,7 @@ impl From<Measurement> for Sample {
                 let [ax, ay, az] = sample.accel_mps2.map(f32::to_bits);
                 let [gx, gy, gz] = sample.gyro_rps.map(f32::to_bits);
                 Self {
-                    time: sample.timestamp_ms,
+                    time: sample.timestamp_us / 1_000,
                     sequence: sample.sequence as u32,
                     source: Source::Imu(index as u8),
                     values: [ax, ay, az, gx, gy, gz],
@@ -114,7 +114,7 @@ impl From<Measurement> for Sample {
                 let lat = fix.latitude_deg.to_bits();
                 let lon = fix.longitude_deg.to_bits();
                 Self {
-                    time: fix.timestamp_ms,
+                    time: fix.timestamp_us / 1_000,
                     sequence: fix.sequence as u32,
                     source: Source::Gnss,
                     values: [
@@ -200,7 +200,7 @@ impl Capture {
         if let Measurement::Gnss(fix) = sample {
             if let Some(anchor) = fix
                 .receiver_utc_ms
-                .and_then(|utc| ClockAnchor::new(fix.timestamp_ms, utc))
+                .and_then(|utc| ClockAnchor::new(fix.timestamp_us / 1_000, utc))
             {
                 let _ = self.clock.set(anchor);
             }
@@ -369,7 +369,8 @@ mod tests {
     fn fix(sequence: u64) -> Measurement {
         Measurement::Gnss(gnss::GnssFix {
             sequence,
-            timestamp_ms: sequence * 500,
+            timestamp_us: sequence * 500_000,
+            is_capture_time: false,
             receiver_utc_ms: None,
             latitude_deg: 45.0,
             longitude_deg: -76.0,
@@ -467,7 +468,8 @@ mod tests {
                 0,
                 imu::ImuSample {
                     sequence,
-                    timestamp_ms: time,
+                    timestamp_us: time * 1_000 + 700,
+                    is_capture_time: true,
                     sample_interval_us: 10_000,
                     accel_mps2: [-4096.0, 0.0, 4095.875],
                     gyro_rps: [-0.25, 1.0, 8191.75],
@@ -478,7 +480,7 @@ mod tests {
         let Measurement::Gnss(mut fix) = fix(1) else {
             unreachable!()
         };
-        fix.timestamp_ms = first + 3;
+        fix.timestamp_us = (first + 3) * 1_000;
         fix.receiver_utc_ms = Some(1_767_225_600_000);
         capture.record(Measurement::Gnss(fix));
         capture.record(imu(2, first + 9));
@@ -524,12 +526,13 @@ mod tests {
     fn compact_records_preserve_floats_and_use_full_headers_across_gaps() {
         let capture = Capture::default();
         capture.enable().unwrap();
-        let point = |sequence, timestamp_ms| {
+        let point = |sequence, timestamp_ms: u64| {
             Measurement::Imu(
                 0,
                 imu::ImuSample {
                     sequence,
-                    timestamp_ms,
+                    timestamp_us: timestamp_ms * 1_000,
+                    is_capture_time: true,
                     sample_interval_us: 10_000,
                     accel_mps2: [1.25, -0.5, 9.75],
                     gyro_rps: [0., 1., -2.],

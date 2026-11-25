@@ -22,6 +22,8 @@ struct bmi270
 {
   uint8_t registers[128];
   size_t image_bytes;
+  uint32_t ticks;
+  size_t fifo_bytes;
 };
 
 #ifdef CONFIG_INPUT_FT5X06
@@ -378,19 +380,10 @@ static int model_read(int address, uint8_t reg, uint8_t *data, size_t size)
   memset(data, 0, size);
   if (address >= FIRST_IMU && address < FIRST_IMU + IMU_COUNT)
     {
-      const struct bmi270 *chip = &g_imus[address - FIRST_IMU];
+      struct bmi270 *chip = &g_imus[address - FIRST_IMU];
       if (reg == 0x24 && size == 2)
         {
 #ifdef CONFIG_ARCH_SIM
-          if (g_replay_mode && chip->registers[0x49] == 0xc0)
-            {
-              /* The replay files encode the normal 4 g / 2000 dps profile. */
-              if ((chip->registers[0x41] & 3) != 1 || (chip->registers[0x43] & 7) != 0)
-                {
-                  return -EINVAL;
-                }
-              return replay_length(address - FIRST_IMU, data);
-            }
           /* The host signals only after seeing a healthy tracker report. */
           if (address == 0x69 && g_inject_imu_failure &&
               access("/tracker-fixture/fail-imu", F_OK) == 0)
@@ -398,7 +391,43 @@ static int model_read(int address, uint8_t reg, uint8_t *data, size_t size)
               return -EIO;
             }
 #endif
-          data[0] = chip->registers[0x49] == 0xc0 ? 12 : 0;
+          if (chip->fifo_bytes == 0 && chip->registers[0x49] == 0xc0)
+            {
+#ifdef CONFIG_ARCH_SIM
+              if (g_replay_mode)
+                {
+                  /* Replay uses the normal 4 g / 2000 dps profile. */
+                  if ((chip->registers[0x41] & 3) != 1 ||
+                      (chip->registers[0x43] & 7) != 0)
+                    {
+                      return -EINVAL;
+                    }
+                  int ret = replay_length(address - FIRST_IMU, data);
+                  if (ret < 0)
+                    {
+                      return ret;
+                    }
+                  chip->fifo_bytes = data[0] | (data[1] << 8);
+                }
+              else
+#endif
+                {
+                  chip->fifo_bytes = 12;
+                }
+
+              /* Advance one slot per 100 Hz frame. Length retries see the
+               * same clock and FIFO until the batch has been drained.
+               */
+              chip->ticks += 256 * (chip->fifo_bytes / 12);
+            }
+          data[0] = chip->fifo_bytes & 0xff;
+          data[1] = chip->fifo_bytes >> 8;
+        }
+      else if (reg == 0x18 && size == 3)
+        {
+          data[0] = chip->ticks;
+          data[1] = chip->ticks >> 8;
+          data[2] = chip->ticks >> 16;
         }
 #ifdef CONFIG_ARCH_SIM
       else if (reg == 0x26 && g_replay_mode)
@@ -411,11 +440,13 @@ static int model_read(int address, uint8_t reg, uint8_t *data, size_t size)
           memcpy(data, imu->fifo + imu->consumed, size);
           imu->consumed += size;
           imu->samples += size / 12;
+          chip->fifo_bytes -= size;
           replay_report(address - FIRST_IMU);
         }
 #endif
-      else if (reg == 0x26 && size == 12)
+      else if (reg == 0x26 && size == 12 && chip->fifo_bytes == 12)
         {
+          chip->fifo_bytes = 0;
           data[7] = address == 0x68 ? 0x20 : 0xe0; /* opposite accel X */
           data[11] = 0x20;
         }

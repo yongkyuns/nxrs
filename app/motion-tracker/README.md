@@ -184,8 +184,9 @@ and acquisition can close and reopen. Open the GNSS tab outdoors after the
 receiver acquires a fix. For a bench capture, add `--stream-usb`. That option
 includes precise coordinates while a fix is fresh and emits one versioned JSON
 object per line. The first and second entries in `imu` are the onboard and
-module sensors. Each live entry carries the source sequence and monotonic
-reception timestamp. The IMU entries include nominal sample period, acceleration
+module sensors. Each live entry carries the source sequence, monotonic timestamp
+and whether it represents capture or reception. The IMU entries include nominal
+sample period, acceleration
 in m/s² and angular velocity in rad/s. Live GNSS entries include latitude and
 longitude in degrees and speed in m/s. The dashboard's speed is in km/h.
 
@@ -263,13 +264,15 @@ tracker retries the remaining bytes for receivers that discard them after a
 gap. The original dashboard service uses
 the unchanged `3400`, `3401` and `3402` UUIDs and handles, and is advertised
 in the scan response. Dashboard snapshots retain the v1 NDJSON
-layout used by USB and cellular. Each live reading has a monotonic
-`received_ms` on the same clock as both IMUs and GNSS. Each has `utc_ms`
+layout shared with USB. Live readings keep the legacy `received_ms` field
+on the device's monotonic clock. USB adds `timestamp_us` and `time_source`.
+Corrected BMI270 samples and PPS-aligned GNSS fixes use `capture`. Other
+readings use `reception`. Each reading has `utc_ms`
 in Unix milliseconds after the first valid GNSS UTC solution, or `null`
-before that. All three outputs share one UTC offset for the run. This pairs
-the receiver's solution time with host reception and includes UART latency.
-IMU samples drained in one FIFO read can share a reception timestamp. Use
-the source sequence and nominal sampling interval to order those samples.
+before that. All three outputs share one UTC offset for the run, anchored to
+the first valid GNSS UTC solution and its device timestamp. An offset anchored
+to a UART reception includes UART latency.
+Binary recordings encode the same monotonic timestamps at millisecond resolution.
 
 The notification dashboard advertises `imu_scale_bits`. It contains one
 pair of IEEE float32 scale bit patterns per IMU, or `null` for a float-only
@@ -283,7 +286,7 @@ A data batch carries up to 16 records. The low five bits of the tag
 identify IMU 1, IMU 2 or GNSS as 1, 2 or 3. The first record for a
 source, one after a sequence gap, or one with a time delta above 255 ms
 carries a 32-bit sequence and a
-64-bit monotonic reception timestamp in milliseconds. When bit 7 is
+64-bit monotonic timestamp in milliseconds. When bit 7 is
 set, the record instead carries an 8-bit time delta from that source's
 previous record in the batch and advances its sequence by one. Bit 5
 marks samples received before the UTC anchor. Bit 6 marks six signed

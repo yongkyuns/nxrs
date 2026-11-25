@@ -175,7 +175,8 @@ mod tests {
         let fix = |sequence, longitude_deg| {
             Reading::Live(gnss::GnssFix {
                 sequence,
-                timestamp_ms: 0,
+                timestamp_us: 0,
+                is_capture_time: false,
                 receiver_utc_ms: None,
                 latitude_deg: 0.0,
                 longitude_deg,

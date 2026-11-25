@@ -102,5 +102,9 @@ require = [
 ]
 forbid-regex = "^CONFIG_(SMP|I2C_POLLED|SENSORS_BMI270|ESPRESSIF_WIFI|NIMBLE|PM|ESPRESSIF_AUTO_SLEEP|ESP32S3_AUTO_SLEEP|ESP32S3_SPI_DMA|MMCSD_SPI|ESP32S3_PARTITION_TABLE|ESP32S3_SPIFLASH_AUTO_BRINGUP)=y$"
 
+[resources.gnss_pps]
+binding = "gpio10"
+
 [devices.navigation]
+pps = "gnss_pps"
 navigation-period-ms = 500

@@ -28,7 +28,7 @@ The GNSS HAL enables NAV-PVT in receiver RAM and restores its previous rate
 on release; the receiver UART1 must retain its default UBX input/output support.
 Select the module IMU’s alternate **0x68** address to avoid the onboard sensor.
 The vendor documentation lists 0x69 while its sensor example uses 0x68; verify
-the module address switch before applying power. Leave PPS disconnected.
+the module address switch before applying power.
 The navigation profile preserves PMIC and charger defaults and leaves
 display, camera, audio and 5 V boost output disabled. Battery operation and module supply under load
 remain hardware qualification gates.
@@ -48,7 +48,14 @@ References: [CoreS3](https://docs.m5stack.com/en/core/CoreS3),
 
 ### Acquisition wakes
 
-GNSS waits on UART readiness and emits normalized UBX fixes from its HAL worker.
+The dual-IMU tracker profile binds the M135 PPS signal to CoreS3 GPIO10 on
+M-Bus pin 2. Power off and set the M135's PPS bank to 1 OFF, 2 ON, 3 OFF.
+The GNSS worker pairs kernel-timestamped rising edges with `UBX-TIM-TP` and
+uses the NAV-PVT solution epoch to place each fix on the same boot monotonic
+clock as the IMUs. Missing or ambiguous pairs use UART reception time.
+Check `time_source` in the tracker's `--stream-usb` output. [M135 switch settings](https://docs.m5stack.com/en/guide/module_gnss/pins_change) ·
+[NEO-M9N time pulse](https://content.u-blox.com/sites/default/files/NEO-M9N_Integrationmanual_UBX-19014286.pdf#page=56)
+
 BMI270 IRQ and timer wakes use the same FIFO drain and typed-event path. At the
 configured 100 Hz ODR and one-frame watermark, timer wakes are requested every
 10 ms so fusion can predict per sample. The profile uses a 1 ms OS tick to limit

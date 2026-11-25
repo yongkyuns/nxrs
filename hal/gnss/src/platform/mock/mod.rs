@@ -14,13 +14,14 @@ struct SyntheticGnss {
 }
 
 impl SyntheticGnss {
-    fn fix(&mut self, now_ms: u64) -> Result<GnssFix, DeviceError> {
+    fn fix(&mut self, now_us: u64) -> Result<GnssFix, DeviceError> {
         self.sequence = self.sequence.saturating_add(1);
         self.north_m += 0.05;
         self.east_m += 0.80;
         Ok(GnssFix {
             sequence: self.sequence,
-            timestamp_ms: now_ms,
+            timestamp_us: now_us,
+            is_capture_time: false,
             receiver_utc_ms: None,
             latitude_deg: f64::from(self.north_m) / 111_319.490_793,
             longitude_deg: f64::from(self.east_m) / 111_319.490_793,
