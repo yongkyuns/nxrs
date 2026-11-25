@@ -332,7 +332,9 @@ def qualify(process, modem, gnss_wire, transcript, log, ethernet, server, pin, r
         offline = check_offline(usb_samples, offline_from, redial_at_usb, last_recovered[3])
         assert silent_at is not None and detected_at_usb is not None and recovered_at is not None
         started_at_host, start = silent_at
-        assert positions[2] < start < detected_at_usb <= positions[3], positions
+        # The collector's live sample triggered silence. Its USB timestamp
+        # match can arrive on a later console report.
+        assert start < detected_at_usb <= positions[3], (start, detected_at_usb, positions)
         assert len(stamp.unanswered_echoes) == len(set(stamp.unanswered_echoes)) == 3, stamp.unanswered_echoes
         assert stamp.echo_replies > 0, 'recovered PPP did not answer any echo requests'
         silent = check_offline(usb_samples, start - 1, detected_at_usb, last_recovered[4])

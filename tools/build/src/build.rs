@@ -145,6 +145,7 @@ pub struct Options {
     pub size: bool,
     pub trace: bool,
     pub immediate: bool,
+    pub panic_diagnostics: bool,
 }
 impl Options {
     /// Literal native Kconfig requests, shared by planning and the target build.
@@ -220,6 +221,9 @@ impl Options {
         {
             return Err("invalid ABI profile".into());
         }
+        if self.panic_diagnostics && (self.trace || self.immediate) {
+            return Err("--panic-diagnostics conflicts with the lean panic switches".into());
+        }
         if self.immediate && !self.trace {
             return Err("immediate abort requires trace-only backtrace".into());
         }
@@ -235,7 +239,8 @@ impl Options {
                 || self.abi.is_some()
                 || self.size
                 || self.trace
-                || self.immediate)
+                || self.immediate
+                || self.panic_diagnostics)
         {
             return Err("NuttX qualification switches require a NuttX profile".into());
         }

@@ -100,8 +100,9 @@ def expected_case(case):
     if case in MATRIX_CASES:
         accessors["imu"] |= {"primary_alias": "PRIMARY_DEVICE", "secondary": "DEVICE_1"}
         accessors["gnss"]["primary_alias"] = "PRIMARY_DEVICE"
+    imu_fallback = "pub use super::unavailable_secondary as secondary;\n" if case in CASES else ""
     generated = {cap: "// Generated canonical device instances.\n" + "\n".join(declarations[cap])
-                 + "\npub mod devices {\n" + "".join(
+                 + "\npub mod devices {\n" + (imu_fallback if cap == "imu" else "") + "".join(
                      f"pub fn r#{name}() -> &'static impl super::Device {{ &super::{instance} }}\n"
                      for name, instance in sorted(accessors[cap].items())) + "}\n"
                  for cap in capabilities}
