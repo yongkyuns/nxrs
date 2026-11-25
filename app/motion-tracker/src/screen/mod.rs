@@ -4,5 +4,6 @@ mod charts;
 mod dashboard;
 mod font;
 mod gesture;
+mod map;
 
 pub(super) use dashboard::{Action, Screen};

@@ -1,6 +1,6 @@
 //! Transport-independent snapshots.
+use super::Key;
 use crate::{
-    map::Key,
     text::Text,
     tracker::{reading_status, Reading, Snapshot},
 };
@@ -122,6 +122,11 @@ pub fn export_frame(
     build(snapshot, Some(scales), tile)
 }
 
+pub fn write_usb(output: &mut impl io::Write, snapshot: &Snapshot) -> io::Result<()> {
+    output.write_all(frame(snapshot)?.bytes())?;
+    output.flush()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -138,9 +143,4 @@ mod tests {
             b"{\"v\":1,\"imu\":[{\"state\":\"fault\"},{\"state\":\"waiting\"}],\"gnss\":{\"state\":\"stale\"}}\n",
         );
     }
-}
-
-pub fn write_usb(output: &mut impl io::Write, snapshot: &Snapshot) -> io::Result<()> {
-    output.write_all(frame(snapshot)?.bytes())?;
-    output.flush()
 }

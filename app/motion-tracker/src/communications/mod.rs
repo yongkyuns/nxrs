@@ -7,13 +7,11 @@ mod uplink;
 mod wire;
 
 pub(super) use export::Capture;
+pub(super) use tiles::{Key, Tile, Zoom, SIDE};
 pub(super) use uplink::{Config as CellularConfig, Endpoint};
 pub(super) use wire::write_usb;
 
-use crate::{
-    map::{Key, Response, Tile},
-    tracker::Snapshot,
-};
+use crate::tracker::Snapshot;
 use navigation::observations::SharedObservations;
 use publication::Publisher;
 use std::cell::OnceCell;
@@ -21,6 +19,7 @@ use std::io;
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
+use tiles::Response;
 
 const ACTIVE_POLL: Duration = Duration::from_millis(15);
 

@@ -1,13 +1,10 @@
 use super::{
     export::{Capture, Version, MAX_BYTES, REQUEST_LEN, REQUEST_PREFIX},
     publication::Publisher,
+    tiles::{Key, Receiver, Response},
     wire,
 };
-use crate::{
-    map::{Key, Receiver, Response},
-    text::Text,
-    tracker::Snapshot,
-};
+use crate::{text::Text, tracker::Snapshot};
 use ble::{
     peripheral::{self, Link, Listener, Service},
     Uuid,

@@ -1,6 +1,10 @@
 //! Route one visible tile request over the paired phone or a pinned IP relay.
+mod wire;
+
+use wire::REQUEST_BYTES;
+pub use wire::{Key, Receiver, Response, Tile, Zoom, SIDE};
+
 use super::Endpoint;
-use crate::map::{Key, Receiver, Response, REQUEST_BYTES};
 use std::{
     io::{self, Write},
     net::{SocketAddr, TcpStream},

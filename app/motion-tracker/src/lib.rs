@@ -4,7 +4,6 @@
 mod clock;
 mod communications;
 mod health;
-mod map;
 mod preferences;
 mod runtime;
 mod screen;

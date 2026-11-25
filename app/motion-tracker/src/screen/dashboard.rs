@@ -1,7 +1,6 @@
-use super::{canvas, charts, gesture};
+use super::{canvas, charts, gesture, map};
 use crate::{
-    communications::{LinkStatus, View},
-    map::{Key, Position, Tile, View as MapView, Viewport, Zoom},
+    communications::{Key, LinkStatus, Tile, View, Zoom},
     text::Text,
     tracker::{Reading, Snapshot},
 };
@@ -9,6 +8,7 @@ use canvas::{Area, Canvas};
 use charts::{History, Metric, RoutePoint, ROUTE_POINTS, SAMPLE_INTERVAL};
 use display::{Display, Error, Rect, Size};
 use gesture::{Contact, Gesture};
+use map::{Position, View as MapView, Viewport};
 use qrcodegen::{QrCode, QrCodeEcc};
 use std::{fmt::Write, time::Instant};
 

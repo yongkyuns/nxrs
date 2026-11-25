@@ -1,6 +1,8 @@
 use crate::{communications, screen, tracker, ReportOptions};
 use battery::Device as _;
-use communications::{Capture, CellularConfig, Communications, Endpoint, Pairing, Telemetry, View};
+use communications::{
+    Capture, CellularConfig, Communications, Endpoint, Pairing, Telemetry, View, Zoom,
+};
 use messaging::bounded;
 use navigation::observations::{Observation, ObservationService};
 use screen::{Action, Screen};
@@ -19,7 +21,7 @@ struct Options {
     battery: bool,
     cellular: Option<CellularConfig>,
     tile_relay: Option<Endpoint>,
-    zoom: Option<crate::map::Zoom>,
+    zoom: Option<Zoom>,
 }
 
 impl Options {
@@ -56,7 +58,7 @@ impl Options {
                         value(&mut args)?
                             .parse()
                             .ok()
-                            .and_then(crate::map::Zoom::new)
+                            .and_then(Zoom::new)
                             .ok_or_else(|| {
                                 io::Error::new(
                                     io::ErrorKind::InvalidInput,

@@ -14,9 +14,10 @@ python3 tests/native/motion_tracker.py
 [One-IMU NuttX acquisition fixture](../../tests/nuttx-std/tracker-sim/README.md#headless-one-imu-tracker)
 
 The runtime composes acquisition, screen and communications. The `screen`
-module owns gestures, the pairing view, chart history and map presentation.
-The `communications` module owns BLE and collector delivery and the tracker
-snapshot format used by BLE, TLS and the USB diagnostic stream.
+module owns gestures, the pairing view, chart history and map presentation,
+including projection, viewport selection and the display tile cache. The
+`communications` module owns BLE and collector delivery, tile requests and
+reply decoding, and the snapshot format used by BLE, TLS and USB diagnostics.
 
 ## Dashboard
 
