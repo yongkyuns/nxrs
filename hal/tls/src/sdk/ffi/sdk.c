@@ -25,6 +25,13 @@
     defined(MBEDTLS_THREADING_C) || defined(MBEDTLS_PSA_CRYPTO_KEY_ID_ENCODES_OWNER)
 #error "Unsupported TLS identity entropy, storage or concurrency configuration"
 #endif
+#if !defined(MBEDTLS_PLATFORM_CALLOC_MACRO) || !defined(MBEDTLS_PLATFORM_FREE_MACRO) || \
+    defined(MBEDTLS_PSA_ASSUME_EXCLUSIVE_BUFFERS)
+#error "TLS requires record allocation callbacks and overlap-safe PSA copies"
+#endif
+_Static_assert(_Alignof(max_align_t) <= 16, "record allocation alignment");
+_Static_assert(MBEDTLS_SSL_IN_CONTENT_LEN == 4096 && MBEDTLS_SSL_OUT_CONTENT_LEN == 4096,
+               "record workspace assumes 4 KiB TLS content");
 _Static_assert(sizeof(psa_driver_get_entropy_flags_t) == sizeof(uint32_t), "entropy flags ABI");
 _Static_assert(sizeof(psa_status_t) == sizeof(int), "PSA status ABI");
 _Static_assert(sizeof(mbedtls_svc_key_id_t) == sizeof(uint32_t), "PSA key identifier ABI");

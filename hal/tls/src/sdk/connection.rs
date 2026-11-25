@@ -794,8 +794,16 @@ impl<T: Stream> Connection<'_, T> {
         } else {
             self.until.min(self.handshake_until)
         });
-        let result =
-            timed(self.identity, epoch, || action(self.ssl.pointer())).map_err(|e| self.fail(e))?;
+        let record = self
+            .ready
+            .then(|| self.identity.record.enter())
+            .transpose()
+            .map_err(|e| self.fail(e))?;
+        let result = timed(self.identity, epoch, || action(self.ssl.pointer()));
+        if let Some(record) = record {
+            record.finish().map_err(|e| self.fail(e))?;
+        }
+        let result = result.map_err(|e| self.fail(e))?;
         self.epoch()?;
         if self.socket.fault.get() {
             return Err(self.fail(Error::Io));
