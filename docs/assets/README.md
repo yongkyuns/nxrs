@@ -29,6 +29,8 @@ parses correctly can still contain overlapping text or ambiguous connections.
 
 | Figure | What it explains |
 | --- | --- |
+| [Queue capacity and deadline](nxrs-queue-deadline.svg) | The payload capacity needed for a bounded pause and the separate response-time budget |
+| [Shutdown wait cycle](nxrs-shutdown-wait-cycle.svg) | The dependency between join, a blocked send and the only queue consumer |
 | [Latency boundaries](nxrs-latency-boundaries.svg) | Acquisition, queue delivery and useful output; elapsed time versus CPU time |
 | [Message comparison](nxrs-message-comparison.svg) | Same-board stream p99, generated from the recorded physical results |
 | [Architecture overview](nxrs-architecture.svg) | Profiles, reusable firmware and the parallel std/peripheral routes to NuttX |

@@ -146,7 +146,7 @@ Record errors and rejected work where the application can respond. Avoid an unbo
 | Terminal fault | Retained fault state plus notification | How can the owner read the fault if notification fails? |
 | Stop request | Admission independent of ordinary traffic | What wakes the owner when its data inbox is full or empty? |
 
-Cloning a sender gives another producer access to the same destination. It does not broadcast an event to several consumers. If you intentionally send a value to several destinations, decide what partial acceptance means before submitting it.
+Cloning a sender gives another producer access to the same destination. When sending to multiple destinations, handle admission separately for each one. If an estimator accepts a sample and a recorder is full, record the gap or retry just the recorder within its budget. Retrying both could make the estimator integrate the sample twice. See [examples of notification and retention contracts](../../docs/concurrency-event-communication.md#notification-and-retention).
 
 ## Expose a narrow service interface
 
@@ -190,7 +190,19 @@ Long-running I/O also needs a cancellation or timeout path. The application shou
 
 For the introductory worker, a `Stop` event is sufficient because the producer can wait and the worker keeps draining. For a long-running hardware owner, use a stop path whose admission cannot be exhausted by ordinary data. Keep terminal failures observable even if their notification could not be queued.
 
-During partial startup, remember which owners actually started and stop those owners if a later acquisition fails. During shutdown, attempt cleanup for every independent resource, retain the errors, and release a resource only after its producer has become quiescent. Joining a producer while it waits for the joining owner to drain its queue creates a deadlock; resolve that dependency first.
+During partial startup, remember which owners actually started and stop those owners if a later acquisition fails. During shutdown, attempt cleanup for every independent resource, retain the errors, and release a resource only after its producer has become quiescent.
+
+A consumer can receive Stop and still deadlock. If it joins a producer blocked on a full data queue, the producer needs that same consumer to free a slot before it can exit.
+
+<figure class="architecture-art">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="../../docs/assets/nxrs-shutdown-wait-cycle-dark.svg">
+    <img src="../../docs/assets/nxrs-shutdown-wait-cycle.svg" alt="The consumer waits for the producer to exit. The producer waits for a free queue slot. Only the consumer can drain the queue, and it is waiting in join." width="800" height="380" loading="lazy">
+  </picture>
+  <figcaption>Each arrow points to a condition the preceding step depends on. <a href="../../docs/assets/nxrs-shutdown-wait-cycle.svg">Open the full-size diagram</a>.</figcaption>
+</figure>
+
+Give the producer an exit path before joining. It can reject a full-queue send and apply its loss policy, leave a cancellable wait, or finish sending while the consumer drains during shutdown. Test Stop with the destination already full and verify both bounded completion and the disposition of admitted work.
 
 The [application design guide](designing-applications.md) works through startup and shutdown as an application responsibility.
 

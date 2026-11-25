@@ -562,6 +562,36 @@ function acquisitionBoundary(p) {
 }
 
 
+function queueDeadline(p) {
+  return guideFigure(p, 'Queue capacity and the response deadline',
+    'A queue that starts empty and cannot drain for 50 milliseconds needs nine slots for four burst and five regular arrivals. Each record contains 64 bytes of inline payload. The record arriving at the start misses its 20 millisecond deadline before draining resumes.', 286, `
+  <text x="400" y="44" text-anchor="middle" class="label" font-size="27">Queue capacity and the response deadline</text>
+  <rect x="112" y="78" width="576" height="66" rx="12" fill="${p.group}" stroke="${p.groupBorder}"/>
+  <text x="400" y="119" text-anchor="middle" class="label" font-size="23">Consumer cannot drain</text>
+  <path d="M112 144 H688 M112 140 V154 M688 140 V154" stroke="${p.line}" stroke-width="2" fill="none"/>
+  <path d="M342.4 144 V155" stroke="${p.orange}" stroke-width="4"/>
+  <text x="112" y="179" text-anchor="middle" class="subtitle">0 ms · pause starts</text>
+  <text x="342.4" y="179" text-anchor="middle" class="label" font-size="20">20 ms · deadline</text>
+  <text x="688" y="179" text-anchor="middle" class="subtitle">50 ms · draining resumes</text>
+  ${panel({ id: 'slots', x: 136, y: 199, w: 528, h: 70, title: '9 slots hold the arrivals', lines: ['4 burst + 5 regular arrivals · 576 B of payload'], accent: p.blue })}
+`);
+}
+
+function shutdownWaitCycle(p) {
+  return guideFigure(p, 'Shutdown can wait on its own queue',
+    'The consumer calls join and stops draining a full queue. The producer cannot exit until its blocking send completes. The send needs a free slot that only the joining consumer can make available.', 380, `
+  <text x="400" y="44" text-anchor="middle" class="label" font-size="27">Shutdown can wait on its own queue</text>
+  ${panel({ id: 'join', x: 130, y: 68, w: 480, h: 76, title: 'Consumer calls join', lines: ['The consumer stops draining the queue'], accent: p.orange })}
+  ${panel({ id: 'send', x: 130, y: 176, w: 480, h: 76, title: 'Producer must exit', lines: ['Its send is blocked waiting for space'], accent: p.blue })}
+  ${panel({ id: 'drain', x: 130, y: 284, w: 480, h: 76, title: 'Queue needs a free slot', lines: ['Only the consumer can drain it'] })}
+  ${edge('join', 'send', 'M370 144 V174')}
+  ${edge('send', 'drain', 'M370 252 V282')}
+  ${edge('drain', 'join', 'M610 322 H680 V106 H612')}
+  ${label(697, 210, 'waits', 'start')}
+  ${label(697, 231, 'for join', 'start')}
+`);
+}
+
 function latencyBoundaries(p) {
   return guideFigure(p, 'Measure the path that matters',
     'An event is acquired, admitted to a queue, received by a worker and processed into output. Channel delivery covers admission through receive; end-to-end response includes acquisition and useful processing. Widths and spacing are conceptual, not durations.', 640, `
@@ -620,6 +650,8 @@ function messageComparison(p) {
 }
 
 const guideDiagrams = [
+  ['nxrs-queue-deadline', queueDeadline],
+  ['nxrs-shutdown-wait-cycle', shutdownWaitCycle],
   ['nxrs-latency-boundaries', latencyBoundaries],
   ['nxrs-message-comparison', messageComparison],
   ['nxrs-build-workflow', buildWorkflow],
