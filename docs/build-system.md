@@ -247,6 +247,17 @@ headers are outputs, not configuration sources.
 
 ## Native qualification settings
 
+NuttX uses a size-optimized Rust standard library and immediate panic abort by
+default. Use `cargo nxrs build --panic-diagnostics ...` for formatted panic
+reports and full backtrace support. An explicit trace-only setting retains
+panic reports unless immediate abort is also selected. When backtraces are
+enabled, trace-only reports show raw addresses. The effective settings are
+recorded in the build provenance.
+
+The ESP32-S3 RAM controls and CoreS3 sensor build check linked flash, unpadded
+image size, and static RAM in CI. Heap use and worker stacks are measured at
+runtime.
+
 NuttX builds accept repeated `--kconfig-enable SYMBOL`,
 `--kconfig-disable SYMBOL`, and `--kconfig-set NAME=VALUE` arguments. Use native
 symbol names without the `CONFIG_` prefix. Values are literal Kconfig booleans
