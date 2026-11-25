@@ -50,7 +50,9 @@ impl Decoder {
         self.satellites = None;
     }
 
-    pub(super) fn consume(&mut self, bytes: &[u8], mut emit: impl FnMut(Event)) {
+    // Share the decoder between acquisition and RAM transactions in the firmware.
+    #[inline(never)]
+    pub(super) fn consume(&mut self, bytes: &[u8], emit: &mut dyn FnMut(Event)) {
         for &byte in bytes {
             let frame = match self.parser.push(byte) {
                 Some(WireEvent::Frame(frame)) => frame,

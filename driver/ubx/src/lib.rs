@@ -125,12 +125,12 @@ impl<R: Read + Write> Driver<R> {
         })
     }
 
-    fn read_chunk(&mut self, emit: impl FnMut(ubx::Event)) -> Result<(), DriverError> {
+    fn read_chunk(&mut self, mut emit: impl FnMut(ubx::Event)) -> Result<(), DriverError> {
         let mut bytes = [0; 128];
         match self.io.read(&mut bytes) {
             Ok(0) => Err(DriverError::Io),
             Ok(n) => {
-                self.decoder.consume(&bytes[..n], emit);
+                self.decoder.consume(&bytes[..n], &mut emit);
                 Ok(())
             }
             Err(e) if matches!(e.kind(), ErrorKind::WouldBlock | ErrorKind::Interrupted) => Ok(()),
@@ -213,7 +213,7 @@ impl<R: Read + Write> Driver<R> {
                 Ok(0) => return Err(DriverError::Io),
                 Ok(n) => {
                     let mut reply = None;
-                    self.decoder.consume(&bytes[..n], |event| {
+                    self.decoder.consume(&bytes[..n], &mut |event| {
                         if reply.is_none() {
                             reply = match event {
                                 ubx::Event::Ack(false) => Some(Err(DriverError::InvalidData)),
@@ -248,13 +248,13 @@ fn pause() {
 fn satellite_report_rate(baud: u32, period_ms: u32) -> Option<u8> {
     // 8N1, with 100 bytes/s reserved for timing and control. Keep the
     // remaining budget in thousandths of a byte per navigation epoch.
-    let capacity = u64::from(baud.saturating_sub(1_000)) * u64::from(period_ms) / 10;
+    let capacity = (baud.saturating_sub(1_000) / 10).saturating_mul(period_ms);
     let available = capacity.checked_sub(100 * 1_000)?; // NAV-PVT plus framing.
     if available == 0 {
         return None;
     }
-    let wire_epochs = (u64::from(framing::MAX_SAT_FRAME_BYTES) * 1_000).div_ceil(available);
-    let interval_epochs = u64::from(MIN_SATELLITE_INTERVAL_MS.div_ceil(period_ms));
+    let wire_epochs = (u32::from(framing::MAX_SAT_FRAME_BYTES) * 1_000).div_ceil(available);
+    let interval_epochs = MIN_SATELLITE_INTERVAL_MS.div_ceil(period_ms);
     u8::try_from(wire_epochs.max(interval_epochs)).ok()
 }
 
