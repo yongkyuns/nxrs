@@ -15,7 +15,10 @@ pub enum DeviceError {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct GnssFix {
     pub sequence: u64,
+    /// Monotonic host reception time shared with other acquisition streams.
     pub timestamp_ms: u64,
+    /// Unix milliseconds at the solution epoch, when validated by the receiver.
+    pub receiver_utc_ms: Option<i64>,
     /// WGS84 geodetic coordinates. Local map projection belongs to navigation.
     pub latitude_deg: f64,
     pub longitude_deg: f64,

@@ -1,8 +1,6 @@
 # Why NXRS?
 
-NXRS started from a practical goal: use familiar Rust programming tools and reusable software components for firmware, while keeping hardware configuration separate from application behavior.
-
-The central idea is to extend the standards-oriented development model provided by NuttX into Rust. An application should be understandable as a Rust program: its dependencies are in Cargo, its behavior is in ordinary source, and its resources have visible owners. This page explains the tradeoffs behind that choice. The [architecture overview](overview.md) describes how it is implemented.
+NXRS brings familiar Rust tools to NuttX firmware. Cargo describes the dependencies, Rust code defines what the product does, and profiles select the hardware it uses. The [architecture overview](overview.md) shows how those parts fit together.
 
 ## Reuse in embedded development
 
@@ -79,6 +77,4 @@ Start with a small source project, introduce a component when its boundary becom
 
 ## Validation and continued development
 
-Basic validation already includes host tests, target integration checks, simulator/QEMU runs, and on-board evaluations. Existing studies measure event delivery, memory use, and application workloads, including comparisons with reference RTOS implementations.
-
-The remaining work is practical: expand supported configurations, improve components and tooling, and continue measuring their costs as applications grow. [Current status](status.md), [Testing and debugging](testing.md), and [Performance and memory](performance.md) link the implementation and results.
+Use [Current status](status.md) to see which configurations have been tested. The [performance guide](performance.md) links measurements of event delivery, memory use, and application workloads.

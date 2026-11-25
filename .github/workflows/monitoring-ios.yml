@@ -7,7 +7,7 @@ on:
       - 'gateway/control/**'
       - 'gateway/ingest/**'
       - 'gateway/tests/**'
-      - 'service/detection-wire/**'
+      - 'service/detection/**'
       - 'docs/detection-protocol*'
       - 'gateway/Cargo.toml'
       - 'gateway/Cargo.lock'

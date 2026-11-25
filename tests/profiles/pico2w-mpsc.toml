@@ -9,7 +9,6 @@ hal = {}
 
 [build]
 trace-only-backtrace = true
-panic-immediate-abort = false
 size-optimized = true
 
 [init]

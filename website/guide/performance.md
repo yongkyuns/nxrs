@@ -1,16 +1,23 @@
 # Performance and memory
 
-Existing NXRS evaluations cover event delivery, channel storage, thread stacks, code size and heap use. These measurements help track the cost of using Rust `std` and reusable components within an application's resource budget.
-
-Start with a concrete application requirement: how much useful work must finish, by when, and within which memory budget? Then choose a fixture that exercises the same transport, ownership, and scheduling behavior. The presence of a measurement in the repository does not make it representative of every application.
+Start with the amount of work your application must finish, its deadline, and the memory available. Then choose a test that uses the same kind of transport, buffering, and scheduling. The reports below give you measured comparisons and methods for testing your own workload.
 
 ## Existing evaluations
 
-The [event-path measurements](../../docs/std-channel-performance.md) cover channel operations and scheduling, including on-board results. The [Rust std footprint study](../../docs/rust-std-footprint.md) and [service-footprint fixture](../../tests/service-footprint/README.md) provide memory analysis and build recipes.
+Choose the question first. Each report states its tested setup, assumptions and measurement boundaries before presenting results. Evidence links retain the firmware identities, workload and recorded runs.
 
-The [RTOS comparison](../../docs/rtos-comparison.md) compares reference workloads on NuttX, Zephyr and Embassy. Its NuttX fixture uses native RTOS adapters. The [MPSC comparison fixture](../../tests/mpsc-comparison/README.md) tests Rust std channels against Zephyr `k_msgq`.
+| Your question | Start with | What you can take from it |
+| --- | --- | --- |
+| How do delivery, RAM and deadlines compare? | [RTOS comparison results](../../docs/rtos-comparison.md) | Zephyr delivery measurements and the RAM and deadline tradeoff with Embassy |
+| Why does the std channel behave this way? | [Bounded channels](../../docs/std-channel-performance.md) | Queue ownership, waiting, target implementation and where time goes |
+| How much RAM and flash will my application need? | [Memory and image size](../../docs/rust-std-footprint.md) | Ordinary std worker/inbox measurements and a usable accounting model |
+| Is my code allocating or retaining memory? | [Rust allocation probes](../../docs/memory-qualification.md) and [NuttX heap/stack checks](../../docs/nuttx-memory-qualification.md) | Construction, first-use, steady-state and teardown observations |
+| Does it still make progress and recover under load? | [Evaluation method](../../docs/rtos-characterization.md) | Workload, overload, recovery and portability experiments |
+| Why does camera video or detection slow down? | [Camera performance report](../../docs/camera-pico-performance.md) | Separate preprocessing, numerical execution, detection cadence and receiver FPS |
 
-The broader [RTOS characterization guide](../../docs/rtos-characterization.md) separates resource cost, responsiveness, useful CPU work, communication, lifecycle, portability, and hardware integration. Its [campaign guide](../../tests/rtos-characterization/README.md) links the build inputs, capture procedures, and scoped results. These answer different questions from an isolated context-switch or empty-thread test.
+Transport, memory and detector results come from distinct experiments. Read the setup for the relevant report before applying its figures to your application's handlers, devices and concurrent work.
+
+Historical native-adapter, compiler and model studies remain under **Historical measurements** in the [reference index](../../docs/README.md). Their results keep their original configuration; a new implementation is not automatically covered by an older run.
 
 ## Define the workload and budget
 
@@ -47,6 +54,14 @@ Measure startup, first use, steady state, saturation, and release separately. A 
 
 ## Measure event delivery
 
+<figure class="architecture-art">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="../../docs/assets/nxrs-latency-boundaries-dark.svg">
+    <img src="../../docs/assets/nxrs-latency-boundaries.svg" alt="Acquisition, queue admission, worker receive and handler output form the end-to-end path. Channel delivery measures only admission through receive; CPU time is measured separately." width="800" height="640" loading="lazy">
+  </picture>
+  <figcaption>A fast queue does not guarantee a fast device-to-output path. Choose the interval that matches your requirement. This diagram is conceptual, not to time scale. <a href="../../docs/assets/nxrs-latency-boundaries.svg">Open SVG</a>.</figcaption>
+</figure>
+
 Test ready and blocked consumers separately. Record admitted and rejected transfers and verify payload order before calculating latency. Keep the source revision, compiler version, configuration and firmware image with the result.
 
 Scheduler policy, effective priorities, locking and endpoint lifetimes affect delivery behavior. The [event communication reference](../../docs/concurrency-event-communication.md) describes the relevant transport and lifecycle requirements.
@@ -79,3 +94,16 @@ Include commands, raw data, configuration, workload, results and any failed runs
 Repeat the relevant evaluations when services, payloads, devices or toolchains change.
 
 Use the result to make a specific decision: reduce a copy, bound a buffer, move blocking work to its owner, adjust a measured stack budget, or change queue admission. Keep the requirement and correctness check constant while changing one cause. [Testing and debugging](testing.md) covers the behavior checks that should accompany the measurement.
+
+## Use a short result format
+
+A useful report answers these questions in order:
+
+1. **Question and requirement.** For example, can this owner finish each admitted event before its deadline under the declared burst?
+2. **Tested setup and assumptions.** Board, pinned software/image, workload, priorities, capacities, memory placement, warm-up, sample counts, repetitions, measurement boundaries and correctness checks. State material exclusions or missing details before showing results.
+3. **Finding.** A small table of useful completions, rejection, latency tails and relevant resource costs.
+4. **Interpretation.** Which cost dominates, what mechanism explains the difference, and which explanation is still a hypothesis? Quantify the opportunity when the data permits it.
+5. **Decision and focused follow-up.** What changes for the user, and which one or two tests would resolve the main uncertainty? State what outcome would justify an optimization.
+6. **Evidence.** Commands, raw records and reproduction instructions in a linked fixture or report.
+
+Keep a run-by-run investigation log behind that summary. If the question or configuration changes, give the new experiment its own result instead of extending one table indefinitely.

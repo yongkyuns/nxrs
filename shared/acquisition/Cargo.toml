@@ -1,0 +1,21 @@
+[package]
+build = "../../tools/build-support/cargo/resource.rs"
+name = "nxrs-acquisition"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[package.metadata.nxrs]
+kind = "native-resource"
+
+[lib]
+name = "acquisition"
+
+[features]
+probe = ["dep:embedded-hal"]
+
+[dependencies]
+embedded-hal = { version = "=1.0.0", optional = true }
+
+[build-dependencies]
+nxrs-build-support = { path = "../../tools/build-support" }

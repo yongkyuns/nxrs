@@ -9,6 +9,10 @@ pub struct Config {
     pub bootstrap: Option<Bootstrap>,
     #[serde(default)]
     pub detections: Option<DetectionConfig>,
+    #[serde(default)]
+    pub camera_audio: bool,
+    #[serde(default)]
+    pub microphone_control: Option<SocketAddrV4>,
     pub camera: SocketAddrV4,
     /// Required acknowledgement: WireGuard on the PHONE does not encrypt this link.
     pub allow_insecure_camera_http: bool,
@@ -85,7 +89,13 @@ impl Config {
         }) {
             return Err(Error::Configuration);
         }
-        if self.allow_insecure_camera_http == (self.camera_tls.is_some() || self.bootstrap.is_some())
+        if self.camera_audio != self.microphone_control.is_some()
+            || self.microphone_control.is_some_and(|control| {
+                !control.ip().is_loopback() || control.port() == 0
+                    || control == self.camera || control == self.rtsp
+            })
+            || self.camera_audio && self.allow_insecure_camera_http
+            || self.allow_insecure_camera_http == (self.camera_tls.is_some() || self.bootstrap.is_some())
             || self.camera_tls.as_ref().is_some_and(|c| !c.validate())
             || self.detections.as_ref().is_some_and(|metadata|
                 self.camera_tls.as_ref().is_some_and(|tls| metadata.camera_id != tls.camera_id)
@@ -147,6 +157,12 @@ mod tests {
         })).unwrap()
     }
     #[test] fn valid_config_is_explicit_and_local() { assert!(config().validate().is_ok()); }
+    #[test] fn camera_audio_requires_authenticated_ingest() {
+        let mut c=config();
+        c.camera_audio=true;
+        c.microphone_control=Some("127.0.0.1:18081".parse().unwrap());
+        assert!(c.validate().is_err());
+    }
     #[test] fn rejects_public_source_and_nonlocal_publisher() {
         let mut c=config(); c.camera="8.8.8.8:80".parse().unwrap(); assert!(c.validate().is_err());
         let mut c=config(); c.rtsp="192.168.1.3:8554".parse().unwrap(); assert!(c.validate().is_err());

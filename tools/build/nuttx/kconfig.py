@@ -81,6 +81,10 @@ def locations(symbol):
 
 
 def describe(symbol, selectors, implications):
+    # A prompt-only condition can hide an otherwise permitted symbol. Include
+    # those native references so the editor can navigate the actual restriction.
+    dependencies = [symbol.direct_dep]
+    dependencies.extend(node.prompt[1] for node in symbol.nodes if node.prompt)
     definition = {
         "type": kc.TYPE_TO_STR[symbol.type],
         "effective": symbol.str_value,
@@ -88,10 +92,10 @@ def describe(symbol, selectors, implications):
         "assignable": [kc.TRI_TO_STR[value] for value in symbol.assignable],
         "locations": list(locations(symbol)),
         "requires": condition(symbol.direct_dep),
-        "prerequisites": sorted(
-            ref.name for ref in kc.expr_items(symbol.direct_dep)
+        "prerequisites": sorted({
+            ref.name for expression in dependencies for ref in kc.expr_items(expression)
             if isinstance(ref, kc.Symbol) and ref.nodes
-        ),
+        }),
         "enabled_by": selectors.get(symbol.name, []),
         "implied_by": implications.get(symbol.name, []),
         "defaults": [

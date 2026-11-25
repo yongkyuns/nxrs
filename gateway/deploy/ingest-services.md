@@ -45,7 +45,11 @@ with mode 0600. Never install the CA signing key. The unit stages these loaded
 credentials into its private runtime directory and validates the complete Rust
 configuration before connecting or starting FFmpeg. Missing, expired, mismatched
 or revoked credentials refuse startup. Its `--require-camera-tls` option also
-rejects an HTTP replacement configuration. Refresh credentials with an operator
+rejects an HTTP replacement configuration. An audio-capable camera can use
+`--camera-audio` with `--camera-tls-enrollment`. This requires camera-side
+microphone admission and the gateway's FFmpeg build must include `libopus`.
+`--camera-detections` independently enables detection reporting to the control
+service. Refresh credentials with an operator
 controlled service restart; automatic enrollment/rotation is not implemented.
 
 For development against an HTTP-only camera, replace `--camera-tls-enrollment`

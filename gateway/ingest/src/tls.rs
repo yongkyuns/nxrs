@@ -18,16 +18,13 @@ use rustls::{
 use sha2::{Digest, Sha256};
 use std::{
     path::Path,
-    sync::{
-        atomic::{AtomicU64, Ordering},
-        Arc,
-    },
+    sync::{Arc, Mutex},
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use tokio::{
     io::{AsyncRead, AsyncWrite},
     net::TcpStream,
-    time::{sleep, sleep_until, Instant},
+    time::{sleep_until, Instant},
 };
 use tokio_rustls::TlsConnector;
 use x509_parser::{extensions::GeneralName, prelude::*};
@@ -49,8 +46,10 @@ fn clock() -> Result<Duration> {
         .duration_since(UNIX_EPOCH)
         .map_err(|_| Error::Authentication)
 }
-fn observe_clock(previous: &AtomicU64, now: u64) -> Result<()> {
-    require(now >= previous.fetch_max(now, Ordering::Relaxed))
+fn observe_clock(previous: &mut u64, now: u64) -> Result<()> {
+    require(now >= *previous)?;
+    *previous = now;
+    Ok(())
 }
 fn item<T: PemObject>(path: &Path, label: &str, limit: u64) -> Result<T> {
     let bytes =
@@ -69,6 +68,12 @@ fn item<T: PemObject>(path: &Path, label: &str, limit: u64) -> Result<T> {
 }
 fn cert(path: &Path) -> Result<CertificateDer<'static>> {
     item(path, "CERTIFICATE", 16_384)
+}
+
+pub(crate) fn check_public_key(path: &Path, key: &[u8]) -> Result<()> {
+    let certificate = cert(path)?;
+    let (rest, parsed) = parse_x509_certificate(&certificate).map_err(|_| Error::Authentication)?;
+    require(rest.is_empty() && parsed.public_key().subject_public_key.data.as_ref() == key)
 }
 
 fn parsed<'a>(der: &'a [u8], now: u64) -> Result<X509Certificate<'a>> {
@@ -98,7 +103,7 @@ fn leaf(
     enrollment: &CameraTls,
     server: bool,
     now: u64,
-) -> Result<u64> {
+) -> Result<(u64, [u8; 32])> {
     let cert = parsed(der, now)?;
     let basic = cert
         .basic_constraints()
@@ -153,7 +158,10 @@ fn leaf(
             |name| matches!(name, GeneralName::IPAddress(ip) if *ip==config.camera.ip().octets()),
         ))?;
     }
-    Ok(cert.validity().not_after.timestamp() as u64)
+    Ok((
+        cert.validity().not_after.timestamp() as u64,
+        Sha256::digest(cert.public_key().raw).into(),
+    ))
 }
 
 /// This verifier adds exact enrolled-leaf approval while delegating *all* chain,
@@ -203,12 +211,30 @@ impl ServerCertVerifier for PinnedVerifier {
 struct Authenticated {
     connector: TlsConnector,
     name: ServerName<'static>,
+    keys: [[u8; 32]; 3],
     until: u64,
-    observed_time: AtomicU64,
     deadline: Instant,
 }
+struct Authorization {
+    current: Arc<Authenticated>,
+    observed_time: u64,
+}
+impl Authorization {
+    fn observe_clock(&mut self) -> Result<u64> {
+        let now = clock()?.as_secs();
+        observe_clock(&mut self.observed_time, now)?;
+        Ok(now)
+    }
+
+    fn authorized(&mut self) -> Result<Arc<Authenticated>> {
+        let now = self.observe_clock()?;
+        require(now < self.current.until && Instant::now() < self.current.deadline)?;
+        Ok(self.current.clone())
+    }
+}
+#[derive(Clone)]
 pub(crate) struct Prepared {
-    tls: Option<Authenticated>,
+    tls: Option<Arc<Mutex<Authorization>>>,
 }
 impl Prepared {
     pub(crate) fn load(config: &Config) -> Result<Self> {
@@ -218,10 +244,8 @@ impl Prepared {
         let observed_at = Instant::now();
         let now = clock()?;
         let ca = cert(&enrollment.ca_certificate_file)?;
-        let digest: String = Sha256::digest(&ca)
-            .iter()
-            .map(|b| format!("{b:02x}"))
-            .collect();
+        let issuer_key: [u8; 32] = Sha256::digest(&ca).into();
+        let digest: String = issuer_key.iter().map(|b| format!("{b:02x}")).collect();
         require(digest == enrollment.issuer_sha256)?;
         let root = parsed(&ca, now.as_secs())?;
         let basic = root
@@ -243,8 +267,10 @@ impl Prepared {
         )?;
         let camera = cert(&enrollment.camera_certificate_file)?;
         let client = cert(&enrollment.client_certificate_file)?;
-        let mut until = leaf(&camera, config, enrollment, true, now.as_secs())?
-            .min(leaf(&client, config, enrollment, false, now.as_secs())?)
+        let (camera_until, camera_key) = leaf(&camera, config, enrollment, true, now.as_secs())?;
+        let (client_until, client_key) = leaf(&client, config, enrollment, false, now.as_secs())?;
+        let mut until = camera_until
+            .min(client_until)
             .min(root.validity().not_after.timestamp() as u64);
         let crl: CertificateRevocationListDer<'static> =
             item(&enrollment.crl_file, "X509 CRL", 131_072)?;
@@ -314,22 +340,26 @@ impl Prepared {
             .checked_add(remaining)
             .ok_or(Error::Authentication)?;
         Ok(Self {
-            tls: Some(Authenticated {
-                connector: TlsConnector::from(Arc::new(tls)),
-                name,
-                until,
-                observed_time: AtomicU64::new(now.as_secs()),
-                deadline,
-            }),
+            tls: Some(Arc::new(Mutex::new(Authorization {
+                current: Arc::new(Authenticated {
+                    connector: TlsConnector::from(Arc::new(tls)),
+                    name,
+                    keys: [issuer_key, camera_key, client_key],
+                    until,
+                    deadline,
+                }),
+                observed_time: now.as_secs(),
+            }))),
         })
     }
     pub(crate) async fn connect(&self, socket: TcpStream) -> Result<Socket> {
         match &self.tls {
             None => Ok(Box::new(socket)),
-            Some(tls) => {
-                let current = clock()?.as_secs();
-                observe_clock(&tls.observed_time, current)?;
-                require(current < tls.until && Instant::now() < tls.deadline)?;
+            Some(authorization) => {
+                let tls = authorization
+                    .lock()
+                    .map_err(|_| Error::Authentication)?
+                    .authorized()?;
                 let stream = tls
                     .connector
                     .connect_with(tls.name.clone(), socket, |connection| {
@@ -351,29 +381,40 @@ impl Prepared {
             }
         }
     }
+    /// Reauthorize the existing transport with fresh credentials for the same
+    /// peer keys, issuer and address. New handshakes use the updated config.
+    pub(crate) fn renew(&self, candidate: &Self) -> Result<()> {
+        let live = self.tls.as_ref().ok_or(Error::Authentication)?;
+        let candidate = candidate
+            .tls
+            .as_ref()
+            .ok_or(Error::Authentication)?
+            .lock()
+            .map_err(|_| Error::Authentication)?
+            .authorized()?;
+        let mut live = live.lock().map_err(|_| Error::Authentication)?;
+        require(live.current.keys == candidate.keys && live.current.name == candidate.name)?;
+        require(live.observe_clock()? < candidate.until && Instant::now() < candidate.deadline)?;
+        live.current = candidate;
+        Ok(())
+    }
+
     /// Enforce absolute credential/CRL expiration as a monotonic maximum lease;
-    /// observe forward/backward wall-clock jumps within one second. No files or
-    /// private keys are reloaded in the data path. Applying rotation requires a
-    /// supervised restart, which also retires the existing source and encoder.
+    /// observe forward/backward wall-clock jumps within one second. A same-key
+    /// renewal replaces this deadline without restarting the source or encoder.
     pub(crate) async fn guard(&self) -> Error {
-        let Some(tls) = &self.tls else {
+        let Some(authorization) = &self.tls else {
             return std::future::pending().await;
         };
         loop {
-            let Ok(now) = clock() else {
+            let Ok(tls) = authorization
+                .lock()
+                .map_err(|_| Error::Authentication)
+                .and_then(|mut state| state.authorized())
+            else {
                 return Error::Authentication;
             };
-            if observe_clock(&tls.observed_time, now.as_secs()).is_err()
-                || now.as_secs() >= tls.until
-                || Instant::now() >= tls.deadline
-            {
-                return Error::Authentication;
-            }
-            tokio::select! {
-                biased;
-                _=sleep_until(tls.deadline)=>return Error::Authentication,
-                _=sleep(Duration::from_secs(1))=>{},
-            }
+            sleep_until(tls.deadline.min(Instant::now() + Duration::from_secs(1))).await;
         }
     }
 }
@@ -383,12 +424,18 @@ mod tests {
     use super::*;
     #[test]
     fn clock_high_water_survives_replacement_of_a_guard_future() {
-        let previous = AtomicU64::new(100);
+        let mut previous = 100;
         for now in [100, 110, 110, 120] {
-            assert_eq!(observe_clock(&previous, now), Ok(()));
+            assert_eq!(observe_clock(&mut previous, now), Ok(()));
         }
-        assert_eq!(observe_clock(&previous, 115), Err(Error::Authentication));
-        assert_eq!(observe_clock(&previous, 100), Err(Error::Authentication));
-        assert_eq!(previous.load(Ordering::Relaxed), 120);
+        assert_eq!(
+            observe_clock(&mut previous, 115),
+            Err(Error::Authentication)
+        );
+        assert_eq!(
+            observe_clock(&mut previous, 100),
+            Err(Error::Authentication)
+        );
+        assert_eq!(previous, 120);
     }
 }

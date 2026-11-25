@@ -11,8 +11,8 @@ import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
 HOST_PLATFORM = {"darwin": "macos", "win32": "windows"}.get(sys.platform, "linux")
-CAPABILITIES = ("camera", "storage", "transport", "led", "imu", "gnss", "wifi", "ble")
-EXAMPLE_FEATURES = {"camera": "replay", "storage": "recording", "transport": "udp"}
+CAPABILITIES = ("camera", "storage", "led", "imu", "gnss", "wifi", "ble")
+EXAMPLE_FEATURES = {"camera": "replay", "storage": "recording"}
 
 
 def host_dependencies(metadata, target_packages):
@@ -109,7 +109,7 @@ def oracle(name):
 
 
 def self_test():
-    names = {"hal": "nxrs-camera", "common": "nxrs-hal-common", "bad": "retired-provider",
+    names = {"hal": "nxrs-camera", "radio-types": "nxrs-radio-types", "bad": "retired-provider",
              "registry-driver": "driver", "registry-build-dependency": "build-support"}
     directory = Path(tempfile.gettempdir()).resolve() / "hal-isolation-fixture"
     target = "fixture-target"
@@ -126,7 +126,7 @@ def self_test():
     actual = check(fixture(["hal"], host), names, expected, host, directory, target)
     assert actual["host"] == host, "host dependency was omitted from the evidence"
     check_selection(fixture(["hal"]), names, "nxrs-camera", "none")
-    for value in (fixture(["common"]), fixture(["hal", "common"]), fixture(["hal", "bad"]),
+    for value in (fixture(["radio-types"]), fixture(["hal", "radio-types"]), fixture(["hal", "bad"]),
                   fixture(["hal", "registry-driver"]), fixture(["hal", "registry-build-dependency"]),
                   fixture(["hal", "unknown"]), fixture(["hal"], ["registry-driver"]),
                   fixture(["hal"], success=False), ""):
@@ -153,7 +153,7 @@ def run(out, capabilities=CAPABILITIES):
         ["cargo", "metadata", "--locked", "--format-version=1"], cwd=ROOT, text=True))
     names = {p["id"]: p["name"] for p in metadata["packages"]}
     workspace = {names[identity]: identity for identity in metadata["workspace_members"]}
-    # Grouped selectors use this pinned macro dependency. IMU uses item cfgs.
+    # All HAL selectors use this pinned macro dependency.
     conditional, = (p["id"] for p in metadata["packages"]
                     if p["name"] == "cfg-if" and p["version"] == "1.0.5")
     compiler = subprocess.check_output([os.environ.get("RUSTC", "rustc"), "-vV"], text=True)
@@ -170,7 +170,7 @@ def run(out, capabilities=CAPABILITIES):
         if capability in {"wifi", "ble", "imu", "gnss"}:
             expected.add("nxrs-messaging")
             if capability in {"wifi", "ble"}:
-                expected.add("nxrs-hal-common")
+                expected.add("nxrs-radio-types")
         if capability == "storage":
             expected.add("nxrs-camera")
         if capability == "imu":
@@ -185,8 +185,8 @@ def run(out, capabilities=CAPABILITIES):
             cases.append(("mock-wasm", "mock", "mock", "wasm32-unknown-unknown", None))
         if capability in {"imu", "gnss"}:
             cases.append(("simulation-host", "simulation", "simulation", None, None))
-        if capability in {"camera", "storage", "transport"}:
-            example = {"camera": "native_replay", "storage": "native_record", "transport": "native_send"}[capability]
+        if capability in {"camera", "storage"}:
+            example = {"camera": "native_replay", "storage": "native_record"}[capability]
             cases.append((HOST_PLATFORM, HOST_PLATFORM, "none", None, example))
         for label, profile, provider, target, example in cases:
             expected = set(base_expected)
@@ -196,8 +196,7 @@ def run(out, capabilities=CAPABILITIES):
             if capability in {"imu", "gnss"} and target is None:
                 expected.add("nxrs-simulation")
             expected = {workspace[name] for name in expected}
-            if capability != "imu":
-                expected.add(conditional)
+            expected.add(conditional)
             host = host_dependencies(metadata, expected)
             label = f"{capability}-{label}"
             target = target or host_target
@@ -225,14 +224,11 @@ def run(out, capabilities=CAPABILITIES):
                 if example:
                     executables = [r["executable"] for r in records if r.get("reason") == "compiler-artifact" and r.get("executable")]
                     assert len(executables) == 1
-                    if capability == "transport":
-                        oracle("transport").execute(executables[0], out)
-                    else:
-                        destination = source if capability == "camera" else out / "records"
-                        execution = subprocess.run([executables[0], str(destination)], check=True, capture_output=True, text=True, timeout=15)
-                        assert execution.stdout.strip() == capability.upper() + "_ONLY_PASS"
-                        if capability == "storage":
-                            oracle("storage").check_records(destination)
+                    destination = source if capability == "camera" else out / "records"
+                    execution = subprocess.run([executables[0], str(destination)], check=True, capture_output=True, text=True, timeout=15)
+                    assert execution.stdout.strip() == capability.upper() + "_ONLY_PASS"
+                    if capability == "storage":
+                        oracle("storage").check_records(destination)
                 report.append({"case": label, "platform": profile, "provider": provider, "target": target,
                                "features": [EXAMPLE_FEATURES[capability]] if example else [],
                                "compiled_packages": sorted({names[identity] for ids in compiled.values() for identity in ids}),

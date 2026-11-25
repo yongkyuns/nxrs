@@ -45,6 +45,7 @@ import NxrsMonitorNative
     private var toastTask: Task<Void, Never>?
     private var catalogGeneration = UUID()
     private var foreground = true
+    private var trackerActive = false
     private var restored = false
     init(settings: HomeSettings? = nil, library: HomeLibrary? = nil) {
         self.settings = settings ?? HomeSettings()
@@ -201,8 +202,13 @@ import NxrsMonitorNative
         else if restored { reload() }
         applyViewingPlan(); updateDisplayAwake()
     }
+    func setTrackerActive(_ active: Bool) {
+        trackerActive = active
+        updateDisplayAwake()
+    }
     func updateDisplayAwake() {
-        UIApplication.shared.isIdleTimerDisabled = foreground && settings.preferences.keepScreenAwake && sessions.values.contains(where: \.live)
+        UIApplication.shared.isIdleTimerDisabled = foreground && settings.preferences.keepScreenAwake
+            && (trackerActive || sessions.values.contains(where: \.live))
     }
     func takeSnapshot() { selectedSession?.takeSnapshot() }
     func toggleRecording() { selectedSession?.toggleRecording() }

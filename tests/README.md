@@ -1,16 +1,31 @@
-# Test and comparison guide
+# Test and fixture index
 
-The [RTOS analysis](../docs/rtos-comparison.md) is the main reading path.
-Use a fixture guide for its scope and setup.
+Use the [performance guide](../website/guide/performance.md) to choose the question and [RTOS comparison results](../docs/rtos-comparison.md) to read the findings. This index selects the fixture to run. A build or host check does not establish physical-board timing.
 
-| Suite | Purpose | Guide |
+## Current measurement and qualification paths
+
+| I want to… | Fixture | Scope |
 | --- | --- | --- |
-| Event services | Current independent-service comparison across NuttX C/Rust, Zephyr C and Embassy Rust. | [Guide](event-services-comparison/README.md) |
-| Service footprint | Before/after Rust/NuttX runtime entry, worker and queue comparisons. | [Guide](service-footprint/README.md) |
-| Service qualification | Lean C/Rust LED-service image, RAM, delivery, restart and fault qualification. | [Guide](service-qualification/README.md) |
-| Arithmetic parity | Arithmetic correctness and compiler/device qualification; supporting developer evidence. | [Guide](arithmetic-parity/README.md) |
-| Historical Zephyr | Older producer/worker/reply workload; keep results separate from event services. | [Guide](zephyr-comparison/README.md) |
-| Historical Embassy | Same older workload with Embassy tasks; keep results separate. | [Guide](embassy-comparison/README.md) |
+| Compare std, NuttX POSIX and Zephyr queues | [MPSC comparison](mpsc-comparison/README.md) | Same Rust workload; separate images on each board |
+| Evaluate messaging, resources, progress and recovery together | [RTOS characterization](rtos-characterization/README.md) | Fixed campaign and [physical results](rtos-characterization/PHYSICAL-RESULTS.md) |
+| Measure std workers, inboxes and multi-queue selection | [Ordinary Rust RAM](ram-footprint-std/README.md) | Owner/queue scaling and lifecycle, with host and target observers |
+| Find hidden allocation or retained memory | [Allocation probes](../docs/memory-qualification.md) | Rust allocator boundary; separate [NuttX heap/stack checks](../docs/nuttx-memory-qualification.md) |
+| Qualify priority progress, overload and joined shutdown | [Owner qualification](owner-qualification/README.md) | Finite owner controls; read its input and target boundaries |
+| Check native C/Rust service lifecycle | [Service qualification](service-qualification/README.md) | Lean LED fixture, delivery, restart and faults |
+
+## Diagnostic and historical comparisons
+
+Use these to reproduce a specific experiment, keeping its configuration separate from current measurements.
+
+| Suite | Question |
+| --- | --- |
+| [Event services](event-services-comparison/README.md) | Native NuttX C/Rust, Zephyr C and Embassy execution/storage comparison |
+| [Service footprint](service-footprint/README.md) | Before/after startup, output, worker and queue costs |
+| [Arithmetic parity](arithmetic-parity/README.md) | Compiler correctness and arithmetic performance controls |
+| [Thread-Metric foundation](../docs/rtos-benchmarking.md) | Native primitives and limits of comparison with the external report |
+| [Historical Zephyr](zephyr-comparison/README.md) / [Embassy](embassy-comparison/README.md) | Older producer/worker/reply workload, separate from event services |
+
+## Run a fixture's host checks
 
 Run a fixture's Python tests by replacing the suite path in this example:
 

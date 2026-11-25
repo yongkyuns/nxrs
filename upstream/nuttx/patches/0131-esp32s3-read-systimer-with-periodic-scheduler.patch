@@ -1,0 +1,110 @@
+--- a/arch/xtensa/src/esp32s3/Kconfig
++++ b/arch/xtensa/src/esp32s3/Kconfig
+@@ -1835,6 +1835,15 @@
+ 
+ endmenu # "RTC Configuration"
+ 
++config ESP32S3_SYSTIMER_CLOCK
++	bool "Read system time from the system timer counter"
++	default n
++	depends on !SCHED_TICKLESS
++	select ARCH_HAVE_HW_SYSTIME
++	---help---
++		Read elapsed time from SYSTIMER while retaining periodic timer
++		interrupts. Delayed interrupts do not slow down the clock.
++
+ config ESP32S3_TICKLESS
+ 	bool "Enable Tickless OS"
+ 	default n
+--- a/sched/Kconfig
++++ b/sched/Kconfig
+@@ -54,6 +54,12 @@
+ 		entering the idle loop.
+ 
+ menu "Clocks and Timers"
++
++config ARCH_HAVE_HW_SYSTIME
++	bool
++	---help---
++		The periodic platform timer supplies elapsed time through
++		up_timer_gettime independently of interrupt delivery.
+ 
+ config ARCH_HAVE_TICKLESS
+ 	bool
+--- a/sched/clock/clock_systime_timespec.c
++++ b/sched/clock/clock_systime_timespec.c
+@@ -78,7 +78,7 @@
+     }
+ #elif defined(CONFIG_ALARM_ARCH) || \
+       defined(CONFIG_TIMER_ARCH) || \
+-      defined(CONFIG_SCHED_TICKLESS)
++      defined(CONFIG_SCHED_TICKLESS) || defined(CONFIG_ARCH_HAVE_HW_SYSTIME)
+   up_timer_gettime(ts);
+ #else
+   clock_ticks2time(ts, clock_get_sched_ticks());
+--- a/sched/clock/clock_systime_ticks.c
++++ b/sched/clock/clock_systime_ticks.c
+@@ -65,7 +65,7 @@
+ 
+ clock_t clock_systime_ticks(void)
+ {
+-#ifdef CONFIG_RTC_HIRES
++#if defined(CONFIG_RTC_HIRES) || defined(CONFIG_ARCH_HAVE_HW_SYSTIME)
+   struct timespec ts =
+     {
+       0
+--- a/arch/xtensa/src/esp32s3/esp32s3_timerisr.c
++++ b/arch/xtensa/src/esp32s3/esp32s3_timerisr.c
+@@ -31,6 +31,7 @@
+ #include <arch/board/board.h>
+ #include <arch/irq.h>
+ #include <nuttx/arch.h>
++#include <nuttx/clock.h>
+ 
+ #include "chip.h"
+ #include "esp_irq.h"
+@@ -81,6 +82,44 @@
+ /****************************************************************************
+  * Public Functions
+  ****************************************************************************/
++
++/****************************************************************************
++ * Name: up_timer_gettime
++ *
++ * Description:
++ *   Read elapsed time from the counter used by the periodic system timer.
++ *
++ ****************************************************************************/
++
++#ifdef CONFIG_ESP32S3_SYSTIMER_CLOCK
++int up_timer_gettime(struct timespec *ts)
++{
++  uint32_t low;
++  uint32_t high;
++  uint64_t count;
++
++  modifyreg32(SYSTIMER_UNIT0_OP_REG, 0, SYSTIMER_TIMER_UNIT0_UPDATE);
++  while ((getreg32(SYSTIMER_UNIT0_OP_REG) &
++          SYSTIMER_TIMER_UNIT0_VALUE_VALID) == 0)
++    {
++    }
++
++  /* The radio can relatch this counter from the other CPU. */
++
++  do
++    {
++      low = getreg32(SYSTIMER_UNIT0_VALUE_LO_REG);
++      high = getreg32(SYSTIMER_UNIT0_VALUE_HI_REG);
++    }
++  while (low != getreg32(SYSTIMER_UNIT0_VALUE_LO_REG));
++
++  count = ((uint64_t)high << 32) | low;
++  ts->tv_sec = count / ESP32S3_SYSTIMER_TICKS_PER_SEC;
++  ts->tv_nsec = (count % ESP32S3_SYSTIMER_TICKS_PER_SEC) *
++                NSEC_PER_SEC / ESP32S3_SYSTIMER_TICKS_PER_SEC;
++  return OK;
++}
++#endif
+ 
+ /****************************************************************************
+  * Name: up_timer_initialize

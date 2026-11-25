@@ -2,37 +2,19 @@
 //! Native callbacks and this dispatcher are serialized on LPWORK. Critical
 //! sections protect only bounded state copies; native operations run outside.
 #![allow(unsafe_code)]
-use crate::gatt_backend::{
+use crate::platform::runtime::gatt_backend::{
     device_error, Backend, Event as BackendEvent, Kind, Outcome, Request as Operation, Wake,
     CAPACITY,
 };
 use crate::{Error, OperationId, SessionId};
 use core::{cell::UnsafeCell, ffi::c_void};
-unsafe extern "C" {
-    fn gatt_lock() -> usize;
-    fn gatt_unlock(flags: usize);
-    fn gatt_schedule(ms: u32) -> i32;
-    fn gatt_unschedule();
-    fn gatt_error(kind: u32) -> i32;
-    fn gatt_register() -> i32;
-    fn gatt_unregister() -> i32;
-    fn gatt_lookup(address: *const u8, kind: u8) -> *mut c_void;
-    fn gatt_create(address: *const u8, kind: u8) -> *mut c_void;
-    fn gatt_release_conn(conn: *mut c_void);
-    fn gatt_conn_quiet(conn: *mut c_void) -> i32;
-    fn gatt_cancel(conn: *mut c_void);
-    fn gatt_disconnect(conn: *mut c_void) -> i32;
-    fn gatt_mtu(conn: *mut c_void) -> u16;
-    fn gatt_discover(
-        conn: *mut c_void,
-        characteristic: i32,
-        start: u16,
-        end: u16,
-        uuid: *const u8,
-    ) -> i32;
-    fn gatt_read(conn: *mut c_void, handle: u16, offset: u16) -> i32;
-    fn gatt_write(conn: *mut c_void, handle: u16, data: *const u8, length: u16) -> i32;
-}
+#[path = "ffi/gatt.rs"]
+mod ffi;
+use self::ffi::{
+    gatt_cancel, gatt_conn_quiet, gatt_create, gatt_disconnect, gatt_discover, gatt_error,
+    gatt_lock, gatt_lookup, gatt_mtu, gatt_read, gatt_register, gatt_release_conn, gatt_schedule,
+    gatt_unlock, gatt_unregister, gatt_unschedule, gatt_write,
+};
 fn errno(kind: u32) -> i32 {
     unsafe { gatt_error(kind) }
 }

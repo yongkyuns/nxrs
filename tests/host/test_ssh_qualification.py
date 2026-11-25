@@ -414,7 +414,7 @@ sys.exit(7)
             public = key.with_suffix(".pub").read_text().split()
             known = Path(directory) / "known_hosts"
             known.write_text(f"[127.0.0.1]:2222 {public[0]} {public[1]}\n")
-            self.assertEqual(SSH.verify_known_hosts(known, "127.0.0.1", 2222, fingerprint), known)
+            self.assertEqual(SSH.verify_known_hosts(known, "127.0.0.1", 2222, fingerprint), known.resolve())
             with self.assertRaisesRegex(SSH.CheckFailure, "fingerprint_mismatch"):
                 SSH.verify_known_hosts(known, "127.0.0.1", 2222, "SHA256:deliberately-wrong")
 

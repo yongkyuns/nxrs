@@ -391,6 +391,7 @@ class Sessions(unittest.TestCase):
             def finish():
                 stopped.set()
                 (root/'block-time').unlink(missing_ok=True)
+                (root/'refresh-time').unlink(missing_ok=True)
                 try: client.shutdown(socket.SHUT_RDWR)
                 except OSError: pass
                 reader.join(timeout=6)
@@ -398,6 +399,11 @@ class Sessions(unittest.TestCase):
             self.addCleanup(finish)
             return finish
         finish_drain = drain_response(client, response)
+        (root/'refresh-time').touch()
+        self.assertEqual(self.line(process), 'TIME_REFRESHING')
+        before = state_until(lambda s: s['active'])
+        state_until(lambda s: s['frames'] >= before['frames'] + 4)
+        (root/'refresh-time').unlink()
         (root/'block-time').touch()
         self.assertEqual(self.line(process), 'TIME_BLOCKED')
         before = state_until(lambda s: s['busy'] > 0)
@@ -536,6 +542,32 @@ class Sessions(unittest.TestCase):
                 except (ssl.SSLError, ConnectionError):
                     pass
         self.result(root, process, credentials, error, accepted=False)
+
+    def test_same_key_renewal_updates_an_active_connections_crl_deadline(self):
+        root, process, credentials, error = self.start(case='renew')
+        index = root/'index'
+        original = index.read_text()
+        now = time.time()
+        expiry = time.strftime('%y%m%d%H%M%SZ', time.gmtime(now + 3600))
+        revoked = time.strftime('%y%m%d%H%M%SZ', time.gmtime(now - 60))
+        # Exercise renewal with a valid CRL near the 8 KiB enrollment limit.
+        private(index, original + ''.join(
+            f'R\t{expiry}\t{revoked}\t{0x10000000 + i:08X}\tunknown\t/CN=revoked-{i}\n'
+            for i in range(330)
+        ))
+        credentials.crl()
+        credentials.call('crl', '-in', root/'crl.pem', '-outform', 'DER', '-out', root/'renewed-crl.der')
+        self.assertLessEqual((root/'renewed-crl.der').stat().st_size, 8192)
+        private(index, original)
+        credentials.issue('other', client=True)
+        private(root/'wrong-peer.der', ssl.PEM_cert_to_DER_cert((root/'other.pem').read_text()))
+        credentials.crl(seconds=60)
+        address = self.load(root, process, credentials)
+        with socket.create_connection(address, timeout=5) as transport:
+            with self.context(root, ssl.TLSVersion.TLSv1_3).wrap_socket(transport, server_hostname='127.0.0.1') as client:
+                client.sendall(b'ping\n')
+                self.assertEqual(client.recv(5), b'pong\n')
+        self.result(root, process, credentials, error, accepted=True)
 
     def test_unusable_own_certificate_cannot_serve(self):
         for case in ['different-key', 'expired']:

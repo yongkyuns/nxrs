@@ -91,7 +91,7 @@ class ExternalConsumerTests(unittest.TestCase):
         self.assertFalse((self.directory / "deps/tools/build").exists())
         self.assertFalse(any((self.directory / "deps/platform").glob("*/profile.toml")))
         self.assertFalse((self.directory / "deps/driver/acquisition").exists())
-        self.assertTrue((self.directory / "deps/hal/acquisition/Cargo.toml").is_file())
+        self.assertTrue((self.directory / "deps/shared/acquisition/Cargo.toml").is_file())
         self.assertFalse((self.directory / "deps/platform/hal-build.rs").exists())
         native = {"linux": "linux", "darwin": "macos", "win32": "windows"}.get(sys.platform)
         for profile in dict.fromkeys((None, "mock", native)):

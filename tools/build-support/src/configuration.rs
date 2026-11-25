@@ -79,8 +79,11 @@ pub(crate) fn render_instances(
             format!("DEVICE_{}", instances.len())
         };
         let reference = driver.sensor_reference;
+        let period = device
+            .navigation_period_ms
+            .map_or(String::new(), |period| format!(", {period}"));
         source.push_str(&format!(
-            "declare_device!({name}, {id:?}, {driver_type}, {arguments}, {stack}, {reference});\n"
+            "declare_device!({name}, {id:?}, {driver_type}, {arguments}, {stack}, {reference}{period});\n"
         ));
         instances.insert(id, name);
     }

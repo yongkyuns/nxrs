@@ -13,23 +13,22 @@ name = "home_cam"
 [dependencies]
 nxrs-console = { path = "../../hal/console" }
 nxrs-execution = { path = "../../hal/execution" }
+nxrs-ssh = { path = "../../hal/ssh" }
 nxrs-detector = { path = "../../hal/detector" }
-nxrs-connectivity-service = { path = "../../service/connectivity" }
 nxrs-enrollment = { path = "../../service/enrollment" }
-nxrs-config = { path = "../../hal/config" }
+nxrs-settings = { path = "../../hal/settings" }
 nxrs-camera = { path = "../../hal/camera" }
-nxrs-camera-service = { path = "../../service/camera" }
+nxrs-audio = { path = "../../hal/audio" }
 nxrs-stream-service = { path = "../../service/stream" }
 nxrs-firmware-update = { path = "../../service/firmware-update" }
-nxrs-detection-service = { path = "../../service/detection" }
-nxrs-detection-wire = { path = "../../service/detection-wire" }
+nxrs-detection-service = { path = "../../service/detection", features = ["wire"] }
 nxrs-tls = { path = "../../hal/tls" }
 nxrs-boot = { path = "../../hal/boot" }
 nxrs-watchdog = { path = "../../hal/watchdog" }
 nxrs-wifi = { path = "../../hal/wifi" }
 
 [package.metadata.nxrs]
-required-capabilities = ["camera", "wifi", "tls", "config", "boot", "watchdog", "console", "execution"]
+required-capabilities = ["camera", "wifi", "tls", "settings", "boot", "watchdog", "console", "execution"]
 
 [package.metadata.nxrs.firmware]
 bin = "home-cam"

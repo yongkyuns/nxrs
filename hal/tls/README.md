@@ -16,10 +16,11 @@ Select `linux-tls` or `macos-tls` for host qualification, or `pico2-tls` and
 `esp32s3-camera-tls` for NuttX qualification. Public socket/time types use
 Rust `std` and remain available without a selected backend; `open()` then returns `Unsupported`,
 acquiring no SDK or entropy. Services need no platform conditionals.
-The NuttX factory accepts only the configured RP2350 hardware source or the
-guarded ESP32-S3 RF source, opens `/dev/random` nonblocking and refuses
-unqualified sources. Polling and interrupted reads are bounded; contention,
-partial output and source failures close the identity. There is no fixed seed.
+The NuttX factory opens `/dev/random` nonblocking. Hardware builds admit the
+configured RP2350 source or the guarded ESP32-S3 RF source. An ESP32-S3 QEMU
+image can also use host-backed randomness after the emulator signature is
+verified at runtime. Polling and interrupted reads are bounded. Contention,
+partial output and source failures close the identity.
 
 Only one SDK owner may exist. It cannot move between threads; native callbacks
 borrow it only during synchronous calls. Fresh reseeding is explicit and source
@@ -48,7 +49,8 @@ independently commissioned exact certificate DER SHA-256. Its trust comes from
 the pin and TLS proof of key possession; it does not require or assert trusted
 UTC, a CA chain or certificate validity dates. No application bytes are admitted
 until the complete handshake and pin comparison pass. A fixed monotonic lifetime
-of at most ten seconds bounds handshake and I/O. Tickets, PSK and early data
+of at most one hour bounds the connection, with a separate short handshake
+deadline. The caller bounds each application exchange independently. Tickets, PSK and early data
 remain disabled. Pin rotation requires an independently authorized commissioning
 path. Normal enrolled server connections retain their complete PKI/time checks.
 Both connection types share the existing bounded I/O and teardown code; one
@@ -64,9 +66,19 @@ It never reads ambient UTC. Refresh before expiry; closed connections stay close
 TLS uses P-256/ECDHE, SHA-256 and AES-128-GCM; tickets, early data and renegotiation
 are disabled. A write retry must present the same pending bytes. Each SDK call
 admits at most eight socket callbacks and 8 KiB; plaintext records are at most
-4 KiB. The handshake has a five-second admission deadline. Native cryptography
+4 KiB. Established TLS record I/O automatically reuses 8,384 bytes of scratch
+reserved by the SDK owner. Oversized record allocations fail within that
+budget. Handshakes, certificate setup and renewal retain the ordinary allocator.
+The handshake has a five-second admission deadline. Native cryptography
 and entropy reads are synchronous: qualify their execution latency or isolate
 them from capture before product admission. Drop aborts without waiting on peers.
+
+`Identity::renew` validates fresh certificates and revocation data for the same
+issuer, identity names and public keys. Verification runs in bounded SDK steps
+so the caller can service a live connection between them. An established
+connection retains its original native TLS context and applies the new
+authorization at its next trusted-time refresh. New handshakes use the fresh
+certificates.
 
 `python3 tests/tls/qualify.py --platform linux` (or `macos`) runs actual SDK
 failure/lifetime tests, native sanitizer controls, independent CSR verification
@@ -120,3 +132,20 @@ stopped-radio refusal have been observed. Controlled physical TLS, playback and
 recording measurements are in [resource qualification](../../docs/esp32s3-tls-resources.md).
 This does not establish an autonomous shipping device. See
 [Espressif's RNG requirements](https://docs.espressif.com/projects/esp-idf/en/stable/esp32s3/api-reference/system/random.html).
+## Physically commissioned pairing
+
+The additive `pairing` feature supplies a TLS 1.2 PSK server with the single
+`TLS_PSK_WITH_AES_128_GCM_SHA256` cipher. Applications obtain a fresh 256-bit
+key from the guarded SDK source and convey it via a physically trusted path.
+This isolated mode has a one-hour connection limit and no forward secrecy.
+Enrolled and pinned connections keep their own peer authorization policy.
+`Stream` adapts reliable, nonblocking transports without exposing native BIO
+callbacks. Its TCP implementation retains the existing socket behavior. The
+PSK witness exercises matching and wrong keys over bounded 20-byte fragments.
+
+On the ESP32-S3, a Bluetooth-only profile can use the guarded random device
+with the Bluetooth PHY active. A Wi-Fi-enabled profile retains Wi-Fi-specific
+admission. Both reject inactive or busy PHY state and exclude unsupported power
+management configurations. Host and link checks establish software behavior.
+Physical entropy and BLE radio qualification are separate.
+[Espressif RNG requirements](https://docs.espressif.com/projects/esp-idf/en/stable/esp32s3/api-reference/system/random.html)

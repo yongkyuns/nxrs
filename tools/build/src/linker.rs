@@ -26,6 +26,37 @@ pub fn arguments(args: &[String]) -> Result<(Vec<String>, Vec<String>)> {
     kept.extend(["-r", "--gc-sections", "-u", "main"].map(str::to_owned));
     Ok((kept, deferred))
 }
+
+fn link_sim(original: &[String], log: &Path) -> Result<()> {
+    let linker = "/usr/bin/ld";
+    let mut effective = ["-r", "-arch", "arm64", "-platform_version", "macos", "11.0", "11.0"]
+        .map(str::to_owned)
+        .to_vec();
+    let mut deferred = Vec::new();
+    let mut args = original.iter();
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "-o" | "-L" => {
+                effective.push(arg.clone());
+                effective.push(args.next().ok_or("missing linker argument")?.clone());
+            }
+            "-lc" | "-lm" | "-lpthread" => deferred.push(arg.clone()),
+            "-z" if args.next().is_some_and(|value| value == "noexecstack") => {}
+            "--as-needed" | "-Bstatic" | "-Bdynamic" | "--gc-sections" | "-O1" | "--strip-debug" => {}
+            _ if arg.starts_with("-L") || arg.starts_with("-l") => effective.push(arg.clone()),
+            _ if !arg.starts_with('-')
+                && matches!(Path::new(arg).extension().and_then(|ext| ext.to_str()), Some("o" | "rlib" | "a")) =>
+            {
+                effective.push(arg.clone());
+            }
+            _ => return Err(format!("unhandled simulator linker argument {arg:?}")),
+        }
+    }
+    write_json(log, &json!({"linker":linker,"original":original,"effective":effective,
+        "deferred_nuttx_libraries":deferred}))?;
+    run(Command::new(linker).args(&effective))
+}
+
 pub fn link(original: &[String]) -> Result<()> {
     let root = PathBuf::from(env::var_os("NUTTX_STD_SYSROOT").ok_or("missing private sysroot")?);
     let rustc = root.join("bin/rustc");
@@ -34,13 +65,16 @@ pub fn link(original: &[String]) -> Result<()> {
     {
         return Err("selected Rust sysroot differs".into());
     }
+    let log = PathBuf::from(env::var_os("NUTTX_STD_LINK_LOG").ok_or("missing link evidence path")?);
+    if env::var("NUTTX_STD_MACHO_LINK").as_deref() == Ok("1") {
+        return link_sim(original, &log);
+    }
     let version = output(Command::new(&rustc).arg("-vV"))?;
     let host = version
         .lines()
         .find_map(|line| line.strip_prefix("host: "))
         .ok_or("rustc host missing")?;
     let (mut args, deferred) = arguments(original)?;
-    let log = PathBuf::from(env::var_os("NUTTX_STD_LINK_LOG").ok_or("missing link evidence path")?);
     let evidence = log.parent().ok_or("link evidence parent")?;
     let gnu = env::var_os("NUTTX_STD_GNU_LINKER");
     let linker = if let Some(path) = &gnu {

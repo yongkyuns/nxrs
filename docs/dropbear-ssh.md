@@ -1,9 +1,9 @@
 # Optional Dropbear access to NSH
 
 NXRS can select the native NuttX Apps Dropbear utility as an optional maintenance
-service. SSH is default off. Applications continue to use ordinary Rust `std`
-I/O, networking and threads; there is no mandatory SSH HAL, Rust protocol wrapper,
-broker, launcher or executor. The implementation and qualification plan is
+service. SSH is default off. The [home-cam maintenance image](../app/home-cam/README.md#ssh-maintenance)
+owns the optional native task through a small Rust lifecycle API. Dropbear
+still owns the protocol, authentication and shell. The implementation and qualification plan is
 [issue #327](https://github.com/yongkyuns/nxrs/issues/327).
 
 The ESP32-S3 lab verified that a provisioned host key and password database
@@ -36,7 +36,7 @@ close. A competing listener still blocks the bind.
 | Native NuttX password database | Public-key authentication and authorized-key policy |
 | Unique ECDSA P-256 native Dropbear host key | Automatic replacement of an existing identity |
 | PTY input/output and explicit foreground-command SIGINT | Generic forced cleanup of arbitrary uncooperative Rust commands |
-| Explicit local start/status/stop | NSH autostart, direct-init startup, multiple administrative sessions |
+| Explicit local start/status/stop, or ownership by the camera maintenance image | NSH autostart and multiple administrative sessions |
 | Bounded authentication, idle/retry and stop settings | SCP, SFTP, compression, forwarding, agent forwarding and NSH command pipelines |
 
 The profile is a flat administrative environment. A password-protected NSH shell
@@ -116,9 +116,11 @@ hardware RNG devices, and software cryptodev with its software-AES prerequisite.
 A backport of [ESP HAL PR #13](https://github.com/espressif/esp-hal-3rdparty/pull/13)
 prefixes the Wi-Fi AES helpers on NuttX so they can coexist with software
 cryptodev's AES implementation. The pinned dependency revision is retained.
-The native service is admitted only for a flat, non-SMP image. Kernel pipes remain
-enabled for PTYs and session signaling, while `NSH_PIPELINE=n` disables shell
-pipeline syntax alongside `NSH_DISABLEBG=y`.
+The native service requires a flat build. ESP32-S3 also supports SMP using the
+board's serialized RF entropy and PSRAM-safe libc atomics. Other targets
+retain their single-core requirement. Kernel pipes remain enabled for PTYs and
+session signaling, while `NSH_PIPELINE=n` disables shell pipeline syntax alongside
+`NSH_DISABLEBG=y`.
 SCP, compression, host-key generation and NSH Dropbear autostart are excluded.
 The exact prepared algorithm header and effective configuration are retained
 beside the image. Negotiated algorithm names are recorded only by real OpenSSH
@@ -334,6 +336,36 @@ returns on control replies, a fresh run passed all 100 sessions and ten
 password rejections with a status check before every login. The task and
 descriptor counts matched again. The source of the earlier timeouts remains
 unconfirmed.
+
+## Two-core WROOM maintenance image
+
+The signed `esp32s3-camera-stream-ssh` image was tested on the WROOM with
+video and PICO running. OpenSSH verified the existing host key, authenticated
+with a password, ran shell commands during playback, and completed two rekeys.
+Both orderly logout and an abrupt client disconnect let a new client log in.
+
+With the same 750 ms PICO sampling setting and unbuffered TCP, one 20-second
+viewer sample per case measured:
+
+| SSH activity | Single-core FPS | Two-core FPS | Single-core p95 gap | Two-core p95 gap |
+| --- | ---: | ---: | ---: | ---: |
+| Listener idle | 13.93 | 14.67 | 209 ms | 156 ms |
+| Active shell | 12.33 | 12.86 | 196 ms | 183 ms |
+
+The longest two-core gap with an active shell was 844 ms. These short samples
+measure decoded video through the gateway.
+
+A follow-up on the physical WROOM used the shared buffered TCP settings.
+The signed lab image passed three host-key-pinned interactive sessions and nine
+rekeys, with fresh logins after both a clean logout and a forced disconnect.
+During the ten-second SSH sample, the gateway received 153 timestamped frames
+with zero source retirements or freshness rejections. Firmware `0.0.6` was
+restored and the full flash matched its pre-test backup. The disposable
+credentials were erased and the camera resumed streaming.
+[Shared TCP profile change](https://github.com/yongkyuns/nxrs/pull/401)
+
+The WROOM maintenance profile schedules the SSH transport and shell below
+the camera TLS worker to prioritize video delivery during bulk terminal output.
 
 ## Qualification still required on hardware
 

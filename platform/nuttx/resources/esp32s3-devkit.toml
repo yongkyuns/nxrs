@@ -60,3 +60,35 @@ SPI_SLAVE = "n"
 ESP32S3_SPI_UDCS = "n"
 ESP32S3_SPI_SWCS = "y"
 BOARD_LATE_INITIALIZE = "y"
+
+[resources.uart2]
+kind = "uart"
+device = "/dev/ttyS2"
+pin-settings = ["ESP32S3_UART2_TXPIN", "ESP32S3_UART2_RXPIN"]
+values = { baud = "UART2_BAUD" }
+[resources.uart2.kconfig]
+ESP32S3_UART0 = "y"
+ESP32S3_UART1 = "y"
+ESP32S3_UART2 = "y"
+UART0_SERIAL_CONSOLE = "y"
+SERIAL_TERMIOS = "y"
+
+# QEMU test firmware supplies the I2C lower half at this endpoint.
+[resources.qemu_tracker_i2c]
+kind = "i2c"
+device = "/dev/i2c0"
+[resources.qemu_tracker_i2c.kconfig]
+ESP32S3_QEMU_IMAGE = "y"
+I2C = "y"
+I2C_DRIVER = "y"
+
+[resources.uart1]
+kind = "uart"
+device = "/dev/ttyS1"
+pin-settings = ["ESP32S3_UART1_TXPIN", "ESP32S3_UART1_RXPIN"]
+values = { baud = "UART1_BAUD" }
+[resources.uart1.kconfig]
+ESP32S3_UART0 = "y"
+ESP32S3_UART1 = "y"
+UART0_SERIAL_CONSOLE = "y"
+SERIAL_TERMIOS = "y"

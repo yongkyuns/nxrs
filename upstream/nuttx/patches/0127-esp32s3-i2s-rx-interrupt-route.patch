@@ -1,0 +1,209 @@
+--- a/arch/xtensa/src/common/espressif/esp_i2s.c
++++ b/arch/xtensa/src/common/espressif/esp_i2s.c
+@@ -1431,10 +1431,8 @@
+           sq_addlast((sq_entry_t *)bfcontainer, &priv->rx.done);
+ 
+           /* Do NOT call i2s_rxdma_start here — we are in ISR context and
+-           * i2s_rxdma_start calls i2s_rx_channel_stop/start which call
+-           * up_disable_irq/up_enable_irq on the current IRQ, causing
+-           * undefined behavior on Xtensa. DMA restart is deferred to
+-           * i2s_rx_worker (HPWORK task context).
++           * i2s_rxdma_start resets the RX counter and DMA. Restart
++           * the transfer from i2s_rx_worker (HPWORK task context).
+            */
+         }
+       else
+@@ -1554,18 +1552,15 @@
+ 
+   DEBUGASSERT(priv);
+ 
+-  /* Outer loop: after restarting DMA, the transfer may complete before
+-   * this worker function returns.  In that case the ISR adds the buffer
+-   * to rx.done but work_available() returns false (worker still running),
+-   * so no new work is queued.  Re-checking rx.done here prevents that
+-   * race from causing a permanent stall.
++  /* A transfer may complete during restart. Recheck the completed queue
++   * before leaving the worker.
+    */
+ 
+   for (; ; )
+     {
+       /* Process each buffer in the rx.done queue */
+ 
+-      while (sq_peek(&priv->rx.done) != NULL)
++      for (; ; )
+         {
+           /* Remove the buffer container from the rx.done queue.  NOTE
+            * that interrupts must be disabled to do this because the
+@@ -1577,6 +1572,11 @@
+               (struct esp_buffer_s *)sq_remfirst(&priv->rx.done);
+           spin_unlock_irqrestore(&priv->slock, flags);
+ 
++          if (bfcontainer == NULL)
++            {
++              break;
++            }
++
+           dmadesc = bfcontainer->dma_link;
+           dmadesc_ctrl = (dma_descriptor_t *)dmadesc;
+ 
+@@ -1646,10 +1646,7 @@
+           i2s_rxdma_start(priv);
+         }
+ 
+-      /* Re-check: if a DMA transfer completed while we were
+-       * restarting, the ISR already placed it in rx.done but could
+-       * not re-queue this worker.  Loop back to drain it.
+-       */
++      /* Process completions already recorded by the interrupt. */
+ 
+       if (sq_peek(&priv->rx.done) != NULL)
+         {
+@@ -2343,15 +2340,12 @@
+       i2s_hal_rx_start(priv->config->ctx);
+ #endif
+ 
+-      /* Enable DMA interrupt */
++      /* ESP32-S3 enables completion at the DMA source after loading the
++       * descriptors. The CPU route stays enabled on its registering CPU.
++       */
+ 
++#ifndef CONFIG_ARCH_CHIP_ESP32S3
+       up_enable_irq(priv->rx_irq);
+-
+-#ifdef CONFIG_ARCH_CHIP_ESP32S3
+-      esp32s3_dma_enable_interrupt(priv->dma_channel, false,
+-                                   GDMA_LL_EVENT_RX_SUC_EOF,
+-                                   true);
+-#else
+       i2s_hal_rx_enable_intr(priv->config->ctx);
+       i2s_hal_rx_enable_dma(priv->config->ctx);
+       i2s_hal_rx_start_link(priv->config->ctx, 0);
+@@ -2454,19 +2448,18 @@
+       /* Disable DMA interrupt */
+ 
+ #ifdef CONFIG_ARCH_CHIP_ESP32S3
+-      esp32s3_dma_disable(priv->dma_channel, false);
+       esp32s3_dma_enable_interrupt(priv->dma_channel, false,
+                                    GDMA_LL_EVENT_RX_SUC_EOF, false);
++      esp32s3_dma_disable(priv->dma_channel, false);
++      esp32s3_dma_clear_interrupt(priv->dma_channel, false,
++                                  GDMA_LL_EVENT_RX_SUC_EOF);
+ #else
+       i2s_hal_rx_stop_link(priv->config->ctx);
+       i2s_hal_rx_disable_intr(priv->config->ctx);
+       i2s_hal_rx_disable_dma(priv->config->ctx);
++      up_disable_irq(priv->rx_irq);
+ #endif
+ 
+-      /* Disable DMA operation mode */
+-
+-      up_disable_irq(priv->rx_irq);
+-
+       priv->rx_started = false;
+ 
+       i2sinfo("Stopped RX channel of port %" PRIu32 "\n",
+@@ -2499,34 +2492,33 @@
+ #ifdef CONFIG_ARCH_CHIP_ESP32S3
+   struct esp_dmadesc_s *cur = NULL;
+ #  ifdef I2S_HAVE_RX
+-  status =  esp32s3_dma_get_interrupt(priv->dma_channel, false);
+-  esp32s3_dma_clear_interrupt(priv->dma_channel, false, status);
+-  if (priv->config->rx_en)
++  if (priv->config->rx_en && irq == priv->rx_irq)
+     {
++      irqstate_t flags = spin_lock_irqsave(&priv->slock);
++
++      /* Read the descriptor and hand it off in the same critical section
++       * as queue operations and DMA restart. A delayed interrupt must not
++       * carry status or a descriptor address across a restart.
++       */
++
++      status = esp32s3_dma_get_interrupt(priv->dma_channel, false);
++      esp32s3_dma_clear_interrupt(priv->dma_channel, false, status);
+       if (status & GDMA_LL_EVENT_RX_SUC_EOF)
+         {
+           cur = (struct esp_dmadesc_s *)
+                  esp32s3_dma_get_desc_addr(priv->dma_channel, false);
+-
+-          /* Schedule completion of the transfer on the worker thread */
+-
+           i2s_rx_schedule(priv, cur);
+         }
+-      else
+-        {
+-          /* Spurious ISR entry — no SUC_EOF flag set */
+ 
+-          i2swarn("WARNING: Spurious RX DMA IRQ, status=0x%02x\n",
+-                  (unsigned)status);
+-        }
++      spin_unlock_irqrestore(&priv->slock, flags);
+     }
+ #  endif
+ 
+ #  ifdef I2S_HAVE_TX
+-  status =  esp32s3_dma_get_interrupt(priv->dma_channel, true);
+-  esp32s3_dma_clear_interrupt(priv->dma_channel, true, status);
+-  if (priv->config->tx_en)
++  if (priv->config->tx_en && irq == priv->tx_irq)
+     {
++      status = esp32s3_dma_get_interrupt(priv->dma_channel, true);
++      esp32s3_dma_clear_interrupt(priv->dma_channel, true, status);
+       if (status & GDMA_LL_EVENT_TX_TOTAL_EOF)
+         {
+           cur = (struct esp_dmadesc_s *)
+@@ -3197,10 +3189,9 @@
+             {
+               struct esp_buffer_s *bfcontainer;
+ 
+-              if (priv->rx_started)
+-                {
+-                  i2s_rx_channel_stop(priv);
+-                }
++              irqstate_t flags = spin_lock_irqsave(&priv->slock);
++              i2s_rx_channel_stop(priv);
++              spin_unlock_irqrestore(&priv->slock, flags);
+ 
+               i2sinfo("AUDIOIOC_STOP: draining act=%d pend=%d\n",
+                       !sq_empty(&priv->rx.act),
+@@ -3371,6 +3362,16 @@
+         }
+ 
+       priv->rx_irq = ESP_SOURCE2IRQ(periph);
++
++      /* Leave the CPU route enabled for the static device. The caller
++       * holds slock here, so we are still on the registering CPU.
++       */
++
++      esp32s3_dma_enable_interrupt(priv->dma_channel, false,
++                                   GDMA_LL_EVENT_RX_SUC_EOF, false);
++      esp32s3_dma_clear_interrupt(priv->dma_channel, false,
++                                  GDMA_LL_EVENT_RX_SUC_EOF);
++      up_enable_irq(priv->rx_irq);
+     }
+ #  endif /* I2S_HAVE_RX */
+ #else
+@@ -3478,13 +3479,7 @@
+ 
+   spin_unlock_irqrestore(&priv->slock, flags);
+ 
+-  /* Enable the I2S DMA interrupts.  up_enable_irq writes the cpuint
+-   * back into the interrupt matrix register, which must happen after
+-   * the spinlock is released (PS.INTLEVEL == 0) so the interrupt can
+-   * actually be delivered.  i2s_dma_setup only calls esp_setup_irq
+-   * (which allocates the cpuint) and irq_attach, but does NOT enable
+-   * the peripheral interrupt.
+-   */
++  /* Enable the remaining I2S DMA interrupts. */
+ 
+ #ifdef I2S_HAVE_TX
+   if (priv->config->tx_en)
+@@ -3493,7 +3488,7 @@
+     }
+ #endif
+ 
+-#ifdef I2S_HAVE_RX
++#if defined(I2S_HAVE_RX) && !defined(CONFIG_ARCH_CHIP_ESP32S3)
+   if (priv->config->rx_en)
+     {
+       up_enable_irq(priv->rx_irq);

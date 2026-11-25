@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self'; worker-src 'self'; object-src 'none'; base-uri 'self'">
+  <title>Motion Tracker · Browser demo</title>
+  <link rel="stylesheet" href="./style.css">
+  <script type="module" src="./app.mjs"></script>
+</head>
+<body>
+  <main>
+    <header>
+      <div>
+        <p class="board">ESP32-S3 · NuttX</p>
+        <h1>Motion Tracker</h1>
+      </div>
+      <button id="restart" type="button">Restart</button>
+    </header>
+    <div class="layout">
+      <section aria-labelledby="display-title">
+        <div class="section-head">
+          <h2 id="display-title">Device display</h2>
+          <span id="cores" class="numeric">Starting</span>
+        </div>
+        <canvas id="panel" width="320" height="240" aria-label="Motion Tracker touchscreen" aria-describedby="touch-help"></canvas>
+        <p id="touch-help">Drag down from the top of the display, then tap a tab or PAIR.</p>
+        <div class="actions">
+          <p id="status" role="status" data-phase="booting">Booting NuttX…</p>
+        </div>
+      </section>
+      <section aria-labelledby="telemetry-title">
+        <div class="section-head">
+          <h2 id="telemetry-title">BLE telemetry</h2>
+          <span id="count" class="numeric">0 samples</span>
+        </div>
+        <dl class="readings">
+          <div><dt>IMU 1 <span id="imu1-state"></span></dt><dd id="imu1">—</dd></div>
+          <div><dt>IMU 2 <span id="imu2-state"></span></dt><dd id="imu2">—</dd></div>
+          <div><dt>GNSS <span id="gnss-state"></span></dt><dd id="gnss">—</dd></div>
+        </dl>
+        <p class="transport" id="transport">Waiting for pairing</p>
+      </section>
+    </div>
+    <details>
+      <summary>Serial console</summary>
+      <pre id="serial" aria-label="NuttX UART0 output"></pre>
+      <form id="serial-form">
+        <label for="serial-command">NSH command</label>
+        <div class="serial-entry">
+          <input id="serial-command" type="text" autocomplete="off" autocapitalize="off" spellcheck="false"
+                 maxlength="62" pattern="[ -~]+" title="Use printable ASCII" placeholder="help" disabled required>
+          <button id="serial-send" type="submit" disabled>Send</button>
+        </div>
+      </form>
+    </details>
+  </main>
+</body>
+</html>

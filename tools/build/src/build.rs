@@ -143,7 +143,8 @@ pub struct Options {
     pub set: Vec<String>,
     pub abi: Option<String>,
     pub size: bool,
-    pub lean_panic: bool,
+    pub trace: bool,
+    pub immediate: bool,
     pub panic_diagnostics: bool,
 }
 impl Options {
@@ -220,8 +221,11 @@ impl Options {
         {
             return Err("invalid ABI profile".into());
         }
-        if self.panic_diagnostics && self.lean_panic {
+        if self.panic_diagnostics && (self.trace || self.immediate) {
             return Err("--panic-diagnostics conflicts with the lean panic switches".into());
+        }
+        if self.immediate && !self.trace {
+            return Err("immediate abort requires trace-only backtrace".into());
         }
         Ok(())
     }
@@ -234,7 +238,8 @@ impl Options {
                 || !self.set.is_empty()
                 || self.abi.is_some()
                 || self.size
-                || self.lean_panic
+                || self.trace
+                || self.immediate
                 || self.panic_diagnostics)
         {
             return Err("NuttX qualification switches require a NuttX profile".into());
@@ -349,6 +354,7 @@ pub fn prepare_output(root: &Path, out: &Path) -> Result<PathBuf> {
         || resolved.starts_with(repo.join("external"))
         || resolved.starts_with(repo.join("platform"))
         || resolved.starts_with(repo.join("hal"))
+        || resolved.starts_with(repo.join("shared/acquisition"))
         || resolved.starts_with(repo.join("app"))
         || resolved.starts_with(repo.join(".git"))
     {

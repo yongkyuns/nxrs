@@ -2,8 +2,8 @@
   "title": "Rust API reference",
   "features": [
     "nxrs-camera/replay",
+    "nxrs-detection-service/wire",
     "nxrs-storage/recording",
-    "nxrs-transport/udp",
     "nxrs-composition/imu",
     "nxrs-composition/gnss"
   ],
@@ -15,15 +15,14 @@
         {"package": "nxrs-led", "crate": "led", "path": "hal/led", "summary": "Synchronous LED controls, supported indices, and configured acquisition."},
         {"package": "nxrs-console", "crate": "console", "path": "hal/console", "summary": "An exclusively owned commissioning byte stream."},
         {"package": "nxrs-storage", "crate": "storage", "path": "hal/storage", "summary": "Frame storage, explicit file recording, and configured record-file acquisition."},
-        {"package": "nxrs-transport", "crate": "transport", "path": "hal/transport", "summary": "Whole-packet output and explicit UDP socket transport."},
-        {"package": "nxrs-wifi", "crate": "wifi", "path": "hal/wifi", "summary": "Wi-Fi commands, completion, link events, and lifecycle control."},
+        {"package": "nxrs-wifi", "crate": "wifi", "path": "hal/wifi", "summary": "Wi-Fi commands, link events, station lifecycle, and reconnection."},
         {"package": "nxrs-ble", "crate": "ble", "path": "hal/ble", "summary": "BLE commands, GATT operations, events, and lifecycle control."},
-        {"package": "nxrs-camera", "crate": "camera", "path": "hal/camera", "summary": "Camera acquisition, frame ownership, capture, and explicit file replay."},
+        {"package": "nxrs-camera", "crate": "camera", "path": "hal/camera", "summary": "Camera acquisition, bounded frame history, and explicit file replay."},
         {"package": "nxrs-detector", "crate": "detector", "path": "hal/detector", "summary": "Detection inputs, results, capabilities, and configured execution budgets."},
         {"package": "nxrs-imu", "crate": "imu", "path": "hal/imu", "summary": "IMU device configuration, samples, and acquisition sessions."},
         {"package": "nxrs-gnss", "crate": "gnss", "path": "hal/gnss", "summary": "GNSS devices, fixes, events, and acquisition sessions."},
         {"package": "nxrs-tls", "crate": "tls", "path": "hal/tls", "summary": "Device TLS identity, certificates, time leases, and connection ownership."},
-        {"package": "nxrs-config", "crate": "config", "path": "hal/config", "summary": "Small persistent product records with explicit capacity and errors."},
+        {"package": "nxrs-settings", "crate": "settings", "path": "hal/settings", "summary": "Settings storage for small persistent records, such as Wi-Fi settings and device enrollment."},
         {"package": "nxrs-boot", "crate": "boot", "path": "hal/boot", "summary": "Reset diagnostics, image staging, trial requests, confirmation, and reboot control."},
         {"package": "nxrs-watchdog", "crate": "watchdog", "path": "hal/watchdog", "summary": "Inherited watchdog cancellation and explicit runtime watchdog control."},
         {"package": "nxrs-display", "crate": "display", "path": "hal/display", "summary": "Exclusive display ownership and synchronous RGB565 rectangle output."},
@@ -34,13 +33,8 @@
       "id": "services",
       "title": "Reusable services",
       "packages": [
-        {"package": "nxrs-connectivity-service", "crate": "connectivity_service", "path": "service/connectivity", "summary": "Caller-polled Wi-Fi reconnection policy."},
-        {"package": "nxrs-camera-service", "crate": "camera_service", "path": "service/camera", "summary": "Capture ownership, frame history, and capture progress."},
-        {"package": "nxrs-recording-service", "crate": "recording_service", "path": "service/recording", "summary": "Frame recording policy over the storage contract."},
-        {"package": "nxrs-telemetry-service", "crate": "telemetry_service", "path": "service/telemetry", "summary": "Compact frame telemetry over a packet sink."},
-        {"package": "nxrs-stream-service", "crate": "stream_service", "path": "service/stream", "summary": "Bounded multipart MJPEG streaming and HTTP sessions."},
-        {"package": "nxrs-detection-service", "crate": "detection_service", "path": "service/detection", "summary": "Bounded inference work and presence/event policy."},
-        {"package": "nxrs-detection-wire", "crate": "detection_wire", "path": "service/detection-wire", "summary": "The versioned camera, gateway, and viewer detection protocol."},
+        {"package": "nxrs-stream-service", "crate": "stream_service", "path": "service/stream", "summary": "Bounded multipart streaming, HTTP sessions, and the versioned A/V contract."},
+        {"package": "nxrs-detection-service", "crate": "detection_service", "path": "service/detection", "summary": "Bounded inference sessions, alert policy, and versioned detection metadata."},
         {"package": "nxrs-enrollment", "crate": "enrollment", "path": "service/enrollment", "summary": "Bounded commissioning records and gateway enrollment."},
         {"package": "nxrs-firmware-update", "crate": "firmware_update", "path": "service/firmware-update", "summary": "Bounded firmware upload over an authenticated byte stream."},
         {"package": "nxrs-navigation-services", "crate": "navigation", "path": "service/navigation", "summary": "Example-domain IMU, GNSS, fusion, and health services."}
@@ -51,7 +45,7 @@
       "title": "Contracts and delivery",
       "packages": [
         {"package": "nxrs-messaging", "crate": "messaging", "path": "shared/messaging", "summary": "Typed delivery results and bounded task-context channels."},
-        {"package": "nxrs-hal-common", "crate": "hal_common", "path": "hal/common", "summary": "Supporting radio request identities and bounded payload types."},
+        {"package": "nxrs-radio-types", "crate": "radio_types", "path": "hal/radio-types", "summary": "Supporting radio request identities and bounded payload types."},
         {"package": "nxrs-peripheral", "crate": "peripheral", "path": "driver/peripheral", "summary": "Synchronous IMU and GNSS contracts shared by chip drivers and consumers."}
       ]
     },

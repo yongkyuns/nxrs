@@ -312,8 +312,9 @@ class CameraSession(
                 var fps = 0
                 while (true) {
                     currentCoroutineContext().ensureActive()
-                    val now = SystemClock.elapsedRealtime()
+                    // Sample the clock after the decoder snapshot so the frame age cannot be negative.
                     val frames = native.frames
+                    val now = SystemClock.elapsedRealtime()
                     val age = now - frames.arrivedAt
                     checked(!native.failed && age in 0..6499, Failure.Unavailable)
                     val live = age < 1500

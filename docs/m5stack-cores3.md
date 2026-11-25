@@ -33,12 +33,13 @@ The navigation profile preserves PMIC and charger defaults and leaves
 display, camera, audio and 5 V boost output disabled. Battery operation and module supply under load
 remain hardware qualification gates.
 
-The compatible cellular candidate is **Stamp CatM S003 (SIM7080G)** for M135’s
-reserved Stamp/COMX slot. Cellular is not enabled by this initial profile.
-Its UART/AT protocol and link lifecycle belong to a modem HAL; services must
-never send AT commands. Carrier/SIM compatibility, power, route ownership and
-bounded packet-link teardown must be qualified before claiming cellular data
-support. Magnetometer and barometer are also outside this initial slice.
+The [Stamp CatM profile](../app/motion-tracker/README.md#stamp-catm-cellular)
+adds the S003 SIM7080G on a separate UART. Rust negotiates PPP and NuttX
+provides an IPv4 interface through its TUN driver. The tracker reads link
+status through `cellular::Session`. Socket applications can use `std::net`.
+Carrier attachment, power under transmit load and concurrent BLE still need
+qualification on the physical stack. The magnetometer and barometer are
+outside this profile.
 
 References: [CoreS3](https://docs.m5stack.com/en/core/CoreS3),
 [Module GNSS](https://docs.m5stack.com/en/module/Module_GNSS),
@@ -76,6 +77,19 @@ and `Display::draw()`. Draw takes a borrowed row-major RGB565 rectangle and
 completes synchronously. The ILI9342C Rust driver uses a 640-byte scanline
 buffer. The BSP owns the SPI pins, AW9523B reset and AXP2101 backlight.
 NuttX owns SPI transaction locking and the `/dev/spi2` endpoint.
+
+The [motion tracker profile](../app/motion-tracker/README.md) also enables the
+FT6336 touchscreen on I²C0. The BSP registers it with NuttX's FT5x06 driver,
+which samples the shared bus only while the device is open. The touch HAL emits
+single-contact events in display coordinates. The tracker receives those
+events in its sensor inbox and owns gesture recognition, hit testing, plots
+and pairing controls.
+
+The motion tracker profile also binds the AXP2101 fuel gauge on I²C0. The
+app reads `battery::Device::status()` through `composition::battery`. The
+AXP2101 driver implements the synchronous gauge contract over the existing
+Rust I²C adapter. Reads leave the PMIC configuration untouched and use the
+caller's task. Run `motion_tracker --battery` for a console snapshot.
 
 ~~~sh
 cargo nxrs build --manifest-path tests/nuttx-std/display/Cargo.toml \

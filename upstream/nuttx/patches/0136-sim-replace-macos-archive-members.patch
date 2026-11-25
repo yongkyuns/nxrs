@@ -1,0 +1,16 @@
+Subject: [PATCH] sim: replace existing members in macOS archives
+
+When Make rebuilds an app object, keep a single member of that name.
+Appending leaves the previous definition available to the linker.
+
+diff --git a/tools/macar-qcs.sh b/tools/macar-qcs.sh
+--- a/tools/macar-qcs.sh
++++ b/tools/macar-qcs.sh
+@@ -48,6 +48,6 @@
+ # https://opensource.apple.com/source/cctools/cctools-949.0.1/misc/
+ 
+ set -e
+-ar qcS "$@"
++ar rcS "$@"
+ # Note: the following line is using bash process substitution
+ ranlib -no_warning_for_no_symbols "$1" 2> >(grep -F -v "the table of contents is empty")

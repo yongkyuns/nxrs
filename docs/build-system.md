@@ -210,44 +210,20 @@ marker and publishes its verified JS/WASM pair under `site/`.
 Relative build paths (`--manifest-path`, `--out`, `--html` and
 `--target-c-source`) are relative to the selected NXRS workspace root. The
 standalone controller accepts `--workspace-root <path>` before its subcommand;
-this also applies to `profile`. `--help` and `build --help` need no workspace.
+this also applies to `profile` and `config`. Command help, including
+`config check --help` and `config explain --help`, needs no workspace.
 Application discovery reports malformed app manifests instead of hiding them.
 
-## Native qualification settings
+## NuttX configuration
 
-NuttX builds default to trace-only backtraces and size-optimized std.
-Panics abort immediately without a formatted Rust report. Use
-`cargo nxrs build --panic-diagnostics ...` to build with formatted panic
-reports and full backtraces when debugging. Qualification profiles can retain
-panic messages with `build.panic-immediate-abort = false`. The effective
-backtrace and abort settings are recorded in the build provenance.
-
-The existing ESP32-S3 RAM controls and CoreS3 sensor build check linked flash,
-unpadded image size, and static RAM in CI. Review intended growth against those
-byte limits. Heap use and worker stacks need runtime measurements.
-
-Use `cargo nxrs config --app event-demo --platform cores3` to inspect the
-CoreS3 project. Install the [NuttX host tools](https://nuttx.apache.org/docs/latest/quickstart/install.html)
-and use the pinned `kconfiglib==14.1.0` in the same Python environment as
-`olddefconfig`. View and check settings with the host tools alone. Save & sync
-also uses the board's compilers and SDK to prepare headers, Rust inputs, and
-editor context. Firmware compilation and flashing are separate.
-
-1. Press `/`, search for `CONFIG_DEBUG_ASSERTIONS`, and open its detail with
-   Enter. **Requires** shows the enclosing `CONFIG_DEBUG_FEATURES` condition.
-   Use `p` to inspect a prerequisite and Escape to return.
-2. Press Space to change a value. For an I2C or UART pin, search for its native
-   symbol and edit the value shown under **Owned by**. This updates the owning
-   resource field in its profile or overlay. The usual BSP validation still applies.
-3. Press `r` to review source edits, resulting native changes, and any problems.
-   Press uppercase `S` in review to save and sync. Use `d` to remove an explicit
-   override. Quit with `q` to discard the draft.
-4. Reopen the same selection or run
-   `cargo nxrs config check --app event-demo --platform cores3`. Use
-   `config show` for JSON and `config explain CONFIG_DEBUG_ASSERTIONS` for the
-   same explanation as the terminal. These commands report native
-   `olddefconfig` results. Preparation validates the subsequent Make context,
-   and the build checks the same configuration and header identities after linking.
+Use `cargo nxrs config --app event-demo --platform cores3` to edit the native
+configuration for a selected build. The [configuration guide](../website/guide/profiles.md#configure-nuttx)
+documents prerequisites, native group browsing, search and dependency navigation,
+review, source ownership, repeat saves, and failure recovery. `config check`,
+`config show`, and `config explain CONFIG_SYMBOL` use the same native
+`olddefconfig` resolution with the same selection flags. Preparation validates
+the subsequent Make context, and the build checks configuration and header
+identities after linking.
 
 A profile's optional top-level `nuttx-config = "nuttx.conf"` points to a
 native fragment relative to the profile that declares it. An inherited
@@ -259,11 +235,24 @@ Legacy `[kconfig]` settings supply defaults. The fragment overrides defaults
 and ordinary CLI requests override the fragment. Mandatory settings and
 BSP resources retain their ownership.
 
-External changes during editing require a reload. An interrupted source
-publication blocks resolution until `cargo nxrs config recover` finishes it.
-**Saved; sync failed** means the source edits are already present. After fixing
-the reported preparation error, press `S` again in review to retry. A no-op
-save leaves the sources and existing build cache untouched.
+Save & sync prepares native headers and Rust inputs without compiling the
+firmware. It refreshes a Zed context already bound to the selected output.
+The next ordinary build reads the same sources; their content hashes participate
+in preparation and cache identity. Generated `resolved.config` and native
+headers are outputs, not configuration sources.
+
+## Native qualification settings
+
+NuttX uses a size-optimized Rust standard library and immediate panic abort by
+default. Use `cargo nxrs build --panic-diagnostics ...` for formatted panic
+reports and full backtrace support. An explicit trace-only setting retains
+panic reports unless immediate abort is also selected. When backtraces are
+enabled, trace-only reports show raw addresses. The effective settings are
+recorded in the build provenance.
+
+The ESP32-S3 RAM controls and CoreS3 sensor build check linked flash, unpadded
+image size, and static RAM in CI. Heap use and worker stacks are measured at
+runtime.
 
 NuttX builds accept repeated `--kconfig-enable SYMBOL`,
 `--kconfig-disable SYMBOL`, and `--kconfig-set NAME=VALUE` arguments. Use native
@@ -473,7 +462,9 @@ for the declaration and normal build command. Catalogue sources remain local
 path packages; remote driver sources need a future resolved-package integration,
 not a second Cargo resolver.
 
-Shared acquisition/session code is the normal `nxrs-acquisition` dependency.
+Worker lifetimes and readiness come from the internal `nxrs-acquisition`
+dependency in `shared/acquisition`. Native preparation follows the consuming
+HAL's Cargo graph.
 Linux Wi-Fi and BLE share the `nxrs-linux-gio` package and one private GIO native
 archive; radio schemas and device policy stay in their HALs. Unbound and mock
 builds do not compile the GLib helper. `tests/host/test_external_consumers.py`

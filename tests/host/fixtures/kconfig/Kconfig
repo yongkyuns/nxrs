@@ -63,3 +63,10 @@ config OTHERWISE
 config OTHERWISE
     bool "Another definition"
     depends on GATE
+
+config PROMPT_GATE
+    bool "Show the conditional setting"
+
+config PROMPT_ONLY
+    bool "Conditional setting" if PROMPT_GATE
+    default y

@@ -1,5 +1,7 @@
 # VWW baseline camera person-detection qualification
 
+> **Historical baseline.** Use this report to understand the original presence classifier's accuracy and limitations. Start with [PICO qualification](camera-pico-qualification.md) for the later localized detector and [detection delivery](camera-detection-delivery.md) for current application behavior.
+
 This report preserves the original VWW model measurements. The detector now
 lives in `hal/detector`; [PICO qualification](camera-pico-qualification.md) records
 the subsequent localized model and its separate device measurements.

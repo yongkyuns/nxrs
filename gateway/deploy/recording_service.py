@@ -19,7 +19,7 @@ def volume_id(value):
     return value
 
 
-def files(value, media_service, media_json):
+def files(value, media_service, media_json, *, recording_privacy=False):
     value = volume_id(value)
     if media_service.count('DynamicUser=yes\n') != 1:
         raise ValueError('media service template changed')
@@ -44,6 +44,8 @@ LimitCORE=0
     media['paths']['reference'].update(record=True, recordFormat='fmp4',
         recordPath=ROOT+'/media/%path/%Y-%m-%d_%H-%M-%S-%f', recordPartDuration='1s',
         recordMaxPartSize='8M', recordSegmentDuration='1m', recordDeleteAfter='24h')
+    if recording_privacy:
+        media['paths']['reference']['recordRequiresPermit'] = True
     common = f'''[Unit]
 BindsTo={CHECK} {BACKUP_MOUNT}
 After={CHECK} {BACKUP_MOUNT} nxrs-media.service
