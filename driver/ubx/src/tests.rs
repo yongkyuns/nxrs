@@ -179,6 +179,39 @@ fn fragmented_nav_pvt_reports_epoch_coordinates_speed_and_heading_quality() {
 }
 
 #[test]
+fn satellite_framer_checks_shape_and_checksum_at_the_protocol_limit() {
+    use crate::framing::{Event, Framer};
+
+    let mut payload = [0; 8 + 255 * 12];
+    payload[4] = 1;
+    payload[5] = 255;
+    for block in payload[8..].chunks_exact_mut(12) {
+        block[2] = 55;
+        block[8] = 4;
+    }
+    let valid = frame(1, 0x35, &payload);
+    let mut corrupt = valid.clone();
+    *corrupt.last_mut().unwrap() ^= 1;
+    payload[5] -= 1;
+    let wrong_count = frame(1, 0x35, &payload);
+    let mut parser = Framer::default();
+    let mut errors = 0;
+    let mut summaries = Vec::new();
+    for byte in corrupt.into_iter().chain(wrong_count).chain(valid) {
+        match parser.push(byte) {
+            Some(Event::Invalid) => errors += 1,
+            Some(Event::Satellites(_, status)) => summaries.push(status),
+            Some(Event::Frame(_)) => panic!("NAV-SAT must be reduced"),
+            None => {}
+        }
+    }
+    assert_eq!(errors, 2);
+    assert_eq!(summaries.len(), 1);
+    assert_eq!((summaries[0].visible, summaries[0].tracked), (255, 255));
+    assert_eq!(summaries[0].mean_cn0_db_hz, Some(55.0));
+}
+
+#[test]
 fn invalid_fix_values_and_bad_coordinates_are_rejected() {
     for (offset, value) in [(20, 0), (20, 1), (20, 5), (20, 0xff), (21, 0), (78, 1)] {
         let mut payload = pvt(1);

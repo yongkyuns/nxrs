@@ -5,10 +5,17 @@ active acquisition. Receiver protocol operations remain in the UBX driver.
 
 `nxrs-gnss` owns acquisition, resource lifetime and the hardware-independent
 fix API. `driver/peripheral::gnss::Receiver` defines bounded synchronous
-configuration, restoration and measurement operations; `driver/ubx` implements it. Services receive WGS84 latitude/longitude, speed in m/s and optional
-movement course in radians. `timestamp_ms` is the owner’s monotonic reception
-time, not UTC or measured satellite-to-host latency. Navigation owns projection
-into local north/east coordinates.
+configuration, restoration and measurement operations. `driver/ubx` implements
+it. Services receive WGS84 coordinates, speed in m/s, and optional course in
+radians. `timestamp_us` uses the same monotonic clock as IMU samples.
+`is_capture_time` identifies PPS-aligned fixes. Other fixes use reception time.
+
+`GnssFix::quality` reports satellites used, estimated horizontal and vertical
+accuracy in metres, speed accuracy in m/s, and optional position DOP (PDOP).
+The optional satellite summary contains the receiver's visible-or-tracked count,
+the count with synchronized code or carrier lock, and mean C/N₀ in dB-Hz for
+tracked satellites with a signal reading. `age_ms` is its age relative to the
+fix epoch. The driver omits reports older than one configured NAV-SAT interval.
 
 The NuttX provider owns a nonblocking UART. The CoreS3 profile declares a UART
 resource and an M9 receiver. The [driver binding](../../driver/ubx/bindings.toml)
@@ -19,25 +26,22 @@ has its own static storage and ownership/fault state; aliases share that object.
 Services receive the selected device through `GnssService::start_on`.
 
 The reusable `driver/ubx` crate runs M9 protocol transactions over an injected
-byte stream. It uses [`kinavis-ubx`](https://github.com/KINAVIS/kinavis) 0.1.1
-for framing, checksums and CFG-VALGET/VALSET. The driver validates wire domains
-before the codec wraps longitude and course. It admits 92-byte NAV-PVT reports,
-configuration acknowledgements and the requested configuration response.
-The HAL suppresses repeated epochs and timestamps accepted fixes at reception.
+byte stream. It uses `kinavis-ubx` for NAV-PVT decoding and configuration codecs.
+It checks the wire checksum and summarizes the variable-length NAV-SAT report
+one satellite at a time, using fixed storage. The HAL suppresses repeated fix
+epochs. [kinavis-ubx](https://github.com/KINAVIS/kinavis)
 
-Acquisition reads the existing UART1 NAV-PVT output rate, sets it to one message
-per navigation epoch **in RAM only**, waits for ACK and verifies by readback.
-Release/failed acquisition restores that rate with readback before serial mode,
-descriptor and ownership release. Configuration and restoration each have a one-second
-deadline; uncertain restoration quarantines only that receiver until reboot. Baud,
-protocol enables, navigation rate, BBR and flash settings are preserved. UART1
-must already accept/output UBX (the receiver’s default configuration).
+Acquisition enables UART1 NAV-PVT every navigation epoch **in RAM only**. It
+spaces NAV-SAT reports at least three seconds apart according to the UART
+budget. A constrained link may supply only NAV-PVT quality fields. Acquisition
+checks acknowledgements and rate readback, then restores the saved rates at
+release or after failed setup. Configuration
+and restoration each have a one-second deadline. Uncertain restoration
+quarantines the receiver until reboot. UART1 needs UBX input and output enabled.
 
 A HAL-owned worker reads bounded UART chunks after descriptor readiness. IMU and
-GNSS share the NuttX poll/pipe binding in `nxrs-acquisition`; UART termios controls,
-receiver policy and restoration remain here. Protocol buffers remain fixed-size. Host fixtures and native builds qualify software
-behavior/linking; physical receiver firmware, power, UART timing, RF, accuracy
-and peak task-stack usage remain unqualified.
+GNSS share the NuttX poll/pipe binding in `nxrs-acquisition`. The GNSS provider
+owns UART termios, receiver lifecycle and restoration.
 
 Reference: [M9 SPG4.04 interface description, UBX-21022436 R02](https://content.u-blox.com/sites/default/files/u-blox-M9-SPG-4.04_InterfaceDescription_UBX-21022436.pdf).
 

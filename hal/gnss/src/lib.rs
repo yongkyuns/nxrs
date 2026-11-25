@@ -4,6 +4,7 @@
 mod api;
 pub use api::{Device, DeviceError, Event, GnssFix, Session};
 pub use messaging::{DeliveryError, Rejected};
+pub use peripheral::gnss::{FixQuality, SatelliteStatus};
 #[cfg(not(platform = "nuttx"))]
 mod fixtures;
 mod platform;

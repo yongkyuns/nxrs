@@ -27,6 +27,7 @@ impl SyntheticGnss {
             longitude_deg: f64::from(self.east_m) / 111_319.490_793,
             speed_mps: 4.0,
             course_rad: Some(0.08),
+            quality: None,
         })
     }
 }

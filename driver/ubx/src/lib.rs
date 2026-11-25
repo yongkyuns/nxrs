@@ -1,14 +1,17 @@
-//! M9 NAV-PVT parsing and RAM NAV-PVT-UART1 configuration over an injected
+//! M9 navigation reports and RAM message configuration over an injected
 //! nonblocking byte stream. Device/session policy belongs to the caller.
 
+mod framing;
 mod ubx;
 
 use kinavis_ubx::ConfigKey;
-use peripheral::gnss::{Measurement, Report};
+use peripheral::gnss::{FixQuality, Measurement, Report, SatelliteStatus};
 use std::{
     io::{ErrorKind, Read, Write},
     time::{Duration, Instant},
 };
+
+const MIN_SATELLITE_INTERVAL_MS: u32 = 3_000;
 
 /// A protocol report without host time, sequence, or replay policy.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -20,6 +23,11 @@ pub struct NavPvt {
     pub longitude_deg: f64,
     pub speed_mps: f32,
     pub speed_accuracy_mps: f32,
+    pub horizontal_accuracy_m: f32,
+    pub vertical_accuracy_m: f32,
+    pub position_dop: Option<f32>,
+    pub satellites_used: u8,
+    pub satellites: Option<SatelliteStatus>,
     /// Present only when the speed and heading accuracy support a usable heading.
     pub heading_rad: Option<f32>,
     pub heading_accuracy_rad: f32,
@@ -34,7 +42,9 @@ pub type NeoM9n<T> = Driver<T>;
 pub struct Driver<R> {
     io: R,
     decoder: ubx::Decoder,
+    uart_baud: u32,
     saved_rate: Option<u8>,
+    saved_satellite_rate: Option<u8>,
     saved_pulse_rate: Option<u8>,
     navigation_period_ms: Option<u16>,
     saved_navigation: Option<(u16, u16)>,
@@ -45,7 +55,9 @@ impl<R: Read + Write> Driver<R> {
         Self {
             io,
             decoder: ubx::Decoder::default(),
+            uart_baud: 38_400,
             saved_rate: None,
+            saved_satellite_rate: None,
             saved_pulse_rate: None,
             navigation_period_ms: None,
             saved_navigation: None,
@@ -55,6 +67,12 @@ impl<R: Read + Write> Driver<R> {
     /// Configure the navigation period in receiver RAM for each active session.
     pub fn with_navigation_period(mut self, milliseconds: u16) -> Self {
         self.navigation_period_ms = Some(milliseconds);
+        self
+    }
+
+    /// Use the selected UART's baud rate when budgeting satellite reports.
+    pub fn with_uart_baud(mut self, baud: u32) -> Self {
+        self.uart_baud = baud;
         self
     }
 
@@ -91,7 +109,7 @@ impl<R: Read + Write> Driver<R> {
 
     /// Discard any partial frame retained across `poll` calls.
     pub fn reset_decoder(&mut self) {
-        self.decoder = ubx::Decoder::default();
+        self.decoder.reset();
     }
 
     /// Read at most one chunk. `WouldBlock` and `Interrupted` mean no report is
@@ -227,6 +245,19 @@ fn pause() {
     std::thread::sleep(Duration::from_millis(1));
 }
 
+fn satellite_report_rate(baud: u32, period_ms: u32) -> Option<u8> {
+    // 8N1, with 100 bytes/s reserved for timing and control. Keep the
+    // remaining budget in thousandths of a byte per navigation epoch.
+    let capacity = u64::from(baud.saturating_sub(1_000)) * u64::from(period_ms) / 10;
+    let available = capacity.checked_sub(100 * 1_000)?; // NAV-PVT plus framing.
+    if available == 0 {
+        return None;
+    }
+    let wire_epochs = (u64::from(framing::MAX_SAT_FRAME_BYTES) * 1_000).div_ceil(available);
+    let interval_epochs = u64::from(MIN_SATELLITE_INTERVAL_MS.div_ceil(period_ms));
+    u8::try_from(wire_epochs.max(interval_epochs)).ok()
+}
+
 #[cfg(test)]
 mod tests;
 
@@ -243,11 +274,25 @@ impl<R> AsMut<R> for Driver<R> {
 impl<R: Read + Write> peripheral::gnss::Receiver for Driver<R> {
     fn configure(&mut self, deadline: Instant) -> Result<(), DriverError> {
         self.saved_rate = Some(self.query_nav_pvt_uart1_rate(deadline)?);
-        if let Some(period) = self.navigation_period_ms {
-            self.saved_navigation = Some(self.query_navigation(deadline)?);
+        let current = self.query_navigation(deadline)?;
+        let (measurement, cycles) = if let Some(period) = self.navigation_period_ms {
+            self.saved_navigation = Some(current);
             self.set_navigation((period, 1), deadline)?;
+            (period, 1)
+        } else {
+            current
+        };
+        let nav_period = u32::from(measurement) * u32::from(cycles);
+        if nav_period == 0 {
+            return Err(DriverError::InvalidData);
         }
         self.set_and_verify_nav_pvt_uart1_rate(1, deadline)?;
+        if let Some(rate) = satellite_report_rate(self.uart_baud, nav_period) {
+            let key = ConfigKey::MSGOUT_NAV_SAT_UART1;
+            self.saved_satellite_rate = Some(self.query_rate(key, deadline)?);
+            self.set_and_verify_rate(key, rate, deadline)?;
+            self.decoder.set_satellite_age(nav_period.saturating_mul(u32::from(rate)));
+        }
         self.reset_decoder();
         Ok(())
     }
@@ -258,6 +303,11 @@ impl<R: Read + Write> peripheral::gnss::Receiver for Driver<R> {
         Ok(())
     }
     fn restore(&mut self, deadline: Instant) -> Result<(), DriverError> {
+        let satellites = self.saved_satellite_rate.map_or(Ok(()), |rate| {
+            self.set_and_verify_rate(ConfigKey::MSGOUT_NAV_SAT_UART1, rate, deadline)?;
+            self.saved_satellite_rate = None;
+            Ok(())
+        });
         let pulse = self.saved_pulse_rate.map_or(Ok(()), |rate| {
             self.set_and_verify_rate(ubx::TIM_TP_RATE, rate, deadline)?;
             self.saved_pulse_rate = None;
@@ -273,21 +323,31 @@ impl<R: Read + Write> peripheral::gnss::Receiver for Driver<R> {
             self.saved_navigation = None;
             Ok(())
         });
-        pulse.and(rate).and(navigation)
+        satellites.and(pulse).and(rate).and(navigation)
     }
     fn read_available(
         &mut self,
         mut emit: impl FnMut(Result<Report, DriverError>),
     ) -> Result<(), DriverError> {
         self.read_chunk(|event| match event {
-            ubx::Event::NavPvt(result) => emit(result.map(|report| Report::Fix(Measurement {
-                epoch_ms: u64::from(report.itow_ms),
-                receiver_utc_ms: report.receiver_utc_ms,
-                latitude_deg: report.latitude_deg,
-                longitude_deg: report.longitude_deg,
-                speed_mps: report.speed_mps,
-                course_rad: report.heading_rad,
-            }))),
+            ubx::Event::NavPvt(result) => emit(result.map(|report| {
+                Report::Fix(Measurement {
+                    epoch_ms: u64::from(report.itow_ms),
+                    receiver_utc_ms: report.receiver_utc_ms,
+                    latitude_deg: report.latitude_deg,
+                    longitude_deg: report.longitude_deg,
+                    speed_mps: report.speed_mps,
+                    course_rad: report.heading_rad,
+                    quality: Some(FixQuality {
+                        satellites_used: report.satellites_used,
+                        horizontal_accuracy_m: report.horizontal_accuracy_m,
+                        vertical_accuracy_m: report.vertical_accuracy_m,
+                        speed_accuracy_mps: report.speed_accuracy_mps,
+                        position_dop: report.position_dop,
+                        satellites: report.satellites,
+                    }),
+                })
+            })),
             ubx::Event::Pulse(pulse) => emit(Ok(Report::Pulse(pulse))),
             ubx::Event::Invalid => emit(Err(DriverError::InvalidData)),
             _ => {}

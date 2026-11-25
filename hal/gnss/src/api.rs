@@ -27,6 +27,8 @@ pub struct GnssFix {
     pub speed_mps: f32,
     /// Movement course, absent when the receiver cannot determine it.
     pub course_rad: Option<f32>,
+    /// Receiver-provided accuracy and satellite data when available.
+    pub quality: Option<crate::FixQuality>,
 }
 
 /// Normalized task-context delivery. Faults also remain observable through join().

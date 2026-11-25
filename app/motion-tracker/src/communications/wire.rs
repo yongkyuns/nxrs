@@ -213,6 +213,7 @@ mod tests {
                 longitude_deg: -180.0,
                 speed_mps: f32::MAX,
                 course_rad: None,
+                quality: None,
             }),
             clock: crate::clock::ClockAnchor::new(u64::MAX / 1_000, -1),
         };
@@ -262,6 +263,7 @@ mod tests {
                 longitude_deg: -76.1234567,
                 speed_mps: 1.23456,
                 course_rad: None,
+                quality: None,
             }),
             clock: crate::clock::ClockAnchor::new(100_000, 1_767_225_600_000),
         };

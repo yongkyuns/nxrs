@@ -57,6 +57,7 @@ impl Receiver for Source {
             longitude_deg: 2.0,
             speed_mps: 0.0,
             course_rad: None,
+            quality: None,
         })));
         Ok(())
     }

@@ -57,6 +57,7 @@ impl<R: Protocol> Receiver<R> {
                     longitude_deg: report.longitude_deg,
                     speed_mps: report.speed_mps,
                     course_rad: report.course_rad,
+                    quality: report.quality,
                 }));
             })
             .map_err(map_error)
