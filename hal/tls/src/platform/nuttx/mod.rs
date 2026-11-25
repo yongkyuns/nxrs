@@ -16,3 +16,7 @@ pub fn open() -> Result<crate::Identity, crate::Error> {
 }
 
 pub use crate::sdk::{Connection, Identity};
+
+// Close directly. Calling shutdown disables the callback that reclaims queued
+// TCP writes when the network device goes down.
+pub(crate) use std::mem::drop as retire_tcp;

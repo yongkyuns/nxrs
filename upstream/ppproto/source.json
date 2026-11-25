@@ -13,13 +13,13 @@
     "vendor/ppproto/src/lib.rs": "be23bd7ae085d392c218ca5d35de8650262258e1574207e39f0fdee71f8d9317",
     "vendor/ppproto/src/ppp/ipv4cp.rs": "1f7d384f4e522850cb9dba33402b866df5f839f3f3bbbe151bccd6b17caa2239",
     "vendor/ppproto/src/ppp/lcp.rs": "9f04d3344910824b761e42632b01becffcf60e13f0dd2f92ebbc7a5d7205bfa9",
-    "vendor/ppproto/src/ppp/mod.rs": "207ed190f6a253ac469ff236da63b6d1d35b0f462bd5f44638b12d8058907982",
+    "vendor/ppproto/src/ppp/mod.rs": "a2a59908ce8204570094d1eacd18b00266c8bfd2d45fc7ba9d3e4548c8ad0a11",
     "vendor/ppproto/src/ppp/option_fsm.rs": "ed89149bfec6234387b68a1c1f079437283a5892090798e46cb3198f3160e7a8",
     "vendor/ppproto/src/ppp/pap.rs": "991e2b0d7dee410a5b1b95bee3bc28be0c8df5b54434a12ad4808637503d25f4",
     "vendor/ppproto/src/pppos/crc.rs": "bc966ee746a7232d8d44842a2a24a7a0b2a5b2d06901fc1c64d6cabe1be07e21",
     "vendor/ppproto/src/pppos/frame_reader.rs": "3e0c34921ca0f91e5ae14a72f5e540bca1122544a86d06e18c7eb08377871bc3",
     "vendor/ppproto/src/pppos/frame_writer.rs": "e3b24f5a584f271108029957b4c6d4e1e9b6894e09e3ce7f3b65721750334c0d",
-    "vendor/ppproto/src/pppos/mod.rs": "74b3e8ee320c0743256f33be4efea770def392dee46cdd62a48cd53417925c50",
+    "vendor/ppproto/src/pppos/mod.rs": "4f9d32ab901eaff6b02c6c8a2b14ddf68a877ec1db2ddf6eb388d5d2b216434a",
     "vendor/ppproto/src/wire.rs": "f848ef1a239840de6b38955b17d5c6a60bb8a054f01e2c54724e688d5a053fcf"
   }
 }
