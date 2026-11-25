@@ -13,15 +13,23 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #include <unistd.h>
 #ifdef CONFIG_RAMLOG_SYSLOG
 #  include <syslog.h>
 #endif
 
+#define BMI_FRAME_BYTES 12
+#define BMI_FIFO_BYTES 2048
+#define BMI_PERIOD_US 10000
+#define BMI_PERIOD_TICKS 256 /* 25.6 kHz sensor clock at 100 Hz ODR */
+
 struct bmi270
 {
   uint8_t registers[128];
   size_t image_bytes;
+  uint64_t clock_start_us;
+  uint64_t newest_slot;
   uint32_t ticks;
   size_t fifo_bytes;
 };
@@ -46,8 +54,6 @@ static uint8_t g_flash[16384];
 #endif
 
 #ifdef CONFIG_ARCH_SIM
-#  include <time.h>
-
 static bool g_inject_imu_failure;
 static bool g_stall_panel;
 
@@ -375,12 +381,56 @@ static int bmi_write(struct bmi270 *chip, uint8_t reg,
   return 0;
 }
 
+/* Materialize the samples produced since the last read on the same guest
+ * monotonic clock used to bracket the BMI270 sensor-time registers.
+ */
+static int bmi_update_fifo(struct bmi270 *chip)
+{
+#ifdef CONFIG_ARCH_SIM
+  if (g_replay_mode)
+    {
+      return 0;
+    }
+#endif
+  if (chip->registers[0x49] != 0xc0)
+    {
+      return 0;
+    }
+
+  struct timespec now;
+  if (clock_gettime(CLOCK_MONOTONIC, &now) < 0)
+    {
+      return -errno;
+    }
+
+  uint64_t now_us = (uint64_t)now.tv_sec * 1000000 + now.tv_nsec / 1000;
+  if (chip->clock_start_us == 0)
+    {
+      chip->clock_start_us = now_us;
+    }
+
+  uint64_t elapsed = now_us - chip->clock_start_us;
+  uint64_t slot = elapsed / BMI_PERIOD_US;
+  uint64_t produced = slot - chip->newest_slot;
+  uint64_t pending = chip->fifo_bytes + produced * BMI_FRAME_BYTES;
+  chip->ticks = elapsed * BMI_PERIOD_TICKS / BMI_PERIOD_US;
+  chip->newest_slot = slot;
+  chip->fifo_bytes = pending < BMI_FIFO_BYTES ? pending : BMI_FIFO_BYTES;
+  return 0;
+}
+
 static int model_read(int address, uint8_t reg, uint8_t *data, size_t size)
 {
   memset(data, 0, size);
   if (address >= FIRST_IMU && address < FIRST_IMU + IMU_COUNT)
     {
       struct bmi270 *chip = &g_imus[address - FIRST_IMU];
+      int ret = bmi_update_fifo(chip);
+      if (ret < 0)
+        {
+          return ret;
+        }
+
       if (reg == 0x24 && size == 2)
         {
 #ifdef CONFIG_ARCH_SIM
@@ -390,36 +440,27 @@ static int model_read(int address, uint8_t reg, uint8_t *data, size_t size)
             {
               return -EIO;
             }
-#endif
-          if (chip->fifo_bytes == 0 && chip->registers[0x49] == 0xc0)
+          if (g_replay_mode && chip->fifo_bytes == 0 &&
+              chip->registers[0x49] == 0xc0)
             {
-#ifdef CONFIG_ARCH_SIM
-              if (g_replay_mode)
+              /* Replay uses the normal 4 g / 2000 dps profile. */
+              if ((chip->registers[0x41] & 3) != 1 ||
+                  (chip->registers[0x43] & 7) != 0)
                 {
-                  /* Replay uses the normal 4 g / 2000 dps profile. */
-                  if ((chip->registers[0x41] & 3) != 1 ||
-                      (chip->registers[0x43] & 7) != 0)
-                    {
-                      return -EINVAL;
-                    }
-                  int ret = replay_length(address - FIRST_IMU, data);
-                  if (ret < 0)
-                    {
-                      return ret;
-                    }
-                  chip->fifo_bytes = data[0] | (data[1] << 8);
-                }
-              else
-#endif
-                {
-                  chip->fifo_bytes = 12;
+                  return -EINVAL;
                 }
 
-              /* Advance one slot per 100 Hz frame. Length retries see the
-               * same clock and FIFO until the batch has been drained.
-               */
-              chip->ticks += 256 * (chip->fifo_bytes / 12);
+              ret = replay_length(address - FIRST_IMU, data);
+              if (ret < 0)
+                {
+                  return ret;
+                }
+
+              chip->fifo_bytes = data[0] | (data[1] << 8);
+              chip->ticks += BMI_PERIOD_TICKS *
+                             (chip->fifo_bytes / BMI_FRAME_BYTES);
             }
+#endif
           data[0] = chip->fifo_bytes & 0xff;
           data[1] = chip->fifo_bytes >> 8;
         }
@@ -444,11 +485,20 @@ static int model_read(int address, uint8_t reg, uint8_t *data, size_t size)
           replay_report(address - FIRST_IMU);
         }
 #endif
-      else if (reg == 0x26 && size == 12 && chip->fifo_bytes == 12)
+      else if (reg == 0x1d && size == 1)
         {
-          chip->fifo_bytes = 0;
-          data[7] = address == 0x68 ? 0x20 : 0xe0; /* opposite accel X */
-          data[11] = 0x20;
+          data[0] = chip->fifo_bytes == BMI_FIFO_BYTES ? 1 : 0; /* FIFO full */
+        }
+      else if (reg == 0x26 && size % BMI_FRAME_BYTES == 0 &&
+               size <= chip->fifo_bytes)
+        {
+          chip->fifo_bytes -= size;
+          for (size_t offset = 0; offset < size; offset += BMI_FRAME_BYTES)
+            {
+              /* The two sensors report opposite acceleration on X. */
+              data[offset + 7] = address == 0x68 ? 0x20 : 0xe0;
+              data[offset + 11] = 0x20;
+            }
         }
       else if (reg + size <= sizeof(chip->registers))
         {

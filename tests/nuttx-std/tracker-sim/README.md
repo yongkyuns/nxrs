@@ -178,6 +178,8 @@ three unanswered probes. The runner measures detection in guest time and
 recovery to the first fresh TLS upload in host time. USB and the collector
 take independent snapshots, so the checks align them by acquisition time.
 USB verifies advancing readings from both IMUs and GNSS through both outages.
+The synthetic BMI270s fill their FIFOs at 100 Hz in guest monotonic time.
+Repeated reads in one sample period leave the sample count unchanged.
 The collector verifies fresh, bounded summaries at the one-second test cadence. A fresh boot
 with a wrong pin must upload zero records. LCP echoes check the PPP peer.
 The [physical bench](../tracker-hardware/README.md) measures carrier
