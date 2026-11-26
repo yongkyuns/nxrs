@@ -274,19 +274,19 @@ impl<const IMUS: usize> ObservationService<IMUS> {
         index: usize,
         device: &'static impl imu::Device,
         sender: Sender<E>,
-        wrap: impl Fn(Observation) -> E + Send + 'static,
+        mut wrap: impl FnMut(Observation) -> E + Send + 'static,
     ) -> Result<(), SensorFault> {
         self.start_imu_with(index, device, sender, move |event| Some(wrap(event)))
     }
 
-    /// A caller can consume an observation in its own bounded storage and
-    /// return `None` to skip the inbox.
+    /// The callback runs on the acquisition task and can own its publication
+    /// endpoint. Return `None` after publishing to skip the inbox.
     pub fn start_imu_with<E: Send + 'static>(
         &mut self,
         index: usize,
         device: &'static impl imu::Device,
         sender: Sender<E>,
-        wrap: impl Fn(Observation) -> Option<E> + Send + 'static,
+        wrap: impl FnMut(Observation) -> Option<E> + Send + 'static,
     ) -> Result<(), SensorFault> {
         let Some(slot) = self.imu.get(index) else {
             return Err(SensorFault::Imu(index, imu::DeviceError::InvalidData));
@@ -313,18 +313,18 @@ impl<const IMUS: usize> ObservationService<IMUS> {
         &mut self,
         device: &'static impl gnss::Device,
         sender: Sender<E>,
-        wrap: impl Fn(Observation) -> E + Send + 'static,
+        mut wrap: impl FnMut(Observation) -> E + Send + 'static,
     ) -> Result<(), SensorFault> {
         self.start_gnss_with(device, sender, move |event| Some(wrap(event)))
     }
 
-    /// A caller can consume an observation in its own bounded storage and
-    /// return `None` to skip the inbox.
+    /// The callback runs on the acquisition task and can own its publication
+    /// endpoint. Return `None` after publishing to skip the inbox.
     pub fn start_gnss_with<E: Send + 'static>(
         &mut self,
         device: &'static impl gnss::Device,
         sender: Sender<E>,
-        wrap: impl Fn(Observation) -> Option<E> + Send + 'static,
+        wrap: impl FnMut(Observation) -> Option<E> + Send + 'static,
     ) -> Result<(), SensorFault> {
         let Some(failed) = self.update(|values| {
             values
@@ -449,7 +449,7 @@ impl<const IMUS: usize> ObservationService<IMUS> {
 fn sink<T: Copy, E>(
     sender: Sender<E>,
     input: impl Fn(T) -> Input,
-    wrap: impl Fn(Observation) -> Option<E> + Send + 'static,
+    mut wrap: impl FnMut(Observation) -> Option<E> + Send + 'static,
 ) -> impl FnMut(T) -> DeliveryResult<T> {
     crate::inbox_sink(sender, move |value| {
         wrap(Observation {
@@ -463,6 +463,27 @@ fn sink<T: Copy, E>(
 mod tests {
     use super::*;
     use messaging::DeliveryError;
+
+    #[test]
+    fn observation_callback_can_own_mutable_state() {
+        let (sender, inbox) = messaging::bounded(1);
+        let mut calls = 0;
+        let mut deliver = sink(sender, Input::Gnss, move |event| {
+            calls += 1;
+            (calls == 2).then_some(event)
+        });
+        deliver(gnss::Event::InvalidFrame).unwrap();
+        assert!(matches!(
+            inbox.try_recv(),
+            Err(std::sync::mpsc::TryRecvError::Empty)
+        ));
+        deliver(gnss::Event::Failed(gnss::DeviceError::Io)).unwrap();
+        let delivered = inbox.try_recv().unwrap();
+        assert!(matches!(
+            delivered.input,
+            Input::Gnss(gnss::Event::Failed(gnss::DeviceError::Io))
+        ));
+    }
 
     #[test]
     fn shared_satellites_remain_live_across_a_slow_receiver_interval() {

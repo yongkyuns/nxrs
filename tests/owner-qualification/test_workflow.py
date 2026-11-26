@@ -40,6 +40,10 @@ def report(case, native=False, build_id=BUILD_ID):
         observed.update(fairness_links_before_ordinary=7, deadline_observations=1, stop_requests=2)
     if case == "owner-failure-recovery":
         observed.update(failure_observations=3, stop_requests=2)
+    if case == "latest-value-progress":
+        observed["latest"] = {"paused_writer_reads": 2, "paused_reader_publications": 32, "fanout_skew_checks": 1,
+                              "rounds": 4096, "payloads": [{"record_bytes": 50,
+                              "mutex_elapsed_ns": 150, "mailbox_elapsed_ns": 100}] * 3}
     return {"schema": "owner-qualification-v1", "case": case, "token": TOKEN, "build_id": build_id,
             "domain": "nuttx-target" if native else "host-functional", "pass": True,
             "native_scheduling": native, "fifo_policy": 1 if native else None,
@@ -81,6 +85,11 @@ class ParserControls(unittest.TestCase):
                 with self.assertRaises(ValueError): self.parse(value)
         base["observations"]["endpoints_closed"] = False
         with self.assertRaises(ValueError): self.parse(base)
+
+    def test_latest_requires_both_paused_peer_controls(self):
+        value = report("latest-value-progress", True)
+        value["observations"]["latest"]["paused_writer_reads"] = 1
+        with self.assertRaises(ValueError): self.parse(value)
 
     def test_rejects_priority_drift_missing_restore_or_unaccounted_participant(self):
         base = report("owner-independent-inputs", True)
@@ -206,7 +215,7 @@ class RetainedEvidenceControls(unittest.TestCase):
         root, value = self.build(True)
         result = W.inspect(root)
         self.assertEqual(result["build_id"], value["build_id"])
-        self.assertEqual(result["case_count"], 7)
+        self.assertEqual(result["case_count"], 8)
         self.assertEqual(result["cases"], list(W.CASES))
         self.assertEqual(result["image"]["sha256"], W.digest(Path(result["image"]["path"])))
         self.assertFalse(result["physical_execution_verified"])
