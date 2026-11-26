@@ -141,14 +141,48 @@ different complete versions during fanout, and publishing while a reader retains
 a slot. Device-open rollback, the late communications owner, freshness and
 product scheduling require separate checks. Measure those paths and the linked,
 heap and stack costs before selecting a
-replacement. Freshness thresholds describe which readings are usable; maximum
-publication latency and acceptable acquisition jitter remain to be measured.
+replacement. Freshness thresholds describe which readings are usable. Timing
+acceptance also needs a publication deadline and an acquisition jitter budget.
 
 Ordered capture belongs to the Motion Tracker export. It uses a 512-record
 pool shared across sources, drains batches of up to 16, and retains the first
 rejected record's source and sequence on overflow. A wake tells communications
 to inspect that retained work. The admission, overflow and wake gates for a
 capture replacement are tracked in [#446](https://github.com/yongkyuns/nxrs/issues/446).
+
+#### CoreS3 product-path baseline
+
+A physical CoreS3 and M135 ran the `m5stack-cores3-dual-imu` product profile
+at `283e7597` with temporary timing probes. The same image used the live
+display, both 100 Hz IMUs, GNSS, and authenticated BLE v3 export in each case.
+The preemption case made a priority-95 task runnable for 120 ms while the
+priority-90 display held the observation mutex. NuttX reported both
+priority-100 IMU tasks waiting on a semaphore inside observation publication.
+The BLE peer withheld cumulative acknowledgments independently. The four main
+cases observed export for 10 seconds each, with a second run for the control
+and combined cases.
+
+| Load | Longest IMU callback | Longest BLE batch gap | Peak capture depth |
+| --- | ---: | ---: | ---: |
+| Control | 0.81–3.05 ms | 0.121–0.123 s | 17–19 |
+| Display preemption | 121.67 ms | 0.137 s | 20 |
+| 0.95 s BLE acknowledgment hold | 1.60 ms | 1.043 s | 152 |
+| Preemption and BLE hold | 119.04–119.58 ms | 0.816–0.877 s | 137–138 |
+
+Observation publication accounted for the forced delay. The ordered capture
+step took at most 2.86 ms. The peer saw no sequence gaps in the received
+prefixes. With acknowledgments held for 7 seconds, the 512-record pool filled.
+The peer received all 1,093 admitted records and a loss marker for IMU 1
+sequence 788, immediately after that source's record 787.
+
+An IMU stopped early in the control as well as under load. Runs that recorded
+the cause reported a sensor timeout. Qualifying sustained acquisition requires
+isolating the timeout and checking hardware FIFO continuity.
+
+Use the observation handoff as the first comparison for fixed-reader
+publication. Preserve independent reader lifetimes, sensor timestamps and
+sticky faults. Keep ordered capture as a separate comparison with its own
+admission, overflow and recovery checks.
 
 ## Dedicated capacity, one logical wait point
 
