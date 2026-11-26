@@ -8,6 +8,31 @@ use eframe::egui::{
 };
 use nxrs_memory_explorer::{AddressDomain, MemoryModel, RegionKind, Span, SpanKind};
 
+mod attribution;
+mod overview;
+mod timing;
+
+use attribution::SourceChoice;
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ViewMode {
+    Overview,
+    #[default]
+    Memory,
+    Timing,
+}
+
+impl ViewMode {
+    pub fn parse(value: &str) -> Result<Self, String> {
+        match value {
+            "overview" => Ok(Self::Overview),
+            "memory" => Ok(Self::Memory),
+            "timing" => Ok(Self::Timing),
+            _ => Err("--view requires overview, memory, or timing".into()),
+        }
+    }
+}
+
 const BACKGROUND: Color32 = Color32::from_rgb(13, 18, 27);
 const PANEL: Color32 = Color32::from_rgb(19, 26, 37);
 const SURFACE: Color32 = Color32::from_rgb(25, 34, 47);
@@ -34,6 +59,7 @@ pub struct InputPaths {
     pub map: String,
     pub layout: String,
     pub snapshots: Vec<String>,
+    pub trace: String,
 }
 
 impl InputPaths {
@@ -42,6 +68,7 @@ impl InputPaths {
             || !self.map.is_empty()
             || !self.layout.is_empty()
             || !self.snapshots.is_empty()
+            || !self.trace.is_empty()
     }
 
     fn load(&self) -> Result<MemoryModel, String> {
@@ -120,9 +147,12 @@ impl AddressWindow {
 
     fn zoom(self, factor: f64, anchor: u64, bounds: Self) -> Self {
         let old_size = self.span();
-        let new_size = (old_size as f64 * factor)
+        let rounded_size = (old_size as f64 * factor)
             .round()
             .clamp(1.0, bounds.span() as f64) as u64;
+        // A large integer bound may round upward when represented as f64.
+        // Clamp in the integer domain before deriving a subtraction bound.
+        let new_size = rounded_size.clamp(1, bounds.span());
         let before = anchor.saturating_sub(self.start).min(old_size);
         let new_before = ((new_size as u128 * before as u128) / old_size as u128) as u64;
         let start = anchor
@@ -167,11 +197,12 @@ struct DisplaySpan {
     bounds: AddressWindow,
     symbol: bool,
     runtime: bool,
+    color_source: String,
 }
 
 impl DisplaySpan {
     fn source(&self) -> &str {
-        self.span.source.as_deref().unwrap_or("Unattributed")
+        &self.color_source
     }
 
     fn matches(&self, filter: &str) -> bool {
@@ -226,6 +257,12 @@ pub struct MemoryExplorer {
     error: Option<String>,
     status: String,
     smoke: Option<SmokeState>,
+    view: ViewMode,
+    source_choice: SourceChoice,
+    collapse_empty: bool,
+    comparison: Option<u64>,
+    trace: Option<nxrs_memory_explorer::TimingTrace>,
+    timing: timing::TimingView,
 }
 
 impl MemoryExplorer {
@@ -236,7 +273,11 @@ impl MemoryExplorer {
     ) -> Result<Self, String> {
         let model = if demo {
             Some(nxrs_memory_explorer::demo())
-        } else if inputs.has_inputs() {
+        } else if !inputs.elf.trim().is_empty()
+            || !inputs.snapshots.is_empty()
+            || !inputs.layout.is_empty()
+            || !inputs.map.is_empty()
+        {
             Some(inputs.load()?)
         } else {
             None
@@ -265,14 +306,58 @@ impl MemoryExplorer {
                 screenshot_saved: false,
                 checks: Vec::new(),
             }),
+            view: ViewMode::Memory,
+            source_choice: SourceChoice::default(),
+            collapse_empty: true,
+            comparison: None,
+            trace: None,
+            timing: timing::TimingView::default(),
         };
         if let Some(model) = model {
             app.install_model(model, demo);
         }
+        if demo {
+            app.install_trace(nxrs_memory_explorer::timing_demo())?;
+        } else if !app.inputs.trace.trim().is_empty() {
+            app.install_trace(
+                nxrs_memory_explorer::load_timing(Path::new(app.inputs.trace.trim()))
+                    .map_err(|error| error.to_string())?,
+            )?;
+        }
         Ok(app)
     }
 
+    pub fn set_view(&mut self, view: ViewMode) -> Result<(), String> {
+        if view == ViewMode::Timing && self.trace.is_none() {
+            return Err("The timing view needs --trace FILE or --demo.".into());
+        }
+        if view != ViewMode::Timing && self.model.is_none() {
+            return Err("Memory and overview views need a final ELF or --demo.".into());
+        }
+        self.view = view;
+        Ok(())
+    }
+
+    fn install_trace(&mut self, trace: nxrs_memory_explorer::TimingTrace) -> Result<(), String> {
+        if let Some(expected) = &trace.metadata.elf_sha256 {
+            if self
+                .model
+                .as_ref()
+                .is_some_and(|model| !model.build.elf_sha256.eq_ignore_ascii_case(expected))
+            {
+                return Err("Timing trace belongs to a different ELF (SHA-256 mismatch).".into());
+            }
+        }
+        self.timing.reset(&trace);
+        self.trace = Some(trace);
+        if self.model.is_none() {
+            self.view = ViewMode::Timing;
+        }
+        Ok(())
+    }
+
     fn install_model(&mut self, model: MemoryModel, synthetic: bool) {
+        let has_backing = !model.physical_resources.is_empty();
         self.symbol_labels = symbol_labels(&model);
         self.time_ns = model
             .snapshots
@@ -283,6 +368,12 @@ impl MemoryExplorer {
         self.physical = false;
         self.selected = None;
         self.error = None;
+        self.comparison = None;
+        self.view = if has_backing {
+            ViewMode::Overview
+        } else {
+            ViewMode::Memory
+        };
         self.filter.clear();
         let regions = self.regions();
         if let Some(region) = regions
@@ -314,6 +405,7 @@ impl MemoryExplorer {
                             AddressDomain::CpuVirtual => "CPU addresses",
                             AddressDomain::Image => "ELF file offsets",
                             AddressDomain::Physical => "physical coordinates",
+                            AddressDomain::LinkedLoad => "linked load addresses",
                         }
                     ),
                     bounds: AddressWindow {
@@ -408,6 +500,11 @@ impl MemoryExplorer {
                     },
                     symbol,
                     runtime,
+                    color_source: if runtime {
+                        self.source_choice.source(span)
+                    } else {
+                        span.source.clone().unwrap_or_else(|| "Unattributed".into())
+                    },
                 })
             })
             .collect()
@@ -531,7 +628,7 @@ impl MemoryExplorer {
                         if ui.button("Open files").clicked() {
                             self.show_inputs = true;
                         }
-                        if self.model.is_some() {
+                        if self.model.is_some() && self.view == ViewMode::Memory {
                             let has_physical = self.model.as_ref().is_some_and(|model| !model.physical_resources.is_empty());
                             if ui
                                 .add_enabled(has_physical, egui::Button::new("Physical backing").selected(self.physical))
@@ -558,6 +655,24 @@ impl MemoryExplorer {
                         .color(MUTED),
                     );
                 }
+                ui.add_space(9.0);
+                ui.horizontal(|ui| {
+                    if ui.add_enabled(self.model.is_some(), egui::Button::new("Board overview").selected(self.view == ViewMode::Overview)).clicked() {
+                        self.view = ViewMode::Overview;
+                    }
+                    if ui.add_enabled(self.model.is_some(), egui::Button::new("Memory detail").selected(self.view == ViewMode::Memory)).clicked() {
+                        self.view = ViewMode::Memory;
+                    }
+                    if ui.add_enabled(self.trace.is_some(), egui::Button::new("Timing").selected(self.view == ViewMode::Timing)).clicked() {
+                        self.view = ViewMode::Timing;
+                    }
+                    if self.trace.is_none() {
+                        ui.label(RichText::new("Load a trace for measured timing").small().color(MUTED));
+                    } else if self.model.is_some() {
+                        ui.label(RichText::new("Memory checkpoints and trace clocks are independent").small().color(MUTED))
+                            .on_hover_text("A matching ELF establishes build identity, not a common recording or clock. No alignment between memory checkpoint coordinates and trace time is inferred.");
+                    }
+                });
             });
     }
 
@@ -670,6 +785,9 @@ impl MemoryExplorer {
                         field(ui, "ORIGINAL ADDRESS", &format!("{:#018x}", block.span.start));
                     }
                     field(ui, "SOURCE", block.source());
+                    if block.runtime && !block.span.backtrace.is_empty() {
+                        ui.label(RichText::new(format!("Display policy: {}", self.source_choice.label())).small().color(MUTED));
+                    }
                     if let Some(parent) = &block.span.parent {
                         field(ui, "CONTAINING OBJECT", parent);
                     }
@@ -686,9 +804,12 @@ impl MemoryExplorer {
                             ui.label(RichText::new("Chunk extents include allocator overhead. Largest free is not an allocation-success guarantee.").small().color(MUTED));
                         });
                     }
+                    self.backtrace_inspector(ui, &block.span);
+                    self.load_mapping_inspector(ui, &block.span);
                     if let Some(detail) = &block.span.detail {
-                        ui.separator();
-                        ui.label(RichText::new(detail).small().color(MUTED));
+                        egui::CollapsingHeader::new("Raw capture details").show(ui, |ui| {
+                            ui.label(RichText::new(detail).small().color(MUTED));
+                        });
                     }
                     if matches!(block.span.kind, SpanKind::Stack | SpanKind::StackUsed) {
                         ui.add_space(9.0);
@@ -780,7 +901,7 @@ impl MemoryExplorer {
                     let align = if index == 0 { Align2::LEFT_TOP } else if index+1 == snapshots.len() { Align2::RIGHT_TOP } else { Align2::CENTER_TOP };
                     let stride = snapshots.len().div_ceil((line_rect.width() / 240.0).max(1.0) as usize);
                     if selected || index == 0 || index + 1 == snapshots.len() || index % stride == 0 {
-                        painter.text(Pos2::new(x, y+15.0), align, format!("{} · {}", format_time(time.saturating_sub(first)), abbreviated(label, 34)), FontId::proportional(10.0), if selected { TEXT } else { MUTED });
+                        painter.text(Pos2::new(x, y+15.0), align, format!("{} · {}", index + 1, abbreviated(label, 34)), FontId::proportional(10.0), if selected { TEXT } else { MUTED });
                     }
                 }
                 if let Some(time) = self.time_ns {
@@ -790,11 +911,11 @@ impl MemoryExplorer {
                 ui.horizontal_wrapped(|ui| {
                     let exact = self.time_ns.and_then(|time| snapshots.iter().find(|snapshot| snapshot.0 == time));
                     if let Some((time, label)) = exact {
-                        ui.label(RichText::new(format!("{label}  ·  supplied coordinate {time} ns")).color(TEXT));
+                        ui.label(RichText::new(format!("{label}  ·  observation coordinate {time}")).color(TEXT));
                     } else {
                         ui.label(RichText::new("Between checkpoints: runtime blocks are hidden; no state is interpolated.").color(WARNING));
                     }
-                    ui.label(RichText::new("Click a point to inspect. Click between points to see the evidence gap.").small().color(MUTED));
+                    ui.label(RichText::new("Ordered checkpoints; elapsed time is not established. Click between points to see the evidence gap.").small().color(MUTED));
                 });
             });
     }
@@ -832,9 +953,10 @@ impl MemoryExplorer {
                         }
                     });
                 });
-                ui.label(RichText::new(if region.physical { "physical backing offsets" } else { match region.domain { AddressDomain::Image => "ELF file offsets · these are file bytes, not a flashed image", AddressDomain::CpuVirtual => "CPU address coordinates", AddressDomain::Physical => "declared physical coordinates" } }).small().color(MUTED));
+                ui.label(RichText::new(if region.physical { "physical backing offsets" } else { match region.domain { AddressDomain::Image => "ELF file offsets · these are file bytes, not a flashed image", AddressDomain::CpuVirtual => "CPU address coordinates", AddressDomain::Physical => "declared physical coordinates", AddressDomain::LinkedLoad => "linked load addresses · placement from ELF PT_LOAD, not startup-copy observations" } }).small().color(MUTED));
                 ui.add_space(12.0);
                 self.metrics(ui);
+                self.comparison_controls(ui);
                 ui.add_space(12.0);
                 ui.horizontal(|ui| {
                     let response = ui.add(
@@ -854,6 +976,7 @@ impl MemoryExplorer {
                     });
                 });
                 ui.add_space(9.0);
+                self.source_controls(ui);
                 if let Some(error) = &self.error {
                     ui.label(RichText::new(error).color(Color32::LIGHT_RED));
                 }
@@ -982,13 +1105,27 @@ impl MemoryExplorer {
                 MUTED,
             );
         }
-        let lanes: Vec<_> = if region.domain == AddressDomain::Image {
+        let all_spans = self.spans();
+        let mut lanes: Vec<_> = if matches!(
+            region.domain,
+            AddressDomain::Image | AddressDomain::LinkedLoad
+        ) {
             vec![0, 1]
         } else {
             vec![0, 1, 2, 3]
         };
+        if self.collapse_empty {
+            lanes.retain(|lane| {
+                all_spans
+                    .iter()
+                    .any(|span| span.lane() == *lane && (!span.symbol || self.show_symbols))
+                    || (*lane >= 2 && !self.exact_snapshot())
+            });
+            if lanes.is_empty() {
+                lanes.push(0);
+            }
+        }
         let lane_height = plot.height() / lanes.len() as f32;
-        let all_spans = self.spans();
         let labels = [
             "LINKED SECTIONS",
             "SOURCE OBJECTS / ELF LABELS",
@@ -1228,7 +1365,7 @@ impl MemoryExplorer {
             ui.add_space(52.0);
             ui.label(RichText::new("Inspect the memory your firmware uses.").size(30.0).strong());
             ui.add_space(12.0);
-            ui.label(RichText::new("Explore linked sections, source ownership, heap blocks and task stacks at captured points in time.").size(16.0).color(MUTED));
+            ui.label(RichText::new("Explore linked placement, allocation call stacks and captured memory, alongside measured scheduler and application traces.").size(16.0).color(MUTED));
             ui.add_space(30.0);
             egui::Frame::new().fill(PANEL).stroke(Stroke::new(1.0,LINE)).corner_radius(10).inner_margin(24).show(ui,|ui| {
                 ui.set_max_width(750.0);
@@ -1237,6 +1374,7 @@ impl MemoryExplorer {
             ui.add_space(22.0);
             if ui.button("Explore synthetic demonstration").clicked() {
                 self.install_model(nxrs_memory_explorer::demo(),true);
+                let _ = self.install_trace(nxrs_memory_explorer::timing_demo());
             }
             ui.label(RichText::new("Demonstration data is explicitly synthetic and contains no device measurements.").small().color(MUTED));
         });
@@ -1257,6 +1395,12 @@ impl MemoryExplorer {
             "Region layout · optional",
             &mut self.inputs.layout,
             "/path/to/layout.json",
+        );
+        path_field(
+            ui,
+            "Timing trace · optional",
+            &mut self.inputs.trace,
+            "/path/to/trace.json",
         );
         ui.add_space(7.0);
         ui.label(RichText::new("Runtime snapshots").small().color(MUTED));
@@ -1285,21 +1429,18 @@ impl MemoryExplorer {
             }
         });
         ui.add_space(10.0);
-        ui.label(RichText::new("Drop ELF, .map and JSON files into this window, or paste paths above. Snapshot build identity is checked against the final ELF.").small().color(MUTED));
+        ui.label(RichText::new("Drop ELF, .map, snapshot/layout JSON, or Chrome Trace Event JSON. A trace can open on its own. Supplied build identities must match; clocks are not aligned automatically.").small().color(MUTED));
         ui.add_space(12.0);
-        if ui
-            .button(RichText::new("Load memory evidence").strong())
-            .clicked()
-        {
+        if ui.button(RichText::new("Load evidence").strong()).clicked() {
             if !self.snapshot_entry.trim().is_empty() {
                 self.inputs
                     .snapshots
                     .push(std::mem::take(&mut self.snapshot_entry));
             }
-            match self.inputs.load() {
-                Ok(model) => {
-                    self.install_model(model, false);
-                    self.show_inputs = false;
+            match Self::new(self.inputs.clone(), false, None) {
+                Ok(mut incoming) => {
+                    incoming.smoke = self.smoke.take();
+                    *self = incoming;
                 }
                 Err(error) => self.error = Some(error),
             }
@@ -1335,13 +1476,17 @@ impl MemoryExplorer {
             match path.extension().and_then(|ext| ext.to_str()) {
                 Some("map") => self.inputs.map = value,
                 Some("json") => {
-                    let is_layout = std::fs::read(&path)
+                    let json = std::fs::read(&path)
                         .ok()
-                        .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
-                        .is_some_and(|json| {
-                            json.get("regions").is_some() && json.get("snapshots").is_none()
-                        });
-                    if is_layout {
+                        .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok());
+                    if json
+                        .as_ref()
+                        .is_some_and(|json| json.is_array() || json.get("traceEvents").is_some())
+                    {
+                        self.inputs.trace = value;
+                    } else if json.as_ref().is_some_and(|json| {
+                        json.get("regions").is_some() && json.get("snapshots").is_none()
+                    }) {
                         self.inputs.layout = value;
                     } else if !self.inputs.snapshots.contains(&value) {
                         self.inputs.snapshots.push(value);
@@ -1354,6 +1499,9 @@ impl MemoryExplorer {
     }
 
     fn keyboard(&mut self, ctx: &egui::Context) {
+        if self.view != ViewMode::Memory {
+            return;
+        }
         if ctx.wants_keyboard_input() {
             return;
         }
@@ -1402,7 +1550,7 @@ impl MemoryExplorer {
             }
         };
         let outcome = (|| -> Result<(), String> {
-            if smoke.frame == 3 {
+            if smoke.frame == 3 && self.view != ViewMode::Timing {
                 let region = self.current_region().ok_or("No region rendered")?;
                 let before = self.viewport;
                 self.viewport = self
@@ -1441,7 +1589,7 @@ impl MemoryExplorer {
                 }
                 self.viewport = region.bounds;
             }
-            if smoke.frame == 6 {
+            if smoke.frame == 6 && self.view != ViewMode::Timing {
                 if let Some(model) = self
                     .model
                     .as_ref()
@@ -1490,6 +1638,13 @@ impl MemoryExplorer {
                 {
                     self.selected = Some(span.span.id);
                 }
+            }
+            if smoke.frame == 6 && self.view == ViewMode::Timing {
+                let trace = self.trace.as_ref().ok_or("No timing trace loaded")?;
+                self.timing.smoke(trace)?;
+                smoke
+                    .checks
+                    .push("measured timing zoom/pan/selection and exact duration");
             }
             if smoke.frame >= 10 && !smoke.screenshot_requested {
                 ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(egui::UserData::default()));
@@ -1543,7 +1698,12 @@ impl eframe::App for MemoryExplorer {
         self.dropped_files(ctx);
         self.keyboard(ctx);
         self.header(ctx);
-        if self.model.is_some() {
+        if self.view == ViewMode::Timing && self.trace.is_some() {
+            self.timing.show(ctx, self.trace.as_ref().unwrap());
+        } else if self.view == ViewMode::Overview && self.model.is_some() {
+            self.timeline(ctx);
+            self.overview(ctx);
+        } else if self.model.is_some() {
             self.timeline(ctx);
             self.sidebar(ctx);
             self.inspector(ctx);
@@ -1607,6 +1767,7 @@ fn symbol_labels(model: &MemoryModel) -> Vec<Span> {
             kind: owner.map(|span| span.kind).unwrap_or(SpanKind::Unknown),
             source: owner.and_then(|span| span.source.clone()), parent: owner.map(|span| span.id.clone()),
             detail: Some("ELF symbol label. Symbols can overlap or alias; they do not add occupied bytes. A zero-size symbol is an address label with no recorded extent.".into()),
+            backtrace: Vec::new(),
         }
     }).collect()
 }
@@ -1665,16 +1826,6 @@ fn format_bytes(bytes: u64) -> String {
         format!("{:.2} MiB", bytes as f64 / (1024.0 * 1024.0))
     } else {
         format!("{:.2} GiB", bytes as f64 / (1024.0 * 1024.0 * 1024.0))
-    }
-}
-
-fn format_time(ns: u64) -> String {
-    if ns < 1_000_000 {
-        format!("{:.1} µs", ns as f64 / 1000.0)
-    } else if ns < 1_000_000_000 {
-        format!("{:.1} ms", ns as f64 / 1_000_000.0)
-    } else {
-        format!("{:.2} s", ns as f64 / 1_000_000_000.0)
     }
 }
 
@@ -1808,6 +1959,15 @@ mod tests {
         let panned = view.pan(1000000.0, bounds);
         assert_eq!(panned.end, bounds.end);
         assert_eq!(panned.span(), view.span());
+    }
+
+    #[test]
+    fn zoom_out_never_rounds_a_large_span_past_its_integer_bound() {
+        for end in [(1u64 << 54) + 4, u64::MAX] {
+            let bounds = AddressWindow { start: 1, end };
+            let zoom = bounds.zoom(2.0, bounds.at_fraction(0.5), bounds);
+            assert_eq!(zoom, bounds);
+        }
     }
 
     #[test]

@@ -1,14 +1,18 @@
 # NXRS Memory Explorer
 
-Open a final firmware ELF, its GNU linker map, and captured NuttX heap/stack
-snapshots in a native egui viewer. The address canvas preserves placement and
-gaps while you zoom, pan, search, and inspect individual extents. Source colors
-connect linked objects and recorded allocation origins to those extents.
+Open a final firmware ELF, its GNU linker map, captured NuttX heap/stack
+snapshots, and execution traces in a native egui viewer. The board overview
+shows declared storage banks and load/runtime relationships. The address canvas
+preserves placement and gaps while you zoom, pan, search, and inspect individual
+extents. Source colors connect linked objects and recorded allocation call
+stacks to those extents. The timing view shows observed execution intervals,
+interrupt nesting, application scopes, and counters on an independent clock.
 
 This is the offline foundation of [issue #442](https://github.com/yongkyuns/nxrs/issues/442).
-It shows static placement and discrete lifecycle observations. Continuous
-allocation-event replay, live transport, and physical-board qualification are
-follow-up work in that issue.
+It shows static placement, discrete memory observations, and imported timing
+events. Continuous allocation-event replay into heap geometry, automatic
+memory/trace clock correlation, live transport, and physical-device capture
+qualification remain follow-up work in that issue.
 
 ## Open the viewer
 
@@ -18,8 +22,8 @@ Run from the NXRS repository root with its pinned Rust 1.90 toolchain:
 cargo run --locked -p nxrs-memory-explorer --features gui -- --demo
 ```
 
-The demonstration contains invented addresses, sources, snapshots, and backing
-mappings. Its banner identifies it as synthetic. Use it to try the controls
+The demonstration contains invented addresses, sources, snapshots, backing
+mappings, and timing events. Its banner identifies it as synthetic. Use it to try the controls
 before collecting firmware evidence.
 
 The package is a non-default workspace member. Its library has no GUI dependency
@@ -52,7 +56,8 @@ memory evidence**. `--help` prints all command options without opening a window.
 
 | Task | Control |
 | --- | --- |
-| Choose a CPU/image window or physical resource | Select its sidebar card |
+| Choose a CPU/load/image window or physical resource | Select its sidebar card |
+| Inspect board banks, aliases, and load placement | Select **Board overview**, then a resource or address link |
 | Inspect exact range, source, role, and containing object | Click a block |
 | Fit a block | Double-click it, or select **Zoom to block** |
 | Fit the selected region | **Fit region**, `F`, or `Home` |
@@ -66,6 +71,8 @@ memory evidence**. `--help` prints all command options without opening a window.
 | Inspect a gap between observations | Click between timeline points |
 | Change coordinates | **Runtime / image** or **Physical backing** |
 | Hide optional ELF symbol labels | Clear **ELF symbols** |
+| Compare heap statistics at two observations | Choose **Compare with** below the memory observation controls |
+| Choose the allocation frame used for source coloring | Use **Color allocations by**, or click a recorded frame in the inspector |
 
 Search dims nonmatching blocks without moving them. Byte geometry therefore
 stays meaningful during filtering. Small or zero-size symbol labels use ticks;
@@ -78,11 +85,25 @@ allocated chunk overlays that allocation; it does not consume the same bytes a
 second time. Source colors have a legend, while free, reserved, and unknown
 states have distinct styling and explicit labels.
 
+**Caller candidate** selects the first resolved recorded frame outside recognized
+allocator files and functions. This is a display heuristic, not proof of semantic
+ownership. **Captured source** retains the exporter's original source, and
+**Recorded frame N** lets you choose an exact saved frame. Unresolved frames stay
+visible and unattributed. The full call stack is resolved from saved PCs using
+the matching host ELF; the exporter does not unwind a running target.
+
+Checkpoint comparison reports changes in allocated bytes, free bytes, and the
+largest free chunk for each matching arena. It compares the two observed
+endpoints. An address reused between observations does not establish that the
+same allocation survived. Timeline labels show observation order and phase;
+manual coordinates are not presented as measured elapsed time.
+
 ## Read the coordinates correctly
 
 | View | What an address means | Evidence required |
 | --- | --- | --- |
 | CPU window | The ELF's linked virtual memory address, or the address recorded by a snapshot | ELF sections and/or capture |
+| Linked load window | A file-backed section's placement derived from a containing `PT_LOAD` segment's `p_paddr` | Consistent ELF section/segment file and virtual-address ranges |
 | ELF file offsets | A byte offset in the supplied ELF container | Section file ranges |
 | Physical backing | An offset within a named storage resource with a declared capacity | Explicit layout mapping |
 
@@ -96,18 +117,71 @@ the file. They do not establish total board RAM or flash capacity. The viewer
 labels their backing as unknown. Empty space is never inferred to be free heap:
 only captured `free` chunks establish that state.
 
-The `.data` section has CPU storage and file-backed initializer bytes. `.bss`
-has CPU storage without file bytes. Other NOBITS sections, including `.heap` and
+The `.data` section has CPU storage and file-backed initializer bytes. The
+overview links its runtime address, linked load address, and ELF file offset.
+Distinct load and runtime backing locations consume separate storage; aliases
+to the same backing bytes count once even when their CPU addresses differ.
+This relationship describes linker placement,
+not an observation that startup executed a copy. `.bss` has CPU storage without
+file bytes. Other NOBITS sections, including `.heap` and
 `.noinit`, are reservations whose initialization policy cannot be inferred from
 NOBITS alone. Thread-local storage templates do not establish the addresses or
 number of live per-thread instances, so the importer warns and avoids inventing
 those CPU allocations.
 
-ELF offsets are not programmed flash offsets. This version does not project
-`PT_LOAD` physical/load addresses, `.data` load copies, bootloader headers, or
-vendor image transformations into a programmed-image view. It also requires a
+ELF offsets are not programmed flash offsets. Linked load addresses do not
+establish flash technology, bootloader headers, vendor image transformations,
+or the contents of a postprocessed binary. File-backed segment padding remains
+an occupied load reservation. Reuse of load-only staging RAM would need explicit
+lifecycle evidence before those reservations could be released. The importer requires a
 final `ET_EXEC` ELF with allocated section headers; relocatable objects, archives,
 PIE/`ET_DYN` files needing a load bias, and section-header-free images are rejected.
+
+### Verified MPS2 QEMU layout
+
+The supplied [MPS2-AN521 descriptor](layouts/mps2-an521-qemu.json) records the
+QEMU 10.0.13 memory topology and the pinned NuttX board mapping, with source
+links and limitations in its `warnings`. Pass it using:
+
+```text
+--layout tools/memory-explorer/layouts/mps2-an521-qemu.json
+```
+
+The descriptor declares seven resources containing eight banks: 4 MiB SSRAM0,
+two adjacent 2 MiB SSRAM banks, four 32 KiB SRAM banks, and the 16 MiB system-RAM
+window. Secure/nonsecure and mirror address windows share their declared backing.
+The two adjacent banks remain one 4 MiB coordinate resource with a visible bank
+boundary, so the allocator's continuous arena and largest free chunk are not
+artificially split. Each resource bar has its own explicitly labeled linear
+scale. The map describes address translation; it does not certify security
+permissions or substitute for a physical-board memory map.
+
+## Enable diagnostic recording
+
+[PR #447](https://github.com/yongkyuns/nxrs/pull/447) owns the opt-in configuration
+path for flat NuttX builds using the default allocator:
+
+```toml
+[build]
+diagnostics = true
+```
+
+Use that setting with the normal `cargo nxrs build` workflow once the diagnostic
+build changes are integrated. The viewer does not add a second build switch.
+The diagnostic setting enables heap request counters, stack coloration, and
+bounded scheduler, interrupt, and heap instrumentation. Recording is controlled
+at runtime by `trace start` and `trace stop`; enabling instrumentation does not
+mean that every event since boot was recorded. See the diagnostic PR's
+[capture guide](https://github.com/yongkyuns/nxrs/blob/c01848fd4336181f364f8d3fa01e18be629614d1/docs/nuttx-memory-qualification.md#diagnostic-builds)
+for its buffer, stack, target, and trace-mode requirements.
+
+Addressed heap snapshots are a separate debugger observation. They require
+allocator/task debug types and a quiescent stopped target. Allocation call-stack
+depth depends on `CONFIG_MM_BACKTRACE`, the selected target unwinder, and the
+linked code's unwind information; the diagnostic flag alone is not a claim
+that every target supplies a complete Rust call chain. Match all inputs to the
+exact final ELF. Qualify the trace clock on each target before interpreting
+durations.
 
 ## Capture a NuttX lifecycle point
 
@@ -171,7 +245,7 @@ transactions. Choose an application quiescence point appropriate to the target.
 | Arena and chunks | Raw allocator extents including allocator overhead and guard nodes |
 | Free chunk | Explicit observed allocator free extent; alignment and metadata can reduce a usable request |
 | Deferred free | Remains allocated until the allocator actually reclaims it |
-| Allocation source | First recorded backtrace PC resolved through host debug information, when available; raw PCs are retained |
+| Allocation source | All recorded backtrace PCs with function, file, and line when resolvable; the original first-frame source is retained for compatibility |
 | PID/sequence metadata | Allocator-recorded fields when present; not a durable allocation lifetime ID or current semantic owner |
 | Task stack | Usable reserved bounds when they can be represented within the observed containing chunk |
 | Stack use/high-water | Unknown in this adapter; no coloration scan is performed |
@@ -229,7 +303,7 @@ python3 tools/memory-explorer/tests/qualify_qemu.py \
 NXRS_MEMORY_QEMU_EVIDENCE="$capture" \
 NXRS_MEMORY_QEMU_ELF="$firmware/nuttx/nuttx" \
   cargo +1.90.0 test --locked -p nxrs-memory-explorer \
-    --test qemu_capture -- --ignored --nocapture
+    --test qemu_capture --test board_projection -- --ignored --nocapture
 ```
 
 Choose a **new output directory for every run**; the harness refuses an existing
@@ -246,6 +320,7 @@ Open the three points in the viewer:
 cargo run --locked -p nxrs-memory-explorer --features gui -- \
   --elf "$firmware/nuttx/nuttx" \
   --map "$firmware/nuttx/nuttx.map" \
+  --layout tools/memory-explorer/layouts/mps2-an521-qemu.json \
   --snapshot "$capture/capture-0.json" \
   --snapshot "$capture/capture-1.json" \
   --snapshot "$capture/capture-2.json"
@@ -257,14 +332,93 @@ workload; it does not capture its peak or every transient worker. Unchanged
 captured metadata establishes no observed exporter mutation of those fields,
 not proof about all memory or every possible stopping point. Deferred frees
 remain allocated in this read-only view and are not by themselves a leak finding.
-CPU backing remains unknown unless a verified layout is supplied. This is
-NuttX/QEMU execution evidence, not physical-board or timing qualification.
+The optional board projection checks that aliases and bank boundaries preserve
+every captured chunk and arena statistic. Without a layout, CPU backing remains
+unknown. This is NuttX/QEMU execution evidence, not physical-device or timing
+qualification.
 
 The existing [std-apps ARM workflow](../../.github/workflows/std-apps-self-hosted.yml)
 reuses its `std-demo` build for this capture/import gate after the existing
 lifecycle checks and retains the memory-explorer evidence with the firmware
 artifact. The [qualification guide](../../docs/nuttx-memory-qualification.md#real-qemu-capture-witness)
 records the initial real-target witness and its scope.
+
+## Inspect detailed timing
+
+The viewer imports the [Chrome Trace Event JSON format supported by Perfetto](https://perfetto.dev/docs/getting-started/other-formats).
+NuttX text dumps use the existing converter:
+
+```sh
+python3 tools/nuttx-trace-to-perfetto.py console.txt timing.json \
+  --elf path/to/the/captured/nuttx
+
+cargo run --locked -p nxrs-memory-explorer --features gui -- \
+  --trace timing.json --view timing
+```
+
+Replace the ELF path with the exact final executable for that capture. A trace
+can be opened alone, or beside `--elf`, `--map`, `--layout`, and snapshots from
+the same build. Explicit conflicting ELF hashes are rejected. An unspecified
+trace hash stays unknown; loading two files does not establish their identity.
+
+| Task | Control or meaning |
+| --- | --- |
+| Navigate time | Pointer-anchored scroll zoom, drag to pan, arrow keys, `+` / `-`, **Fit trace** or `F` |
+| Inspect a task, interrupt, or application interval | Click a span; double-click to fit it |
+| Measure arbitrary duration | Enable **Measure range** and drag across time, or use Shift+drag |
+| Measure an exact recorded interval | Select it and choose **Measure this interval** |
+| Find a task or operation | Filter by track, event name, category, or recorded arguments |
+| Inspect counters | Enable **Counters** and hover a recorded sample |
+| Read the axis | Time relative to the first imported record; the inspector shows exact trace coordinates and source-clock timestamps when an explicit origin is available |
+| Assess observation coverage | Per-track union of recorded intervals; missing intervals remain unknown |
+
+CPU and task tracks show scheduled residency. IRQ and application scopes can
+overlap that residency, so their durations must not be added together as CPU
+utilization. Nested intervals are shown on separate rows, and the selection
+summary counts their union once within each track. Counters show samples without
+inventing intermediate values. Scheduler switches, nested IRQ entry/exit pairs,
+application `B/E/I/C` markers, and supported heap events retain their observed
+timestamps and arguments. Heap request events are not replayed into addressed
+chunk geometry: a failed request is not an allocation, and complete allocator
+identity/size semantics are required for safe replay.
+
+Trace Event JSON `ts` and `dur` fields are **microseconds**, even when
+`displayTimeUnit` is `ns`. The importer converts exact decimal numbers to integer
+nanoseconds without passing timestamps through floating point. It supports
+complete `X`, nested `B/E`, instant `i/I`, counter `C`, and metadata `M` events.
+Unsupported or incomplete events fail rather than receiving an invented end.
+The NuttX converter instead retains incomplete interval observations as explicit
+instant markers with no duration, and records the incomplete count.
+
+`otherData.nxrs` carries explicit clock, source, original timestamp origin,
+optional ELF SHA-256, loss status, completeness, and warnings. Missing metadata
+is shown as unknown. `--clock`, `--source`, and loss options on the converter are
+producer assertions; use them only when supported by the actual capture. A
+backward timestamp across paired scheduler/IRQ observations on one CPU fails conversion. Known
+loss resets pending interval pairs; loss without a located boundary disables
+duration reconstruction. No blank interval is interpreted as idle. Nanosecond
+coordinates do not promise nanosecond clock resolution.
+
+Memory checkpoints and timing traces retain independent axes. Matching ELF
+identity does not synchronize their clocks. In particular, the three manually
+ordered GDB observations above are never aligned to this timing axis. Continuous
+heap history and synchronized memory/timing cursor navigation require an explicit
+common target clock and event sequence in a future capture adapter.
+
+The current viewer is qualified with bounded diagnostic captures. It loads the
+trace into host memory and scans events for filtering and per-track painting.
+The importer limits files to 128 MiB, one million input records, and 1,024
+nesting levels; those are admission limits, not demonstrated interactive
+performance at those sizes. Large-recording indexes and vertical track
+virtualization remain follow-up work.
+
+The [native timing witness](../../tests/nuttx-std/memory-timing/) and its
+[build](tests/build_timing_nuttx.py) / [capture](tests/qualify_timing_qemu.py)
+helpers exercise the importer with actual NuttX/QEMU records. Their dedicated
+CMSDK timer adapter is confined to the qualification fixture. It is not a
+production clock override. See the
+[qualification evidence and commands](../../docs/nuttx-memory-qualification.md#qemu-timing-witness)
+for its exact target, clock, rejected-clock controls, and scope.
 
 ## File format
 
@@ -285,13 +439,14 @@ exact-number range.
 | `schema_version` | Exactly `1`; unsupported versions fail |
 | `build` | `elf_sha256` as 64 hex digits, plus optional `label` |
 | `regions` | Named address windows: `id`, `name`, `start`, `size`, `kind`, `domain`, optional `physical` |
-| `physical_resources` | Optional named resource capacities: `id`, `name`, `size` |
+| `physical_resources` | Optional named resource capacities: `id`, `name`, `size`; optional `banks` partition the resource by `name`, `offset`, and `size` |
 | `snapshots` | Ordered observations with `time_ns`, `label`, `spans`, optional `complete_regions` |
 | `warnings` | Optional evidence limitations displayed by the viewer |
 | `capture` | Optional exporter-specific metadata retained in the input file; not permission to weaken validation |
 
 A span contains `id`, `name`, `region`, `start`, `size`, and `kind`, plus optional
-`source`, `parent`, and `detail`. Kinds are `code`, `read_only`, `data`, `bss`,
+`source`, `parent`, `detail`, and `backtrace`. A backtrace is a list of recorded
+`pc` values with optional `function`, `file`, and `line`. Kinds are `code`, `read_only`, `data`, `bss`,
 `heap_arena`, `allocation`, `free`, `stack`, `stack_used`, `pool`, `reserved`, and
 `unknown`. Parents represent containment; sibling overlaps, missing parents,
 cycles, out-of-region spans, and conflicting free/live evidence fail validation.
@@ -304,7 +459,10 @@ claim requires the importer to reject it.
 
 ### Declare board storage
 
-A layout contains `schema_version`, `regions`, and `physical_resources`. The
+A layout contains `schema_version`, `regions`, `physical_resources`, and optional
+`warnings`. Address domains include `cpu_virtual`, `linked_load`, `image`, and
+`physical`; linked load placements are derived from the ELF, not guessed from
+the region's name. The
 following complete example describes an invented 8 KiB SRAM window at
 `0x20000000`; replace it with the selected board/profile's verified map:
 
@@ -347,7 +505,7 @@ fixture also requires Python 3, `cc`, and GNU `ld`:
 
 ```sh
 cargo test --locked -p nxrs-memory-explorer
-python3 -m unittest discover -s tools/memory-explorer/tests -p test_gdb_export.py -v
+python3 -m unittest discover -s tools/memory-explorer/tests -p 'test_*.py' -v
 cargo test --locked -p nxrs-memory-explorer --features gui --bin nxrs-memory-explorer
 cargo clippy --locked -p nxrs-memory-explorer --all-targets --features gui -- -D warnings
 ```

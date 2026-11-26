@@ -23,6 +23,7 @@ fn span(id: &str, start: u64, size: u64, kind: SpanKind, parent: Option<&str>) -
         source: None,
         parent: parent.map(str::to_owned),
         detail: None,
+        backtrace: vec![],
     }
 }
 
@@ -57,6 +58,38 @@ fn integer_intervals_do_not_overflow_or_round_high_addresses() {
 }
 
 #[test]
+fn recorded_backtraces_preserve_unresolved_pcs_and_old_captures_remain_valid() {
+    let mut value = serde_json::to_value(observation(vec![span(
+        "allocation",
+        0x1000,
+        32,
+        SpanKind::Allocation,
+        None,
+    )]))
+    .unwrap();
+    value["snapshots"][0]["spans"][0]
+        .as_object_mut()
+        .unwrap()
+        .remove("backtrace");
+    assert!(
+        parse_snapshot(&value.to_string()).unwrap().snapshots[0].spans[0]
+            .backtrace
+            .is_empty()
+    );
+    value["snapshots"][0]["spans"][0]["backtrace"] = serde_json::json!([
+        {"pc":1234,"function":"allocate","file":"source.rs","line":17},
+        {"pc":u64::MAX,"function":null,"file":null,"line":null}
+    ]);
+    let file = parse_snapshot(&value.to_string()).unwrap();
+    let frames = &file.snapshots[0].spans[0].backtrace;
+    assert_eq!(frames[0].line, Some(17));
+    assert_eq!(frames[1].pc, u64::MAX);
+    assert!(frames[1].function.is_none() && frames[1].file.is_none() && frames[1].line.is_none());
+    value["snapshots"][0]["spans"][0]["backtrace"][1]["pc"] = (-1).into();
+    assert!(parse_snapshot(&value.to_string()).is_err());
+}
+
+#[test]
 fn nested_stack_and_chunk_are_counted_once() {
     let file = observation(vec![
         span("arena", 0x1000, 0x1000, SpanKind::HeapArena, None),
@@ -88,6 +121,72 @@ fn unowned_gap_is_unknown_not_free() {
     assert_eq!(model.free_bytes("ram", 10), 0x100);
     assert_eq!(model.occupied_bytes("ram", 10), 0);
     assert_eq!(model.heap_statistics("ram", 10)[0].unknown_bytes, 0xf00);
+}
+
+#[test]
+fn flat_physical_projection_leaves_partial_arena_and_pool_gaps_unknown() {
+    let mut file = observation(vec![
+        span("arena", 0x1000, 0x1000, SpanKind::HeapArena, None),
+        span(
+            "allocation",
+            0x1000,
+            0x800,
+            SpanKind::Allocation,
+            Some("arena"),
+        ),
+        span("pool", 0x1100, 0x300, SpanKind::Pool, Some("allocation")),
+        span("pool-free", 0x1100, 0x80, SpanKind::Free, Some("pool")),
+        span(
+            "pool-used",
+            0x1180,
+            0x80,
+            SpanKind::Allocation,
+            Some("pool"),
+        ),
+        span("heap-free", 0x1800, 0x100, SpanKind::Free, Some("arena")),
+    ]);
+    file.physical_resources.push(PhysicalResource {
+        id: "sram".into(),
+        name: "SRAM".into(),
+        size: 0x1000,
+        banks: vec![],
+    });
+    file.regions[0].physical = Some(PhysicalBacking {
+        id: "sram".into(),
+        offset: 0,
+    });
+    let mut alias = region("alias", 0x3000, 0x1000);
+    alias.physical = file.regions[0].physical.clone();
+    file.regions.push(alias);
+    let mut model = MemoryModel::from_snapshot(file).unwrap();
+    let mut reservation = span("static-storage", 0x3000, 0x1000, SpanKind::Bss, None);
+    reservation.region = "alias".into();
+    model.static_spans.push(reservation);
+    model.validate().unwrap();
+    let intervals = model.physical_occupied_intervals(10);
+    let mut ranges: Vec<_> = intervals
+        .iter()
+        .map(|interval| (interval.range.start, interval.range.end))
+        .collect();
+    ranges.sort_unstable();
+    assert_eq!(ranges, vec![(0, 0x100), (0x180, 0x200), (0x400, 0x800)]);
+    assert_eq!(model.physical_occupied_bytes(10)["sram"], 0x580);
+    assert!(intervals
+        .iter()
+        .all(|interval| interval.span.kind == SpanKind::Allocation));
+    let original = model.snapshots[0]
+        .spans
+        .iter()
+        .find(|span| span.id == "allocation")
+        .unwrap();
+    assert!(intervals
+        .iter()
+        .any(|interval| std::ptr::eq(interval.span, original)));
+    assert_eq!(model.free_bytes("ram", 10), 0x180);
+    // At an unknown checkpoint the static reservation remains visible, without
+    // claiming that any allocator contents or free blocks were observed there.
+    assert_eq!(model.physical_occupied_bytes(11)["sram"], 0x1000);
+    assert_eq!(model.free_bytes("ram", 11), 0);
 }
 
 #[test]
@@ -241,6 +340,7 @@ fn aliased_file() -> SnapshotFile {
         id: "sram".into(),
         name: "SRAM".into(),
         size: 0x1000,
+        banks: vec![],
     });
     let mut duplicate = span("alias-a", 0x3000, 256, SpanKind::Allocation, None);
     duplicate.region = "alias".into();
@@ -378,6 +478,7 @@ fn nested_pool_capacity_is_reported_per_allocator() {
         id: "ram".into(),
         name: "RAM".into(),
         size: 0x1000,
+        banks: vec![],
     });
     let model = MemoryModel::from_snapshot(file).unwrap();
     model.validate().unwrap();

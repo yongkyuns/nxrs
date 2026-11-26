@@ -14,6 +14,7 @@ on:
       - 'shared/messaging/**'
       - 'tools/build-support/**'
       - 'tools/memory-explorer/**'
+      - 'tools/nuttx-trace-to-perfetto.py'
       - 'platform/Cargo.toml'
       - 'platform/src/**'
       - 'platform/tests/**'
@@ -58,6 +59,7 @@ on:
       - 'shared/messaging/**'
       - 'tools/build-support/**'
       - 'tools/memory-explorer/**'
+      - 'tools/nuttx-trace-to-perfetto.py'
       - 'platform/Cargo.toml'
       - 'platform/src/**'
       - 'platform/tests/**'
@@ -332,7 +334,42 @@ jobs:
           NXRS_MEMORY_QEMU_EVIDENCE="$output/memory-explorer" \
           NXRS_MEMORY_QEMU_ELF="$output/nuttx/nuttx" \
             cargo +1.90.0 test --locked -p nxrs-memory-explorer \
-              --test qemu_capture -- --ignored --nocapture
+              --test qemu_capture --test board_projection -- --ignored --nocapture
+      - name: Build and capture a native QEMU scheduler and IRQ timing witness
+        if: matrix.app == 'std-demo'
+        shell: bash
+        run: |
+          set -euo pipefail
+          timing_sources="$GITHUB_WORKSPACE/target/memory-timing-sources"
+          timing_output="$GITHUB_WORKSPACE/target/firmware/std-demo/mps2-an521-mock/memory-timing"
+          mkdir -p "$timing_sources" "$timing_output"
+          # Disposable pristine trees: never change the submodules or reuse the
+          # patched NXRS application tree for this native qualification fixture.
+          git clone --shared --no-checkout external/nuttx "$timing_sources/nuttx"
+          git clone --shared --no-checkout external/nuttx-apps "$timing_sources/apps"
+          git -C "$timing_sources/nuttx" checkout --detach "$(git -C external/nuttx rev-parse HEAD)"
+          git -C "$timing_sources/apps" checkout --detach "$(git -C external/nuttx-apps rev-parse HEAD)"
+          python3 tools/memory-explorer/tests/build_timing_nuttx.py \
+            --nuttx "$timing_sources/nuttx" --apps "$timing_sources/apps" \
+            --output "$timing_output/build" --qemu-timer-clock
+          python3 tools/memory-explorer/tests/qualify_timing_qemu.py \
+            --qemu "$(command -v qemu-system-arm)" \
+            --image "$timing_output/build/nuttx" \
+            --config "$timing_output/build/resolved.config" \
+            --output "$timing_output/capture" --timeout 60
+          python3 tools/nuttx-trace-to-perfetto.py \
+            "$timing_output/capture/console.log" "$timing_output/capture/timing.json" \
+            --source qemu-mps2-an521 --elf "$timing_output/build/nuttx"
+      - name: Compare imported timing with actual UART endpoints and build identity
+        if: matrix.app == 'std-demo'
+        shell: bash
+        run: |
+          set -euo pipefail
+          timing_output="$GITHUB_WORKSPACE/target/firmware/std-demo/mps2-an521-mock/memory-timing"
+          NXRS_MEMORY_TIMING_EVIDENCE="$timing_output/capture" \
+          NXRS_MEMORY_TIMING_ELF="$timing_output/build/nuttx" \
+            cargo +1.90.0 test --locked -p nxrs-memory-explorer \
+              --test timing_qemu -- --ignored --nocapture
       - name: Retain firmware qualification
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -347,4 +384,5 @@ jobs:
             target/firmware/${{ matrix.app }}/*/nuttx/nuttx.uf2
             target/firmware/${{ matrix.app }}/*/nuttx/nuttx.bin
             target/firmware/${{ matrix.app }}/*/memory-explorer/
+            target/firmware/${{ matrix.app }}/*/memory-timing/
           if-no-files-found: warn

@@ -236,11 +236,11 @@ def deferred_nodes(heap, allocated_by_payload, budget):
     return result
 
 
-def _span(span_id, name, region, start, size, kind, parent=None, detail=None, source=None):
+def _span(span_id, name, region, start, size, kind, parent=None, detail=None, source=None, backtrace=None):
     return {
         "id": span_id, "name": name, "region": region, "start": start,
         "size": size, "kind": kind, "source": source, "parent": parent,
-        "detail": detail,
+        "detail": detail, "backtrace": backtrace or [],
     }
 
 
@@ -248,17 +248,39 @@ def _overlaps(a, b):
     return a["start"] < b["start"] + b["size"] and b["start"] < a["start"] + a["size"]
 
 
-def first_backtrace_source(gdb_api, pcs):
-    """Resolve only the first saved PC against host symbols; never unwind."""
-    if not pcs:
-        return None
-    try:
-        symtab = gdb_api.find_pc_line(pcs[0]).symtab
-        return str(symtab.filename) if symtab and symtab.filename else None
-    except Exception:
-        # Missing or incomplete host debug information is an attribution gap,
-        # not a reason to discard otherwise valid addressed heap metadata.
-        return None
+def resolve_backtrace(gdb_api, pcs):
+    """Resolve each recorded PC through host symbols; retain unresolved frames.
+
+    No live unwind or target function call occurs. A PC is used unchanged:
+    architecture-specific return-address adjustments require their own evidence.
+    """
+    frames = []
+    for pc in pcs:
+        frame = {"pc": pc, "function": None, "file": None, "line": None}
+        try:
+            location = gdb_api.find_pc_line(pc)
+            if location.symtab and location.symtab.filename:
+                frame["file"] = str(location.symtab.filename)
+                line = int(getattr(location, "line", 0))
+                frame["line"] = line if 0 < line <= 0xffffffff else None
+        except Exception:
+            pass  # Missing line information must not discard the recorded PC.
+        try:
+            block = gdb_api.block_for_pc(pc)
+            # Walk lexical scopes to the nearest named function, including an
+            # inlined function if DWARF identifies one. Do not synthesize frames.
+            for _ in range(256):
+                if block is None:
+                    break
+                if block.function is not None:
+                    name = block.function.print_name
+                    frame["function"] = str(name) if name else None
+                    break
+                block = block.superblock
+        except Exception:
+            pass  # Symbol absence is independent of line-table availability.
+        frames.append(frame)
+    return frames
 
 
 def collect_heaps(heaps, layout, gdb_api):
@@ -309,6 +331,7 @@ def collect_heaps(heaps, layout, gdb_api):
                 name = "Allocator guard" if node["guard"] else "Free chunk" if node["free"] else "Allocated chunk"
                 detail = "Raw chunk extent; allocator header and shared boundary metadata included"
                 source = None
+                backtrace = []
                 if kind == "allocation":
                     deferred = address + layout["header_bytes"] in pending
                     if deferred:
@@ -319,10 +342,11 @@ def collect_heaps(heaps, layout, gdb_api):
                         "deferred_free": deferred,
                     }, separators=(",", ":"))
                     if node["backtrace"]:
-                        source = first_backtrace_source(gdb_api, node["backtrace"])
+                        backtrace = resolve_backtrace(gdb_api, node["backtrace"])
+                        source = backtrace[0]["file"]
                         detail += "; source attribution: first recorded backtrace frame; not current semantic owner"
                 spans.append(_span(f"{region['id']}_chunk_{address:x}", name, region["id"],
-                                   address, node["size"], kind, arena_id, detail, source))
+                                   address, node["size"], kind, arena_id, detail, source, backtrace))
     return regions, spans, metadata
 
 
@@ -404,6 +428,7 @@ def collect_snapshot(gdb_api, mm, utils, label="halted snapshot", time_ns=0, hea
         "All GDB-reported threads were stopped and chunk topology checked; hidden CPUs and allocator quiescence remain unverified.",
         "Requested allocation sizes, current stack use, and stack high-water are unknown.",
         "Allocation source colors identify the first recorded backtrace frame when host symbols resolve it, not the current semantic owner.",
+        "Backtrace frames resolve recorded allocation PCs against host DWARF; unresolved frames are retained and no live stack was unwound.",
         "Pool backing chunks are visible; pool-slot occupancy and physical address aliases are not captured.",
     ]
     return {

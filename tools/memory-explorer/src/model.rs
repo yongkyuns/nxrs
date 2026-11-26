@@ -94,6 +94,9 @@ pub enum AddressDomain {
     /// An address visible to the target CPU. No physical uniqueness is implied.
     #[default]
     CpuVirtual,
+    /// Link-time load addresses from ELF PT_LOAD p_paddr. These are not physical
+    /// resource coordinates until an explicit board descriptor maps them.
+    LinkedLoad,
     /// Byte offsets in a named image file, not a claim about flash programming.
     Image,
     /// Explicit physical-resource coordinates from a supplied board descriptor.
@@ -113,6 +116,17 @@ pub struct PhysicalResource {
     pub id: String,
     pub name: String,
     /// Capacity in bytes. Backing offsets start at zero within this resource.
+    pub size: u64,
+    /// Optional complete partition into hardware banks. Adjacent banks can
+    /// share one resource coordinate space without splitting an allocator arena.
+    #[serde(default)]
+    pub banks: Vec<PhysicalBank>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub struct PhysicalBank {
+    pub name: String,
+    pub offset: u64,
     pub size: u64,
 }
 
@@ -195,6 +209,18 @@ pub struct Span {
     pub parent: Option<String>,
     #[serde(default)]
     pub detail: Option<String>,
+    /// Recorded allocator PCs resolved against the matching host ELF. Missing
+    /// symbols stay absent; these frames are not a live target unwind.
+    #[serde(default)]
+    pub backtrace: Vec<SourceFrame>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub struct SourceFrame {
+    pub pc: u64,
+    pub function: Option<String>,
+    pub file: Option<String>,
+    pub line: Option<u32>,
 }
 
 impl Span {
@@ -251,6 +277,38 @@ pub struct LayoutFile {
     pub regions: Vec<Region>,
     #[serde(default)]
     pub physical_resources: Vec<PhysicalResource>,
+    #[serde(default)]
+    pub warnings: Vec<String>,
+}
+
+/// One interval in an explicitly named address domain's region.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Placement {
+    pub region: String,
+    pub start: u64,
+    pub size: u64,
+}
+
+impl Placement {
+    pub fn range(&self) -> Result<AddressRange> {
+        AddressRange::new(self.start, self.size)
+    }
+}
+
+/// A file-backed section slice related by a checked ELF PT_LOAD translation.
+/// This is a link-time relationship, not proof that startup copied those bytes.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LoadMapping {
+    pub section: String,
+    pub runtime: Placement,
+    pub load: Placement,
+    pub image: Placement,
+}
+
+impl LoadMapping {
+    pub fn distinct_load_address(&self) -> bool {
+        self.runtime.start != self.load.start
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -259,6 +317,7 @@ pub struct MemoryModel {
     pub regions: Vec<Region>,
     pub physical_resources: Vec<PhysicalResource>,
     pub static_spans: Vec<Span>,
+    pub load_mappings: Vec<LoadMapping>,
     pub symbols: Vec<Symbol>,
     pub snapshots: Vec<Snapshot>,
     pub warnings: Vec<String>,
@@ -315,6 +374,7 @@ impl MemoryModel {
             regions: file.regions,
             physical_resources: file.physical_resources,
             static_spans: Vec::new(),
+            load_mappings: Vec::new(),
             symbols: Vec::new(),
             snapshots: file.snapshots,
             warnings,
@@ -327,6 +387,7 @@ impl MemoryModel {
         self.build.validate()?;
         validate_regions(&self.regions, &self.physical_resources)?;
         validate_spans(&self.static_spans, &self.regions)?;
+        validate_load_mappings(&self.load_mappings, &self.regions)?;
         validate_snapshots(&self.snapshots, &self.regions)?;
         for snapshot in &self.snapshots {
             self.validate_cpu_states(snapshot.time_ns)?;
@@ -403,8 +464,10 @@ impl MemoryModel {
         )
     }
 
-    /// Project only declared mappings. Unmapped CPU windows are excluded, not
-    /// silently interpreted as physically unique storage.
+    /// Project raw labels through declared mappings, including reservation and
+    /// allocator containers. Unmapped windows are excluded. For a flat occupied
+    /// storage view use physical_occupied_intervals instead, because an observed
+    /// allocator can replace parts of its backing reservation with unknown state.
     pub fn physical_intervals(&self, time_ns: u64) -> Vec<PhysicalInterval<'_>> {
         self.observed_spans(time_ns)
             .filter_map(|span| {
@@ -427,23 +490,40 @@ impl MemoryModel {
             .collect()
     }
 
+    /// Effective occupied pieces, with observed arenas carved out of eligible
+    /// CPU backing reservations and nested pools carved out of their owning
+    /// allocations. Unobserved allocator gaps are absent, not occupied or free.
+    /// Aliases and stack overlays may still overlap; preserve the source Span
+    /// for inspection and union their ranges when computing byte totals.
+    pub fn physical_occupied_intervals(&self, time_ns: u64) -> Vec<PhysicalInterval<'_>> {
+        let mut intervals = Vec::new();
+        for region in &self.regions {
+            if let Some(backing) = &region.physical {
+                for (range, span) in self.occupied_ranges(&region.id, time_ns) {
+                    let start = range.start - region.start + backing.offset;
+                    intervals.push(PhysicalInterval {
+                        resource: &backing.id,
+                        range: AddressRange {
+                            start,
+                            end: start + range.size(),
+                        },
+                        span,
+                    });
+                }
+            }
+        }
+        intervals
+    }
+
     /// Occupied physical bytes, unioned within each resource. Two CPU aliases
     /// into the same bytes, and nested allocation/stack labels, count once.
     pub fn physical_occupied_bytes(&self, time_ns: u64) -> BTreeMap<String, u64> {
         let mut groups: BTreeMap<String, Vec<AddressRange>> = BTreeMap::new();
-        for region in &self.regions {
-            if let Some(backing) = &region.physical {
-                for (range, _) in self.occupied_ranges(&region.id, time_ns) {
-                    let start = range.start - region.start + backing.offset;
-                    groups
-                        .entry(backing.id.clone())
-                        .or_default()
-                        .push(AddressRange {
-                            start,
-                            end: start + range.size(),
-                        });
-                }
-            }
+        for interval in self.physical_occupied_intervals(time_ns) {
+            groups
+                .entry(interval.resource.into())
+                .or_default()
+                .push(interval.range);
         }
         groups
             .into_iter()
@@ -528,7 +608,7 @@ impl MemoryModel {
                             end: target.offset + region.size,
                         };
                         if let Some(overlap) = source.intersection(target_range) {
-                            let start = region.start + overlap.start - target.offset;
+                            let start = region.start + (overlap.start - target.offset);
                             arenas.push(AddressRange {
                                 start,
                                 end: start + overlap.size(),
@@ -546,7 +626,9 @@ impl MemoryModel {
         {
             if let Ok(range) = span.range() {
                 let mut remaining = vec![range];
-                if matches!(span.kind, SpanKind::Bss | SpanKind::Reserved) {
+                if region.domain == AddressDomain::CpuVirtual
+                    && matches!(span.kind, SpanKind::Bss | SpanKind::Reserved)
+                {
                     for arena in &arenas {
                         remaining = remaining
                             .into_iter()
@@ -588,16 +670,11 @@ impl MemoryModel {
 
     fn validate_physical_states(&self, time_ns: u64) -> Result<()> {
         let mut occupied: BTreeMap<&str, Vec<AddressRange>> = BTreeMap::new();
-        for region in &self.regions {
-            if let Some(backing) = &region.physical {
-                for (range, _) in self.occupied_ranges(&region.id, time_ns) {
-                    let start = range.start - region.start + backing.offset;
-                    occupied.entry(&backing.id).or_default().push(AddressRange {
-                        start,
-                        end: start + range.size(),
-                    });
-                }
-            }
+        for interval in self.physical_occupied_intervals(time_ns) {
+            occupied
+                .entry(interval.resource)
+                .or_default()
+                .push(interval.range);
         }
         for interval in self
             .physical_intervals(time_ns)
@@ -777,6 +854,35 @@ pub(crate) fn validate_regions(regions: &[Region], resources: &[PhysicalResource
                 resource.id
             )));
         }
+        let mut names = BTreeSet::new();
+        let mut banks = Vec::new();
+        for bank in &resource.banks {
+            if bank.name.is_empty() || !names.insert(&bank.name) {
+                return Err(Error(format!(
+                    "invalid or duplicate bank in physical resource {}",
+                    resource.id
+                )));
+            }
+            let range = AddressRange::new(bank.offset, bank.size)?;
+            if range.end > resource.size {
+                return Err(Error(format!(
+                    "bank {} exceeds physical resource {}",
+                    bank.name, resource.id
+                )));
+            }
+            banks.push(range);
+        }
+        banks.sort_by_key(|range| range.start);
+        if !banks.is_empty()
+            && (banks[0].start != 0
+                || banks.last().expect("nonempty banks").end != resource.size
+                || banks.windows(2).any(|pair| pair[0].end != pair[1].start))
+        {
+            return Err(Error(format!(
+                "banks must form a complete nonoverlapping partition of physical resource {}",
+                resource.id
+            )));
+        }
     }
     let mut ids = BTreeSet::new();
     for region in regions {
@@ -804,19 +910,54 @@ pub(crate) fn validate_regions(regions: &[Region], resources: &[PhysicalResource
             )));
         }
     }
-    // A CPU address must resolve to one window. Different alias windows may map
-    // into overlapping resource offsets; that is intentional and allowed.
-    let mut sorted: Vec<_> = regions
-        .iter()
-        .filter(|r| r.domain == AddressDomain::CpuVirtual)
-        .collect();
-    sorted.sort_by_key(|r| r.start);
-    for pair in sorted.windows(2) {
-        if pair[0].end() > pair[1].start {
-            return Err(Error(format!(
-                "overlapping CPU regions {} and {}",
-                pair[0].id, pair[1].id
-            )));
+    // An address must resolve to one window within its CPU/load domain. Alias
+    // windows may map to overlapping resource offsets, and different domains
+    // may use the same numeric address. Both are intentional.
+    for domain in [AddressDomain::CpuVirtual, AddressDomain::LinkedLoad] {
+        let mut sorted: Vec<_> = regions.iter().filter(|r| r.domain == domain).collect();
+        sorted.sort_by_key(|r| r.start);
+        for pair in sorted.windows(2) {
+            if pair[0].end() > pair[1].start {
+                return Err(Error(format!(
+                    "overlapping {domain:?} regions {} and {}",
+                    pair[0].id, pair[1].id
+                )));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn validate_load_mappings(mappings: &[LoadMapping], regions: &[Region]) -> Result<()> {
+    for mapping in mappings {
+        if mapping.section.is_empty()
+            || mapping.runtime.size != mapping.load.size
+            || mapping.runtime.size != mapping.image.size
+        {
+            return Err(Error(
+                "load mapping requires a section and equal byte extents".into(),
+            ));
+        }
+        for (placement, domain) in [
+            (&mapping.runtime, AddressDomain::CpuVirtual),
+            (&mapping.load, AddressDomain::LinkedLoad),
+            (&mapping.image, AddressDomain::Image),
+        ] {
+            let region = regions
+                .iter()
+                .find(|r| r.id == placement.region)
+                .ok_or_else(|| {
+                    Error(format!(
+                        "load mapping references missing region {}",
+                        placement.region
+                    ))
+                })?;
+            if region.domain != domain || !region.range()?.contains(placement.range()?) {
+                return Err(Error(format!(
+                    "load mapping {} has an invalid {domain:?} placement",
+                    mapping.section
+                )));
+            }
         }
     }
     Ok(())

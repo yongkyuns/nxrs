@@ -1,4 +1,5 @@
 use crate::model::*;
+use object::read::elf::{FileHeader, ProgramHeader};
 use object::{Object, ObjectSection, ObjectSymbol};
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
@@ -32,6 +33,14 @@ struct ElfSection {
     file: Option<AddressRange>,
     kind: SpanKind,
     tls_template: bool,
+}
+
+#[derive(Debug)]
+struct LoadSegment {
+    index: usize,
+    runtime: AddressRange,
+    file: AddressRange,
+    load: AddressRange,
 }
 
 /// Load a final ELF, optional GNU map and zero or one observation file.
@@ -74,11 +83,14 @@ pub fn load_inputs(
         regions: Vec::new(),
         physical_resources: Vec::new(),
         static_spans: Vec::new(),
+        load_mappings: Vec::new(),
         symbols: Vec::new(),
         snapshots: Vec::new(),
         warnings: vec![
             "CPU addresses are virtual/address-window coordinates. Only declared backing mappings support physical accounting.".into(),
             "ELF file offsets describe this ELF container, not the programmed flash binary or its boot/image headers.".into(),
+            "Linked load addresses come from ELF PT_LOAD p_paddr; they are separate from CPU VMAs and imply neither a physical mapping nor an observed startup copy.".into(),
+            "File-backed PT_LOAD extents remain static reservations. Reclaiming load-only staging storage requires lifecycle/release evidence that this snapshot schema does not record.".into(),
             "Runtime state is unknown between point snapshots. Unowned gaps are not free heap.".into(),
         ],
     };
@@ -86,6 +98,7 @@ pub fn load_inputs(
         let layout = parse_layout(&fs::read_to_string(path)?)?;
         model.regions = layout.regions;
         model.physical_resources = layout.physical_resources;
+        model.warnings.extend(layout.warnings);
     }
     for path in snapshots {
         let mut snapshot_file = parse_snapshot(&fs::read_to_string(path)?)?;
@@ -134,6 +147,11 @@ pub fn load_inputs(
         model.warnings.push("Snapshot host ELF hashes match this file; target-image identity and global capture quiescence are not independently proved.".into());
     }
 
+    let segments = match &file {
+        object::File::Elf32(elf) => load_segments(elf, bytes.len() as u64)?,
+        object::File::Elf64(elf) => load_segments(elf, bytes.len() as u64)?,
+        _ => unreachable!("validated ELF format"),
+    };
     let mut sections = Vec::new();
     for section in file.sections() {
         let allocated = matches!(section.flags(), object::SectionFlags::Elf { sh_flags } if sh_flags & u64::from(object::elf::SHF_ALLOC) != 0);
@@ -141,6 +159,11 @@ pub fn load_inputs(
             continue;
         }
         let range = AddressRange::new(section.address(), section.size())?;
+        if !file.is_64() && range.end > 1_u64 << 32 {
+            return Err(Error(
+                "allocated section exceeds the ELF32 address space".into(),
+            ));
+        }
         let name = section.name().unwrap_or("<non-UTF8 section>").to_owned();
         let tls_template = matches!(section.flags(), object::SectionFlags::Elf { sh_flags } if sh_flags & u64::from(object::elf::SHF_TLS) != 0);
         let kind = match section.kind() {
@@ -181,7 +204,7 @@ pub fn load_inputs(
         return Err(Error("final ELF has no allocated sections; section-header-free images are not supported by this milestone".into()));
     }
     if sections.iter().any(|section| section.tls_template) {
-        model.warnings.push("ELF TLS sections are per-thread templates, not unique CPU RAM locations. Only their file-backed template bytes are shown; per-thread storage requires runtime observations.".into());
+        model.warnings.push("ELF TLS sections are per-thread templates, not unique CPU RAM locations. Their file/load template bytes may be shown, but no per-thread runtime placement is inferred; that requires runtime observations.".into());
     }
 
     let parsed_map = if let Some(path) = map {
@@ -210,48 +233,22 @@ pub fn load_inputs(
         None
     };
 
-    // Infer only the missing CPU address windows, not board RAM/flash capacity.
-    let mut gaps = Vec::new();
-    for section in sections.iter().filter(|section| !section.tls_template) {
-        let mut remaining = vec![section.range];
-        for region in model
-            .regions
+    // Infer only extents present in this ELF, never board memory capacity.
+    infer_windows(
+        &mut model.regions,
+        sections
             .iter()
-            .filter(|r| r.domain == AddressDomain::CpuVirtual)
-        {
-            remaining = remaining
-                .into_iter()
-                .flat_map(|range| subtract(range, region.range().expect("validated region")))
-                .collect();
-        }
-        gaps.extend(remaining);
-    }
-    gaps.sort_by_key(|range| range.start);
-    let mut merged: Vec<AddressRange> = Vec::new();
-    for range in gaps {
-        if let Some(last) = merged.last_mut().filter(|last| last.end >= range.start) {
-            last.end = last.end.max(range.end);
-        } else {
-            merged.push(range);
-        }
-    }
-    for (index, range) in merged.iter().enumerate() {
-        let id = format!("elf-cpu-{index}");
-        if model.regions.iter().any(|region| region.id == id) {
-            return Err(Error(format!(
-                "layout/snapshot uses reserved inferred region id {id}"
-            )));
-        }
-        model.regions.push(Region {
-            id,
-            name: format!("ELF CPU window {:#x} (backing unknown)", range.start),
-            start: range.start,
-            size: range.size(),
-            kind: RegionKind::Unknown,
-            domain: AddressDomain::CpuVirtual,
-            physical: None,
-        });
-    }
+            .filter(|section| !section.tls_template)
+            .map(|s| s.range),
+        AddressDomain::CpuVirtual,
+        "elf-cpu",
+    )?;
+    infer_windows(
+        &mut model.regions,
+        segments.iter().map(|segment| segment.load),
+        AddressDomain::LinkedLoad,
+        "elf-load",
+    )?;
     if model.regions.iter().any(|region| region.id == "elf-file") {
         return Err(Error(
             "layout/snapshot uses reserved region id elf-file".into(),
@@ -267,6 +264,28 @@ pub fn load_inputs(
         physical: None,
     });
 
+    // PT_LOAD file extents include alignment bytes between sections. Keep them
+    // as explicit reservation parents so the loaded image footprint is complete
+    // without inventing source ownership for the padding.
+    for segment in &segments {
+        for region in model
+            .regions
+            .iter()
+            .filter(|r| r.domain == AddressDomain::LinkedLoad)
+        {
+            if let Some(range) = segment.load.intersection(region.range()?) {
+                model.static_spans.push(Span {
+                    id: format!("elf-load-segment-{}-{}", segment.index, region.id),
+                    name: format!("PT_LOAD {} file-backed bytes", segment.index),
+                    region: region.id.clone(), start: range.start, size: range.size(),
+                    kind: SpanKind::Reserved, source: None, parent: None,
+                    detail: Some(format!("ELF PT_LOAD file offset {:#x}, p_vaddr {:#x}, p_paddr {:#x}, p_filesz {}. Includes unowned alignment bytes. No claim that p_memsz tail occupies load storage.", segment.file.start, segment.runtime.start, segment.load.start, segment.file.size())),
+                    backtrace: vec![],
+                });
+            }
+        }
+    }
+
     for section in &sections {
         for region in model
             .regions
@@ -280,6 +299,7 @@ pub fn load_inputs(
                     start: range.start, size: range.size(), kind: section.kind, source: None,
                     parent: None,
                     detail: Some(format!("Allocated ELF section; CPU VMA {:#x}, {} bytes. Storage backing is determined only by an explicit layout.", section.range.start, section.range.size())),
+                    backtrace: vec![],
                 });
                 if let Some(map) = &parsed_map {
                     add_contributions(
@@ -300,7 +320,8 @@ pub fn load_inputs(
                 id: id.clone(), name: section.name.clone(), region: "elf-file".into(),
                 start: range.start, size: range.size(), kind: section.kind, source: None,
                 parent: None,
-                detail: Some(format!("File-backed ELF section at file offset {:#x}; CPU VMA {:#x}. This is not a flash image load-address claim.", range.start, section.range.start)),
+                detail: Some(format!("File-backed ELF section at file offset {:#x}; linked VMA {:#x}. PT_LOAD relationships, when available, are shown separately.", range.start, section.range.start)),
+                backtrace: vec![],
             });
             // ELF section file and runtime sizes agree for ordinary sections;
             // never force that relationship for a compressed/atypical section.
@@ -319,6 +340,7 @@ pub fn load_inputs(
                 }
             }
         }
+        add_load_section(&mut model, section, &segments, parsed_map.as_ref())?;
     }
     for symbol in file.symbols() {
         if !symbol.is_definition()
@@ -358,6 +380,217 @@ pub fn load_inputs(
     model.warnings.dedup();
     model.validate()?;
     Ok(model)
+}
+
+fn load_segments<'data, Elf: FileHeader>(
+    file: &object::read::elf::ElfFile<'data, Elf>,
+    file_size: u64,
+) -> Result<Vec<LoadSegment>> {
+    let endian = file.endian();
+    let mut result: Vec<LoadSegment> = Vec::new();
+    for (index, header) in file.elf_program_headers().iter().enumerate() {
+        if header.p_type(endian) != object::elf::PT_LOAD {
+            continue;
+        }
+        let filesz = header.p_filesz(endian).into();
+        let memsz = header.p_memsz(endian).into();
+        if filesz > memsz {
+            return Err(Error(format!(
+                "PT_LOAD {index} has p_filesz greater than p_memsz"
+            )));
+        }
+        let vaddr = header.p_vaddr(endian).into();
+        let offset = header.p_offset(endian).into();
+        let align = header.p_align(endian).into();
+        if align > 1 && (!align.is_power_of_two() || vaddr % align != offset % align) {
+            return Err(Error(format!("PT_LOAD {index} has invalid alignment")));
+        }
+        let runtime = if memsz > 0 {
+            Some(AddressRange::new(vaddr, memsz)?)
+        } else {
+            None
+        };
+        if !Elf::is_type_64_sized() && runtime.is_some_and(|range| range.end > 1_u64 << 32) {
+            return Err(Error(format!(
+                "PT_LOAD {index} exceeds the ELF32 runtime address space"
+            )));
+        }
+        if filesz == 0 {
+            // A NOBITS-only segment has runtime storage, but no load-image bytes.
+            continue;
+        }
+        let image = AddressRange::new(offset, filesz)?;
+        if image.end > file_size {
+            return Err(Error(format!("PT_LOAD {index} exceeds ELF file bounds")));
+        }
+        let load = AddressRange::new(header.p_paddr(endian).into(), filesz)?;
+        if !Elf::is_type_64_sized() && load.end > 1_u64 << 32 {
+            return Err(Error(format!(
+                "PT_LOAD {index} exceeds the ELF32 linked-load address space"
+            )));
+        }
+        let runtime = runtime.expect("filesz <= nonzero memsz");
+        if !result
+            .iter()
+            .any(|s| s.runtime == runtime && s.file == image && s.load == load)
+        {
+            result.push(LoadSegment {
+                index,
+                runtime,
+                file: image,
+                load,
+            });
+        }
+    }
+    Ok(result)
+}
+
+fn infer_windows(
+    regions: &mut Vec<Region>,
+    ranges: impl IntoIterator<Item = AddressRange>,
+    domain: AddressDomain,
+    prefix: &str,
+) -> Result<()> {
+    let mut gaps = Vec::new();
+    for range in ranges {
+        let mut remaining = vec![range];
+        for region in regions.iter().filter(|r| r.domain == domain) {
+            let occupied = region.range()?;
+            remaining = remaining
+                .into_iter()
+                .flat_map(|r| subtract(r, occupied))
+                .collect();
+        }
+        gaps.extend(remaining);
+    }
+    gaps.sort_by_key(|range| range.start);
+    let mut merged: Vec<AddressRange> = Vec::new();
+    for range in gaps {
+        if let Some(last) = merged.last_mut().filter(|last| last.end >= range.start) {
+            last.end = last.end.max(range.end);
+        } else {
+            merged.push(range);
+        }
+    }
+    for (index, range) in merged.into_iter().enumerate() {
+        let id = format!("{prefix}-{index}");
+        if regions.iter().any(|region| region.id == id) {
+            return Err(Error(format!(
+                "layout/snapshot uses reserved inferred region id {id}"
+            )));
+        }
+        regions.push(Region {
+            id,
+            name: format!("ELF {domain:?} window {:#x} (backing unknown)", range.start),
+            start: range.start,
+            size: range.size(),
+            kind: RegionKind::Unknown,
+            domain,
+            physical: None,
+        });
+    }
+    Ok(())
+}
+
+fn add_load_section(
+    model: &mut MemoryModel,
+    section: &ElfSection,
+    segments: &[LoadSegment],
+    map: Option<&ParsedMap>,
+) -> Result<()> {
+    let Some(image) = section.file else {
+        return Ok(());
+    };
+    if image.size() != section.range.size() {
+        model.warnings.push(format!("Section {} has unequal file/runtime sizes; no byte-for-byte load relationship is inferred.", section.name));
+        return Ok(());
+    }
+    let candidates: Vec<_> = segments
+        .iter()
+        .filter(|s| {
+            s.file.contains(image)
+                && s.runtime.contains(section.range)
+                && image.start - s.file.start == section.range.start - s.runtime.start
+        })
+        .collect();
+    let Some(segment) = candidates.first().copied() else {
+        model.warnings.push(format!("Section {} has no checked PT_LOAD file-offset/VMA relationship; its linked load placement is unknown.", section.name));
+        return Ok(());
+    };
+    let load_start = segment.load.start + (image.start - segment.file.start);
+    if candidates
+        .iter()
+        .any(|s| s.load.start + (image.start - s.file.start) != load_start)
+    {
+        return Err(Error(format!(
+            "section {} has ambiguous PT_LOAD load addresses",
+            section.name
+        )));
+    }
+    let load = AddressRange::new(load_start, image.size())?;
+    for load_region in model
+        .regions
+        .iter()
+        .filter(|r| r.domain == AddressDomain::LinkedLoad)
+    {
+        let Some(slice) = load.intersection(load_region.range()?) else {
+            continue;
+        };
+        let id = format!("elf-load-section-{}-{}", section.index, load_region.id);
+        model.static_spans.push(Span {
+            id: id.clone(), name: section.name.clone(), region: load_region.id.clone(),
+            start: slice.start, size: slice.size(), kind: section.kind, source: None,
+            parent: Some(format!("elf-load-segment-{}-{}", segment.index, load_region.id)),
+            detail: Some(format!("PT_LOAD {} maps section file offset {:#x} to linked load {:#x}; linked VMA {:#x}. {}", segment.index, image.start, load_start, section.range.start, if section.tls_template { "TLS template only; per-thread runtime storage is unknown." } else { "This relationship does not prove a startup copy occurred." })),
+            backtrace: vec![],
+        });
+        let runtime_slice = AddressRange::new(
+            section.range.start + (slice.start - load_start),
+            slice.size(),
+        )?;
+        if let Some(map) = map {
+            add_contributions(
+                &mut model.static_spans,
+                section,
+                runtime_slice,
+                &id,
+                &load_region.id,
+                map,
+                i128::from(load_start) - i128::from(section.range.start),
+            )?;
+        }
+        if section.tls_template {
+            continue;
+        }
+        for runtime_region in model
+            .regions
+            .iter()
+            .filter(|r| r.domain == AddressDomain::CpuVirtual)
+        {
+            if let Some(runtime) = runtime_slice.intersection(runtime_region.range()?) {
+                let offset = runtime.start - section.range.start;
+                model.load_mappings.push(LoadMapping {
+                    section: section.name.clone(),
+                    runtime: Placement {
+                        region: runtime_region.id.clone(),
+                        start: runtime.start,
+                        size: runtime.size(),
+                    },
+                    load: Placement {
+                        region: load_region.id.clone(),
+                        start: load_start + offset,
+                        size: runtime.size(),
+                    },
+                    image: Placement {
+                        region: "elf-file".into(),
+                        start: image.start + offset,
+                        size: runtime.size(),
+                    },
+                });
+            }
+        }
+    }
+    Ok(())
 }
 
 fn merge_region(regions: &mut Vec<Region>, incoming: &Region) -> Result<String> {
@@ -477,6 +710,7 @@ fn add_contributions(
                 Some(owner) => format!("GNU map input object/archive: {owner}. Retained bytes; source-line and marginal ownership are not established."),
                 None => "Merged or overlapping map contributions have ambiguous ownership; bytes count once.".into(),
             }),
+            backtrace: vec![],
         });
     }
     Ok(())

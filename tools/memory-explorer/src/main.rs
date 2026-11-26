@@ -8,6 +8,7 @@ use std::sync::{Arc, Mutex};
 const HELP: &str = "NXRS Memory Explorer\n\n\
 Usage: nxrs-memory-explorer [--elf FINAL_ELF] [--map FINAL_MAP]\n\
                             [--snapshot CAPTURE.json]... [--layout LAYOUT.json]\n\
+                            [--trace TRACE.json] [--view overview|memory|timing]\n\
        nxrs-memory-explorer --demo\n\n\
 An empty invocation opens the file-loading screen. --demo opens synthetic data.\n\
 Snapshots describe captured points only; the viewer does not infer intervening events.\n\n\
@@ -16,6 +17,8 @@ Options:\n\
   --map PATH          Linker map from the same build\n\
   --snapshot PATH     Snapshot JSON; may be repeated\n\
   --layout PATH       Declared region and physical-backing layout JSON\n\
+  --trace PATH        Chrome Trace Event JSON (also opens without an ELF)\n\
+  --view NAME         Initial view: overview, memory, or timing\n\
   --demo              Inspect an explicitly synthetic demonstration\n\
   --smoke-test        Exercise navigation, render a screenshot, and exit\n\
   --screenshot PATH   PPM output for --smoke-test (default /tmp/nxrs-memory-smoke.ppm)\n\
@@ -27,6 +30,7 @@ struct Arguments {
     demo: bool,
     smoke_test: bool,
     screenshot: Option<PathBuf>,
+    view: Option<ui::ViewMode>,
 }
 
 impl Arguments {
@@ -38,6 +42,10 @@ impl Arguments {
                 "--elf" => parsed.inputs.elf = required_value(&mut args, &arg)?,
                 "--map" => parsed.inputs.map = required_value(&mut args, &arg)?,
                 "--layout" => parsed.inputs.layout = required_value(&mut args, &arg)?,
+                "--trace" => parsed.inputs.trace = required_value(&mut args, &arg)?,
+                "--view" => {
+                    parsed.view = Some(ui::ViewMode::parse(&required_value(&mut args, &arg)?)?)
+                }
                 "--snapshot" => parsed
                     .inputs
                     .snapshots
@@ -54,8 +62,12 @@ impl Arguments {
         if parsed.demo && parsed.inputs.has_inputs() {
             return Err("--demo cannot be combined with firmware input files".into());
         }
-        if parsed.smoke_test && !parsed.demo && parsed.inputs.elf.is_empty() {
-            return Err("--smoke-test requires --demo or --elf".into());
+        if parsed.smoke_test
+            && !parsed.demo
+            && parsed.inputs.elf.is_empty()
+            && parsed.inputs.trace.is_empty()
+        {
+            return Err("--smoke-test requires --demo, --elf, or --trace".into());
         }
         if parsed.screenshot.is_some() && !parsed.smoke_test {
             return Err("--screenshot is used with --smoke-test".into());
@@ -82,7 +94,10 @@ fn run() -> Result<(), String> {
             .unwrap_or_else(|| "/tmp/nxrs-memory-smoke.ppm".into()),
         result: Arc::clone(&result),
     });
-    let app = ui::MemoryExplorer::new(args.inputs, args.demo, smoke)?;
+    let mut app = ui::MemoryExplorer::new(args.inputs, args.demo, smoke)?;
+    if let Some(view) = args.view {
+        app.set_view(view)?;
+    }
     let native_options = eframe::NativeOptions {
         viewport: eframe::egui::ViewportBuilder::default()
             .with_inner_size([1440.0, 940.0])

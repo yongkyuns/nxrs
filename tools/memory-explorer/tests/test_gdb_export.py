@@ -318,12 +318,18 @@ class GdbExporterTests(unittest.TestCase):
         lookups = []
         def resolve(pc):
             lookups.append(pc)
-            return SimpleNamespace(symtab=SimpleNamespace(filename="service/worker.rs"))
+            return SimpleNamespace(symtab=SimpleNamespace(filename="service/worker.rs"), line=42)
         self.gdb.find_pc_line = resolve
+        self.gdb.block_for_pc = lambda pc: SimpleNamespace(function=None, superblock=SimpleNamespace(
+            function=SimpleNamespace(print_name="worker::submit" if pc == 0x8001234 else "app::run")))
         document = self.capture()
         allocation = document["snapshots"][0]["spans"][2]
         self.assertEqual(allocation["source"], "service/worker.rs")
-        self.assertEqual(lookups, [0x8001234])
+        self.assertEqual(lookups, [0x8001234, 0x8002345])
+        self.assertEqual(allocation["backtrace"], [
+            {"pc": 0x8001234, "function": "worker::submit", "file": "service/worker.rs", "line": 42},
+            {"pc": 0x8002345, "function": "app::run", "file": "service/worker.rs", "line": 42},
+        ])
         self.assertIn('"backtrace_pc":[134222388,134226757]', allocation["detail"])
         self.assertIn("first recorded backtrace frame; not current semantic owner", allocation["detail"])
         self.assertTrue(any("source colors" in warning for warning in document["warnings"]))
@@ -333,12 +339,35 @@ class GdbExporterTests(unittest.TestCase):
         lookups = []
         def resolve(pc):
             lookups.append(pc)
-            return SimpleNamespace(symtab=None if pc == 0x8001234 else SimpleNamespace(filename="later.rs"))
+            return SimpleNamespace(symtab=None if pc == 0x8001234 else SimpleNamespace(filename="later.rs"), line=0)
         self.gdb.find_pc_line = resolve
         allocation = self.capture()["snapshots"][0]["spans"][2]
         self.assertIsNone(allocation["source"])
-        self.assertEqual(lookups, [0x8001234])
+        self.assertEqual(lookups, [0x8001234, 0x8002345])
+        self.assertEqual(allocation["backtrace"], [
+            {"pc": 0x8001234, "function": None, "file": None, "line": None},
+            {"pc": 0x8002345, "function": None, "file": "later.rs", "line": None},
+        ])
         self.assertIn('"backtrace_pc":[134222388,134226757]', allocation["detail"])
+
+    def test_backtrace_symbol_and_line_failures_are_independent(self):
+        self.recorded_backtrace()
+        def location(pc):
+            if pc == 0x8001234:
+                raise RuntimeError("no line table")
+            return SimpleNamespace(symtab=SimpleNamespace(filename="later.rs"), line=7)
+        def function(pc):
+            if pc == 0x8002345:
+                raise RuntimeError("no block")
+            return SimpleNamespace(function=SimpleNamespace(print_name="inlined::caller"))
+        self.gdb.find_pc_line = location
+        self.gdb.block_for_pc = function
+        allocation = self.capture()["snapshots"][0]["spans"][2]
+        self.assertEqual(allocation["backtrace"], [
+            {"pc": 0x8001234, "function": "inlined::caller", "file": None, "line": None},
+            {"pc": 0x8002345, "function": None, "file": "later.rs", "line": 7},
+        ])
+        self.assertIsNone(allocation["source"])
 
     def task(self, address=0x900, base=0x1010, size=0x30, alloc=0x1010):
         return TargetPointer(address, {"pid": 42, "name": "worker", "stack_alloc_ptr": alloc,

@@ -145,6 +145,147 @@ logs. QEMU execution validates the adapter on this Cortex-M33 runtime proxy;
 physical boards and other allocator configurations still require their own
 qualification.
 
+### QEMU timing witness
+
+The stopped heap observations above retain their supplied ordering coordinates.
+Measured scheduling intervals come from a separate, continuously running native
+NuttX test, [memory-timing](../tests/nuttx-std/memory-timing/). It records native
+noteram scheduler switches, IRQ entry/exit notes, nested application B/E markers,
+and a round counter. A worker performs four semaphore-driven busy/sleep rounds;
+capture stops before the test prints its buffered notes over UART. This test
+qualifies the capture/conversion/import path using an actual Cortex-M33 QEMU
+image. It is not an NXRS `std-demo` benchmark or a qualification of every board's
+diagnostic clock. Production diagnostic configuration remains the
+[`[build] diagnostics = true` work in PR #447](https://github.com/yongkyuns/nxrs/pull/447);
+the clock option below belongs only to this native test fixture.
+
+The initial admitted timing witness used QEMU 10.0.13, ARM GCC 14.2.1, and ELF
+SHA-256 `613479a51d53b2ced2ba0589fee20e5086d2624fd2a1415866982b95b2782b7b`.
+Its source-clock observations ran from 20,057,500 to 55,574,900 ns. The converter
+preserves that origin and presents a relative range of 0 to 35,517,400 ns.
+
+| Observation | Initial witness |
+| --- | ---: |
+| Native scheduler switches | 17 |
+| Native IRQ entries / exits | 34 / 34 |
+| Native application marker records | 38 |
+| Measured application / IRQ intervals | 17 / 34 |
+| CPU / per-task residency intervals | 16 / 16 |
+| Counter samples | 4 |
+| Instant observations | 3 |
+| Reported lost records | 0 |
+
+These are recorded results, not fixed acceptance thresholds for emulator
+interrupt counts or elapsed time. The
+[ignored Rust gate](../tools/memory-explorer/tests/timing_qemu.rs) independently
+parses the original UART note frame and compares every measured scheduler, IRQ,
+and application endpoint, counter sample, and remaining note with the imported
+timing model. It also requires the matching ELF, configuration and build receipt,
+including the current fixture's source hashes. Ordinary host fixture tests do
+not satisfy this gate.
+
+The raw noteram dump has `complete=1`, no-overwrite mode, and no reported overflow.
+The first and last scheduler boundaries lack one endpoint, so the converted
+history correctly has `complete=false` and two unknown-duration markers. All
+83 closed intervals have observed endpoints. CPU and per-task tracks describe
+the same scheduled residency; IRQs and application scopes overlap them and must
+not be added as disjoint CPU time. Application wall intervals can include
+preemption or sleep.
+
+#### Clock evidence and rejected attempts
+
+The pinned ARMv8-M implementation's
+[perf backend](https://github.com/apache/nuttx/blob/2b5c0de5e933281c209f954a63b99cf10c132346/arch/arm/src/armv8-m/arm_perf.c)
+reads DWT cycle-counter state. In the unmodified local QEMU witness the counter
+stayed at zero; the native test rejected it. A second qualification-only adapter
+using SysTick-derived time advanced in task context but produced backward
+timestamps at IRQ boundaries. Its raw failure evidence was retained and the
+converter rejected it. Sorting, clamping, or debugger stop coordinates did not
+replace those invalid timestamps.
+
+The admitted adapter explicitly owns otherwise-unused CMSDK APB **timer1**, using
+its secure address `0x50001000`. QEMU's
+[Arm SSE mapping](https://github.com/qemu/qemu/blob/v10.0.13/hw/arm/armsse.c),
+[AN521 MAINCLK](https://github.com/qemu/qemu/blob/v10.0.13/hw/arm/mps2-tz.c), and
+[timer model](https://github.com/qemu/qemu/blob/v10.0.13/hw/timer/cmsdk-apb-timer.c)
+establish the addressed peripheral and 20 MHz rate. The adapter checks the
+peripheral ID and requires the timer to be stopped before taking ownership. It
+enables a 32-bit free-running counter with interrupts disabled and resets the
+epoch for each fixture invocation. The counter wraps after 214.7483648 seconds;
+native success requires capture inside five seconds, and the host deadline is
+capped at 120 seconds. No rollover correction or cross-capture clock alignment is
+inferred. This is an emulator peripheral clock, not a physical CPU cycle cost.
+
+The ordinary scheduler still uses SysTick. The pinned NuttX board configuration
+assumes 32 MHz for that timer while QEMU AN521 supplies 20 MHz, so the fixture's
+requested sleep lengths are not independent duration oracles. The trace displays
+the intervals actually observed on the declared CMSDK clock. This adapter does
+not alter the production board clock or establish a general MPS2 timing backend.
+
+#### Reproduce from disposable pinned sources
+
+Run from the repository root on a POSIX host with `arm-none-eabi-gcc`, ARM
+binutils/newlib, `make`, `kconfig-conf`, `bison`, `flex`, `gperf`, and `genromfs`
+installed and available on `PATH`. Use a QEMU release with the corrected MPS2 UART
+wiring, as required by the ARM workflow. The initial witness used QEMU 10.0.13.
+The helper requires these exact clean tracked source revisions:
+
+```text
+NuttX: 2b5c0de5e933281c209f954a63b99cf10c132346
+apps:  3c772ea35b9245972e18999828f7b533e6fc57cc
+```
+
+The following uses the checked-out pinned submodules as shared Git object stores.
+It builds in disposable copies and leaves the submodule worktrees unchanged.
+Keep the source repositories while the shared clones are in use. Use fresh
+source/output directories for each replay; evidence directories are never
+overwritten.
+
+```sh
+git submodule update --init external/nuttx external/nuttx-apps
+timing_sources="$PWD/target/memory-timing-sources"
+timing_output="$PWD/target/memory-timing"
+mkdir -p "$timing_sources" "$timing_output"
+git clone --shared --no-checkout external/nuttx "$timing_sources/nuttx"
+git clone --shared --no-checkout external/nuttx-apps "$timing_sources/apps"
+git -C "$timing_sources/nuttx" checkout --detach 2b5c0de5e933281c209f954a63b99cf10c132346
+git -C "$timing_sources/apps" checkout --detach 3c772ea35b9245972e18999828f7b533e6fc57cc
+
+python3 tools/memory-explorer/tests/build_timing_nuttx.py \
+  --nuttx "$timing_sources/nuttx" --apps "$timing_sources/apps" \
+  --output "$timing_output/build" --qemu-timer-clock
+python3 tools/memory-explorer/tests/qualify_timing_qemu.py \
+  --qemu "$(command -v qemu-system-arm)" \
+  --image "$timing_output/build/nuttx" \
+  --config "$timing_output/build/resolved.config" \
+  --output "$timing_output/capture" --timeout 60
+python3 tools/nuttx-trace-to-perfetto.py \
+  "$timing_output/capture/console.log" "$timing_output/capture/timing.json" \
+  --source qemu-mps2-an521 --elf "$timing_output/build/nuttx"
+NXRS_MEMORY_TIMING_EVIDENCE="$timing_output/capture" \
+NXRS_MEMORY_TIMING_ELF="$timing_output/build/nuttx" \
+  cargo +1.90.0 test --locked -p nxrs-memory-explorer \
+    --test timing_qemu -- --ignored --nocapture
+```
+
+The builder rejects tracked source changes and records untracked inputs,
+including the installed fixture. It resolves normal NuttX Kconfig and checks
+every requested effective setting, including disabled and numeric settings.
+`build/` retains the ELF/map, resolved configuration, compiler identity, exact
+link flags, fixture hashes, configuration checks, and source/clock receipts.
+`capture/` retains the original UART log, QEMU invocation/version, matching
+hashes, clock/loss/completeness observations, and converted timing JSON. ELF
+hashes and timings can differ on a later build; each capture must match its own
+exact ELF and receipts.
+
+The ARM `std-demo` CI job runs this native witness after its existing heap and
+board-projection gates. It reuses the installed cross compiler and QEMU, clones
+the pristine pinned submodules, and retains the whole
+`memory-timing/{build,capture}` evidence directory in the firmware artifact.
+The native timing ELF and the separate Rust `std-demo` heap ELF have different
+identities; they are separate observations and are not one synchronized runtime
+history.
+
 ## Flat-build pthread key patchset
 
 The pinned NuttX submodule and fork are not modified. At build time,

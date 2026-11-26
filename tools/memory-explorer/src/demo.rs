@@ -236,8 +236,9 @@ pub fn demo() -> MemoryModel {
     MemoryModel {
         build: BuildIdentity { elf_sha256: "0".repeat(64), label: "SYNTHETIC DEMONSTRATION — no target measurement".into() },
         regions,
-        physical_resources: vec![PhysicalResource { id: "flash".into(), name: "Synthetic flash".into(), size: 8192 }, PhysicalResource { id: "sram".into(), name: "Synthetic SRAM (aliases share these bytes)".into(), size: 8192 }],
+        physical_resources: vec![PhysicalResource { id: "flash".into(), name: "Synthetic flash".into(), size: 8192, banks: vec![] }, PhysicalResource { id: "sram".into(), name: "Synthetic SRAM (aliases share these bytes)".into(), size: 8192, banks: vec![] }],
         static_spans,
+        load_mappings: vec![],
         symbols: vec![
             Symbol { name: "synthetic_main".into(), region: "demo-flash".into(), start: 0x0800_0020, size: 256 },
             Symbol { name: "synthetic_stream_worker".into(), region: "demo-flash".into(), start: 0x0800_0280, size: 320 },
@@ -273,5 +274,6 @@ fn span(
         source: source.map(str::to_owned),
         parent: parent.map(str::to_owned),
         detail: Some("Synthetic demonstration data".into()),
+        backtrace: vec![],
     }
 }
