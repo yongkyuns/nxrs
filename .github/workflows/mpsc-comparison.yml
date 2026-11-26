@@ -278,8 +278,12 @@ jobs:
                       retain(source, target / name)
               for source in build.glob('*.log'):
                   retain(source, target / source.name)
+              # Placement can fail before its hashes reach the build receipt.
+              for source in build.glob('hot-*.json'):
+                  retain(source, target / source.name)
               for relative in ('firmware/resolved.config', 'firmware/provenance.txt',
-                               'firmware/native-context.json', 'firmware/nuttx/nuttx.map',
+                               'firmware/native-context.json', 'firmware/nuttx/nuttx',
+                               'firmware/zephyr/zephyr.elf', 'firmware/nuttx/nuttx.map',
                                'firmware/nuttx/System.map', 'firmware/zephyr/zephyr.map',
                                'firmware/zephyr/.config'):
                   retain(build / relative, target / relative)

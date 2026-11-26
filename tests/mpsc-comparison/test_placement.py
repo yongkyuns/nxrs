@@ -2,6 +2,7 @@
 import hashlib
 import json
 from pathlib import Path
+import subprocess
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -9,7 +10,144 @@ from unittest.mock import patch
 import placement
 
 
+class SymbolPlacementTests(unittest.TestCase):
+    # Actual v0 spellings from the current Pico CI image, alongside an older
+    # legacy spelling. The namespace backreferences are the regression trigger.
+    LEGACY_FORCE = '_ZN3std3sys12thread_local3key4racy7LazyKey5force17h0123456789abcdefE'
+    V0_FORCE = '_RNvMNtNtNtNtCs2kZSHzTtvYG_3std3sys12thread_local3key4racyNtB2_7LazyKey5force'
+    V0_PARK = '_RNvMs_NtNtCs2kZSHzTtvYG_3std6thread6threadNtB4_6Thread4park'
+    LEGACY_PARK = '_ZN3std6thread6Thread4park17h0123456789abcdefE'
+
+    @staticmethod
+    def object(path, names):
+        # These stubs test ELF section selection and byte preservation only.
+        # No host instructions are executed or used as target timing evidence.
+        source = ''.join(f'.section .text.{name},"ax"\n.globl {name}\n{name}:\n.byte 0x12,0x34\n'
+                         for name in names)
+        subprocess.run(['cc', '-c', '-x', 'assembler', '-', '-o', str(path)],
+                       input=source, text=True, check=True, capture_output=True)
+
+    def test_legacy_and_v0_helpers_move_without_changing_instructions(self):
+        names = (self.LEGACY_FORCE, self.V0_FORCE, self.V0_PARK, 'ordinary_helper')
+        with tempfile.TemporaryDirectory() as directory:
+            obj = Path(directory) / 'helpers.o'
+            self.object(obj, names)
+            original = obj.read_bytes()
+            before = {name: data for _, name, data, _, _ in placement.sections(original)}
+            with patch.object(placement, 'CXXFILT', 'c++filt'), patch.object(placement, 'OBJCOPY', 'objcopy'):
+                result = placement.transform(obj, 'nuttx')
+                after = {name: data for _, name, data, _, _ in placement.sections(obj.read_bytes())}
+                self.assertEqual({row['old'] for row in result['sections']},
+                                 {'.text.' + name for name in names[:-1]})
+                for name in names[:-1]:
+                    self.assertEqual(before['.text.' + name], after['.time_critical..text.' + name])
+                self.assertEqual(before['.text.ordinary_helper'], after['.text.ordinary_helper'])
+                self.assertTrue(result['all_executable_section_bytes_preserved'])
+                self.assertIn('<std::thread::thread::Thread>::park',
+                              [symbol for row in result['sections'] for symbol in row['symbols']])
+                # Rust std helpers are not a Zephyr placement policy.
+                obj.write_bytes(original)
+                self.assertIsNone(placement.transform(obj, 'zephyr'))
+                self.assertEqual(obj.read_bytes(), original)
+
+    def test_unsupported_rust_demangling_fails_before_selection(self):
+        with patch.object(placement, 'CXXFILT', 'c++filt'):
+            with self.assertRaisesRegex(ValueError, 'could not demangle'):
+                placement.rust_names(['_RNnot_a_supported_rust_symbol'])
+
+    def test_known_type_methods_preserve_hot_and_cold_boundaries(self):
+        for symbol in (
+            '<std::sys::thread_local::key::racy::LazyKey>::force',
+            '<std::sys::thread_local::os::LocalPointer>::get',
+            '<std::thread::thread::Thread>::park',
+            'core::ptr::drop_glue::<std::thread::thread::Thread>',
+            'core::ptr::drop_glue::<core::option::Option<std::thread::thread::Thread>>',
+            '<alloc::collections::vec_deque::VecDeque<[u32; 16]>>::pop_front',
+            '<[u32; 16] as core::cmp::PartialEq>::eq',
+            '<usize>::div_ceil',
+        ):
+            with self.subTest(symbol=symbol):
+                self.assertTrue(placement.selected(symbol, 'nuttx'))
+                self.assertFalse(placement.cold(symbol))
+        for legacy, current in (
+            ('std::thread::Thread::new', '<std::thread::thread::Thread>::new'),
+            ('std::thread::Thread::new_current', '<std::thread::thread::Thread>::new_current'),
+            ('std::thread::Thread::park_timeout', '<std::thread::thread::Thread>::park_timeout'),
+            ('std::thread::ThreadId::new', '<std::thread::id::ThreadId>::new'),
+            ('std::sys::thread_local::key::racy::LazyKey::lazy_init',
+             '<std::sys::thread_local::key::racy::LazyKey>::lazy_init'),
+            ('std::sys::thread_local::os::LocalPointer::set',
+             '<std::sys::thread_local::os::LocalPointer>::set'),
+            ('alloc::collections::vec_deque::VecDeque<T,A>::grow',
+             '<alloc::collections::vec_deque::VecDeque<[u32; 16]>>::grow'),
+            ('alloc::sync::Arc<T,A>::drop_slow',
+             '<alloc::rcs::arc::Arc<std::thread::thread::Inner, std::alloc::System>>::drop_slow'),
+        ):
+            with self.subTest(legacy=legacy, current=current):
+                self.assertTrue(placement.cold(legacy))
+                self.assertTrue(placement.cold(current))
+        for symbol in (
+            'core::ptr::drop_glue::<application::Message>',
+            '<application::Thread>::park',
+            '<application::LazyKey>::force',
+            '<application::VecDeque<u32>>::grow',
+            '<application::Arc<u32>>::drop_slow',
+            '<alloc::rcs::arc::Arc<u32> as application::Retirement>::drop_slow',
+            '<alloc::collections::vec_deque::VecDeque<u32> as application::Growth>::grow',
+        ):
+            with self.subTest(symbol=symbol):
+                self.assertFalse(placement.selected(symbol, 'nuttx'))
+                self.assertFalse(placement.cold(symbol))
+
+    def test_esp_qualification_linker_fragments_match_both_thread_symbols(self):
+        from elftools.elf.elffile import ELFFile
+        root = Path(__file__).resolve().parents[2]
+        names = (self.LEGACY_PARK, self.V0_PARK, 'ordinary_helper')
+        with tempfile.TemporaryDirectory() as directory:
+            directory = Path(directory)
+            obj = directory / 'helpers.o'
+            self.object(obj, names)
+            for name in ('esp32s3-sync.ld', 'esp32s3-mpsc.ld'):
+                with self.subTest(fragment=name):
+                    fragment = (root / 'platform/nuttx/linker' / name).read_text()
+                    script = directory / 'layout.ld'
+                    script.write_text('SECTIONS { .iram 0x40370000 : {\n' + fragment +
+                                      '\n} .flash 0x42000000 : { *(.text .text.*) } }\n')
+                    image = directory / 'image.elf'
+                    subprocess.run(['ld', '-T', str(script), str(obj), '-o', str(image)],
+                                   check=True, capture_output=True)
+                    with image.open('rb') as stream:
+                        elf = ELFFile(stream)
+                        symbols = elf.get_section_by_name('.symtab')
+                        for symbol in names[:2]:
+                            address = symbols.get_symbol_by_name(symbol)[0]['st_value']
+                            self.assertEqual(placement.memory_kind(address, 'esp32s3'), 'internal-code')
+                        address = symbols.get_symbol_by_name('ordinary_helper')[0]['st_value']
+                        self.assertEqual(placement.memory_kind(address, 'esp32s3'), 'flash')
+
+
 class LinkedPlacementTests(unittest.TestCase):
+    def test_legacy_and_v0_roots_reject_flash_even_without_a_worker_edge(self):
+        for name in (
+            'std::sync::mpmc::array::SendSlot<T>::write',
+            '<std::sync::mpmc::array::SendSlot<[u32; 16]>>::write',
+            'std::sync::mpmc::array::RecvSlot<T>::read',
+            '<std::sync::mpmc::array::RecvSlot<[u32; 16]>>::read',
+            'std::sys::sync::thread_parking::nuttx::Parker::unpark',
+            '<std::sys::sync::thread_parking::nuttx::Parker>::unpark',
+        ):
+            with self.subTest(name=name):
+                assembly = f'''\n20000100 <mpsc_comparison::engine::worker>:
+20000100: 4770 bx lr
+10000100 <{name}>:
+10000100: 4770 bx lr
+'''
+                result = placement.inspect_disassembly(assembly, 'pico2w', 'std')
+                self.assertIn(name, [row['name'] for row in result['roots']])
+                self.assertEqual([row['name'] for row in result['flash_boundaries']], [name])
+                self.assertFalse(result['direct_paths_in_sram'])
+                self.assertFalse(result['matched_placement_qualified'])
+
     def test_arm_conditional_and_tail_branches_reach_flash(self):
         # The original audit recognized bl/b.w, but missed bne.w and plain b.
         assembly = """

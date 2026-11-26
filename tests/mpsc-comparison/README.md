@@ -24,7 +24,7 @@ benchmark Cargo feature is added.
 
 ## Build
 
-Use Python 3.11+, Cargo, CMake/Ninja, pyelftools for Pico placement and pyserial
+Use Python 3.11+, Cargo, CMake/Ninja, target binutils (including `c++filt`), pyelftools for Pico placement and pyserial
 for physical capture. Initialize the pinned NuttX/apps submodules. The normal
 `cargo nxrs` frontend prepares its private patched Rust SDK; installed toolchains
 are unchanged. Copy [toolchains.example.toml](toolchains.example.toml) outside the
@@ -89,6 +89,11 @@ and SDK resources; it is not the production channel's memory footprint.
 
 Pico hot operations are relocated by changing input section names only, with
 instruction-byte checks, then linked through each OS's startup SRAM copy path.
+Rust selection uses the target demangler to expand legacy and v0 symbol names,
+including backreferences, before matching qualified paths. Unsupported
+demangling fails before changing that object; `hot-placement.json` retains the
+selected demangled names. The linked audit recognizes both spellings of its
+explicit Rust roots and preserves the existing setup/retirement boundaries.
 Early memory routines stay in flash on both Pico kernels. For NuttX, the
 placement step redirects compiler-generated memory calls only in the reset
 object and verifies the reset call targets in the final ELF. S3 uses the shared

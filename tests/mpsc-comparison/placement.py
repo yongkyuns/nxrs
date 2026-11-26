@@ -1,11 +1,43 @@
 """RP2350 hot-code placement and scoped linked-image inspection on both boards."""
 from pathlib import Path
 import bisect,io,re,subprocess,tempfile,hashlib,json
-AR = OBJCOPY = None
-COMMON=re.compile(r'mpsc_comparison6engine(?:6worker|5offer|7payload)|mpsc_comparison8arrivals(?:4tick|5start|7release)|transport..(?:ordinary_std|Native)|^mp_(?:clock32|gate_post|gate_wait|queue_send|queue_receive|native_ticks|pulse_arm)$|^pulse_expired$|core..iter.*4next|core3num.*8div_ceil|mpsc_comparison5check|core4iter.*(?:7step_by|4next)|^OUTLINED_FUNCTION_|compiler_builtins.*mem|core5array8equality|mpsc_comparison8platform6native(?:10queue_send|13queue_receive|5clock|7irq_arm|8irq_post|9gate_wait|9gate_post|8priority|6policy)|^mem(?:cpy|move|set|cmp)$|^bcmp$|^__aeabi_mem(?:cpy|move|set|clr)')
-NRUST=re.compile(r'std3sys12thread_local3key4racy7LazyKey5force|std3sys12thread_local2os12LocalPointer3get|std4sync4mpmc(?:5array|7counter)|std..sync..mpmc..array|std4sync4mpsc|std3sys4sync|__rust_nuttx_spin_|std6thread7current18current_or_unnamed|std6thread6Thread4park|std..thread..Thread|alloc11collections9vec_deque.*(?:13push_back_mut|9push_back|9pop_front)')
+AR = OBJCOPY = CXXFILT = None
+# Match Rust paths after the target binutils demangler has expanded legacy/v0
+# encodings and v0 backreferences. Keep type/trait syntax: erasing generic text
+# would confuse an inherent method with a different trait's method.
+COMMON=re.compile(
+ r'mpsc_comparison::engine::(?:worker|offer|payload)|mpsc_comparison::arrivals::(?:tick|start|release)'
+ r'|mpsc_comparison::transport::(?:ordinary_std::|Native\b)'
+ r'|^mp_(?:clock32|gate_post|gate_wait|queue_send|queue_receive|native_ticks|pulse_arm)$|^pulse_expired$'
+ r'|core::iter::.*::(?:next|step_by)(?:::|$)|core::num::.*::div_ceil|^<?[ui](?:8|16|32|64|128|size)>?::div_ceil$'
+ r'|mpsc_comparison::check|^OUTLINED_FUNCTION_|compiler_builtins::.*mem|core::array::equality'
+ r'|^<\[.+; [0-9]+\] as core::cmp::PartialEq(?:<.*>)?>::(?:eq|ne)$'
+ r'|mpsc_comparison::platform::native::(?:queue_send|queue_receive|clock|irq_arm|irq_post|gate_wait|gate_post|priority|policy)'
+ r'|^mem(?:cpy|move|set|cmp)$|^bcmp$|^__aeabi_mem(?:cpy|move|set|clr)')
+NRUST=re.compile(
+ r'std::sys::thread_local::key::racy::LazyKey>?::force$|std::sys::thread_local::os::LocalPointer>?::get$'
+ r'|std::sync::mpmc::(?:array|counter)::|^<?std::sync::mpsc::|std::sys::sync::|__rust_nuttx_spin_'
+ r'|std::thread::current::current_or_unnamed|std::thread::(?:thread::)?Thread>?::park$'
+ r'|<std::thread::(?:thread::)?Thread as '
+ r'|^core::(?:ptr::drop_(?:in_place|glue)|mem::drop)(?:::)?<.*std::thread::(?:thread::)?Thread\b'
+ r'|alloc::collections::vec_deque::.*::(?:push_back_mut|push_back|pop_front)$')
 NATIVE=re.compile(r'^(?:nxsem_|nxsched_|wd_|sched_lock$|sched_unlock$|sched_idletask$|irq_dispatch$|pthread_getspecific$|tls_get_info$|nxsig_pendingset$|nxsig_nandset$|nxsig_addset$|sigemptyset$|sigisemptyset$|clock_systime|clock_get_sched_ticks|clock_increase_sched_ticks|up_switch_context$|up_fullcontextrestore$|up_saveusercontext$|arm_|exception_common)')
 ZARCH=re.compile(r'^(?:arch_cpu_idle$|arch_irq_unlock_outlined$|z_arm_pendsv$|z_arm_svc$|z_arm_exc_exit$|z_arm_int_exit$|sys_clock_(?:isr|set_timeout|elapsed|cycle_get))')
+
+def rust_names(names):
+ """Expand only Rust symbols; unsupported demangling cannot silently omit code."""
+ names=sorted({n for n in names if n.startswith('_R') or re.fullmatch(r'_ZN.*17h[0-9a-f]{16}E(?:[.$].*)?',n)})
+ if not names:return {}
+ if any('\n' in n or '\r' in n for n in names):raise ValueError('invalid Rust symbol')
+ demangled=subprocess.check_output([CXXFILT,'-i','-s','rust'],input='\n'.join(names)+'\n',text=True).splitlines()
+ if len(demangled)!=len(names) or any(raw==name for raw,name in zip(names,demangled)):
+  raise ValueError('target binutils could not demangle Rust placement symbols')
+ return dict(zip(names,demangled))
+
+def selected(name,kind):
+ return bool(COMMON.search(name) or (kind=='nuttx' and (NRUST.search(name) or NATIVE.search(name)))
+             or (kind=='zephyr' and ZARCH.search(name)))
+
 def sections(data):
  from elftools.elf.elffile import ELFFile
  e=ELFFile(io.BytesIO(data));tab=e.get_section_by_name('.symtab');names={}
@@ -16,10 +48,14 @@ def sections(data):
 def transform(path,kind,all_kernel=False):
  data=path.read_bytes()
  if not data.startswith(b'\x7fELF'):return None
- before=sections(data);mapping={}
+ before=sections(data);mapping={};matched={}
+ demangled=rust_names(n for _,_,_,_,names in before for n in names)
  for i,name,raw,flags,names in before:
   if not name.startswith('.text'):continue
-  if all_kernel or any(COMMON.search(n) or (kind=='nuttx' and (NRUST.search(n) or NATIVE.search(n))) or (kind=='zephyr' and ZARCH.search(n)) for n in names):mapping[name]=('.time_critical.' if kind=='nuttx' else '.ramfunc.')+name
+  chosen=[demangled.get(n,n) for n in names if all_kernel or selected(demangled.get(n,n),kind)]
+  if all_kernel or chosen:
+   mapping[name]=('.time_critical.' if kind=='nuttx' else '.ramfunc.')+name
+   matched[name]=chosen
  # GCC can lower the startup zero/copy loops to libc calls. Only the
  # reset object's references need the XIP copies of these functions.
  bootstrap = kind == 'nuttx' and path.name == 'rp23xx_start.o'
@@ -32,7 +68,7 @@ def transform(path,kind,all_kernel=False):
  subprocess.run([*args,str(path),str(out)],check=True);after=sections(out.read_bytes());lookup={name:raw for _,name,raw,_,_ in after}
  assert len(before)==len(after)
  for _,name,raw,_,_ in before:assert lookup[mapping.get(name,name)]==raw,'instruction bytes changed'
- result=dict(object=path.name,sections=[dict(old=old,new=new,bytes=len(lookup[new]),sha256=hashlib.sha256(lookup[new]).hexdigest()) for old,new in mapping.items()],all_executable_section_bytes_preserved=True)
+ result=dict(object=path.name,sections=[dict(old=old,new=new,bytes=len(lookup[new]),sha256=hashlib.sha256(lookup[new]).hexdigest(),symbols=matched[old]) for old,new in mapping.items()],all_executable_section_bytes_preserved=True)
  if bootstrap:
   result['startup_memory_references'] = {'memset': 'mp_boot_memset', 'memcpy': 'mp_boot_memcpy'}
  out.replace(path);return result
@@ -51,8 +87,8 @@ def archive(path,kind,all_kernel=False):
 
 
 def prepare(root, prefix, env, zephyr=False, backend=None):
- global AR, OBJCOPY
- AR, OBJCOPY = prefix+'ar', prefix+'objcopy'
+ global AR, OBJCOPY, CXXFILT
+ AR, OBJCOPY, CXXFILT = prefix+'ar', prefix+'objcopy', prefix+'c++filt'
  root=Path(root).resolve();kind='zephyr' if zephyr else 'nuttx';rows=[]
  if zephyr:
   archives=list((root/'firmware').rglob('*.a'))
@@ -84,8 +120,19 @@ def prepare(root, prefix, env, zephyr=False, backend=None):
  audit(elf,prefix,root/'hot-audit.json',board='pico2w',backend=backend,
        strict=zephyr or backend!='native',nuttx_bootstrap=not zephyr)
 
-rootpat=re.compile(r'mpsc_comparison::engine::(?:worker|offer)|mpsc_comparison::arrivals::(?:tick|release)|transport::(?:ordinary_std::Std|Native).*Channel.*::(?:send|receive)|^(?:mq|nxmq)_(?:send|receive)$|^mp_(?:clock32|gate_post|gate_wait|queue_send|queue_receive|native_ticks|pulse_arm)$|^pulse_expired$|^std::sync::mpmc::array::(?:SendSlot|RecvSlot)|^std::sys::sync::thread_parking.*Parker::unpark$|^(?:arm_doirq|arm_svcall|arm_exception|exception_common|up_switch_context|nxsched_process_timer|sys_clock_isr|z_arm_pendsv|z_arm_svc|z_arm_exc_exit|z_arm_int_exit|arch_cpu_idle)$')
+rootpat=re.compile(r'mpsc_comparison::engine::(?:worker|offer)|mpsc_comparison::arrivals::(?:tick|release)|transport::(?:ordinary_std::Std|Native).*Channel.*::(?:send|receive)|^(?:mq|nxmq)_(?:send|receive)$|^mp_(?:clock32|gate_post|gate_wait|queue_send|queue_receive|native_ticks|pulse_arm)$|^pulse_expired$|^<?std::sync::mpmc::array::(?:SendSlot|RecvSlot)(?:<|::)|^<?std::sys::sync::thread_parking::(?:\w+::)*Parker>?::unpark$|^(?:arm_doirq|arm_svcall|arm_exception|exception_common|up_switch_context|nxsched_process_timer|sys_clock_isr|z_arm_pendsv|z_arm_svc|z_arm_exc_exit|z_arm_int_exit|arch_cpu_idle)$')
+# The same setup/retirement boundaries have different demangled spellings in
+# current Rust. These are specific inherent methods, not arbitrary Drop/alloc
+# helpers; Thread-handle drops on the hot path still require SRAM placement.
+typed_cold=re.compile(
+ r'^<?std::thread::(?:thread::)?Thread>?::(?:new(?:_current)?|park_timeout)(?:::|$)'
+ r'|^<?std::thread::(?:id::)?ThreadId>?::new(?:::|$)'
+ r'|^<?std::sys::thread_local::key::racy::LazyKey>?::lazy_init(?:::|$)'
+ r'|^<?std::sys::thread_local::os::LocalPointer>?::set(?:::|$)'
+ r'|^<?alloc::collections::vec_deque::VecDeque<.*>>?::grow$'
+ r'|^<?alloc::(?:sync|rcs::arc)::Arc<.*>>?::drop_slow$')
 def cold(n):
+ if ' as ' not in n and typed_cold.search(n):return True
  if any(x in n for x in ['panicking::','unwrap_failed','__assert','zassert_fail','k_panic','::fatal','mpsc_comparison::line','core::fmt::',' as core::fmt::','engine::enter','mp_get_schedule','_Unwind','std::thread::Thread::new','std::thread::current::init_current','std::thread::current::id::get_or_init','LazyKey::lazy_init','::configure','mp_tid','std::time::Instant','Thread::park_timeout','ThreadId::new','MutexGuard<u64>','pthread_mutex_lock','pthread_mutex_unlock','pthread_mutex_destroy','pthread_setspecific','Mutex::init','Mutex::lock::fail','__rust_alloc_zeroed','__rust_no_alloc_shim','handle_alloc_error','up_schedule_sigaction','z_do_kernel_oops','std::process::abort','thread_local::guard::key::enable','thread_local::os::LocalPointer::set','std::io::Write::write_fmt','drop_in_place<core::result::Result<(),std::io::error::Error>>']):return True
  if any(x in n for x in ['mpmc::list::','mpmc::zero::','VecDeque<T,A>::grow','__rust_dealloc']):return True
  return 'alloc::sync::Arc' in n and 'drop_slow' in n
