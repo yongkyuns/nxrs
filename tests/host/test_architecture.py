@@ -347,6 +347,20 @@ class ArchitectureTests(unittest.TestCase):
         self.package('hidden', 'shared/hidden')
         self.assertTrue(any('package omitted' in error for error in self.violations()))
 
+    def test_std_lock_order_exception_retains_other_portable_markers(self):
+        self.metadata['packages'].append(self.package('lock-order', 'shared/lock-order'))
+        self.metadata['workspace_members'].append('lock-order')
+        source = self.root / 'shared/lock-order/src/lib.rs'
+        source.write_text('#![forbid(unsafe_code)]\n')
+        self.assertEqual(self.violations(), [])
+        source.write_text('')
+        self.assertTrue(any('lock-order: portable library must retain #![forbid(unsafe_code)]'
+                            in error for error in self.violations()))
+        source.write_text('#![forbid(unsafe_code)]\n')
+        (self.root / 'shared/messaging/src/lib.rs').write_text('#![forbid(unsafe_code)]\n')
+        self.assertTrue(any('messaging: portable library must retain #![no_std]'
+                            in error for error in self.violations()))
+
     def test_reverse_edges_and_optional_build_target_backdoors(self):
         for source, target in [('service', 'app'), ('camera', 'service'), ('radio-types', 'camera'),
                                ('camera', 'support'), ('app', 'test'), ('driver', 'platform')]:

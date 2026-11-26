@@ -20,6 +20,7 @@ is a legitimate asynchronous boundary even when measurements are periodic.
 | Multi-queue implementation | Pinned Crossbeam bounded channels as the preferred qualification candidate |
 | Simple single-queue cases | Existing std bounded channels remain valid; no automatic migration |
 | Data inside an owner | Direct calls and borrows |
+| Nested shared task locks | Optional std-backed `shared/lock-order` with a declared strict rank order |
 | Bulk data across a justified boundary | Explicit bounded buffers/rings with a tested notification contract |
 | Acceptance | Functionality, allocations, latency, linked binary size and RAM all matter |
 
@@ -121,6 +122,40 @@ Specify what a wakeup tells the reader and what remains available to read. The d
 
 For NXRS, decide per consumer whether it needs current state or ordered history. If one wake can cover several retained records, define how a bounded drain will resume while unread records remain. Check freshness for latest-state readers and use sequence numbers or explicit loss reports for readers that need history.
 
+### Motion Tracker observations and capture
+
+Motion Tracker's acquisition callbacks publish directly to navigation's shared
+observations. The display and communications read them on their own deadlines.
+Today, one mutex protects both IMUs, the GNSS fix and the satellite report.
+Device-open failures and session reaping also write source state. The display
+inbox carries fault hints, and a missed hint cannot hide a retained fault.
+Observation callbacks accept `FnMut`, so each can own its producer endpoints
+through the HAL session.
+
+An independent latest reader starts in `Waiting`, then sees a complete
+committed sample with its original reception time. Later samples may replace
+unread ones. IMU readings expire at 500 ms, GNSS fixes at 3 s and satellite
+reports after two receiver intervals with a six-second minimum. Faults stay
+terminal for the acquisition lifetime. Per-source mailboxes permit skew
+between sources and between readers, so their consumers must tolerate it.
+
+The [owner qualification fixture](../tests/owner-qualification/README.md)
+compares a mutex with two fixed `triple_buffer` 9.0.0 readers using actual sensor
+record types. Each producer owns one input per reader. The fixture verifies
+reading a previous complete record during an unfinished publication, seeing
+different complete versions during fanout, and publishing while a reader retains
+a slot. Device-open rollback, the late communications owner, freshness and
+product scheduling require separate checks. Measure those paths and the linked,
+heap and stack costs before selecting a
+replacement. Freshness thresholds describe which readings are usable; maximum
+publication latency and acceptable acquisition jitter remain to be measured.
+
+Ordered capture belongs to the Motion Tracker export. It uses a 512-record
+pool shared across sources, drains batches of up to 16, and retains the first
+rejected record's source and sequence on overflow. A wake tells communications
+to inspect that retained work. The admission, overflow and wake gates for a
+capture replacement are tracked in [#446](https://github.com/yongkyuns/nxrs/issues/446).
+
 ## Dedicated capacity, one logical wait point
 
 The baseline for a service needing importance isolation is independently bounded
@@ -219,6 +254,81 @@ queue. The single-wait rule applies to normal dispatch; explicit joins belong to
 teardown after progress dependencies are resolved. Do not hide a blocking join
 in `Drop`. A retained HAL session whose worker retains a sender cannot rely on
 automatic inbox closure to start shutdown. [Join semantics][join]
+
+## Compile-time ordering for shared locks
+
+Keep state with its execution owner when possible. When an operation must hold
+several shared task-context mutexes, `shared/lock-order` provides an optional,
+dependency-free `nxrs-lock-order` crate, imported as `lock_order`. It wraps the
+ordinary std mutex; it does not add a thread, queue, executor or async API.
+Existing locks are not automatically migrated or covered by its checks.
+
+Declare one consistent acquisition order with type aliases. `Next<Unlocked>`
+is the first rank, `Next<State>` is the next rank, and further ranks follow the
+same pattern. The relation is strict and transitive: callers may skip ranks,
+but cannot acquire an equal or lower rank while holding a higher one. Two
+different mutex values at the same rank cannot be held together. Rank aliases
+describe positions in this order, not independently extensible lock classes;
+downstream code cannot implement additional ranks or ordering edges.
+
+```rust
+use lock_order::{scope, Mutex, Next, Unlocked};
+
+type State = Next<Unlocked>;
+type Statistics = Next<State>;
+
+let state = Mutex::<_, State>::new(Vec::<u32>::new());
+let statistics = Mutex::<_, Statistics>::new(0_u32);
+scope(|root| {
+    state.with_lock(root, |held, samples| {
+        samples.push(42);
+        statistics.with_lock(held, |_, count| *count += 1)
+    })
+})
+.expect("one root scope per thread")
+.expect("state is not poisoned")
+.expect("statistics are not poisoned");
+```
+
+Pass the current `&mut LockContext<Level>` to every helper that acquires these
+locks. Helpers can use `Level: Before<RequiredRank>` instead of naming every
+caller rank. Each acquisition exclusively borrows its parent context for the
+entire call, so a closure cannot bypass its current rank by reusing an earlier
+context. The native guard stays private inside `with_lock`; only borrowed data
+and a borrowed higher-rank context reach the closure. Their lifetimes prevent
+them from escaping, including through a returned future. There is no public
+guard to retain with `mem::forget` and no unranked native-mutex accessor.
+Exclusive ownership still permits `get_mut` and `into_inner` without locking.
+
+Start `scope` at an ordinary thread entry or at the outer boundary of a bounded
+synchronous operation, then pass its context through the call tree. Contexts
+cannot be constructed, cloned, sent or shared across threads. Each thread has
+an independent root. A nested call to `scope`, including one from a callback,
+returns `ScopeError::AlreadyActive` before invoking its closure. This small
+thread-local runtime check closes the fresh-root bypass; root uniqueness is
+not a compile-time claim. Its flag clears on normal return and unwinding.
+Poisoned mutexes return `Poisoned` without running the data closure or silently
+recovering state. Exclusive owners can explicitly inspect std's poison result
+through `get_mut` or `into_inner`.
+
+The compile-time contract excludes lock-order cycles among acquisitions made
+through this API. It does not establish global deadlock freedom: channel waits,
+joins, callbacks waiting for other threads, unmanaged locks and foreign code
+can still form cycles. Do not hold these locks across rendering, device I/O,
+queue waits or worker joins. Acquisition remains std's blocking operation;
+fairness, bounded waiting, ISR safety and timing are separate qualification
+work. Priority inheritance comes from the target's normal std backend and
+[NuttX configuration policy](build-system.md). It limits one scheduling source
+of inversion; it does not replace lock ordering or prove a deadline.
+
+Run `cargo test --locked -p nxrs-lock-order` for real downstream `cargo check`
+controls covering reversed/equal ranks, reacquisition, parent-context reuse,
+escaping borrows, thread transfer, forged ranks/contexts and native access.
+The same command checks valid nested/helper calls, independent ordinary
+threads, callback reentry, poisoning and unwind cleanup, and compiles the
+example above. The crate is host-checked with Rust 1.90 and the pinned NuttX
+nightly. Target TLS initialization, native mutex initialization, allocations
+and linked footprint still require qualification before production adoption.
 
 ## Memory budgets for deadline-sensitive work
 

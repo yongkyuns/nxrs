@@ -155,6 +155,11 @@ class WorkflowTests(unittest.TestCase):
                 write(broken)
                 with self.assertRaisesRegex(ValueError, 'escape'):
                     build.receipt(root)
+                native = {**record, 'runtime': 'nuttx'}
+                native['build_id'] = build.canonical({key: native[key] for key in build.IDENTITY_FIELDS})
+                write(native)
+                with self.assertRaisesRegex(ValueError, 'unbound resource mutex policy'):
+                    build.receipt(root)
 
     def test_sessions_require_verified_preparation(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -312,6 +317,17 @@ class WorkflowTests(unittest.TestCase):
                         cpu_zephyr + 'CONFIG_SCHED_THREAD_USAGE_ALL=y\n'):
             with self.assertRaises(ValueError):
                 build.validate_config(changed, 'esp32s3', 'zephyr', 'cpu')
+
+    def test_mutex_policy_requires_the_named_historical_control(self):
+        policy = dict(version=1, mode='kernel-pi-disabled', source='qualification-control',
+                      reason=build.MUTEX_CONTROL_REASON, default_pthread_mutex_protocol='none', priority_inheritance=False,
+                      holder_tracking='disabled', kconfig={'PRIORITY_INHERITANCE': 'n',
+                      'PTHREAD_MUTEX_DEFAULT_PRIO_INHERIT': 'n', 'PTHREAD_MUTEX_DEFAULT_PRIO_NONE': 'y'})
+        build.validate_mutex_policy({'mutex_policy': policy})
+        for changed in (None, {**policy, 'mode': 'inherit'}, {**policy, 'source': 'default'},
+                        {**policy, 'reason': ''}, {**policy, 'priority_inheritance': True}):
+            with self.subTest(policy=changed), self.assertRaises(ValueError):
+                build.validate_mutex_policy({'mutex_policy': changed})
 
     def test_archive_identity_ignores_debug_paths_but_retains_code_and_placement(self):
         with tempfile.TemporaryDirectory() as directory:

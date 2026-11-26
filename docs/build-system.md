@@ -245,6 +245,87 @@ The next ordinary build reads the same sources; their content hashes participate
 in preparation and cache identity. Generated `resolved.config` and native
 headers are outputs, not configuration sources.
 
+### Resource mutex policy
+
+Ordinary NuttX builds through `cargo nxrs` enable priority inheritance for
+resource mutexes. Application code keeps using `std::sync::Mutex`; the pinned
+Rust pthread implementation inherits the NuttX default protocol. The frontend
+owns these native settings for every NuttX profile:
+
+| Symbol | Normal value | Purpose |
+| --- | --- | --- |
+| `CONFIG_PRIORITY_INHERITANCE` | `y` | Enable kernel priority inheritance. |
+| `CONFIG_PTHREAD_MUTEX_DEFAULT_PRIO_INHERIT` | `y` | Give default pthread mutexes the inheritance protocol. |
+| `CONFIG_PTHREAD_MUTEX_DEFAULT_PRIO_NONE` | `n` | Exclude the competing default protocol. |
+| `CONFIG_SEM_PREALLOCHOLDERS` | `0` | Keep one holder record with each resource mutex instead of using a shared finite holder pool. |
+
+The last setting selects NuttX's embedded holder representation. Zero does not
+mean that ownership tracking is disabled. A resource mutex has one owner;
+each contended mutex can retain that owner without consuming a record from a
+global pool. Notification and counting semaphores remain `SEM_PRIO_NONE`.
+They must not be treated as resource mutexes or assigned inheritance merely
+because the kernel supports it. Multiple simultaneous owners of a counting
+semaphore are outside this embedded-holder contract.
+
+This representation increases the native semaphore object's storage, including
+notification semaphores whose protocol remains `NONE`. It also changes the
+storage needed by pthread mutexes, condition variables and rwlocks. Account for
+the resulting static and dynamic memory in each product; removing the global
+pool does not make inheritance or its bookkeeping free.
+
+The [policy implementation](../tools/build/src/mutex_policy.rs) rejects
+conflicting profile defaults, native fragments, overlays and raw `--kconfig-*`
+requests. The configuration editor shows the values as owned by the NXRS
+resource-mutex policy. Configuration checks and real builds verify the effective
+values after native resolution; a dry run checks requests without establishing
+that the target Kconfig admits them. Build evidence records a versioned
+`mutex_policy` object with the selected mode, source, reason, protocol, holder
+representation and required Kconfig values. It appears in dry-run and
+configuration reports and in the build's `kconfig-requests.json`.
+Its `default_pthread_mutex_protocol` field describes the default pthread/std
+mutex protocol, not every native lock in the image.
+
+Two explicit controls support qualification experiments:
+
+| `--qualification-mutex-policy` | Kernel PI | Default mutex protocol | Intended control |
+| --- | --- | --- | --- |
+| `no-inherit` | Enabled | `NONE` | Isolate default mutex inheritance while retaining kernel support. |
+| `kernel-pi-disabled` | Disabled | `NONE` | Reproduce a named baseline that predates the normal policy. |
+
+The `no-inherit` control changes the default pthread/std mutex protocol while
+leaving kernel PI enabled. Native `nxmutex` resource locks still inherit in that
+control. Locks with explicit protocol choices retain their own contracts.
+
+Either control requires a nonempty, one-line
+`--qualification-mutex-reason` and an entry package with
+`package.metadata.nxrs.qualification-only = true`. Supplying a reason without
+a control is also rejected. A profile's directory, name or ancestry does not
+authorize an exception. The control and reason are build inputs, so pass the
+same selection when inspecting and building an experiment. They are not product
+profile settings. The [owner qualification workflow](../tests/owner-qualification/README.md)
+supplies these inputs for its negative controls and uses the normal policy for
+the inheritance suite. The [MPSC comparison](../tests/mpsc-comparison/README.md)
+retains its explicitly named kernel-PI-off baseline.
+
+Priority inheritance allows an eligible mutex holder to run at a blocked
+waiter's higher priority. It does not prevent lock cycles, bound critical
+sections, repair a queue reservation stalled by preemption, or establish an
+application deadline. Keep the ownership, wait, overload and shutdown contracts
+in the [concurrency design](concurrency-event-communication.md).
+
+The pinned SDK patch reserves storage for the changed NuttX pthread layouts.
+After linking, the ABI comparison gate checks the selected target libc types
+against the native headers before accepting the build. Its size and alignment
+coverage of `pthread_rwlock_t` establishes layout compatibility, not priority
+donation behavior for Rust `RwLock`. The owner fixture exercises ordinary Rust
+mutex donation, nested ownership, release and reuse. A new or external SDK,
+binary native component, or additional
+native feature still needs matching ABI and runtime qualification; the default
+does not establish the protocol of every opaque native lock. Physical target
+timing, contention under product load, and stack/heap costs remain separate
+qualification work. Existing receipts retain their original source and policy
+claims rather than acquiring the new default during replay.
+
 ## Native qualification settings
 
 NuttX uses a size-optimized Rust standard library and immediate panic abort by
@@ -268,7 +349,8 @@ credentials and private keys out of them.
 
 Explicit settings override profile defaults, but cannot contradict a profile's
 required/forbidden settings, BSP resource wiring, generated init settings, or
-the builder's required ABI/runtime configuration. Conflicting repeated requests
+the builder's required ABI/runtime configuration, including the
+[resource mutex policy](#resource-mutex-policy). Conflicting repeated requests
 are rejected; repeating the same value is allowed. `--dry-run` reports the
 requested values as `kconfig_overrides`. A real build verifies them again after
 `olddefconfig` and retains the effective `resolved.config`; a dry run does not

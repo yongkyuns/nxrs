@@ -21,9 +21,12 @@ BUILD_ID = "a" * 64
 
 
 def suite_inputs(native, case="std-disconnect"):
-    suite = (case.removeprefix("std-") if case in W.MUTEX_CASES else "owner") if native else "host-all"
+    suite = ("mutex-inherit" if case == "std-mutex-nested" else
+             case.removeprefix("std-") if case in W.MUTEX_CASES else "owner") if native else "host-all"
     return {"kind": "nuttx-target" if native else "host-functional", "suite": suite,
             "cases": list(W.SUITES[suite]), "priority_inheritance": suite.startswith("mutex-") if native else None,
+            "sources": {path: "parser-control-source-marker" for path in (W.LATEST_SOURCE, W.NESTED_SOURCE, W.POLICY_SOURCE)},
+            "mutex_policy": W.mutex_policy("nuttx-target" if native else "host-functional", suite),
             "pthread_mutex_default_protocol": {"mutex-inherit": "inherit", "mutex-no-inherit": "none"}.get(suite)}
 
 
@@ -58,7 +61,8 @@ def report(case, native=False, build_id=BUILD_ID):
                         "effective_priority": effective or person["requested_priority"],
                         "state": 6 if waiting else 3, "waiting_semaphore": waiting, "runnable": not waiting}
             evidence = {"configuration": {"priority_inheritance": True, "default_prio_inherit": inherit,
-                        "default_protocol": 1 if inherit else 0, "protocol_none": 0, "protocol_inherit": 1},
+                        "default_protocol": 1 if inherit else 0, "protocol_none": 0, "protocol_inherit": 1,
+                        "holder_capacity": 0},
                         "low_before_high": state("mutex-low", waiting=True),
                         "medium_before_high": state("mutex-medium", waiting=True),
                         "high_wait": state("mutex-high", waiting=True),
@@ -73,6 +77,32 @@ def report(case, native=False, build_id=BUILD_ID):
                              "high_wait_us": 100, "medium_window_us": 25000, "medium_elapsed_us": 25000,
                              "medium_iterations": 100, "high_completed_at_medium_start": inherit,
                              "high_completed_at_medium_finish": inherit, "final_value": 42}
+    if case == "std-mutex-nested":
+        def state(role, effective):
+            if not native:
+                return None
+            person = next(p for p in participants if p["role"] == role)
+            return {"tid": person["start"]["tid"], "policy": 1,
+                    "base_priority": person["requested_priority"], "effective_priority": effective,
+                    "state": 6, "waiting_semaphore": True, "runnable": False}
+        def owner(effective, holders):
+            return {"state": state("mutex-nested-owner", effective), "tracked_holders": holders} if native else None
+        observed["mutex_nested"] = {
+            "lock_count": 9, "handoffs": 18, "final_values": [22] * 9,
+            "native_configuration": {"priority_inheritance": True, "default_prio_inherit": True,
+                                     "default_protocol": 1, "protocol_none": 0, "protocol_inherit": 1,
+                                     "holder_capacity": 0} if native else None,
+            "rounds": [{"round": number, "initial": owner(120, 0),
+                        "contended": [{"lock_index": index,
+                                       "waiter": state(f"mutex-nested-waiter-{index}", 140 + 5 * index),
+                                       "owner": owner(140 + 5 * index, index + 1)} for index in range(9)],
+                        "released": [{"lock_index": index,
+                                      "owner": owner(140 + 5 * (index - 1) if index else 120, index)}
+                                     for index in reversed(range(9))]} for number in (1, 2)]}
+    if case == "latest-value-progress":
+        observed["latest"] = {"paused_writer_reads": 2, "paused_reader_publications": 32, "fanout_skew_checks": 1,
+                              "rounds": 4096, "payloads": [{"record_bytes": 50,
+                              "mutex_elapsed_ns": 150, "mailbox_elapsed_ns": 100}] * 3}
     return {"schema": "owner-qualification-v1", "case": case, "token": TOKEN, "build_id": build_id,
             "domain": "nuttx-target" if native else "host-functional", "pass": True,
             "native_scheduling": native, "fifo_policy": 1 if native else None,
@@ -114,6 +144,11 @@ class ParserControls(unittest.TestCase):
                 with self.assertRaises(ValueError): self.parse(value)
         base["observations"]["endpoints_closed"] = False
         with self.assertRaises(ValueError): self.parse(base)
+
+    def test_latest_requires_both_paused_peer_controls(self):
+        value = report("latest-value-progress", True)
+        value["observations"]["latest"]["paused_writer_reads"] = 1
+        with self.assertRaises(ValueError): self.parse(value)
 
     def test_rejects_priority_drift_missing_restore_or_unaccounted_participant(self):
         base = report("owner-independent-inputs", True)
@@ -233,20 +268,59 @@ class ParserControls(unittest.TestCase):
             with self.subTest(specification=specification), self.assertRaises(ValueError):
                 W.parse(transcript(value), {"build_id": BUILD_ID, "inputs": specification}, value["case"], TOKEN)
 
+    def test_nested_mutex_requires_all_holders_donation_and_reuse(self):
+        base = report("std-mutex-nested", True)
+        mutations = [lambda n: n["rounds"].pop(), lambda n: n["final_values"].__setitem__(8, 21),
+                     lambda n: n["native_configuration"].update(holder_capacity=8),
+                     lambda n: n["rounds"][0]["contended"][8]["owner"].update(tracked_holders=8),
+                     lambda n: n["rounds"][0]["contended"][8]["owner"]["state"].update(effective_priority=175),
+                     lambda n: n["rounds"][1]["initial"].update(tracked_holders=1),
+                     lambda n: n["rounds"][1]["released"][8]["owner"]["state"].update(effective_priority=140)]
+        for index, mutate in enumerate(mutations):
+            with self.subTest(mutation=index):
+                value = copy.deepcopy(base)
+                mutate(value["observations"]["mutex_nested"])
+                with self.assertRaises(ValueError): self.parse(value)
+
+    def test_host_nested_mutex_cannot_claim_native_holder_evidence(self):
+        value = report("std-mutex-nested")
+        native = report("std-mutex-nested", True)["observations"]["mutex_nested"]
+        value["observations"]["mutex_nested"]["rounds"][0]["initial"] = native["rounds"][0]["initial"]
+        with self.assertRaises(ValueError): self.parse(value)
+
 
 class BuildSuiteControls(unittest.TestCase):
     def test_config_requires_flat_single_core_and_both_protocol_settings(self):
         for case in ("std-disconnect", *W.MUTEX_CASES):
             specification = suite_inputs(True, case)
-            enabled = ["BUILD_FLAT"]
-            if specification["priority_inheritance"]: enabled.append("PRIORITY_INHERITANCE")
-            if case == "std-mutex-inherit": enabled.append("PTHREAD_MUTEX_DEFAULT_PRIO_INHERIT")
-            def config(symbols): return "".join(f"CONFIG_{symbol}=y\n" for symbol in symbols)
-            W.validate_config(config(enabled), specification)
-            for symbol in ("BUILD_FLAT", "SMP", "PRIORITY_INHERITANCE", "PTHREAD_MUTEX_DEFAULT_PRIO_INHERIT"):
-                changed = set(enabled) ^ {symbol}
+            values = {"BUILD_FLAT": "y", **specification["mutex_policy"]["kconfig"]}
+            def config(symbols): return "".join(f"CONFIG_{symbol}={value}\n" for symbol, value in symbols.items())
+            W.validate_config(config(values), specification)
+            for symbol in ("BUILD_FLAT", "SMP", "PRIORITY_INHERITANCE", "PTHREAD_MUTEX_DEFAULT_PRIO_INHERIT", "PTHREAD_MUTEX_DEFAULT_PRIO_NONE"):
+                changed = {**values, symbol: "n" if values.get(symbol) == "y" else "y"}
                 with self.subTest(case=case, symbol=symbol), self.assertRaises(ValueError):
                     W.validate_config(config(changed), specification)
+            if "SEM_PREALLOCHOLDERS" in values:
+                for value in ("8", "n"):
+                    with self.subTest(case=case, holder_capacity=value), self.assertRaises(ValueError):
+                        W.validate_config(config({**values, "SEM_PREALLOCHOLDERS": value}), specification)
+
+    def test_frontend_policy_receipt_cannot_relabel_an_experiment(self):
+        specification = suite_inputs(True)
+        W.validate_policy_receipt({"mutex_policy": specification["mutex_policy"]}, specification)
+        for value in (None, W.mutex_policy("nuttx-target", "mutex-inherit"),
+                      {**specification["mutex_policy"], "reason": "another experiment"}):
+            with self.subTest(policy=value), self.assertRaises(ValueError):
+                W.validate_policy_receipt({"mutex_policy": value}, specification)
+
+    def test_current_source_receipt_cannot_downgrade_to_legacy(self):
+        for source in (W.POLICY_SOURCE, W.NESTED_SOURCE):
+            for removed in ("suite", "mutex_policy"):
+                specification = suite_inputs(True)
+                specification["sources"] = {source: "parser-control-source-marker"}
+                specification.pop(removed)
+                with self.subTest(source=source, removed=removed), self.assertRaisesRegex(ValueError, "current retained sources"):
+                    W.selected_cases(specification)
 
     def test_build_identity_cannot_relabel_suite_case_inventory_or_protocol(self):
         for field, value in (("suite", "owner"), ("suite", "host-all"), ("cases", list(W.CASES)),
@@ -263,15 +337,37 @@ class RetainedEvidenceControls(unittest.TestCase):
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name)
 
-    def build(self, native=False, case="std-disconnect", profile=None):
+    def build(self, native=False, case="std-disconnect", profile=None, latest=True, nested=True, legacy=False, policy=True):
         root = self.root / "input-build"
         root.mkdir()
         source = root / "retained/sources/tests/owner-qualification/src/main.rs"
         source.parent.mkdir(parents=True)
         source.write_text("// synthetic evidence-validator input, never executed\n")
+        sources = {"tests/owner-qualification/src/main.rs": W.digest(source)}
+        if latest:
+            latest_source = root / "retained/sources" / W.LATEST_SOURCE
+            latest_source.parent.mkdir(parents=True)
+            latest_source.write_text("// synthetic latest-value source, never executed\n")
+            sources[W.LATEST_SOURCE] = W.digest(latest_source)
+        if nested:
+            nested_source = root / "retained/sources" / W.NESTED_SOURCE
+            nested_source.write_text("// synthetic nested-mutex source, never executed\n")
+            sources[W.NESTED_SOURCE] = W.digest(nested_source)
+        if policy and not legacy:
+            policy_source = root / "retained/sources" / W.POLICY_SOURCE
+            policy_source.parent.mkdir(parents=True)
+            policy_source.write_text("// synthetic resource mutex policy source, never executed\n")
+            sources[W.POLICY_SOURCE] = W.digest(policy_source)
         specification = {**suite_inputs(native, case),
                          "profile": (profile or "esp32s3-ram-footprint") if native else None,
-                         "sources": {"tests/owner-qualification/src/main.rs": W.digest(source)}}
+                         "sources": sources}
+        omitted = ([] if latest else ["latest-value-progress"]) + ([] if nested else ["std-mutex-nested"])
+        specification["cases"] = [case for case in specification["cases"] if case not in omitted]
+        if legacy:
+            for key in ("suite", "cases", "pthread_mutex_default_protocol", "mutex_policy"):
+                specification.pop(key)
+        elif not policy:
+            specification.pop("mutex_policy")
         build_id = W.identity(specification)
         artifacts = root / "retained/artifacts"
         artifacts.mkdir()
@@ -280,8 +376,12 @@ class RetainedEvidenceControls(unittest.TestCase):
             (artifacts / "firmware.bin").write_bytes(b"parser input only " + build_id.encode())
             (artifacts / "frontend").mkdir()
             config = "CONFIG_BUILD_FLAT=y\n"
-            if specification["priority_inheritance"]: config += "CONFIG_PRIORITY_INHERITANCE=y\n"
-            if specification["pthread_mutex_default_protocol"] == "inherit": config += "CONFIG_PTHREAD_MUTEX_DEFAULT_PRIO_INHERIT=y\n"
+            if "mutex_policy" in specification:
+                config += "".join(f"CONFIG_{name}={value}\n" for name, value in specification["mutex_policy"]["kconfig"].items())
+                W.save(artifacts / "frontend/kconfig-requests.json", {"mutex_policy": specification["mutex_policy"]})
+            else:
+                if specification["priority_inheritance"]: config += "CONFIG_PRIORITY_INHERITANCE=y\n"
+                if specification.get("pthread_mutex_default_protocol") == "inherit": config += "CONFIG_PTHREAD_MUTEX_DEFAULT_PRIO_INHERIT=y\n"
             (artifacts / "frontend/resolved.config").write_text(config)
         records = {str(p.relative_to(root)): {"sha256": W.digest(p), "bytes": p.stat().st_size}
                    for p in artifacts.rglob("*") if p.is_file()}
@@ -318,12 +418,47 @@ class RetainedEvidenceControls(unittest.TestCase):
         root, value = self.build(True)
         result = W.inspect(root)
         self.assertEqual(result["build_id"], value["build_id"])
-        self.assertEqual(result["case_count"], 7)
+        self.assertEqual(result["case_count"], 8)
         self.assertEqual(result["cases"], list(W.OWNER_CASES))
         self.assertEqual(result["image"]["sha256"], W.digest(Path(result["image"]["path"])))
         self.assertFalse(result["physical_execution_verified"])
         (root / value["image"]).write_bytes(b"changed image")
         with self.assertRaises(ValueError): W.inspect(root)
+
+    def test_legacy_owner_receipt_does_not_acquire_latest_case(self):
+        root, build = self.build(True, latest=False, nested=False, legacy=True)
+        self.assertEqual(W.inspect(root)["case_count"], 7)
+        value = report("std-disconnect", True, build["build_id"])
+        self.assertEqual(W.parse(transcript(value), build, value["case"], TOKEN), value)
+        value = report("latest-value-progress", True, build["build_id"])
+        with self.assertRaises(ValueError):
+            W.parse(transcript(value), build, value["case"], TOKEN)
+
+    def test_legacy_latest_receipt_requires_retained_source(self):
+        root, build = self.build(True, nested=False, legacy=True)
+        self.assertEqual(W.inspect(root)["case_count"], 8)
+        value = report("latest-value-progress", True, build["build_id"])
+        self.assertEqual(W.parse(transcript(value), build, value["case"], TOKEN), value)
+        (root / "retained/sources" / W.LATEST_SOURCE).unlink()
+        with self.assertRaises(ValueError): W.inspect(root)
+
+    def test_explicit_prior_owner_inventory_remains_replayable(self):
+        root, _ = self.build(True, latest=False, nested=False, policy=False)
+        self.assertEqual(W.inspect(root)["case_count"], 7)
+
+    def test_explicit_prior_host_inventory_remains_replayable(self):
+        root, _ = self.build(latest=False, nested=False, policy=False)
+        self.assertEqual(W.inspect(root)["case_count"], 9)
+
+    def test_prior_inherit_suite_does_not_acquire_nested_case(self):
+        root, build = self.build(True, case="std-mutex-inherit", nested=False, policy=False)
+        self.assertEqual(W.inspect(root)["cases"], ["std-mutex-inherit"])
+        value = report("std-mutex-inherit", True, build["build_id"])
+        value["observations"]["mutex"]["native"]["configuration"].pop("holder_capacity")
+        self.assertEqual(W.parse(transcript(value), build, value["case"], TOKEN), value)
+        value = report("std-mutex-nested", True, build["build_id"])
+        with self.assertRaises(ValueError):
+            W.parse(transcript(value), build, value["case"], TOKEN)
 
     def test_source_identity_and_symlink_containment(self):
         root, _ = self.build()
@@ -372,13 +507,29 @@ class RetainedEvidenceControls(unittest.TestCase):
 
     def test_mutex_build_rechecks_retained_resolved_protocol(self):
         root, value = self.build(True, "std-mutex-inherit")
-        self.assertEqual(W.inspect(root)["cases"], ["std-mutex-inherit"])
+        self.assertEqual(W.inspect(root)["cases"], list(W.SUITES["mutex-inherit"]))
         name = "retained/artifacts/frontend/resolved.config"
         config = root / name
         config.write_text("CONFIG_BUILD_FLAT=y\nCONFIG_PRIORITY_INHERITANCE=y\n")
         value["artifacts"][name] = {"sha256": W.digest(config), "bytes": config.stat().st_size}
         W.save(root / "build.json", value)
         with self.assertRaisesRegex(ValueError, "resolved pthread mutex default"):
+            W.validate_build(root)
+
+    def test_current_build_requires_matching_retained_policy(self):
+        root, build = self.build(True)
+        name = "retained/artifacts/frontend/kconfig-requests.json"
+        document = W.unique_json((root / name).read_text())
+        document["mutex_policy"]["reason"] = "another experiment"
+        W.save(root / name, document)
+        build["artifacts"][name] = {"sha256": W.digest(root / name), "bytes": (root / name).stat().st_size}
+        W.save(root / "build.json", build)
+        with self.assertRaisesRegex(ValueError, "policy disagrees"):
+            W.validate_build(root)
+        (root / name).unlink()
+        del build["artifacts"][name]
+        W.save(root / "build.json", build)
+        with self.assertRaisesRegex(ValueError, "policy evidence is not retained"):
             W.validate_build(root)
 
     def test_qemu_requires_fresh_boot_native_profile_and_distinct_receipt(self):

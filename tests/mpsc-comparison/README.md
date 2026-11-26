@@ -57,6 +57,16 @@ Both NuttX images use the same profile, including enabled POSIX queues and
 support for every tested payload. This is a controlled substitution, not the
 minimum configuration for a standalone std-only application.
 
+The NuttX transport comparison deliberately retains its historical kernel-PI-off
+baseline. Its marked qualification package requests
+`--qualification-mutex-policy kernel-pi-disabled` with an explicit reason through
+the normal frontend. Both transport builds use that same control; their profiles
+no longer disable PI themselves. Ordinary NuttX builds, including direct builds
+of these profiles without the control, use the
+[default resource-mutex policy](../../docs/build-system.md#resource-mutex-policy).
+The retained frontend configuration and policy evidence distinguish the
+experiment from that default.
+
 Before collecting the NuttX control pair, validate the shared substrate:
 
 ```sh

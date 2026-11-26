@@ -116,6 +116,7 @@ pub fn run(expected_inheritance: bool) -> Outcome {
         // Keep kernel support on in both builds: only the default protocol
         // changes. The runtime observation must agree with retained Kconfig.
         assert!(config.priority_inheritance);
+        assert_eq!(config.holder_capacity, 0);
         assert_eq!(config.default_prio_inherit, expected_inheritance);
         assert_eq!(
             config.default_protocol,

@@ -7,6 +7,7 @@
 #include <nuttx/clock.h>
 #include <sched.h>
 #include <pthread.h>
+#include <semaphore.h>
 #include <stdint.h>
 #include <errno.h>
 #include <assert.h>
@@ -77,6 +78,11 @@ int owner_qualification_mutex_configuration(int *values)
   values[2] = protocol;
   values[3] = PTHREAD_PRIO_NONE;
   values[4] = PTHREAD_PRIO_INHERIT;
+#ifdef CONFIG_PRIORITY_INHERITANCE
+  values[5] = CONFIG_SEM_PREALLOCHOLDERS;
+#else
+  values[5] = -1;
+#endif
   return 0;
 }
 
@@ -105,6 +111,28 @@ int owner_qualification_thread_state(int tid, int *values)
               tcb->task_state <= LAST_READY_TO_RUN_STATE;
   leave_critical_section(flags);
   return 0;
+}
+
+/* Count header-owned tracking records for one task; never inspect an opaque
+ * Rust mutex or infer its private address/layout. The Rust coordinator calls
+ * this only while the observed task is parked in a stable fixture phase. */
+int owner_qualification_pi_holder_count(int tid)
+{
+  irqstate_t flags = enter_critical_section();
+  struct tcb_s *tcb = nxsched_get_tcb((pid_t)tid);
+  int count = 0;
+  if (tcb == NULL)
+    {
+      leave_critical_section(flags);
+      return -ESRCH;
+    }
+#ifdef CONFIG_PRIORITY_INHERITANCE
+  const struct semholder_s *holder;
+  for (holder = tcb->holdsem; holder != NULL; holder = holder->tlink)
+    count++;
+#endif
+  leave_critical_section(flags);
+  return count;
 }
 
 static void qualification_expired(wdparm_t ignored)

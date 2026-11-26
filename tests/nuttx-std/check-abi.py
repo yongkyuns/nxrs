@@ -24,7 +24,8 @@ TARGETS = {
 }
 SCALARS = ['int', 'long', 'size_t', 'time_t', 'off_t', 'nfds_t', 'pthread_t', 'pthread_key_t', 'ino_t', 'blksize_t']
 OPAQUE = ['pthread_attr_t', 'pthread_mutex_t', 'pthread_mutexattr_t',
-          'pthread_cond_t', 'pthread_condattr_t', 'sem_t']
+          'pthread_cond_t', 'pthread_condattr_t', 'pthread_rwlock_t',
+          'pthread_rwlockattr_t', 'sem_t']
 # This libc target does not export PTHREAD_MUTEX_RECURSIVE; do not fabricate it.
 CONSTANTS = ['CLOCK_MONOTONIC', 'CLOCK_REALTIME', 'ETIMEDOUT', 'EINTR', 'EBADF',
              'F_GETFD', 'PTHREAD_MUTEX_NORMAL', 'SIGPIPE']
@@ -129,11 +130,26 @@ def self_test():
     for key, (cv, rv) in {**KNOWN_POLLFDS, 'SIG_IGN': (0, 1)}.items():
         c[key], rust[key] = cv, rv
     assert compare(c, rust, True)['probe_abi_compatible']
-    larger = dict(rust, **{'pthread_mutex_t.size': 64, 'sem_t.size': 32})
+    larger = dict(rust, **{'pthread_mutex_t.size': 64, 'sem_t.size': 32,
+                          'pthread_rwlock_t.size': 96})
     assert compare(c, larger, True)['probe_abi_compatible']
+    # Header-compiled 32-bit embedded-holder layouts reject the previous libc
+    # capacities together, including the rwlock's mutex and condition variable.
+    embedded = dict(c, **{'sem_t.size': 32, 'pthread_mutex_t.size': 40,
+                         'pthread_cond_t.size': 40, 'pthread_rwlock_t.size': 92})
+    old_storage = dict(rust, **{'sem_t.size': 24, 'pthread_mutex_t.size': 36,
+                              'pthread_cond_t.size': 28, 'pthread_rwlock_t.size': 68})
+    assert set(compare(embedded, old_storage, True)['errors']) == {
+        'sem_t.size', 'pthread_mutex_t.size', 'pthread_cond_t.size', 'pthread_rwlock_t.size'}
+    enlarged = dict(rust, **{'sem_t.size': 36, 'pthread_mutex_t.size': 48,
+                           'pthread_cond_t.size': 40, 'pthread_rwlock_t.size': 92})
+    assert compare(embedded, enlarged, True)['probe_abi_compatible']
     bad_cases = [(c, rust, False), (c, dict(rust, **{'timespec.size': 8}), True),
                  (c, dict(rust, **{'pthread_attr_t.size': 1}), True),
                  (c, dict(rust, **{'pthread_cond_t.align': 1}), True),
+                 (c, dict(rust, **{'pthread_rwlock_t.size': 1}), True),
+                 (c, dict(rust, **{'pthread_rwlock_t.align': 1}), True),
+                 (c, dict(rust, **{'pthread_rwlockattr_t.size': 1}), True),
                  (c, dict(rust, **{'sem_t.size': 1}), True),
                  (c, dict(rust, **{'sem_t.align': 1}), True),
                  (c, dict(rust, **{'SEM_PRIO_NONE': 1}), True),
@@ -158,6 +174,7 @@ def self_test():
     else:
         raise AssertionError('accepted missing evidence')
     print(f'PASS: {len(bad_cases) + 1} ABI rejection controls; opaque overprovisioning accepted')
+    print('PASS: embedded PI holder storage rejects all four old opaque capacities')
     print(f'PASS: {len(OPEN_FLAGS)} open-flag ABI rejection controls')
     assert check_imports('00000000 T main\n         U pthread_create\n') == ['pthread_create']
     assert check_imports('00000000 T poll\n         U poll_notify\n') == ['poll_notify']

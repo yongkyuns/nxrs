@@ -10,8 +10,10 @@ on:
       - 'tests/rtos-characterization/**'
       - 'tests/rtos_harness/**'
       - 'tests/nuttx-std/wifi/**'
+      - 'tests/nuttx-std/check-abi.py'
       - 'hal/wifi/**'
       - 'shared/messaging/**'
+      - 'shared/lock-order/**'
       - 'tests/nuttx-std/channels/mpsc-fixture-iram.ld'
       - 'tests/event-services-comparison/image_package.py'
       - 'tests/profiles/*-mpsc.toml'
@@ -23,6 +25,7 @@ on:
       - 'tools/build/**'
       - 'tools/build-support/**'
       - 'upstream/rust-std/**'
+      - 'upstream/libc/**'
       - 'upstream/nuttx/**'
       - 'upstream/nuttx-apps/**'
       - 'upstream/esp-hal-3rdparty/**'
@@ -67,10 +70,11 @@ jobs:
         run: |
           cargo fmt --manifest-path tests/mpsc-comparison/rust/Cargo.toml --check
           cargo fmt --manifest-path tests/owner-qualification/Cargo.toml --check
+          cargo test --locked -p nxrs-lock-order
           python3 -m unittest discover -s tests/mpsc-comparison -p 'test_*.py' -v
           python3 -m unittest discover -s tests/owner-qualification -p 'test_*.py' -v
           python3 -m unittest discover -s tests/rtos-characterization -p 'test_*.py' -v
-      - name: Run and replay all nine current-source owner and mutex host cases
+      - name: Run and replay all eleven current-source owner, latest-value and mutex host cases
         run: |
           python3 tests/owner-qualification/workflow.py host --out target/owner-host-ci
           python3 tests/owner-qualification/workflow.py inspect --build target/owner-host-ci \
@@ -121,7 +125,7 @@ jobs:
             --suite "$MUTEX_SUITE" --out target/owner-mutex-build
           python3 tests/owner-qualification/workflow.py inspect --build target/owner-mutex-build \
             > target/owner-mutex-build/inspect.json
-      - name: Run and replay the native control in a fresh QEMU boot
+      - name: Run and replay each native control in a fresh QEMU boot
         run: |
           python3 tests/owner-qualification/qemu.py --build target/owner-mutex-build \
             --out target/owner-mutex-qemu

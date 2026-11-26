@@ -2,13 +2,14 @@
 #![deny(unsafe_op_in_unsafe_fn)]
 
 mod mutex;
+mod mutex_nested;
 mod platform;
 mod scenarios;
 
 use serde::Serialize;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-pub const CASES: [&str; 9] = [
+pub const CASES: [&str; 11] = [
     "std-blocked-delivery",
     "std-full-progress",
     "std-disconnect",
@@ -16,8 +17,10 @@ pub const CASES: [&str; 9] = [
     "owner-full-stop",
     "owner-fairness-deadline",
     "owner-failure-recovery",
+    "latest-value-progress",
     "std-mutex-inherit",
     "std-mutex-no-inherit",
+    "std-mutex-nested",
 ];
 static USED: AtomicBool = AtomicBool::new(false);
 
@@ -41,6 +44,10 @@ pub struct Outcome {
     endpoints_closed: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     mutex: Option<mutex::Report>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    mutex_nested: Option<mutex_nested::Report>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    latest: Option<scenarios::latest::Comparison>,
 }
 
 fn main() {

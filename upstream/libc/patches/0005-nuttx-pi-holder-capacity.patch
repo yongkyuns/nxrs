@@ -1,0 +1,32 @@
+Subject: [PATCH] nuttx: reserve synchronization storage for embedded PI holders
+
+NuttX 13.1 with CONFIG_PRIORITY_INHERITANCE=y and
+CONFIG_SEM_PREALLOCHOLDERS=0 embeds one holder record in each semaphore.
+On the selected 32-bit targets this adds three words per native semaphore
+compared with the positive global-pool configuration. A pthread rwlock
+contains both a mutex and a condition variable, so it needs six more words.
+
+Keep these bindings opaque and preserve their existing spare capacity.
+Native init/destroy functions still own their representation. Larger storage
+does not qualify the all-zero libc initializers as native initializers.
+The build's target-header ABI gate must check actual size and alignment for
+the selected configuration before accepting a firmware build.
+
+diff --git a/src/unix/nuttx/mod.rs b/src/unix/nuttx/mod.rs
+--- a/src/unix/nuttx/mod.rs
++++ b/src/unix/nuttx/mod.rs
+@@ -268,10 +268,10 @@
+ const __SOCKADDR_STORAGE_SIZE__: usize = 36;
+ const __PTHREAD_ATTR_SIZE__: usize = 5;
+-const __PTHREAD_MUTEX_SIZE__: usize = 9;
+-const __PTHREAD_COND_SIZE__: usize = 7;
++const __PTHREAD_MUTEX_SIZE__: usize = 12;
++const __PTHREAD_COND_SIZE__: usize = 10;
+ const __PTHREAD_CONDATTR_SIZE__: usize = 5;
+-const __PTHREAD_RWLOCK_SIZE__: usize = 17;
+-const __SEM_SIZE__: usize = 6;
++const __PTHREAD_RWLOCK_SIZE__: usize = 23;
++const __SEM_SIZE__: usize = 9;
+ const __NAME_MAX__: usize = 64;
+ const __FDSET_SIZE__: usize = 10;
+ const __SIGSET_SIZE__: usize = 8;

@@ -10,6 +10,8 @@ use wifi::{
 };
 use wifi_scan_owner::{channels, OwnerError, OwnerReport};
 
+pub mod latest;
+
 const DEADLINE: Duration = Duration::from_secs(4);
 const WORKER_STACK: usize = if cfg!(target_os = "nuttx") {
     16_384
@@ -72,6 +74,8 @@ pub fn run(case: &str) -> Outcome {
         "owner-failure-recovery" => failure_recovery(),
         "std-mutex-inherit" => crate::mutex::run(true),
         "std-mutex-no-inherit" => crate::mutex::run(false),
+        "std-mutex-nested" => crate::mutex_nested::run(),
+        "latest-value-progress" => latest::run(),
         _ => unreachable!(),
     }
 }
