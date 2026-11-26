@@ -9,7 +9,11 @@ mod scenarios;
 use serde::Serialize;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-pub const CASES: [&str; 11] = [
+#[global_allocator]
+static ALLOCATOR: allocation_probe::Tracking<std::alloc::System> =
+    allocation_probe::Tracking::new(std::alloc::System);
+
+pub const CASES: [&str; 12] = [
     "std-blocked-delivery",
     "std-full-progress",
     "std-disconnect",
@@ -21,6 +25,7 @@ pub const CASES: [&str; 11] = [
     "std-mutex-inherit",
     "std-mutex-no-inherit",
     "std-mutex-nested",
+    "publication-progress",
 ];
 static USED: AtomicBool = AtomicBool::new(false);
 
@@ -48,6 +53,8 @@ pub struct Outcome {
     mutex_nested: Option<mutex_nested::Report>,
     #[serde(skip_serializing_if = "Option::is_none")]
     latest: Option<scenarios::latest::Comparison>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    publication: Option<scenarios::publication::Report>,
 }
 
 fn main() {
@@ -70,7 +77,7 @@ fn main() {
     let id = env!("OWNER_QUALIFICATION_BUILD_ID");
     println!("OWNER_QUALIFICATION_BEGIN {id} {case} {token}");
     platform::watchdog(true);
-    if !case.starts_with("std-mutex-") {
+    if !case.starts_with("std-mutex-") && case != "publication-progress" {
         if let Some(configuration) = platform::mutex_configuration() {
             assert!(
                 !configuration.priority_inheritance,

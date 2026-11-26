@@ -1,8 +1,10 @@
 //! Own configured acquisition sessions and track normalized observations.
 //! HALs acquire and deliver samples. The caller dispatches events and deadlines.
 
-use messaging::{DeliveryResult, Sender};
-use std::sync::{Arc, Mutex};
+use messaging::{latest, DeliveryResult, Sender};
+use std::marker::PhantomData;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -158,6 +160,22 @@ pub enum Measurement {
 }
 
 impl Observation {
+    /// An IMU event with its original reception time and configured ordinal.
+    pub fn imu(index: usize, event: imu::Event, received: Instant) -> Self {
+        Self {
+            input: Input::Imu(index, event),
+            received,
+        }
+    }
+
+    /// A receiver event with its original reception time.
+    pub fn gnss(event: gnss::Event, received: Instant) -> Self {
+        Self {
+            input: Input::Gnss(event),
+            received,
+        }
+    }
+
     pub fn measurement(&self) -> Option<Measurement> {
         match self.input {
             Input::Imu(index, imu::Event::Sample(sample)) => Some(Measurement::Imu(index, sample)),
@@ -173,60 +191,272 @@ pub enum SensorFault {
     Gnss(gnss::DeviceError),
 }
 
-/// Shared latest values for consumers with independent deadlines.
-#[derive(Clone)]
-pub struct SharedObservations<const IMUS: usize>(Arc<Mutex<SharedValues<IMUS>>>);
-
-struct SharedValues<const IMUS: usize> {
-    observations: Observations<IMUS>,
-    satellites: Source<gnss::SatelliteReport>,
+#[derive(Clone, Copy)]
+struct Received<T> {
+    value: T,
+    at: Instant,
 }
 
-impl<const IMUS: usize> SharedObservations<IMUS> {
-    pub fn snapshot(&self, now: Instant) -> Snapshot<IMUS> {
-        self.0.lock().unwrap().observations.snapshot(now)
+struct Faults<const IMUS: usize> {
+    imu: [AtomicBool; IMUS],
+    gnss: AtomicBool,
+}
+
+impl<const IMUS: usize> Faults<IMUS> {
+    fn imu_failed(&self, index: usize) -> bool {
+        !self.imu[index].swap(true, Ordering::AcqRel)
+    }
+
+    fn gnss_failed(&self) -> bool {
+        !self.gnss.swap(true, Ordering::AcqRel)
+    }
+}
+
+/// Exclusive publication endpoints for one acquisition lifetime. Move each
+/// endpoint into the corresponding acquisition callback before opening it.
+pub struct ObservationPublishers<const IMUS: usize, const READERS: usize> {
+    pub imu: [ImuPublisher<IMUS, READERS>; IMUS],
+    pub gnss: Option<GnssPublisher<IMUS, READERS>>,
+}
+
+/// The only sample writer for one configured IMU ordinal.
+pub struct ImuPublisher<const IMUS: usize, const READERS: usize> {
+    index: usize,
+    samples: latest::Publisher<Option<Received<imu::ImuSample>>, READERS>,
+    faults: Arc<Faults<IMUS>>,
+}
+
+impl<const IMUS: usize, const READERS: usize> ImuPublisher<IMUS, READERS> {
+    /// Publish before notifying a consumer. The first fault is a wake hint;
+    /// all readers retain the terminal state independently of inbox capacity.
+    /// A late sample remains available to an ordered capture consumer but does
+    /// not replace the faulted latest state.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the observation belongs to another configured source.
+    pub fn record(
+        &mut self,
+        observation: &Observation,
+    ) -> Result<Option<Measurement>, SensorFault> {
+        let Input::Imu(index, event) = observation.input else {
+            panic!("IMU publisher received a GNSS observation");
+        };
+        assert_eq!(index, self.index, "IMU publisher ordinal mismatch");
+        match event {
+            imu::Event::Sample(value) => {
+                if !self.faults.imu[index].load(Ordering::Acquire) {
+                    self.samples.publish(Some(Received {
+                        value,
+                        at: observation.received,
+                    }));
+                }
+                Ok(Some(Measurement::Imu(index, value)))
+            }
+            imu::Event::Failed(error) if self.faults.imu_failed(index) => {
+                Err(SensorFault::Imu(index, error))
+            }
+            imu::Event::Failed(_) => Ok(None),
+        }
+    }
+}
+
+/// The only fix and satellite writers for the configured GNSS receiver.
+pub struct GnssPublisher<const IMUS: usize, const READERS: usize> {
+    fixes: latest::Publisher<Option<Received<gnss::GnssFix>>, READERS>,
+    satellites: latest::Publisher<Option<Received<gnss::SatelliteReport>>, READERS>,
+    faults: Arc<Faults<IMUS>>,
+}
+
+impl<const IMUS: usize, const READERS: usize> GnssPublisher<IMUS, READERS> {
+    /// Publish a receiver observation before a wake hint. Fixes and satellite
+    /// reports have independent latest values; neither implies the other is new.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the observation belongs to an IMU.
+    pub fn record(
+        &mut self,
+        observation: &Observation,
+    ) -> Result<Option<Measurement>, SensorFault> {
+        let Input::Gnss(event) = observation.input else {
+            panic!("GNSS publisher received an IMU observation");
+        };
+        match event {
+            gnss::Event::Fix(value) => {
+                if !self.faults.gnss.load(Ordering::Acquire) {
+                    self.fixes.publish(Some(Received {
+                        value,
+                        at: observation.received,
+                    }));
+                }
+                Ok(Some(Measurement::Gnss(value)))
+            }
+            gnss::Event::Satellites(value) => {
+                if !self.faults.gnss.load(Ordering::Acquire) {
+                    self.satellites.publish(Some(Received {
+                        value,
+                        at: observation.received,
+                    }));
+                }
+                Ok(None)
+            }
+            gnss::Event::Failed(error) if self.faults.gnss_failed() => {
+                Err(SensorFault::Gnss(error))
+            }
+            gnss::Event::Failed(_) | gnss::Event::InvalidFrame => Ok(None),
+        }
+    }
+}
+
+struct GnssReader {
+    fixes: latest::Reader<Option<Received<gnss::GnssFix>>>,
+    satellites: latest::Reader<Option<Received<gnss::SatelliteReport>>>,
+    fresh_for: Duration,
+}
+
+/// One independently scheduled consumer. Readers are neither cloneable nor
+/// shareable; move a reader to its owner and read it through mutable access.
+/// Samples may coalesce. A snapshot contains complete per-source values, not
+/// an atomic transaction across sources or readers.
+pub struct ObservationReader<const IMUS: usize> {
+    imu: [latest::Reader<Option<Received<imu::ImuSample>>>; IMUS],
+    imu_fresh_for: Duration,
+    gnss: Option<GnssReader>,
+    faults: Arc<Faults<IMUS>>,
+}
+
+impl<const IMUS: usize> ObservationReader<IMUS> {
+    pub fn snapshot(&mut self, now: Instant) -> Snapshot<IMUS> {
+        let imu = std::array::from_fn(|index| {
+            let sample = self.imu[index].read();
+            if self.faults.imu[index].load(Ordering::Acquire) {
+                Reading::Fault
+            } else {
+                reading(sample, self.imu_fresh_for, now)
+            }
+        });
+        let gnss = self.gnss.as_mut().map(|source| {
+            let fix = source.fixes.read();
+            if self.faults.gnss.load(Ordering::Acquire) {
+                Reading::Fault
+            } else {
+                reading(fix, source.fresh_for, now)
+            }
+        });
+        Snapshot { imu, gnss }
     }
 
     /// Expire a report after two receiver intervals, with a six-second minimum.
-    pub fn satellites(&self, now: Instant) -> Reading<gnss::SatelliteReport> {
-        let values = self.0.lock().unwrap();
-        match &values.observations.gnss {
-            Some(source) if matches!(source.latest, Latest::Fault) => Reading::Fault,
-            Some(_) => values.satellites.reading(now),
-            None => Reading::Waiting,
+    pub fn satellites(&mut self, now: Instant) -> Reading<gnss::SatelliteReport> {
+        let Some(source) = &mut self.gnss else {
+            return Reading::Waiting;
+        };
+        let report = source.satellites.read();
+        if self.faults.gnss.load(Ordering::Acquire) {
+            return Reading::Fault;
         }
+        let freshness = report.map_or(Duration::ZERO, |report| {
+            Duration::from_millis(2 * u64::from(report.value.interval_ms.max(3_000)))
+        });
+        reading(report, freshness, now)
     }
+}
 
-    /// Publish an observation before notifying any consumer. The first fault
-    /// is returned as a wake hint; the snapshot retains the terminal state.
-    pub fn record(&self, observation: &Observation) -> Result<Option<Measurement>, SensorFault> {
-        let mut values = self.0.lock().unwrap();
-        if let Input::Gnss(gnss::Event::Satellites(value)) = observation.input {
-            values.satellites.fresh_for =
-                Duration::from_millis(2 * u64::from(value.interval_ms.max(3_000)));
-            values.satellites.receive(value, observation.received);
-            return Ok(None);
+fn reading<T: Copy>(sample: Option<Received<T>>, fresh_for: Duration, now: Instant) -> Reading<T> {
+    match sample {
+        None => Reading::Waiting,
+        Some(sample) if now.saturating_duration_since(sample.at) < fresh_for => {
+            Reading::Live(sample.value)
         }
-        if let Some(fault) = values.observations.observe(observation) {
-            return Err(fault);
-        }
-        Ok(observation.measurement())
+        Some(_) => Reading::Stale,
     }
+}
+
+/// Allocate all publication endpoints before starting acquisition. There is one
+/// writer per source and a fixed reader set, with three slots per source/reader
+/// pair. A configured GNSS receiver has separate fix and satellite pairs.
+/// Sticky faults use one separately allocated atomic flag set so open failure
+/// and joined terminal reconciliation do not need a second payload writer.
+/// Publishing and reading add no allocation, mutex, worker or notification.
+/// Dropping an endpoint does not signal a fault or replace joined shutdown.
+///
+/// # Panics
+///
+/// Panics if `READERS` is zero.
+pub fn publication<const IMUS: usize, const READERS: usize>(
+    imu_fresh_for: Duration,
+    gnss_fresh_for: Option<Duration>,
+) -> (
+    ObservationPublishers<IMUS, READERS>,
+    [ObservationReader<IMUS>; READERS],
+) {
+    assert!(READERS > 0, "observation publication requires a reader");
+    let faults = Arc::new(Faults {
+        imu: std::array::from_fn(|_| AtomicBool::new(false)),
+        gnss: AtomicBool::new(false),
+    });
+    let mut imu_readers: [[Option<_>; READERS]; IMUS] =
+        std::array::from_fn(|_| std::array::from_fn(|_| None));
+    let imu = std::array::from_fn(|index| {
+        let (samples, readers) = latest::channel(None);
+        imu_readers[index] = readers.map(Some);
+        ImuPublisher {
+            index,
+            samples,
+            faults: faults.clone(),
+        }
+    });
+    let mut gnss_readers: [Option<GnssReader>; READERS] = std::array::from_fn(|_| None);
+    let gnss = gnss_fresh_for.map(|fresh_for| {
+        let (fixes, fixes_readers) = latest::channel(None);
+        let (satellites, satellites_readers) = latest::channel(None);
+        for ((slot, fixes), satellites) in gnss_readers
+            .iter_mut()
+            .zip(fixes_readers)
+            .zip(satellites_readers)
+        {
+            *slot = Some(GnssReader {
+                fixes,
+                satellites,
+                fresh_for,
+            });
+        }
+        GnssPublisher {
+            fixes,
+            satellites,
+            faults: faults.clone(),
+        }
+    });
+    let readers = std::array::from_fn(|reader| ObservationReader {
+        imu: std::array::from_fn(|source| imu_readers[source][reader].take().unwrap()),
+        imu_fresh_for,
+        gnss: gnss_readers[reader].take(),
+        faults: faults.clone(),
+    });
+    (ObservationPublishers { imu, gnss }, readers)
 }
 
 enum Values<const IMUS: usize> {
     Local(Observations<IMUS>),
-    Shared(SharedObservations<IMUS>),
+    Published(ObservationReader<IMUS>),
 }
+
+/// Service mode whose owner receives and records each observation.
+pub enum Local {}
+
+/// Service mode whose acquisition callbacks own the publication endpoints.
+pub enum Published {}
 
 /// One owner for the sessions and their readings. The caller supplies the
 /// inbox, allowing sensor events to share its wait point with other inputs.
 /// Session handles are allocated once on open to support heterogeneous devices.
-pub struct ObservationService<const IMUS: usize> {
+pub struct ObservationService<const IMUS: usize, Mode = Local> {
     values: Values<IMUS>,
     imu: [Option<Box<dyn imu::Session + Send>>; IMUS],
     gnss: Option<Box<dyn gnss::Session + Send>>,
     stopping: bool,
+    mode: PhantomData<Mode>,
 }
 
 impl<const IMUS: usize> ObservationService<IMUS> {
@@ -237,21 +467,59 @@ impl<const IMUS: usize> ObservationService<IMUS> {
         )))
     }
 
-    pub fn new_shared(
-        imu_fresh_for: Duration,
-        gnss_fresh_for: Option<Duration>,
-    ) -> (Self, SharedObservations<IMUS>) {
-        let shared = SharedObservations(Arc::new(Mutex::new(SharedValues {
-            observations: Observations::new(imu_fresh_for, gnss_fresh_for),
-            satellites: Source::new(Duration::ZERO),
-        })));
-        (Self::with_values(Values::Shared(shared.clone())), shared)
+    pub fn observe(&mut self, observation: Observation) -> Option<SensorFault> {
+        let Values::Local(values) = &mut self.values else {
+            unreachable!();
+        };
+        values.observe(&observation)
     }
 
+    pub fn snapshot(&self, now: Instant) -> Snapshot<IMUS> {
+        let Values::Local(values) = &self.values else {
+            unreachable!();
+        };
+        values.snapshot(now)
+    }
+}
+
+impl<const IMUS: usize> ObservationService<IMUS, Published> {
+    /// Move one fixed reader to the acquisition owner. Ordinary observations
+    /// are published only by the source endpoints; this mode deliberately has
+    /// no `observe` method. Startup and reap retain terminal faults separately.
+    ///
+    /// ```compile_fail
+    /// use navigation::observations::{publication, Observation, ObservationService};
+    /// use std::time::{Duration, Instant};
+    /// let (_, [reader]) = publication::<1, 1>(Duration::from_secs(1), None);
+    /// let mut owner = ObservationService::with_reader(reader);
+    /// owner.observe(Observation::imu(
+    ///     0, imu::Event::Failed(imu::DeviceError::Io), Instant::now(),
+    /// ));
+    /// ```
+    pub fn with_reader(reader: ObservationReader<IMUS>) -> Self {
+        Self::with_values(Values::Published(reader))
+    }
+
+    pub fn snapshot(&mut self, now: Instant) -> Snapshot<IMUS> {
+        let Values::Published(reader) = &mut self.values else {
+            unreachable!();
+        };
+        reader.snapshot(now)
+    }
+
+    pub fn satellites(&mut self, now: Instant) -> Reading<gnss::SatelliteReport> {
+        let Values::Published(reader) = &mut self.values else {
+            unreachable!();
+        };
+        reader.satellites(now)
+    }
+}
+
+impl<const IMUS: usize, Mode> ObservationService<IMUS, Mode> {
     fn with_values(values: Values<IMUS>) -> Self {
         let gnss_configured = match &values {
             Values::Local(values) => values.gnss.is_some(),
-            Values::Shared(shared) => shared.0.lock().unwrap().observations.gnss.is_some(),
+            Values::Published(reader) => reader.gnss.is_some(),
         };
         crate::diagnostics::configured(IMUS, gnss_configured);
         Self {
@@ -259,13 +527,41 @@ impl<const IMUS: usize> ObservationService<IMUS> {
             imu: std::array::from_fn(|_| None),
             gnss: None,
             stopping: false,
+            mode: PhantomData,
         }
     }
 
-    fn update<R>(&mut self, update: impl FnOnce(&mut Observations<IMUS>) -> R) -> R {
+    fn imu_faulted(&self, index: usize) -> bool {
+        match &self.values {
+            Values::Local(values) => matches!(values.imu[index].latest, Latest::Fault),
+            Values::Published(reader) => reader.faults.imu[index].load(Ordering::Acquire),
+        }
+    }
+
+    fn imu_failed(&mut self, index: usize) -> bool {
         match &mut self.values {
-            Values::Local(values) => update(values),
-            Values::Shared(shared) => update(&mut shared.0.lock().unwrap().observations),
+            Values::Local(values) => values.imu_failed(index),
+            Values::Published(reader) => reader.faults.imu_failed(index),
+        }
+    }
+
+    fn gnss_faulted(&self) -> Option<bool> {
+        match &self.values {
+            Values::Local(values) => values
+                .gnss
+                .as_ref()
+                .map(|source| matches!(source.latest, Latest::Fault)),
+            Values::Published(reader) => reader
+                .gnss
+                .as_ref()
+                .map(|_| reader.faults.gnss.load(Ordering::Acquire)),
+        }
+    }
+
+    fn gnss_failed(&mut self) -> bool {
+        match &mut self.values {
+            Values::Local(values) => values.gnss_failed(),
+            Values::Published(reader) => reader.gnss.is_some() && reader.faults.gnss_failed(),
         }
     }
 
@@ -291,10 +587,7 @@ impl<const IMUS: usize> ObservationService<IMUS> {
         let Some(slot) = self.imu.get(index) else {
             return Err(SensorFault::Imu(index, imu::DeviceError::InvalidData));
         };
-        if self.stopping
-            || slot.is_some()
-            || self.update(|values| matches!(values.imu[index].latest, Latest::Fault))
-        {
+        if self.stopping || slot.is_some() || self.imu_faulted(index) {
             return Err(SensorFault::Imu(index, imu::DeviceError::Busy));
         }
         match device.open_default(sink(sender, move |event| Input::Imu(index, event), wrap)) {
@@ -303,7 +596,7 @@ impl<const IMUS: usize> ObservationService<IMUS> {
                 Ok(())
             }
             Err(error) => {
-                self.update(|values| values.imu_failed(index));
+                self.imu_failed(index);
                 Err(SensorFault::Imu(index, error))
             }
         }
@@ -326,12 +619,7 @@ impl<const IMUS: usize> ObservationService<IMUS> {
         sender: Sender<E>,
         wrap: impl FnMut(Observation) -> Option<E> + Send + 'static,
     ) -> Result<(), SensorFault> {
-        let Some(failed) = self.update(|values| {
-            values
-                .gnss
-                .as_ref()
-                .map(|source| matches!(source.latest, Latest::Fault))
-        }) else {
+        let Some(failed) = self.gnss_faulted() else {
             return Err(SensorFault::Gnss(gnss::DeviceError::Unsupported));
         };
         if self.stopping || self.gnss.is_some() || failed {
@@ -343,25 +631,18 @@ impl<const IMUS: usize> ObservationService<IMUS> {
                 Ok(())
             }
             Err(error) => {
-                self.update(Observations::gnss_failed);
+                self.gnss_failed();
                 Err(SensorFault::Gnss(error))
             }
-        }
-    }
-
-    pub fn observe(&mut self, observation: Observation) -> Option<SensorFault> {
-        match &mut self.values {
-            Values::Local(values) => values.observe(&observation),
-            Values::Shared(shared) => shared.record(&observation).err(),
         }
     }
 
     /// Reconcile terminal results before publishing a snapshot, including
     /// faults whose notification could not be admitted to the inbox.
     pub fn reap_finished(&mut self, mut report: impl FnMut(SensorFault)) {
-        // Shared state is published by the sink. Report the joined result
+        // Latest state is published by the sink. Report the joined result
         // once even if the display's wake notification was lost.
-        let shared = matches!(self.values, Values::Shared(_));
+        let published = matches!(self.values, Values::Published(_));
         for index in 0..IMUS {
             let slot = &mut self.imu[index];
             if slot.as_ref().is_some_and(|session| session.is_finished()) {
@@ -371,7 +652,7 @@ impl<const IMUS: usize> ObservationService<IMUS> {
                     .join()
                     .err()
                     .unwrap_or(imu::DeviceError::Io);
-                if self.update(|values| values.imu_failed(index)) || shared {
+                if self.imu_failed(index) || published {
                     report(SensorFault::Imu(index, error));
                 }
             }
@@ -388,16 +669,9 @@ impl<const IMUS: usize> ObservationService<IMUS> {
                 .join()
                 .err()
                 .unwrap_or(gnss::DeviceError::Io);
-            if self.update(Observations::gnss_failed) || shared {
+            if self.gnss_failed() || published {
                 report(SensorFault::Gnss(error));
             }
-        }
-    }
-
-    pub fn snapshot(&self, now: Instant) -> Snapshot<IMUS> {
-        match &self.values {
-            Values::Local(values) => values.snapshot(now),
-            Values::Shared(shared) => shared.snapshot(now),
         }
     }
 
@@ -464,6 +738,79 @@ mod tests {
     use super::*;
     use messaging::DeliveryError;
 
+    fn sample(sequence: u64) -> imu::ImuSample {
+        imu::ImuSample {
+            sequence,
+            timestamp_us: sequence * 10_000,
+            is_capture_time: false,
+            sample_interval_us: 10_000,
+            accel_mps2: [0.0, 0.0, 9.8],
+            gyro_rps: [0.0; 3],
+        }
+    }
+
+    #[test]
+    fn readers_coalesce_independently_without_renewing_source_freshness() {
+        let freshness = Duration::from_millis(500);
+        let (publishers, [mut active, mut delayed]) = publication::<1, 2>(freshness, None);
+        let [mut publisher] = publishers.imu;
+        let received = Instant::now();
+        for sequence in 1..=100 {
+            publisher
+                .record(&Observation::imu(
+                    0,
+                    imu::Event::Sample(sample(sequence)),
+                    received,
+                ))
+                .unwrap();
+            assert_eq!(
+                active.snapshot(received).imu,
+                [Reading::Live(sample(sequence))]
+            );
+        }
+        assert_eq!(delayed.snapshot(received).imu, [Reading::Live(sample(100))]);
+        drop(publisher);
+        assert_eq!(active.snapshot(received).imu, [Reading::Live(sample(100))]);
+        assert_eq!(delayed.snapshot(received + freshness).imu, [Reading::Stale]);
+        assert_eq!(delayed.snapshot(received).gnss, None);
+    }
+
+    #[test]
+    fn reaping_a_publisher_that_dropped_without_notification_faults_every_reader() {
+        let (publishers, [owner, mut other]) =
+            publication::<1, 2>(Duration::from_millis(500), None);
+        let [mut publisher] = publishers.imu;
+        let received = Instant::now();
+        publisher
+            .record(&Observation::imu(
+                0,
+                imu::Event::Sample(sample(1)),
+                received,
+            ))
+            .unwrap();
+        let mut service = ObservationService::with_reader(owner);
+        service.imu[0] = Some(Box::new(FinishedImu));
+        drop(publisher);
+        let mut faults = Vec::new();
+        service.reap_finished(|fault| faults.push(fault));
+        service.reap_finished(|fault| faults.push(fault));
+        assert_eq!(faults, [SensorFault::Imu(0, imu::DeviceError::Io)]);
+        assert_eq!(service.snapshot(received).imu, [Reading::Fault]);
+        assert_eq!(other.snapshot(received).imu, [Reading::Fault]);
+    }
+
+    #[test]
+    #[should_panic(expected = "IMU publisher ordinal mismatch")]
+    fn source_wiring_cannot_publish_another_imus_observation() {
+        let (publishers, _) = publication::<2, 1>(Duration::from_secs(1), None);
+        let [mut first, _] = publishers.imu;
+        let _ = first.record(&Observation::imu(
+            1,
+            imu::Event::Sample(sample(1)),
+            Instant::now(),
+        ));
+    }
+
     #[test]
     fn observation_callback_can_own_mutable_state() {
         let (sender, inbox) = messaging::bounded(1);
@@ -486,16 +833,16 @@ mod tests {
     }
 
     #[test]
-    fn shared_satellites_remain_live_across_a_slow_receiver_interval() {
-        let (mut service, readings) =
-            ObservationService::<0>::new_shared(Duration::ZERO, Some(Duration::from_secs(3)));
+    fn published_satellites_remain_live_across_a_slow_receiver_interval() {
+        let (publishers, [owner, mut readings]) =
+            publication::<0, 2>(Duration::ZERO, Some(Duration::from_secs(3)));
+        let mut service = ObservationService::with_reader(owner);
+        let mut receiver = publishers.gnss.unwrap();
         let now = Instant::now();
         let report = gnss::SatelliteReport::new(4, 0, None, 10_000, 0, []);
-        assert!(service
-            .observe(Observation {
-                input: Input::Gnss(gnss::Event::Satellites(report)),
-                received: now,
-            })
+        assert!(receiver
+            .record(&Observation::gnss(gnss::Event::Satellites(report), now))
+            .unwrap()
             .is_none());
         assert_eq!(readings.snapshot(now).gnss, Some(Reading::Waiting));
         assert_eq!(
@@ -506,10 +853,13 @@ mod tests {
             readings.satellites(now + Duration::from_secs(20)),
             Reading::Stale
         );
-        service.observe(Observation {
-            input: Input::Gnss(gnss::Event::Failed(gnss::DeviceError::Io)),
-            received: now,
-        });
+        assert_eq!(service.satellites(now), Reading::Live(report));
+        assert!(receiver
+            .record(&Observation::gnss(
+                gnss::Event::Failed(gnss::DeviceError::Io),
+                now,
+            ))
+            .is_err());
         assert_eq!(readings.satellites(now), Reading::Fault);
     }
 
@@ -560,16 +910,17 @@ mod tests {
     }
 
     #[test]
-    fn shared_samples_are_visible_without_dispatching_the_owner_inbox() {
-        let (service, readings) =
-            ObservationService::<1>::new_shared(Duration::from_millis(500), None);
-        let sink_readings = readings.clone();
+    fn published_samples_are_visible_without_dispatching_the_owner_inbox() {
+        let (publishers, [owner, mut readings]) =
+            publication::<1, 2>(Duration::from_millis(500), None);
+        let mut service = ObservationService::with_reader(owner);
+        let [mut publisher] = publishers.imu;
         let (sender, inbox) = messaging::bounded(1);
         let pending = sender.clone();
         let mut deliver = sink(
             sender,
             |event| Input::Imu(0, event),
-            move |event| sink_readings.record(&event).is_err().then_some(event),
+            move |event| publisher.record(&event).is_err().then_some(event),
         );
         let sample = imu::ImuSample {
             sequence: 1,

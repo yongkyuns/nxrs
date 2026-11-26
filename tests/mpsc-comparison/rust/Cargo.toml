@@ -12,6 +12,18 @@ crate-type = ["rlib", "staticlib"]
 name = "mpsc-comparison"
 path = "src/main.rs"
 
+[[test]]
+name = "capture"
+path = "tests/capture.rs"
+harness = false
+
+[target.'cfg(not(any(target_os = "nuttx", target_os = "none")))'.dev-dependencies]
+allocation_probe = { package = "nxrs-allocation-probe", path = "../../allocation-probe" }
+navigation = { package = "nxrs-navigation-services", path = "../../../service/navigation" }
+imu = { package = "nxrs-imu", path = "../../../hal/imu" }
+gnss = { package = "nxrs-gnss", path = "../../../hal/gnss" }
+heapless = { version = "=0.9.4", default-features = false }
+
 [package.metadata.nxrs]
 qualification-only = true
 

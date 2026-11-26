@@ -21,13 +21,14 @@ BUILD_ID = "a" * 64
 
 
 def suite_inputs(native, case="std-disconnect"):
-    suite = ("mutex-inherit" if case == "std-mutex-nested" else
+    suite = ("publication" if case == "publication-progress" else
+             "mutex-inherit" if case == "std-mutex-nested" else
              case.removeprefix("std-") if case in W.MUTEX_CASES else "owner") if native else "host-all"
     return {"kind": "nuttx-target" if native else "host-functional", "suite": suite,
-            "cases": list(W.SUITES[suite]), "priority_inheritance": suite.startswith("mutex-") if native else None,
-            "sources": {path: "parser-control-source-marker" for path in (W.LATEST_SOURCE, W.NESTED_SOURCE, W.POLICY_SOURCE)},
+            "cases": list(W.SUITES[suite]), "priority_inheritance": suite in W.SUITE_PROTOCOLS if native else None,
+            "sources": {path: "parser-control-source-marker" for path in (W.LATEST_SOURCE, W.NESTED_SOURCE, W.POLICY_SOURCE, W.PUBLICATION_SOURCE)},
             "mutex_policy": W.mutex_policy("nuttx-target" if native else "host-functional", suite),
-            "pthread_mutex_default_protocol": {"mutex-inherit": "inherit", "mutex-no-inherit": "none"}.get(suite)}
+            "pthread_mutex_default_protocol": W.SUITE_PROTOCOLS.get(suite) if native else None}
 
 
 def report(case, native=False, build_id=BUILD_ID):
@@ -103,6 +104,35 @@ def report(case, native=False, build_id=BUILD_ID):
         observed["latest"] = {"paused_writer_reads": 2, "paused_reader_publications": 32, "fanout_skew_checks": 1,
                               "rounds": 4096, "payloads": [{"record_bytes": 50,
                               "mutex_elapsed_ns": 150, "mailbox_elapsed_ns": 100}] * 3}
+    if case == "publication-progress":
+        def paused(role):
+            if not native:
+                return None
+            person = next(p for p in participants if p["role"] == role)
+            return {"tid": person["start"]["tid"], "policy": 1, "base_priority": 120,
+                    "effective_priority": 120, "state": 6, "waiting_semaphore": True, "runnable": False}
+        def cost(size, blocks):
+            def window(before, after, count_before, count_after, alloc=0, dealloc=0):
+                return {"alloc": alloc, "zeroed": 0, "realloc": 0, "dealloc": dealloc, "failed": 0,
+                        "live_before": before, "live_after": after,
+                        "blocks_before": count_before, "blocks_after": count_after}
+            return {"elapsed_ns": 1000, "fully_reclaimed": True,
+                    "setup": window(1000, 1000 + size, 10, 10 + blocks, alloc=blocks),
+                    "first_use": window(1000 + size, 1000 + size, 10 + blocks, 10 + blocks),
+                    "steady": window(1000 + size, 1000 + size, 10 + blocks, 10 + blocks),
+                    "teardown": window(1000 + size, 1000, 10 + blocks, 10, dealloc=blocks)}
+        observed["publication"] = {
+            "imu_sources": 2, "readers": 2, "paused_writer_reads": 64, "paused_reader_publications": 64,
+            "pause_scope": "between-production-api-calls", "paused_writer": paused("publication-writer-low"),
+            "paused_reader": paused("publication-reader-low"), "timestamps_preserved": True,
+            "freshness_preserved": True, "sticky_faults_preserved": True, "late_samples_suppressed": True,
+            "independent_sources": True,
+            "native_configuration": {"priority_inheritance": True, "default_prio_inherit": True,
+                                     "default_protocol": 1, "protocol_none": 0, "protocol_inherit": 1,
+                                     "holder_capacity": 0} if native else None,
+            "comparison": {"rounds": 4096, "imu_sources": 2, "readers": 2, "gnss_enabled": False,
+                           "scope": "same-image-instrumented-uncontended", "memory_scope": "requested-rust-global-allocator",
+                           "mutex": cost(256, 1), "publication": cost(4096, 5)}}
     return {"schema": "owner-qualification-v1", "case": case, "token": TOKEN, "build_id": build_id,
             "domain": "nuttx-target" if native else "host-functional", "pass": True,
             "native_scheduling": native, "fifo_policy": 1 if native else None,
@@ -149,6 +179,63 @@ class ParserControls(unittest.TestCase):
         value = report("latest-value-progress", True)
         value["observations"]["latest"]["paused_writer_reads"] = 1
         with self.assertRaises(ValueError): self.parse(value)
+
+    def test_publication_requires_paused_peers_lifecycle_and_matching_comparison(self):
+        base = report("publication-progress", True)
+        mutations = [lambda p: p.update(paused_writer_reads=63),
+                     lambda p: p.update(paused_reader_publications=63),
+                     lambda p: p.update(pause_scope="inside-atomic-operation"),
+                     lambda p: p["paused_reader"].update(waiting_semaphore=False),
+                     lambda p: p["paused_writer"].update(effective_priority=180),
+                     lambda p: p["paused_writer"].update(tid=99),
+                     lambda p: p["native_configuration"].update(default_prio_inherit=False),
+                     lambda p: p["native_configuration"].update(holder_capacity=8),
+                     lambda p: p["comparison"].update(gnss_enabled=True),
+                     lambda p: p["comparison"].update(rounds=4095)]
+        for field in ("timestamps_preserved", "freshness_preserved", "sticky_faults_preserved",
+                      "late_samples_suppressed", "independent_sources"):
+            mutations.append(lambda p, field=field: p.update({field: False}))
+        for index, mutation in enumerate(mutations):
+            with self.subTest(mutation=index):
+                value = copy.deepcopy(base)
+                mutation(value["observations"]["publication"])
+                with self.assertRaises(ValueError): self.parse(value)
+
+    def test_publication_requires_zero_call_windows_and_complete_reclamation(self):
+        base = report("publication-progress", True)
+        for variant, phase in (("mutex", "steady"), ("publication", "steady"), ("publication", "first_use")):
+            value = copy.deepcopy(base)
+            value["observations"]["publication"]["comparison"][variant][phase].update(alloc=1, dealloc=1)
+            with self.subTest(variant=variant, phase=phase), self.assertRaises(ValueError): self.parse(value)
+        for variant in ("mutex", "publication"):
+            mutations = [lambda c: c.update(fully_reclaimed=False),
+                         lambda c: c["teardown"].update(live_after=1001),
+                         lambda c: c["setup"].update(failed=1),
+                         lambda c: c["setup"].update(alloc=True),
+                         lambda c: c["first_use"].update(blocks_before=99),
+                         lambda c: c.update(elapsed_ns=0)]
+            for index, mutation in enumerate(mutations):
+                value = copy.deepcopy(base)
+                mutation(value["observations"]["publication"]["comparison"][variant])
+                with self.subTest(variant=variant, mutation=index), self.assertRaises(ValueError): self.parse(value)
+
+    def test_publication_cannot_fabricate_native_evidence_or_attach_to_another_case(self):
+        for field in ("native_configuration", "paused_writer", "paused_reader"):
+            value = report("publication-progress")
+            value["observations"]["publication"][field] = report("publication-progress", True)["observations"]["publication"][field]
+            with self.subTest(field=field), self.assertRaises(ValueError): self.parse(value)
+        value = report("std-disconnect")
+        value["observations"]["publication"] = report("publication-progress")["observations"]["publication"]
+        with self.assertRaises(ValueError): self.parse(value)
+
+    def test_publication_comparison_retains_storage_until_teardown(self):
+        value = report("publication-progress", True)
+        cost = value["observations"]["publication"]["comparison"]["mutex"]
+        cost["first_use"].update(dealloc=1, live_after=1000, blocks_after=10)
+        for phase in ("steady", "teardown"):
+            cost[phase].update(live_before=1000, live_after=1000, blocks_before=10, blocks_after=10, dealloc=0)
+        with self.assertRaisesRegex(ValueError, "retired its storage"):
+            self.parse(value)
 
     def test_rejects_priority_drift_missing_restore_or_unaccounted_participant(self):
         base = report("owner-independent-inputs", True)
@@ -291,7 +378,7 @@ class ParserControls(unittest.TestCase):
 
 class BuildSuiteControls(unittest.TestCase):
     def test_config_requires_flat_single_core_and_both_protocol_settings(self):
-        for case in ("std-disconnect", *W.MUTEX_CASES):
+        for case in ("std-disconnect", *W.MUTEX_CASES, "publication-progress"):
             specification = suite_inputs(True, case)
             values = {"BUILD_FLAT": "y", **specification["mutex_policy"]["kconfig"]}
             def config(symbols): return "".join(f"CONFIG_{symbol}={value}\n" for symbol, value in symbols.items())
@@ -314,7 +401,7 @@ class BuildSuiteControls(unittest.TestCase):
                 W.validate_policy_receipt({"mutex_policy": value}, specification)
 
     def test_current_source_receipt_cannot_downgrade_to_legacy(self):
-        for source in (W.POLICY_SOURCE, W.NESTED_SOURCE):
+        for source in (W.POLICY_SOURCE, W.NESTED_SOURCE, W.PUBLICATION_SOURCE):
             for removed in ("suite", "mutex_policy"):
                 specification = suite_inputs(True)
                 specification["sources"] = {source: "parser-control-source-marker"}
@@ -337,7 +424,9 @@ class RetainedEvidenceControls(unittest.TestCase):
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name)
 
-    def build(self, native=False, case="std-disconnect", profile=None, latest=True, nested=True, legacy=False, policy=True):
+    def build(self, native=False, case="std-disconnect", profile=None, latest=True, nested=True, legacy=False, policy=True, publication=None):
+        if publication is None:
+            publication = policy and not legacy
         root = self.root / "input-build"
         root.mkdir()
         source = root / "retained/sources/tests/owner-qualification/src/main.rs"
@@ -358,10 +447,15 @@ class RetainedEvidenceControls(unittest.TestCase):
             policy_source.parent.mkdir(parents=True)
             policy_source.write_text("// synthetic resource mutex policy source, never executed\n")
             sources[W.POLICY_SOURCE] = W.digest(policy_source)
+        if publication:
+            publication_source = root / "retained/sources" / W.PUBLICATION_SOURCE
+            publication_source.parent.mkdir(parents=True, exist_ok=True)
+            publication_source.write_text("// synthetic publication source, never executed\n")
+            sources[W.PUBLICATION_SOURCE] = W.digest(publication_source)
         specification = {**suite_inputs(native, case),
                          "profile": (profile or "esp32s3-ram-footprint") if native else None,
                          "sources": sources}
-        omitted = ([] if latest else ["latest-value-progress"]) + ([] if nested else ["std-mutex-nested"])
+        omitted = ([] if latest else ["latest-value-progress"]) + ([] if nested else ["std-mutex-nested"]) + ([] if publication else ["publication-progress"])
         specification["cases"] = [case for case in specification["cases"] if case not in omitted]
         if legacy:
             for key in ("suite", "cases", "pthread_mutex_default_protocol", "mutex_policy"):
@@ -459,6 +553,24 @@ class RetainedEvidenceControls(unittest.TestCase):
         value = report("std-mutex-nested", True, build["build_id"])
         with self.assertRaises(ValueError):
             W.parse(transcript(value), build, value["case"], TOKEN)
+
+    def test_prior_host_receipt_does_not_acquire_publication_case(self):
+        root, build = self.build(publication=False)
+        self.assertEqual(W.inspect(root)["case_count"], 11)
+        value = report("publication-progress", False, build["build_id"])
+        with self.assertRaises(ValueError):
+            W.parse(transcript(value), build, value["case"], TOKEN)
+
+    def test_publication_suite_requires_retained_source_and_inherit_control(self):
+        root, build = self.build(True, case="publication-progress")
+        self.assertEqual(W.inspect(root)["cases"], ["publication-progress", "std-mutex-inherit"])
+        for case in W.SUITES["publication"]:
+            value = report(case, True, build["build_id"])
+            self.assertEqual(W.parse(transcript(value), build, case, TOKEN), value)
+        specification = copy.deepcopy(build["inputs"])
+        specification["sources"].pop(W.PUBLICATION_SOURCE)
+        specification["cases"] = ["std-mutex-inherit"]
+        with self.assertRaises(ValueError): W.selected_cases(specification)
 
     def test_source_identity_and_symlink_containment(self):
         root, _ = self.build()

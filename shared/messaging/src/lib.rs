@@ -1,4 +1,9 @@
-//! Layer-neutral typed delivery and optional bounded task-context channels.
+//! Layer-neutral typed delivery and optional task-context communication.
+//!
+//! `channels` supplies bounded event queues; the independent `latest` feature
+//! supplies fixed-reader, coalescing snapshots through `messaging::latest`.
+//! With neither feature, delivery contracts require only core. `latest` uses
+//! `no_std + alloc`; it does not enable the std-backed channel feature.
 #![no_std]
 #![forbid(unsafe_code)]
 
@@ -8,6 +13,9 @@ extern crate std;
 mod channel;
 #[cfg(feature = "channels")]
 pub use channel::{bounded, Inbox, Sender};
+
+#[cfg(feature = "latest")]
+pub mod latest;
 
 /// Rejection returns the original owned value to its producer.
 #[derive(Debug, PartialEq, Eq)]

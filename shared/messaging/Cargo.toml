@@ -9,3 +9,7 @@ name = "messaging"
 [features]
 default = ["channels"]
 channels = []
+latest = ["dep:triple_buffer"]
+
+[dependencies]
+triple_buffer = { version = "=9.0.0", default-features = false, optional = true }

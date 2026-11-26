@@ -22,6 +22,104 @@ joined cleanup. `sdk_{nuttx,zephyr}.c` translate native operations;
 `tests/profiles/{esp32s3,pico2w}-mpsc.toml`. No production HAL API or
 benchmark Cargo feature is added.
 
+## Host capture admission comparison
+
+The serial, harness-free
+[capture fixture](rust/tests/capture.rs) source-includes Motion Tracker's
+unchanged `Capture` and clock implementation. It compares their observable
+capture behavior with desktop `std::sync::mpsc` and pinned `heapless::spsc`
+0.9.4 queue models. This is a host contract and storage comparison. It does not
+measure timing, run the patched NuttX std backend, or replace production capture.
+
+Run it from the repository root:
+
+```sh
+mkdir -p target/mpsc/capture-host
+CARGO_TARGET_DIR=target/qualification-build-driver \
+CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0 \
+CARGO_INCREMENTAL=0 CARGO_BUILD_JOBS=1 \
+cargo test --manifest-path tests/mpsc-comparison/rust/Cargo.toml \
+  --test capture --locked > target/mpsc/capture-host/results.log
+```
+
+The executable emits `CAPTURE_METADATA`, `CAPTURE_COMPARE`, `CAPTURE_CHECK`,
+and `CAPTURE_GATES` JSON records. Metadata hashes the compiled-in capture,
+clock, fixture, manifest and lockfile bytes using Git blob SHA-1. Retain the
+whole output and the command's exit status. The existing allocation probe
+observes requested Rust heap bytes, not process RAM or native allocator use.
+The harness is disabled because an ordinary libtest harness can allocate
+concurrently with an allocation window. The source-included module's own
+`#[test]` functions are not executed by this harness; they remain in the
+Motion Tracker test suite.
+
+Every variant has **512 usable record slots**:
+
+| Variant | Admission capacity | Extra storage distinction |
+| --- | --- | --- |
+| Current `Capture` | One 512-record pool across all sources | Reserves its private scalar records on enable and releases them on finish |
+| Desktop std MPSC model | One 512-record pool across all sources | Reports actual requested setup allocation; this is the host standard library |
+| Even SPSC model | IMU 1: 171, IMU 2: 171, GNSS: 170 | Three rings use 172, 172, and 171 physical slots |
+| Rate SPSC model | IMU 1: 254, IMU 2: 254, GNSS: 4 | Three rings use 255, 255, and 5 physical slots |
+
+The two partitions are experiment inputs, not accepted product budgets.
+`heapless::spsc::Queue<T, N>` has `N - 1` usable slots. Defaults and
+`portable-atomic` fallbacks are disabled; this host witness uses the crate's
+native-width atomic load/store implementation. The fixture adds no unsafe
+queue code. Source inspection establishes exclusive producer/consumer endpoint
+ownership and release/acquire publication, but target atomic instructions and
+scheduling still need native qualification.
+
+Each matched trace withholds consumption while offering either two or three
+seconds of nominal 100 Hz / 100 Hz / 2 Hz data, one active IMU, a GNSS burst,
+or unequal source bursts. Canonical queue records retain exactly the scalar
+fields exported by the real capture path. Independent wire decoding checks
+source, sequence, timestamp truncation and payload bits; it makes no assumption
+about the layout of Capture's private `Sample` type. The reported queue record
+layout, inline object size and requested setup heap allocation are distinct
+quantities. Inline size is not stack high-water measurement.
+
+The current capture path runs its actual record, readiness, host unpark, batch,
+overflow marker and finish operations. Queue models deliberately stop admission
+at their first Full in the serial trace, return the unadmitted record, and
+classify subsequent offers as closed. They are **not concurrent export
+protocols**. Their rotating three-source drain preserves each source's FIFO
+without waiting for an absent source; cross-source interleaving can change.
+All rows reconcile offered = admitted + full + closed and admitted = delivered
+after draining. They report unused slots at overflow, exposing capacity stranded
+in other rings instead of treating equal total capacity as equal admission.
+
+The unchanged encoder subsequently processes each observed drain order in
+batches of 16. Independent decoding verifies full-float v1, v2 and v3 payloads,
+and the report records their different wire sizes. This post-processing is
+outside allocation windows and is not an integrated SPSC capture implementation.
+UTC anchoring, native-count reconstruction, partial transport writes and client
+behavior remain with their owning fixtures.
+
+Additional witnesses check non-Copy value ownership through Full, ring wrap and
+retirement; three producers and a stalled consumer exchange 1,536 records across 32
+full/drain rounds; and simultaneous overflow of the real Capture retains one
+missing identity, drains its admitted prefix and restarts cleanly. Dropping a raw
+SPSC consumer does not close its producer, unlike dropping an MPSC receiver.
+Closure therefore needs an explicit capture protocol.
+
+A deterministic negative control pauses an SPSC producer after its last epoch
+check. The controller closes admission, observes an empty ring and starts a new
+epoch before allowing the old commit. The old record then appears. This is an
+expected failure of the **epoch-check-only protocol**, not of the SPSC queue.
+Stable ring storage is retained throughout the test. Empty storage is not proof
+that every admitted producer is quiescent, and a last epoch check is not an
+atomic commit barrier.
+
+Production capture stays unchanged. Adoption remains gated on concurrent
+admission/overflow arbitration, accounting for in-flight commits before terminal
+delivery, producer quiescence across restart, the actual communications-owner
+wake/clear/recheck/sleep protocol, transport/client compatibility, declared
+product stall and memory budgets, and native progress qualification. A queue
+model's zero steady-state Rust allocator calls does not establish these
+properties or an acquisition-latency improvement. See
+[#446](https://github.com/yongkyuns/nxrs/issues/446) and the
+[capture contract](../../docs/concurrency-event-communication.md#motion-tracker-observations-and-capture).
+
 ## Build
 
 Use Python 3.11+, Cargo, CMake/Ninja, pyelftools for Pico placement and pyserial

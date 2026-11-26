@@ -19,6 +19,8 @@ is a legitimate asynchronous boundary even when measurements are periodic.
 | Multiple queues | One receiver owner and one logical blocking selection point |
 | Multi-queue implementation | Pinned Crossbeam bounded channels as the preferred qualification candidate |
 | Simple single-queue cases | Existing std bounded channels remain valid; no automatic migration |
+| Latest observations | Fixed exclusive publishers/readers; explicit coalescing, freshness and retained faults |
+| Ordered capture | Preserve shared admission, overflow identity and drain/close semantics before changing storage |
 | Data inside an owner | Direct calls and borrows |
 | Nested shared task locks | Optional std-backed `shared/lock-order` with a declared strict rank order |
 | Bulk data across a justified boundary | Explicit bounded buffers/rings with a tested notification contract |
@@ -124,13 +126,23 @@ For NXRS, decide per consumer whether it needs current state or ordered history.
 
 ### Motion Tracker observations and capture
 
-Motion Tracker's acquisition callbacks publish directly to navigation's shared
-observations. The display and communications read them on their own deadlines.
-Today, one mutex protects both IMUs, the GNSS fix and the satellite report.
-Device-open failures and session reaping also write source state. The display
-inbox carries fault hints, and a missed hint cannot hide a retained fault.
-Observation callbacks accept `FnMut`, so each can own its producer endpoints
-through the HAL session.
+Motion Tracker's acquisition callbacks publish directly through navigation's
+fixed latest-value endpoints. Construction creates two independent readers
+before opening any acquisition session: one belongs to the display owner
+(including USB and satellite rendering), and one belongs to communications.
+Each `FnMut` callback exclusively owns its source publisher. The GNSS publisher
+owns separate fix and satellite streams. No worker is added.
+
+The optional `latest` feature in `shared/messaging` wraps pinned `triple_buffer`
+9.0.0 with non-cloneable, non-`Sync` endpoints and `Copy + Send` payloads.
+Publication and reading require mutable ownership. Each source has one
+triple-buffer state per reader; two IMUs, GNSS fixes and satellite reports use
+eight preallocated states, with three payload slots per state. Atomic metadata,
+cache padding, endpoint arrays and reference counts add to the payload budget.
+Neither operation allocates, deallocates, invokes user `Clone`/`Drop`, or waits
+for a peer. Endpoint teardown may deallocate. Target atomic lowering still
+determines the supported progress guarantee; this API is not a hardware
+wait-free or ISR-safety claim.
 
 An independent latest reader starts in `Waiting`, then sees a complete
 committed sample with its original reception time. Later samples may replace
@@ -139,22 +151,125 @@ reports after two receiver intervals with a six-second minimum. Faults stay
 terminal for the acquisition lifetime. Per-source mailboxes permit skew
 between sources and between readers, so their consumers must tolerate it.
 
+Navigation owns a separate shared set of monotonic atomic fault flags. Callback
+faults, failed opens and joined-session reconciliation set those flags without
+acquiring a payload publisher. Readers check the flag after copying the payload;
+a late sample cannot clear a fault. Sensor notifications in the display inbox
+are wake hints, so full or missed notifications do not hide terminal state. A published
+`ObservationService` cannot call the local service's `observe` method. A new
+acquisition lifetime requires new endpoints and fault state.
+
+Communications keeps its fixed reader while inactive. Startup transfers it
+through the existing control state; failed thread creation restores it for a
+later attempt. The running worker reads outside that control mutex. Exit or
+unwind returns the endpoint, and it can be recovered only after joining.
+This permits explicit reuse without adding subscribers. It does not add an
+automatic restart policy for a communications worker that has exited.
+
 The [owner qualification fixture](../tests/owner-qualification/README.md)
-compares a mutex with two fixed `triple_buffer` 9.0.0 readers using actual sensor
-record types. Each producer owns one input per reader. The fixture verifies
-reading a previous complete record during an unfinished publication, seeing
-different complete versions during fanout, and publishing while a reader retains
-a slot. Device-open rollback, the late communications owner, freshness and
-product scheduling require separate checks. Measure those paths and the linked,
-heap and stack costs before selecting a
-replacement. Freshness thresholds describe which readings are usable; maximum
-publication latency and acceptable acquisition jitter remain to be measured.
+keeps the original raw-buffer experiment and adds `publication-progress`, which
+calls the actual navigation API. Its separate `publication` suite uses the
+normal PI-enabled mutex default and runs the ordinary mutex donation control
+in the same image. It checks complete reads while a low-priority publisher is
+paused, publication while a low-priority reader is paused, original timestamps,
+freshness, independent sources and sticky faults. Pauses are between production
+API calls; they do not inject preemption into an atomic instruction. The same
+image compares two IMU updates and two snapshots for 4,096 rounds, with setup,
+first-use, steady-state and teardown Rust allocation windows. Host lifecycle
+tests additionally cover device-open failure, a full terminal wake inbox,
+failed communications spawn and joined reuse.
+
+Product scheduling, actual target stack high-water, physical acquisition jitter
+and worst-case latency remain qualification gates. Freshness thresholds describe
+which readings are usable; timing acceptance also needs a publication deadline
+and an acquisition jitter budget. The complete acquisition callback still
+invokes the synchronized ordered-capture path after latest publication.
 
 Ordered capture belongs to the Motion Tracker export. It uses a 512-record
 pool shared across sources, drains batches of up to 16, and retains the first
 rejected record's source and sequence on overflow. A wake tells communications
 to inspect that retained work. The admission, overflow and wake gates for a
 capture replacement are tracked in [#446](https://github.com/yongkyuns/nxrs/issues/446).
+
+The [host capture comparison](../tests/mpsc-comparison/README.md#host-capture-admission-comparison)
+uses the actual export implementation and wire oracle. It compares equal total
+capacity with desktop std MPSC and fixed per-source SPSC queues. A nominal
+two-second, 404-record stalled-consumer workload fits the shared pool but an
+evenly partitioned SPSC design admits only 346 records. A rate-weighted split
+admits all 404, then admits only 406 of a three-second, 606-record workload while
+106 slots remain unused elsewhere; the shared pool admits 512. Partitioning
+therefore changes admission behavior. The comparison retains non-Copy ownership,
+overflow/restart and epoch-boundary controls, but does not qualify a replacement
+admission/commit/close protocol, wake protocol, or target memory and scheduling.
+Production capture retains its current pool until those requirements are met.
+
+#### ARM product build comparison
+
+Matched `mps2-an521-mock` builds of the actual Motion Tracker application
+compare the PI-enabled baseline `204f4297` with this publication integration.
+Both use the pinned ARM toolchain, identical effective Kconfig, standard-library
+patch receipt, linker script and mutex policy. All 126 native ABI values match.
+
+| Linked product measurement | Mutex baseline | Fixed-reader implementation | Change |
+| --- | ---: | ---: | ---: |
+| File-backed allocated ELF sections | 425,298 B | 429,842 B | +4,544 B |
+| Unpadded `nuttx.bin` | 425,300 B | 429,844 B | +4,544 B |
+| Static SRAM sections | 10,900 B | 10,900 B | 0 B |
+
+The binary includes two bytes of flash alignment; the SRAM address span is
+10,908 bytes in both builds, including eight bytes between sections. ELF debug
+file size is excluded. Dynamic publication storage, native heap and task stacks
+are separate from static SRAM. This ARM mock profile has unbound display and
+radio capabilities; it does not qualify the ESP32/CoreS3 product footprint or
+physical execution. Reproduce each source revision through the normal frontend:
+
+```sh
+cargo nxrs build --app motion-tracker --profile mps2-an521-mock \
+  --out target/tracker-publication-comparison
+```
+
+Both images also completed two sequential four-frame runs in one fresh MPS2
+QEMU boot using `motion_tracker --interval-ms 100 --frames 4 --stream-usb --ble`.
+Each run returned zero, with both IMUs and GNSS live in its final USB frame.
+This exercises startup, the existing optimized 23 KiB communications task,
+joined shutdown and sensor reopening. Unbound TLS pairing follows its ordinary
+failure path, so active BLE snapshot consumption and stack high-water remain
+outside this smoke test.
+
+#### CoreS3 product-path baseline
+
+A physical CoreS3 and M135 ran the `m5stack-cores3-dual-imu` product profile
+at `283e7597` with temporary timing probes. The same image used the live
+display, both 100 Hz IMUs, GNSS, and authenticated BLE v3 export in each case.
+The preemption case made a priority-95 task runnable for 120 ms while the
+priority-90 display held the observation mutex. NuttX reported both
+priority-100 IMU tasks waiting on a semaphore inside observation publication.
+The BLE peer withheld cumulative acknowledgments independently. The four main
+cases observed export for 10 seconds each, with a second run for the control
+and combined cases.
+
+| Load | Longest IMU callback | Longest BLE batch gap | Peak capture depth |
+| --- | ---: | ---: | ---: |
+| Control | 0.81–3.05 ms | 0.121–0.123 s | 17–19 |
+| Display preemption | 121.67 ms | 0.137 s | 20 |
+| 0.95 s BLE acknowledgment hold | 1.60 ms | 1.043 s | 152 |
+| Preemption and BLE hold | 119.04–119.58 ms | 0.816–0.877 s | 137–138 |
+
+Observation publication accounted for the forced delay. The ordered capture
+step took at most 2.86 ms. The peer saw no sequence gaps in the received
+prefixes. With acknowledgments held for 7 seconds, the 512-record pool filled.
+The peer received all 1,093 admitted records and a loss marker for IMU 1
+sequence 788, immediately after that source's record 787.
+
+An IMU stopped early in the control as well as under load. Runs that recorded
+the cause reported a sensor timeout. Qualifying sustained acquisition requires
+isolating the timeout and checking hardware FIFO continuity.
+
+These product-path measurements predate the normal PI-enabled mutex policy
+and the fixed-reader integration. They identify a shared observation-lock wait;
+they do not establish the speedup from replacing a PI-enabled mutex. Keep the
+historical image and its results separate from the current-source publication
+suite and future physical product captures.
 
 ## Dedicated capacity, one logical wait point
 

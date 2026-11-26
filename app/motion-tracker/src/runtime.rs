@@ -4,7 +4,9 @@ use communications::{
     Capture, CellularConfig, Collector, Communications, Endpoint, Pairing, Telemetry, View, Zoom,
 };
 use messaging::bounded;
-use navigation::observations::{Observation, ObservationService};
+use navigation::observations::{
+    publication, Measurement, Observation, ObservationPublishers, ObservationService, SensorFault,
+};
 use screen::{Action, Screen};
 use std::io::{self, Write};
 use std::sync::{
@@ -143,6 +145,23 @@ enum Event {
     Touch { event: touch::Event, missed: bool },
 }
 
+fn sensor_event(
+    capture: Arc<Capture>,
+    mut record: impl FnMut(&Observation) -> Result<Option<Measurement>, SensorFault> + Send + 'static,
+) -> impl FnMut(Observation) -> Option<Event> + Send + 'static {
+    move |event| {
+        match record(&event) {
+            Ok(Some(sample)) => capture.record(sample),
+            Ok(None) => {}
+            Err(_) => {
+                capture.sensor_failed();
+                return Some(Event::SensorChanged);
+            }
+        }
+        None
+    }
+}
+
 pub(super) const USAGE: &str = "motion_tracker [--interval-ms 100..2000] [--frames N] [--stream-usb] [--ble] [--cellular-apn APN [--collector IPv4:PORT --collector-pin SHA256 [--cellular-report-secs 1..86400]]] [--map-relay IPv4:PORT --map-pin SHA256] [--map-zoom 15..18] or motion_tracker --battery";
 
 pub(super) fn run(args: impl Iterator<Item = String>) -> io::Result<()> {
@@ -186,27 +205,20 @@ fn track(
         [primary_scale, secondary_scale]
             .map(|applied| applied.ok().and_then(|config| config.counts_scale)),
     ));
-    let (mut sensors, readings) = ObservationService::new_shared(IMU_FRESH, Some(FIX_FRESH));
-    let sensor_event = {
-        let capture = capture.clone();
-        let readings = readings.clone();
-        move |event: Observation| {
-            match readings.record(&event) {
-                Ok(Some(sample)) => capture.record(sample),
-                Ok(None) => {}
-                Err(_) => {
-                    capture.sensor_failed();
-                    return Some(Event::SensorChanged);
-                }
-            }
-            None
-        }
-    };
-    let telemetry = Telemetry {
+    let (
+        ObservationPublishers {
+            imu: [mut primary_publisher, mut secondary_publisher],
+            gnss,
+        },
+        [display_readings, readings],
+    ) = publication::<2, 2>(IMU_FRESH, Some(FIX_FRESH));
+    let mut gnss_publisher = gnss.expect("GNSS publication configured");
+    let mut sensors = ObservationService::with_reader(display_readings);
+    let mut telemetry = Some(Telemetry {
         readings,
-        capture,
+        capture: capture.clone(),
         interval,
-    };
+    });
     let mut communications =
         (options.ble || options.cellular.is_some() || options.tile_relay.is_some())
             .then(|| {
@@ -214,7 +226,7 @@ fn track(
                     options.ble,
                     options.cellular,
                     options.tile_relay,
-                    telemetry.clone(),
+                    &mut telemetry,
                     notify_links.clone(),
                 )
             })
@@ -222,11 +234,18 @@ fn track(
     let mut view = View::default();
     let mut required = Ok(());
     for result in [
-        sensors.start_imu_with(0, primary, events.clone(), sensor_event.clone()),
+        sensors.start_imu_with(
+            0,
+            primary,
+            events.clone(),
+            sensor_event(capture.clone(), move |event| {
+                primary_publisher.record(event)
+            }),
+        ),
         sensors.start_gnss_with(
             composition::gnss::primary_gnss(),
             events.clone(),
-            sensor_event.clone(),
+            sensor_event(capture.clone(), move |event| gnss_publisher.record(event)),
         ),
     ] {
         if let Err(fault) = result {
@@ -235,7 +254,14 @@ fn track(
         }
     }
     if required.is_ok() && secondary_present {
-        if let Err(fault) = sensors.start_imu_with(1, secondary, events.clone(), sensor_event) {
+        if let Err(fault) = sensors.start_imu_with(
+            1,
+            secondary,
+            events.clone(),
+            sensor_event(capture.clone(), move |event| {
+                secondary_publisher.record(event)
+            }),
+        ) {
             report_fault(fault);
         }
     }
@@ -323,7 +349,8 @@ fn track(
                 }
             }
             if report_due {
-                let snapshot = telemetry.snapshot(now);
+                let mut snapshot = Snapshot::from(sensors.snapshot(now));
+                snapshot.clock = capture.clock();
                 if let Some(serial) = &mut serial {
                     communications::write_usb(&mut serial.lock(), &snapshot)?;
                 }
@@ -361,7 +388,7 @@ fn track(
                         view.link,
                         &snapshot,
                         now,
-                        || telemetry.readings.satellites(now),
+                        || sensors.satellites(now),
                         |wanted| communications.as_ref().and_then(|links| links.map(wanted)),
                     )
                     .map_err(display_error)?;
@@ -392,7 +419,7 @@ fn track(
                                 true,
                                 None,
                                 None,
-                                telemetry.clone(),
+                                &mut telemetry,
                                 notify_links.clone(),
                             ) {
                                 Ok(links) => communications = Some(links),
@@ -426,7 +453,11 @@ fn track(
     let stop_touch = touch.as_mut().map(touch::Session::request_stop);
     sensors.join(report);
     let join_touch = touch.as_mut().map(touch::Session::join);
-    let stop_links = communications.as_mut().map(Communications::stop);
+    let stop_links = communications.as_mut().map(|links| {
+        let result = links.stop();
+        drop(links.take_telemetry());
+        result
+    });
     for (operation, failed) in [
         ("stop touch", failed(stop_touch)),
         ("join touch", failed(join_touch)),

@@ -47,6 +47,9 @@ PORTABLE_EXTERNAL: set[str] = {'cfg-if'}
 # provenance and qualification live in hal/detector/README.md; services do not
 # receive a general third-party dependency exception.
 PORTABLE_EXTERNAL_BY_PACKAGE = {
+    # Optional fixed-reader latest values: no_std + alloc, preallocated SPSC
+    # buffer ownership. Target atomic progress is qualified separately.
+    'nxrs-messaging': {'triple_buffer'},
     # Concrete resource construction uses the same portable bus traits.
     'nxrs-composition': {'embedded-hal'},
     'nxrs-detector': {'microflow', 'nalgebra', 'zune-jpeg'},

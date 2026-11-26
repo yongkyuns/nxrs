@@ -12,7 +12,9 @@ qualification-only = true
 
 [dependencies]
 lock_order = { package = "nxrs-lock-order", path = "../../shared/lock-order" }
-messaging = { package = "nxrs-messaging", path = "../../shared/messaging" }
+messaging = { package = "nxrs-messaging", path = "../../shared/messaging", features = ["latest"] }
+navigation = { package = "nxrs-navigation-services", path = "../../service/navigation" }
+allocation_probe = { package = "nxrs-allocation-probe", path = "../allocation-probe" }
 imu = { package = "nxrs-imu", path = "../../hal/imu" }
 gnss = { package = "nxrs-gnss", path = "../../hal/gnss" }
 triple_buffer = { version = "=9.0.0", default-features = false }

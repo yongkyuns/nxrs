@@ -7,6 +7,7 @@ on:
       - '.github/scripts/install-ubuntu-packages.sh'
       - 'tests/mpsc-comparison/**'
       - 'tests/owner-qualification/**'
+      - 'tests/allocation-probe/**'
       - 'tests/rtos-characterization/**'
       - 'tests/rtos_harness/**'
       - 'tests/nuttx-std/wifi/**'
@@ -14,6 +15,8 @@ on:
       - 'hal/wifi/**'
       - 'shared/messaging/**'
       - 'shared/lock-order/**'
+      - 'service/navigation/**'
+      - 'app/motion-tracker/**'
       - 'tests/nuttx-std/channels/mpsc-fixture-iram.ld'
       - 'tests/event-services-comparison/image_package.py'
       - 'tests/profiles/*-mpsc.toml'
@@ -71,10 +74,17 @@ jobs:
           cargo fmt --manifest-path tests/mpsc-comparison/rust/Cargo.toml --check
           cargo fmt --manifest-path tests/owner-qualification/Cargo.toml --check
           cargo test --locked -p nxrs-lock-order
+          cargo test --locked -p nxrs-messaging --features latest
           python3 -m unittest discover -s tests/mpsc-comparison -p 'test_*.py' -v
           python3 -m unittest discover -s tests/owner-qualification -p 'test_*.py' -v
           python3 -m unittest discover -s tests/rtos-characterization -p 'test_*.py' -v
-      - name: Run and replay all eleven current-source owner, latest-value and mutex host cases
+      - name: Compare ordered capture admission and allocation
+        run: |
+          set -o pipefail
+          mkdir -p target/capture-comparison
+          cargo test --manifest-path tests/mpsc-comparison/rust/Cargo.toml --test capture --locked \
+            2>&1 | tee target/capture-comparison/results.log
+      - name: Run and replay all twelve current-source host cases
         run: |
           python3 tests/owner-qualification/workflow.py host --out target/owner-host-ci
           python3 tests/owner-qualification/workflow.py inspect --build target/owner-host-ci \
@@ -90,19 +100,20 @@ jobs:
             target/owner-host-ci/inspect.json
             target/owner-host-ci/retained/**
             target/owner-host-ci/runs/**
+            target/capture-comparison/**
           include-hidden-files: true
           if-no-files-found: warn
           retention-days: 14
 
   mutex-qemu:
-    name: Standard mutex fixed-priority control (${{ matrix.suite }})
+    name: Publication and mutex native controls (${{ matrix.suite }})
     needs: host
     runs-on: ubuntu-24.04
     timeout-minutes: 35
     strategy:
       fail-fast: false
       matrix:
-        suite: [mutex-inherit, mutex-no-inherit]
+        suite: [mutex-inherit, mutex-no-inherit, publication]
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -117,7 +128,7 @@ jobs:
           python3 -m venv target/owner-venv
           target/owner-venv/bin/pip install kconfiglib==14.1.0 pyelftools==0.32
           echo "$GITHUB_WORKSPACE/target/owner-venv/bin" >> "$GITHUB_PATH"
-      - name: Build the selected mutex protocol through the normal frontend
+      - name: Build the selected suite through the normal frontend
         env:
           MUTEX_SUITE: ${{ matrix.suite }}
         run: |
