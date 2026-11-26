@@ -27,6 +27,7 @@ Start with the [performance guide](../website/guide/performance.md) to choose a 
 | How do bounded std inboxes work, and where does their cost come from? | [Bounded channels](std-channel-performance.md) |
 | What consumes RAM and flash as the application grows? | [Memory and image size](rust-std-footprint.md) |
 | How do I detect allocation, retention and stack pressure? | [Rust allocation](memory-qualification.md), [NuttX heap and stacks](nuttx-memory-qualification.md) |
+| Where are sections, allocations and task stacks at a captured lifecycle point? | [Memory Explorer](../tools/memory-explorer/README.md) |
 | How should I test progress, recovery and portability? | [Evaluation method](rtos-characterization.md) |
 | How do detection and video perform together? | [PICO performance report](camera-pico-performance.md) |
 | How accurate are the evaluated person detectors? | [Pretrained detector comparison](camera-detector-alternatives.md) |
