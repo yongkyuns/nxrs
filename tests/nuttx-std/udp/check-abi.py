@@ -71,6 +71,15 @@ def compare(native, rust):
                 scope='listed IPv4 UDP, timeout, address storage and descriptor observations; not all std::net')
 
 
+def private_libc_source(proof):
+    assert proof['selected_source_matches'] is True, 'unverified std selection'
+    library = Path(proof['rustc']).resolve().parent.parent / 'lib/rustlib/src/rust/library'
+    expected_std = (library / 'std/src/lib.rs').resolve()
+    assert Path(proof['expected_source']).resolve() == expected_std, 'std does not belong to the private compiler SDK'
+    assert Path(proof['std_source']).resolve() == expected_std, 'different std source selected'
+    return (library / 'libc-nuttx/src/lib.rs').resolve()
+
+
 def self_test():
     c = {row[0]: 4 for row in fields()}
     c.update({'sockaddr_storage.size': 128, 'sockaddr_storage.align': 8})
@@ -89,6 +98,22 @@ def self_test():
     else:
         raise AssertionError('accepted missing socket evidence')
     print('PASS: ten socket ABI rejection controls; safe overprovisioning accepted')
+    for location in ('fixture-output/toolchain', 'fixture-shared-sdk/toolchain'):
+        sdk = Path(location).resolve()
+        source = str(sdk / 'lib/rustlib/src/rust/library/std/src/lib.rs')
+        proof = dict(rustc=str(sdk / 'bin/rustc'), selected_source_matches=True,
+                     expected_source=source, std_source=source)
+        assert private_libc_source(proof) == sdk / 'lib/rustlib/src/rust/library/libc-nuttx/src/lib.rs'
+        for key, value in (('selected_source_matches', False),
+                           ('expected_source', str(sdk / 'foreign/std/src/lib.rs')),
+                           ('std_source', str(sdk / 'foreign/std/src/lib.rs'))):
+            try:
+                private_libc_source(dict(proof, **{key: value}))
+            except AssertionError:
+                pass
+            else:
+                raise AssertionError('accepted inconsistent private SDK provenance')
+    print('PASS: owned/shared private SDK identity and inconsistent std provenance rejection')
 
 
 def run(out):
@@ -100,7 +125,7 @@ def run(out):
     assert core['probe_abi_compatible'] and not core['errors'], 'thread/startup ABI gate failed'
     assert hashlib.sha256((out / 'resolved.config').read_bytes()).hexdigest() == core['config_sha256']
     proof = json.loads((out / 'std-source.json').read_text())
-    assert proof['selected_source_matches'], 'unverified std selection'
+    expected_libc = private_libc_source(proof)
 
     patch = json.loads((out / 'std-patch.json').read_text())
     assert patch.get('mode') == EXPECTED_PATCH_MODE, 'wrong private SDK patch mode'
@@ -111,7 +136,6 @@ def run(out):
     assert libc_patch.get('source_blob') == EXPECTED_LIBC_SOURCE_BLOB, 'unexpected original NuttX libc binding'
     assert libc_patch.get('alignment') == 8, 'wrong private libc alignment repair'
 
-    expected_libc = (out / 'toolchain/lib/rustlib/src/rust/library/libc-nuttx/src/lib.rs').resolve()
     assert Path(core['libc_source']).resolve() == expected_libc, 'compiled libc did not come from private SDK'
     assert core['libc_package'].endswith('libc@' + expected_version), 'unexpected compiled libc version'
     binding = expected_libc.parent / 'unix/nuttx/mod.rs'
