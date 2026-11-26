@@ -23,6 +23,7 @@ using esp_err_t=int;
 #define HEAP_IRAM_ATTR
 #define IRAM_ATTR
 inline void* heap_caps_aligned_alloc(size_t a,size_t n,uint32_t){void*p=nullptr;return posix_memalign(&p,a,n)?nullptr:p;}
+inline void* heap_caps_malloc(size_t n,uint32_t c){return heap_caps_aligned_alloc(16,n,c);}
 inline void* heap_caps_aligned_calloc(size_t a,size_t n,size_t s,uint32_t c){if(s && n>SIZE_MAX/s)return nullptr;void*p=heap_caps_aligned_alloc(a,n*s,c);if(p)memset(p,0,n*s);return p;}
 inline void heap_caps_free(void*p){free(p);}
 // The fixed graph sizes its arena; allocations use the qualified process heap.

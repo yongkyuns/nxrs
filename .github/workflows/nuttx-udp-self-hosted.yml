@@ -73,8 +73,8 @@ jobs:
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
           export PATH="$HOME/.cargo/bin:$PATH"
 
-          rustup toolchain install 1.90.0 --profile minimal
-          rustup toolchain install nightly-2025-09-15 --profile minimal --component rust-src
+          rustup toolchain install 1.100.0 --profile minimal
+          rustup toolchain install nightly-2026-11-26 --profile minimal --component rust-src
           python3 -m pip install --break-system-packages kconfiglib==14.1.0
 
       - name: Host rejection controls and native std execution
@@ -84,7 +84,7 @@ jobs:
           python3 tests/nuttx-std/udp/check-abi.py --self-test
           python3 tests/nuttx-std/udp/run.py --self-test
           bash -n tests/nuttx-std/build.sh
-          NXRS_PLATFORM=linux cargo +1.90.0 build --locked -p nxrs-std-udp
+          NXRS_PLATFORM=linux cargo +1.100.0 build --locked -p nxrs-std-udp
           python3 tests/nuttx-std/udp/run.py \
             --native target/debug/nxrs-std-udp \
             --output target/udp-native

@@ -12,7 +12,7 @@ deterministic I²C and GPIO devices with the actual NuttX VFS upper halves.
 2. Put GNU Make, GNU sed on macOS, the NuttX Kconfig tools (`kconfig-tweak`
    and `olddefconfig` or `kconfig-conf`), `genromfs`, Python 3, `esptool.py`
    and the ESP32-S3 Xtensa compiler and binutils on `PATH`. CI uses the
-   repository's pinned Espressif GCC 14.2.0 tool bundle.
+   repository's pinned Espressif GCC 16.2.0 tool bundle.
 3. Run from the Nxrs checkout with a new output directory. The script stages
    the exact source revisions and creates separate kernel and userspace images.
 
@@ -59,10 +59,10 @@ uses group-local pthread keys. The fixture exercises worker lifecycle without a
 sensor.
 
 ```sh
-cargo +1.90.0 nxrs build \
+cargo +1.100.0 nxrs build \
   --manifest-path tests/nuttx-std/imu-protected/runtime/Cargo.toml \
   --profile esp32s3-devkit-imu-qualification --out target/s8-runtime-flat
-cargo +1.90.0 nxrs build \
+cargo +1.100.0 nxrs build \
   --manifest-path tests/nuttx-std/imu-protected/runtime/Cargo.toml \
   --profile esp32s3-devkit-imu-protected-qualification --out target/s8-runtime-protected
 ```

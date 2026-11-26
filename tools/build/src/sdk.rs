@@ -27,44 +27,110 @@ pub fn apply_dependency_patch(source: &Path, patch: &Path, out: &Path, name: &st
     fs::copy(patch, out.join(name)).map_err(|e| e.to_string())?;
     Ok(())
 }
-pub fn prepare(root: &Path, source: &Path, out: &Path, sdk: &str) -> Result<PathBuf> {
-    let (unix, socket, version, checksum, parker_selector, selector_patch) = match sdk {
+struct SdkInputs {
+    files: [(&'static str, &'static str); 7],
+    version: &'static str,
+    locked_version: &'static str,
+    checksum: &'static str,
+    libc_blob: &'static str,
+    selector_patch: &'static str,
+    current: bool,
+    upstream_poll: bool,
+}
+
+fn inputs(sdk: &str) -> Result<SdkInputs> {
+    let current = matches!(sdk, "esp-1.100.0.0" | "nightly-2026-11-26");
+    let (unix, socket, selector, version, locked_version, checksum, selector_patch) = match sdk {
         "esp-1.90.0.0" => (
             "ba9e14b8009cd918cd9681dabe518ebf3c3a0a3a",
             "cc111f3521bc1516db00b69c510436060da844f8",
+            "f4d8fa0a58c11b3a97c2492462119f94726a2e9a",
+            "0.2.174",
             "0.2.174",
             "1171693293099992e19cddea4e8b849964e9846f4acee11b3948bcc337be8776",
-            "f4d8fa0a58c11b3a97c2492462119f94726a2e9a",
             "0008-esp-nuttx-parker-selection.patch",
         ),
         "nightly-2025-09-15" => (
             "dd1059fe04a2daf0b4ce610f380813417642f48f",
             "8216f8d2fd58294cf777fffbf41951869695fc22",
+            "b9fb27b4eef2d48a7c8a556a2008f07986b949b3",
+            "0.2.175",
             "0.2.175",
             "6a82ae493e598baaea5209805c49bbf2ea7de956d50d7da0da1164f9c6d28543",
-            "b9fb27b4eef2d48a7c8a556a2008f07986b949b3",
             "0009-nightly-nuttx-parker-selection.patch",
+        ),
+        "esp-1.100.0.0" => (
+            "e4a18794f78235762fa13e9145316ee783f457c7",
+            "15e9dc2c7cc9df9b791bef6bab8ddaa9785df7fb",
+            "f1385ef7bdde6be466cac2d0539da35c452ddb42",
+            "0.2.191",
+            "0.2.189",
+            "65cd87c9a6d60536580b316ad985726104730a5151c99845f2490428ef91240a",
+            "0014-current-nuttx-parker-selection.patch",
+        ),
+        "nightly-2026-11-26" => (
+            "9b6eec8e322b82000b8d04dda30f703220a2f5d1",
+            "9c8b9e6f3a2e6dbd0e9eb0e1cf202089277c28ad",
+            "dffa0ade947ee12b5f694c4ec20ee9f05d52b8f9",
+            "0.2.191",
+            "0.2.191",
+            "65cd87c9a6d60536580b316ad985726104730a5151c99845f2490428ef91240a",
+            "0014-current-nuttx-parker-selection.patch",
         ),
         _ => return Err("unsupported NuttX Rust SDK".into()),
     };
-    let files = [
-        ("std/src/rt.rs", "b3f3b301e3db6ff8596b8e637ebad49e22b44515"),
-        ("std/src/sys/sync/thread_parking/mod.rs", parker_selector),
-        (
-            "std/src/sync/mpmc/mod.rs",
-            "673033034eff5cb4b657dcfd7ddc2ae93b26da0a",
-        ),
-        (
-            "std/src/sync/mpmc/list.rs",
-            "050f26b097a0ef14ecbe26ca1b72f461f55dfe91",
-        ),
-        (
-            "std/src/sync/mpmc/zero.rs",
-            "f1ecf80fcb9f6f65e29bcb21529b8847f43a8139",
-        ),
-        ("std/src/sys/pal/unix/mod.rs", unix),
-        ("std/src/sys/net/connection/socket/unix.rs", socket),
-    ];
+    Ok(SdkInputs {
+        files: [
+            (
+                "std/src/rt.rs",
+                if current {
+                    "35d17d56ddd493c06676ca69f22e410a195a05f4"
+                } else {
+                    "b3f3b301e3db6ff8596b8e637ebad49e22b44515"
+                },
+            ),
+            ("std/src/sys/sync/thread_parking/mod.rs", selector),
+            (
+                "std/src/sync/mpmc/mod.rs",
+                if current {
+                    "a34eabbccb1fc39b82393c62720b6d923c3a1fd0"
+                } else {
+                    "673033034eff5cb4b657dcfd7ddc2ae93b26da0a"
+                },
+            ),
+            (
+                "std/src/sync/mpmc/list.rs",
+                "050f26b097a0ef14ecbe26ca1b72f461f55dfe91",
+            ),
+            (
+                "std/src/sync/mpmc/zero.rs",
+                if current {
+                    "4f645e16fbb6fd790d4a3218fa0cf8307becaeb6"
+                } else {
+                    "f1ecf80fcb9f6f65e29bcb21529b8847f43a8139"
+                },
+            ),
+            ("std/src/sys/pal/unix/mod.rs", unix),
+            ("std/src/sys/net/connection/socket/unix.rs", socket),
+        ],
+        version,
+        locked_version,
+        checksum,
+        selector_patch,
+        current,
+        libc_blob: if current {
+            "4970511599f7da3ab4b9ab7c24fd09b586197454"
+        } else {
+            "69732d845b400e9b8781724d5a9dc3d5f3856913"
+        },
+        // The current nightly already zero-initializes the complete pollfd.
+        upstream_poll: sdk == "nightly-2026-11-26",
+    })
+}
+
+pub fn prepare(root: &Path, source: &Path, out: &Path, sdk: &str) -> Result<PathBuf> {
+    let spec = inputs(sdk)?;
+    let (files, version, checksum) = (spec.files, spec.version, spec.checksum);
     for (path, expected) in files {
         expect(&source.join(LIBRARY).join(path), expected)?;
     }
@@ -125,12 +191,16 @@ pub fn prepare(root: &Path, source: &Path, out: &Path, sdk: &str) -> Result<Path
         }
         let patches = match path {
             "std/src/rt.rs" => vec![(
-                "0012-nuttx-main-thread-once.patch",
+                if spec.current {
+                    "0013-current-nuttx-main-thread-once.patch"
+                } else {
+                    "0012-nuttx-main-thread-once.patch"
+                },
                 "std-main-thread-once.patch",
             )],
             "std/src/sys/sync/thread_parking/mod.rs" => vec![
                 ("0002-nuttx-parker.patch", "std-parker.patch"),
-                (selector_patch, "std-parker-selection.patch"),
+                (spec.selector_patch, "std-parker-selection.patch"),
             ],
             "std/src/sync/mpmc/mod.rs" => vec![(
                 "0007-nuttx-bounded-channel.patch",
@@ -146,11 +216,23 @@ pub fn prepare(root: &Path, source: &Path, out: &Path, sdk: &str) -> Result<Path
             )],
             "std/src/sys/pal/unix/mod.rs" => vec![
                 (
-                    "0003-nuttx-fd-sanitization.patch",
+                    if spec.current {
+                        "0015-current-nuttx-fd-sanitization.patch"
+                    } else {
+                        "0003-nuttx-fd-sanitization.patch"
+                    },
                     "std-fd-sanitization.patch",
                 ),
-                ("0004-nuttx-sigign.patch", "std-sigign.patch"),
+                (
+                    if spec.current {
+                        "0016-current-nuttx-sigign.patch"
+                    } else {
+                        "0004-nuttx-sigign.patch"
+                    },
+                    "std-sigign.patch",
+                ),
             ],
+            _ if spec.upstream_poll => vec![],
             _ => vec![(
                 "0001-native-pollfd-initialization.patch",
                 "std-pollfd-init.patch",
@@ -192,27 +274,49 @@ pub fn prepare(root: &Path, source: &Path, out: &Path, sdk: &str) -> Result<Path
     let vendored = library.join("libc-nuttx");
     fs::rename(unpack, &vendored).map_err(|e| e.to_string())?;
     let nuttx = vendored.join("src/unix/nuttx/mod.rs");
-    let original_blob = "69732d845b400e9b8781724d5a9dc3d5f3856913";
+    let original_blob = spec.libc_blob;
     expect(&nuttx, original_blob)?;
     let unix = vendored.join("src/unix/mod.rs");
     let original_unix = blob(&unix)?;
-    let (mut flags_blob, mut poll_blob) = (String::new(), String::new());
+    let (mut flags_blob, mut poll_blob, mut directory_blob) = (String::new(), String::new(), String::new());
+    let mut wchar_sources = vec![];
     let mut patches = vec![];
-    for (patch, name) in [
-        (
-            "0003-nuttx-sockaddr-alignment.patch",
-            "libc-sockaddr-storage.patch",
-        ),
-        (
-            "0004-nuttx-open-flags.patch",
-            "libc-nuttx-13-open-flags.patch",
-        ),
-        ("0001-nuttx-pollfd-abi.patch", "libc-nuttx-poll.patch"),
-        (
-            "0002-nuttx-directory-inode-abi.patch",
-            "libc-nuttx-directory.patch",
-        ),
-    ] {
+    let mut libc_patches = vec![(
+        "0003-nuttx-sockaddr-alignment.patch",
+        "libc-sockaddr-storage.patch",
+    )];
+    if spec.current {
+        // libc 0.2.191 already has all NuttX 13.1 open flags. Its source
+        // hash and the compiled ABI gate verify that upstream replacement.
+        libc_patches.extend([
+            (
+                "0005-current-nuttx-pollfd-abi.patch",
+                "libc-nuttx-poll.patch",
+            ),
+            (
+                "0006-current-nuttx-directory-inode-abi.patch",
+                "libc-nuttx-directory.patch",
+            ),
+            ("0007-nuttx-xtensa-wchar.patch", "libc-nuttx-wchar.patch"),
+        ]);
+    } else {
+        libc_patches.extend([
+            (
+                "0004-nuttx-open-flags.patch",
+                "libc-nuttx-13-open-flags.patch",
+            ),
+            ("0001-nuttx-pollfd-abi.patch", "libc-nuttx-poll.patch"),
+            (
+                "0002-nuttx-directory-inode-abi.patch",
+                "libc-nuttx-directory.patch",
+            ),
+        ]);
+    }
+    for (patch, name) in libc_patches {
+        if name == "libc-nuttx-poll.patch" {
+            flags_blob = blob(&nuttx)?;
+        }
+        let before = blob(&nuttx)?;
         apply_dependency_patch(
             &vendored,
             &root.join("upstream/libc/patches").join(patch),
@@ -225,13 +329,21 @@ pub fn prepare(root: &Path, source: &Path, out: &Path, sdk: &str) -> Result<Path
         if name == "libc-nuttx-poll.patch" {
             poll_blob = blob(&nuttx)?;
         }
+        if name == "libc-nuttx-directory.patch" {
+            directory_blob = blob(&nuttx)?;
+        }
+        if name == "libc-nuttx-wchar.patch" {
+            wchar_sources.push(json!({"path":"src/unix/nuttx/mod.rs", "original_blob":before, "patched_blob":blob(&nuttx)?, "xtensa_type":"u16"}));
+        }
         patches.push(name);
     }
     apply_dependency_patch(
         &destination,
         &root
             .join("upstream/rust-std/patches")
-            .join(if sdk == "esp-1.90.0.0" {
+            .join(if spec.current {
+                "0017-current-nuttx-libc-override.patch"
+            } else if sdk == "esp-1.90.0.0" {
                 "0005-nuttx-libc-override.patch"
             } else {
                 "0006-nightly-nuttx-libc-override.patch"
@@ -241,7 +353,7 @@ pub fn prepare(root: &Path, source: &Path, out: &Path, sdk: &str) -> Result<Path
     )?;
     patches.push("std-libc-override.patch");
     let lock = library.join("Cargo.lock");
-    let before = rewrite_lock(&destination, &lock, version)?;
+    let before = rewrite_lock(&destination, &lock, spec.locked_version, version)?;
     // Record a conventional, reviewable diff as well as the final source hashes.
     let original = out.join(".library-lock-original");
     fs::write(&original, &before).map_err(|e| e.to_string())?;
@@ -275,7 +387,7 @@ pub fn prepare(root: &Path, source: &Path, out: &Path, sdk: &str) -> Result<Path
     }
     write_json(
         &out.join("std-patch.json"),
-        &json!({"mode":"nuttx-parker-fcntl-sigign-and-libc-socket-align","sdk":sdk,"files":records,"main_thread_initialization":"nuttx-image-once","bounded_channel_backend":"native-transaction-v1","native_sources":native_sources,"libc":{"libc_version":version,"crate_sha256":checksum,"source_blob":original_blob,"patched_blob":blob(&nuttx)?,"alignment":8,"open_flags_abi":"nuttx-13.1","path":format!("{LIBRARY}/libc-nuttx"),"pollfd_abi":"nuttx-13.1","directory_abi":"nuttx-13.1","patches":patches,"poll_sources":[{"path":"src/unix/mod.rs","original_blob":original_unix,"patched_blob":blob(&unix)?},{"path":"src/unix/nuttx/mod.rs","original_blob":flags_blob,"patched_blob":poll_blob}],"directory_sources":[{"path":"src/unix/nuttx/mod.rs","original_blob":poll_blob,"patched_blob":blob(&nuttx)?}]},"patchset_sha256":patchset,"startup_sig_ign":0,"libc_sockaddr_storage_alignment":8,"installed_toolchain_unchanged":true}),
+        &json!({"mode":"nuttx-parker-fcntl-sigign-and-libc-socket-align","sdk":sdk,"files":records,"main_thread_initialization":"nuttx-image-once","bounded_channel_backend":"native-transaction-v1","native_sources":native_sources,"libc":{"libc_version":version,"crate_sha256":checksum,"upstream_locked_version":spec.locked_version,"source_blob":original_blob,"patched_blob":blob(&nuttx)?,"alignment":8,"open_flags_abi":"nuttx-13.1","path":format!("{LIBRARY}/libc-nuttx"),"pollfd_abi":"nuttx-13.1","directory_abi":"nuttx-13.1","patches":patches,"poll_sources":[{"path":"src/unix/mod.rs","original_blob":original_unix,"patched_blob":blob(&unix)?},{"path":"src/unix/nuttx/mod.rs","original_blob":flags_blob,"patched_blob":poll_blob}],"directory_sources":[{"path":"src/unix/nuttx/mod.rs","original_blob":poll_blob,"patched_blob":directory_blob}],"wchar_sources":wchar_sources},"patchset_sha256":patchset,"startup_sig_ign":0,"libc_sockaddr_storage_alignment":8,"installed_toolchain_unchanged":true}),
     )?;
     Ok(destination)
 }
@@ -328,7 +440,12 @@ pub fn native_sources(sysroot: &Path, receipt: &Path) -> Result<Vec<PathBuf>> {
     Ok(sources)
 }
 
-fn rewrite_lock(private: &Path, lock: &Path, version: &str) -> Result<String> {
+fn rewrite_lock(
+    private: &Path,
+    lock: &Path,
+    locked_version: &str,
+    version: &str,
+) -> Result<String> {
     if !lock
         .canonicalize()
         .map_err(|e| e.to_string())?
@@ -337,20 +454,25 @@ fn rewrite_lock(private: &Path, lock: &Path, version: &str) -> Result<String> {
         return Err("SDK lockfile symlink escaped private copy".into());
     }
     let before = read(lock)?;
-    fs::write(lock, local_libc_lock(&before, version)?).map_err(|e| e.to_string())?;
+    fs::write(lock, local_libc_lock(&before, locked_version, version)?)
+        .map_err(|e| e.to_string())?;
     Ok(before)
 }
-fn local_libc_lock(text: &str, version: &str) -> Result<String> {
+fn local_libc_lock(text: &str, locked_version: &str, version: &str) -> Result<String> {
     let mut result = String::new();
     let mut found = 0;
     for (index, block) in text.split("[[package]]").enumerate() {
         if index != 0 {
             result.push_str("[[package]]");
         }
-        if block.contains(&format!("name = \"libc\"\nversion = \"{version}\"\n")) {
+        if block.contains(&format!(
+            "name = \"libc\"\nversion = \"{locked_version}\"\n"
+        )) {
             found += 1;
             for line in block.split_inclusive('\n') {
-                if !line.starts_with("source = ") && !line.starts_with("checksum = ") {
+                if line.starts_with("version = ") {
+                    result.push_str(&format!("version = \"{version}\"\n"));
+                } else if !line.starts_with("source = ") && !line.starts_with("checksum = ") {
                     result.push_str(line);
                 }
             }
@@ -372,10 +494,12 @@ mod tests {
         // Apply the real patch, then compile its actual init function with
         // observable OS/main-ID dependencies. The old source is a negative
         // control; this is not a claim of target ABI qualification.
-        let temp = crate::TempDir::new(&std::env::temp_dir()).unwrap();
-        let runtime = temp.0.join(LIBRARY).join("std/src/rt.rs");
-        fs::create_dir_all(runtime.parent().unwrap()).unwrap();
-        let original = r#"unsafe fn init(argc: isize, argv: *const *const u8, sigpipe: u8) {
+        for current in [false, true] {
+            let temp = crate::TempDir::new(&std::env::temp_dir()).unwrap();
+            let runtime = temp.0.join(LIBRARY).join("std/src/rt.rs");
+            fs::create_dir_all(runtime.parent().unwrap()).unwrap();
+            let original = r#"#[cfg_attr(test, allow(dead_code))]
+unsafe fn init(argc: isize, argv: *const *const u8, sigpipe: u8) {
     #[cfg_attr(target_os = "teeos", allow(unused_unsafe))]
     unsafe {
         sys::init(argc, argv, sigpipe)
@@ -388,18 +512,33 @@ mod tests {
 
 /// Clean up the thread-local runtime state. This *should* be run after all other
 "#;
-        fs::write(&runtime, original).unwrap();
-        let patch = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../upstream/rust-std/patches/0012-nuttx-main-thread-once.patch");
-        apply_dependency_patch(&temp.0, &patch, &temp.0, "std-main-thread-once.patch").unwrap();
-        assert_eq!(
-            hash(&patch).unwrap(),
-            hash(&temp.0.join("std-main-thread-once.patch")).unwrap()
-        );
-        assert!(source::patch(&temp.0, &patch).is_err());
-        let patched = read(&runtime).unwrap();
-        let function = regex::Regex::new(r"(?ms)^unsafe fn init\(.*?^\}").unwrap();
-        let dependencies = r#"
+            let original = if current {
+                // Rust 1.100 initializes the main ID before the per-entry OS state.
+                let os = "    #[cfg_attr(target_os = \"teeos\", allow(unused_unsafe))]\n    unsafe {\n        sys::init(argc, argv, sigpipe)\n    };\n";
+                let id = "    unsafe { main_thread::set(thread::current_id()) };\n";
+                original
+                    .replace(&format!("{os}\n"), "")
+                    .replace(id, &format!("{id}\n{os}"))
+            } else {
+                original.to_owned()
+            };
+            fs::write(&runtime, &original).unwrap();
+            let patch = Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../upstream/rust-std/patches")
+                .join(if current {
+                    "0013-current-nuttx-main-thread-once.patch"
+                } else {
+                    "0012-nuttx-main-thread-once.patch"
+                });
+            apply_dependency_patch(&temp.0, &patch, &temp.0, "std-main-thread-once.patch").unwrap();
+            assert_eq!(
+                hash(&patch).unwrap(),
+                hash(&temp.0.join("std-main-thread-once.patch")).unwrap()
+            );
+            assert!(source::patch(&temp.0, &patch).is_err());
+            let patched = read(&runtime).unwrap();
+            let function = regex::Regex::new(r"(?ms)^unsafe fn init\(.*?^\}").unwrap();
+            let dependencies = r#"
 use std::sync::Once;
 mod thread {
     pub fn current_id() -> std::thread::ThreadId { std::thread::current().id() }
@@ -447,44 +586,45 @@ fn main() {
     assert_eq!(*main_thread::ID.lock().unwrap(), first);
 }
 "#;
-        let rustc = std::env::var_os("RUSTC").unwrap_or_else(|| "rustc".into());
-        for (name, runtime, nuttx, expected) in [
-            ("nuttx", patched.as_str(), true, true),
-            ("host", patched.as_str(), false, true),
-            ("regression", original, true, false),
-        ] {
-            let input = temp.0.join(format!("{name}.rs"));
-            let binary = temp
-                .0
-                .join(format!("{name}{}", std::env::consts::EXE_SUFFIX));
-            fs::write(
-                &input,
-                format!(
-                    "{dependencies}\n{}\n",
-                    function.find(runtime).unwrap().as_str()
-                ),
-            )
-            .unwrap();
-            let mut compiler = Command::new(&rustc);
-            compiler.arg(&input).args([
-                "--edition=2021",
-                "-Aunused_imports",
-                "-Aexplicit_builtin_cfgs_in_flags",
-            ]);
-            if nuttx {
-                compiler.args(["--cfg", "target_os=\"nuttx\""]);
-            }
-            crate::run(compiler.arg("-o").arg(&binary)).unwrap();
-            let result = Command::new(&binary).output().unwrap();
-            assert_eq!(
-                result.status.success(),
-                expected,
-                "{name}: {}",
-                String::from_utf8_lossy(&result.stderr)
-            );
-            if !expected {
-                assert!(String::from_utf8_lossy(&result.stderr)
-                    .contains("image-wide main ID must be published exactly once"));
+            let rustc = std::env::var_os("RUSTC").unwrap_or_else(|| "rustc".into());
+            for (name, runtime, nuttx, expected) in [
+                ("nuttx", patched.as_str(), true, true),
+                ("host", patched.as_str(), false, true),
+                ("regression", original.as_str(), true, false),
+            ] {
+                let input = temp.0.join(format!("{name}.rs"));
+                let binary = temp
+                    .0
+                    .join(format!("{name}{}", std::env::consts::EXE_SUFFIX));
+                fs::write(
+                    &input,
+                    format!(
+                        "{dependencies}\n{}\n",
+                        function.find(runtime).unwrap().as_str()
+                    ),
+                )
+                .unwrap();
+                let mut compiler = Command::new(&rustc);
+                compiler.arg(&input).args([
+                    "--edition=2021",
+                    "-Aunused_imports",
+                    "-Aexplicit_builtin_cfgs_in_flags",
+                ]);
+                if nuttx {
+                    compiler.args(["--cfg", "target_os=\"nuttx\""]);
+                }
+                crate::run(compiler.arg("-o").arg(&binary)).unwrap();
+                let result = Command::new(&binary).output().unwrap();
+                assert_eq!(
+                    result.status.success(),
+                    expected,
+                    "{name}: {}",
+                    String::from_utf8_lossy(&result.stderr)
+                );
+                if !expected {
+                    assert!(String::from_utf8_lossy(&result.stderr)
+                        .contains("image-wide main ID must be published exactly once"));
+                }
             }
         }
     }
@@ -532,7 +672,9 @@ pub extern "C" fn upstream_control() {}
         }
         let input = temp.0.join("channel_scope.rs");
         fs::write(&input, source).unwrap();
-        let definitions = regex::Regex::new(r"(?m)^define [^\n]*@(\w+)\([^\n]* #(\d+) \{").unwrap();
+        let definitions =
+            regex::Regex::new(r"(?m)^define [^\n]*@(\w+)\([^\n]* #(\d+)(?: ![\w.-]+ !\d+)* \{")
+                .unwrap();
         let attributes = regex::Regex::new(r"(?m)^attributes #(\d+) = \{([^\n]*)\}").unwrap();
         let rustc = std::env::var_os("RUSTC").unwrap_or_else(|| "rustc".into());
         for (target, nuttx) in [
@@ -597,7 +739,7 @@ pub extern "C" fn upstream_control() {}
         fs::write(&outside, original).unwrap();
         let lock = private.join("Cargo.lock");
         std::os::unix::fs::symlink(&outside, &lock).unwrap();
-        assert!(rewrite_lock(&private, &lock, "0.2.175").is_err());
+        assert!(rewrite_lock(&private, &lock, "0.2.175", "0.2.175").is_err());
         assert_eq!(read(&outside).unwrap(), original);
     }
     #[test]
@@ -683,10 +825,15 @@ pub extern "C" fn upstream_control() {}
     #[test]
     fn locks_only_selected_libc() {
         let s="[[package]]\nname = \"libc\"\nversion = \"0.2.175\"\nsource = \"registry\"\nchecksum = \"x\"\n[[package]]\nname = \"other\"\nsource = \"keep\"\n";
-        let fixed = local_libc_lock(s, "0.2.175").unwrap();
+        let fixed = local_libc_lock(s, "0.2.175", "0.2.175").unwrap();
         assert!(!fixed.contains("checksum"));
         assert!(fixed.contains("source = \"keep\""));
-        assert!(local_libc_lock(s, "0.2.174").is_err());
-        assert!(local_libc_lock(&format!("{s}{s}"), "0.2.175").is_err());
+        let bumped = local_libc_lock(s, "0.2.175", "0.2.191").unwrap();
+        assert!(bumped.contains("name = \"libc\"\nversion = \"0.2.191\"\n"));
+        assert!(!bumped.contains("0.2.175"));
+        assert!(!bumped.contains("checksum"));
+        assert!(bumped.contains("source = \"keep\""));
+        assert!(local_libc_lock(s, "0.2.174", "0.2.174").is_err());
+        assert!(local_libc_lock(&format!("{s}{s}"), "0.2.175", "0.2.175").is_err());
     }
 }

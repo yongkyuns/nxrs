@@ -129,7 +129,8 @@
       "0142-stack-guard-use-saved-interrupt-context.patch",
       "0143-esp32s3-cores3-register-watchdog.patch",
       "0144-ram-uart-report-only-new-rx-bytes.patch",
-      "0145-cores3-timestamp-gpio10-edges.patch"
+      "0145-cores3-timestamp-gpio10-edges.patch",
+      "0146-xtensa-compiler-wchar-limits.patch"
     ]
   },
   "mcuboot": {
@@ -160,7 +161,8 @@
       "0005-esp32s3-inherit-watchdog-clock.patch",
       "0006-esp32s3-inherit-watchdog-user-handoff.patch",
       "0007-wpa-aes-symbol-prefix.patch",
-      "0008-esp32s3-smp-rng.patch"
+      "0008-esp32s3-smp-rng.patch",
+      "0009-c23-static-atomic-initializers.patch"
     ]
   }
 }

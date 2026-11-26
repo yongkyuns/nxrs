@@ -182,7 +182,7 @@ Both hardware profiles inherit their existing peripheral configuration and choos
 On Ubuntu, add the pinned ARM Rust toolchain and GNU ARM/newlib packages before building Pico 2 W:
 
 ```sh
-rustup toolchain install nightly-2025-09-15 --profile minimal --component rust-src
+rustup toolchain install nightly-2026-11-26 --profile minimal --component rust-src
 sudo apt-get install -y gcc-arm-none-eabi binutils-arm-none-eabi libnewlib-arm-none-eabi
 ```
 

@@ -121,19 +121,19 @@ witness. It does not replace the missing physical matrix.
 ## Pinned compiler and allocator instrumentation
 
 The target build exercises the shared diagnostic allocator as real generated
-code. The pinned Espressif Rust `1.90.0.0` compiler fails optimized atomic
+code. The earlier pinned Espressif Rust `1.90.0.0` compiler failed optimized atomic
 `fetch_max`/`fetch_min` lowering with `Undefined temporary symbol`: the emitted
-Xtensa assembly branches to missing basic-block labels. A minimal `no_std`
-atomic reproducer confirms that this is independent of the fixture, NuttX
+Xtensa assembly branched to missing basic-block labels. A minimal `no_std`
+atomic reproducer confirmed that this was independent of the fixture, NuttX
 startup, and debug information. The original `fetch_max` calls in the
 allocator's peak update exposed that defect in all four target images.
 
-`tests/allocation-probe` therefore expresses the peak update with an explicit
+`tests/allocation-probe` retains the peak update with an explicit
 `compare_exchange_weak` retry loop. It keeps a sequentially consistent
 read-modify-write even when the old peak already exceeds the candidate. It
 preserves the high-water measurement and concurrent ordering contract without
-changing the production allocator, compiler pin, or optimization policy. The
-allocator tests cover concurrent live allocations and peak retention after
+changing the production allocator or optimization policy. The allocator tests
+cover concurrent live allocations and peak retention after
 release; target CI must compile and link all four ordinary Rust images.
 
 ## Build and capture the NuttX controls

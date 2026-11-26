@@ -388,7 +388,7 @@ def _finished(case: str, ctx: Context, revision: str) -> tuple[dict[str, str], d
     for name in required:
         ctx.evidence(ctx.out / name, hashes)
     patchset = json_file(ctx.out / "std-patch.json")
-    require(patchset["sdk"] == "esp-1.90.0.0" and patchset["installed_toolchain_unchanged"] is True
+    require(patchset["sdk"] == "esp-1.100.0.0" and patchset["installed_toolchain_unchanged"] is True
             and isinstance(patchset["patchset_sha256"], dict) and patchset["patchset_sha256"],
             "missing private SDK patch provenance")
     for name, checksum in patchset["patchset_sha256"].items():
@@ -564,15 +564,15 @@ def check_report(report: dict, source_root: Path, outputs: dict[str, Path] | Non
     require(frontend["build_log"]["path"] == str(original_parent / "frontend-build.log")
             and frontend["cargo_messages"]["path"] == str(original_parent / "frontend-messages.jsonl"),
             "wrong frontend log ownership")
-    require(frontend["build_argv"] == ["cargo", "+1.90.0", "build", "--locked", "--manifest-path",
+    require(frontend["build_argv"] == ["cargo", "+1.100.0", "build", "--locked", "--manifest-path",
             str(original_source / "Cargo.toml"), "-p", "nxrs-build", "--bin", "nxrs-build",
             "--message-format=json-render-diagnostics", "--target-dir", str(original_parent / "frontend")],
             "frontend was not built with the prescribed Cargo command")
     compiler = frontend["compiler"]
     absolute(compiler["path"], "host compiler")
-    require(sha(compiler["sha256"]) and compiler["version"].startswith("rustc 1.90.0 ")
+    require(sha(compiler["sha256"]) and compiler["version"].startswith("rustc 1.100.0 ")
             and "host: x86_64-unknown-linux-gnu" in compiler["version"], "wrong host compiler provenance")
-    require(frontend["cargo_version"].startswith("cargo 1.90.0 "), "wrong host Cargo provenance")
+    require(frontend["cargo_version"].startswith("cargo 1.100.0 "), "wrong host Cargo provenance")
     messages = [json.loads(line) for line in frontend_messages.read_text().splitlines()]
     roots = [row for row in messages if row.get("reason") == "compiler-artifact"
              and row.get("executable") == frontend["path"]]

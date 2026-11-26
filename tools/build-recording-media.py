@@ -11,7 +11,7 @@ import subprocess
 HERE = Path(__file__).resolve().parents[1]/'upstream/mediamtx'
 
 
-def build(output, go):
+def build(output, go, qualify=False):
     pin = json.loads((HERE/'source.json').read_text())
     output = output.resolve()
     output.mkdir(mode=0o700)  # Never reuse a partial source/build directory.
@@ -49,6 +49,12 @@ def build(output, go):
     binary = output/'nxrs-mediamtx-recording'
     run(go, 'build', '-trimpath', '-mod=readonly', '-o', str(binary), '.', cwd=media)
     run(go, 'mod', 'verify', cwd=media)
+    if qualify:
+        run(go, 'test', '-count=1', './pkg/ringbuffer', cwd=output/'gortsplib')
+        run(go, 'test', '-count=1', './internal/stream', './internal/recorder', './internal/api', cwd=media)
+        run(go, 'test', '-count=1', '-run',
+            'TestRecordingPermit|TestPathRecord$|TestPathRecordAlwaysAvailable', './internal/core', cwd=media)
+        print('PASS: native queue drain, recording permit revisions/expiry/cancellation, stream, recorder and API tests')
     print('Recording MediaMTX SHA256:', hashlib.sha256(binary.read_bytes()).hexdigest())
 
 
@@ -56,5 +62,6 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('output', type=Path)
     parser.add_argument('--go', default='go')
+    parser.add_argument('--qualify', action='store_true', help='run native recording and patch regression tests')
     args = parser.parse_args()
-    build(args.output, args.go)
+    build(args.output, args.go, args.qualify)

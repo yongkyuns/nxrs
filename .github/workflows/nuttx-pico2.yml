@@ -56,8 +56,8 @@ jobs:
           submodules: true
       - name: Install isolated Rust and ARM tools
         run: |
-          rustup toolchain install 1.90.0 --profile minimal
-          rustup toolchain install nightly-2025-09-15 --profile minimal --component rust-src
+          rustup toolchain install 1.100.0 --profile minimal
+          rustup toolchain install nightly-2026-11-26 --profile minimal --component rust-src
           bash .github/scripts/install-ubuntu-packages.sh gcc-arm-none-eabi binutils-arm-none-eabi libnewlib-arm-none-eabi bison flex gperf kconfig-frontends genromfs libncurses-dev
           python3 -m pip install --break-system-packages kconfiglib==14.1.0
           # NuttX's selected board uses the cross-toolchain math headers/library.
@@ -68,7 +68,7 @@ jobs:
           bash -n tests/nuttx-std/build.sh
           python3 tests/nuttx-std/check-abi.py --self-test
           python3 tests/nuttx-std/prepare-std.py --self-test
-          RUSTUP_TOOLCHAIN=nightly-2025-09-15 python3 -m unittest discover -s tests/mpsc-comparison -p 'test_*.py'
+          RUSTUP_TOOLCHAIN=nightly-2026-11-26 python3 -m unittest discover -s tests/mpsc-comparison -p 'test_*.py'
       - name: Build ordinary-main TLS endpoint image and compare target ABI
         shell: bash
         run: |
@@ -86,7 +86,7 @@ jobs:
           done
       - name: Cross-build the canonical controller for Pico 2 W peripherals
         run: |
-          cargo +1.90.0 nxrs build --manifest-path website/examples/pulse-controller/Cargo.toml \
+          cargo +1.100.0 nxrs build --manifest-path website/examples/pulse-controller/Cargo.toml \
             --profile pico2w-pulse --out target/controller-pico2w
       - name: Retain build evidence, not a hardware execution claim
         if: always()

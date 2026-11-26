@@ -331,7 +331,7 @@ impl Camera for LiveCamera {
             return Err(error);
         }
         if self.swap {
-            for word in destination[..ready.bytes].chunks_exact_mut(2) {
+            for word in destination[..ready.bytes].as_chunks_mut::<2>().0.iter_mut() {
                 word.swap(0, 1);
             }
         }

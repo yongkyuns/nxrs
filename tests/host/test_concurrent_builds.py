@@ -78,12 +78,12 @@ class Witness:
             "source": {"root": str(self.root), "revision": revision, "tree": self.git("rev-parse", "HEAD^{tree}"),
                        "inputs": {name: sha(self.root / name) for name in CHECK.SOURCE_INPUTS}},
             "frontend": {"path": str(frontend_path), "sha256": sha(frontend_path),
-                "build_argv": ["cargo", "+1.90.0", "build", "--locked", "--manifest-path", str(self.root / "Cargo.toml"),
+                "build_argv": ["cargo", "+1.100.0", "build", "--locked", "--manifest-path", str(self.root / "Cargo.toml"),
                                "-p", "nxrs-build", "--bin", "nxrs-build", "--message-format=json-render-diagnostics",
                                "--target-dir", str(self.parent / "frontend")],
                 "compiler": {"path": "/immutable/rust/bin/rustc", "sha256": "1" * 64,
-                             "version": "rustc 1.90.0 (fixture)\nhost: x86_64-unknown-linux-gnu"},
-                "cargo_version": "cargo 1.90.0 (fixture)",
+                             "version": "rustc 1.100.0 (fixture)\nhost: x86_64-unknown-linux-gnu"},
+                "cargo_version": "cargo 1.100.0 (fixture)",
                 "build_log": {"path": str(frontend_log), "sha256": sha(frontend_log)},
                 "cargo_messages": {"path": str(frontend_messages), "sha256": sha(frontend_messages)}},
             "environment": {"CARGO_BUILD_JOBS": "2", "NXRS_NUTTX_BUILD_JOBS": "2"},
@@ -221,7 +221,7 @@ class Witness:
         write(out / "nuttx/nuttx.bin", b"fixture image\n")
         write(out / "downloads.sha256", "fixture toolchain provenance\n")
         patch = write(out / "std-fixture.patch", "fixture private SDK patch\n")
-        save(out / "std-patch.json", {"sdk": "esp-1.90.0.0", "installed_toolchain_unchanged": True,
+        save(out / "std-patch.json", {"sdk": "esp-1.100.0.0", "installed_toolchain_unchanged": True,
                                       "patchset_sha256": {patch.name: sha(patch)}})
         for name in ("nuttx-patches.json", "nuttx-apps-patches.json", "esp-hal-patches.json"):
             save(out / name, {"fixture": True})

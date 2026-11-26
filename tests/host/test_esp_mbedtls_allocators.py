@@ -215,6 +215,12 @@ class EspMbedtlsAllocatorTests(unittest.TestCase):
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(contents)
             originals.append(path)
+        atomic_patch = (patch_dir / "0009-c23-static-atomic-initializers.patch").read_text()
+        for relative in re.findall(r"^\+\+\+ b/(.+)$", atomic_patch, re.MULTILINE):
+            path = self.source_root / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(source_preimage(atomic_patch, relative, expected_lines=None))
+            originals.append(path)
         self.original_sources = {path: path.read_bytes() for path in originals}
         for name, contents in STUBS.items():
             path = self.root / "include" / name

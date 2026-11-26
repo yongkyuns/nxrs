@@ -58,14 +58,14 @@ jobs:
           set -euo pipefail
           export PATH="$HOME/.cargo/bin:$PATH"
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
-          rustup toolchain install 1.90.0 --profile minimal --component clippy --component rustfmt
+          rustup toolchain install 1.100.0 --profile minimal --component clippy --component rustfmt
           mkdir -p target/memory-probes
-          { git rev-parse HEAD; git rev-parse 'HEAD^{tree}'; uname -a; rustc +1.90.0 -vV; } | tee target/memory-probes/provenance.txt
+          { git rev-parse HEAD; git rev-parse 'HEAD^{tree}'; uname -a; rustc +1.100.0 -vV; } | tee target/memory-probes/provenance.txt
       - name: Observer accounting and transcript controls
         shell: bash
         run: |
           set -euo pipefail
-          cargo +1.90.0 test --locked -p nxrs-allocation-probe
+          cargo +1.100.0 test --locked -p nxrs-allocation-probe
           python3 -m unittest discover -s tests/host -p test_memory_probes.py -v
       - name: Measure debug and release tests in isolated processes
         shell: bash
@@ -75,38 +75,38 @@ jobs:
             extra=()
             if test "$profile" = release; then extra+=(--release); fi
             for app in std-demo ao-stress; do
-              timeout 90 cargo +1.90.0 test --locked "${extra[@]}" -p "nxrs-$app" --features probe --test memory_qualification 2>&1 | tee "target/memory-probes/$app-$profile.log"
+              timeout 90 cargo +1.100.0 test --locked "${extra[@]}" -p "nxrs-$app" --features probe --test memory_qualification 2>&1 | tee "target/memory-probes/$app-$profile.log"
               python3 tests/host/test_memory_probes.py --app "$app" --log "target/memory-probes/$app-$profile.log"
             done
-            timeout 90 cargo +1.90.0 test --locked "${extra[@]}" -p nxrs-allocation-probe --features probe --test acquisition_lifecycle 2>&1 | tee "target/memory-probes/acquisition-$profile.log"
+            timeout 90 cargo +1.100.0 test --locked "${extra[@]}" -p nxrs-allocation-probe --features probe --test acquisition_lifecycle 2>&1 | tee "target/memory-probes/acquisition-$profile.log"
             python3 tests/host/test_memory_probes.py --app acquisition --log "target/memory-probes/acquisition-$profile.log"
           done
       - name: Check normal builds and dependency boundaries
         shell: bash
         run: |
           set -euo pipefail
-          cargo +1.90.0 test --locked
-          cargo +1.90.0 build --locked -p nxrs-std-demo -p nxrs-ao-stress
+          cargo +1.100.0 test --locked
+          cargo +1.100.0 build --locked -p nxrs-std-demo -p nxrs-ao-stress
           python3 tools/check-architecture.py
           python3 - <<'PY'
           import subprocess
           for app in ('std-demo', 'ao-stress', 'acquisition'):
               for features in ([], ['--features', 'probe']):
-                  output = subprocess.check_output(['cargo', '+1.90.0', 'tree', '--locked', '-p',
+                  output = subprocess.check_output(['cargo', '+1.100.0', 'tree', '--locked', '-p',
                       'nxrs-' + app, '-e', 'normal,build', *features], text=True)
                   assert 'nxrs-allocation-probe' not in output, output
           PY
           python3 -m unittest discover -s tests/host -p test_std_apps.py -v
-          cargo +1.90.0 clippy --locked -p nxrs-allocation-probe -p nxrs-std-demo -p nxrs-ao-stress --features probe --all-targets -- -D warnings
+          cargo +1.100.0 clippy --locked -p nxrs-allocation-probe -p nxrs-std-demo -p nxrs-ao-stress --features probe --all-targets -- -D warnings
       - name: Check formatting
-        run: cargo +1.90.0 fmt --check -p nxrs-allocation-probe -p nxrs-std-demo -p nxrs-ao-stress
+        run: cargo +1.100.0 fmt --check -p nxrs-allocation-probe -p nxrs-std-demo -p nxrs-ao-stress
       - name: Retain measurements and formatting diagnostics
         if: always()
         shell: bash
         run: |
           set -eu
           mkdir -p target/memory-probes
-          cargo +1.90.0 fmt -p nxrs-allocation-probe -p nxrs-std-demo -p nxrs-ao-stress
+          cargo +1.100.0 fmt -p nxrs-allocation-probe -p nxrs-std-demo -p nxrs-ao-stress
           git diff --binary > target/memory-probes/format.patch
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()

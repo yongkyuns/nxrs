@@ -261,9 +261,9 @@ impl Tools {
             return Err("NuttX requires Linux x86_64 or an explicit supported native-board tool environment".into());
         }
         let sdk = if esp {
-            "esp-1.90.0.0"
+            "esp-1.100.0.0"
         } else {
-            "nightly-2025-09-15"
+            "nightly-2026-11-26"
         };
         let bundle = env::var_os("NXRS_QEMU_TOOLS_DIR")
             .map(PathBuf::from)
@@ -279,7 +279,7 @@ impl Tools {
             output(Command::new("rustup").args([
                 "which",
                 "--toolchain",
-                if esp { "1.90.0" } else { sdk },
+                if esp { "1.100.0" } else { sdk },
                 "cargo",
             ]))?
             .trim(),
@@ -342,7 +342,7 @@ impl Tools {
             .env("RUSTC_BOOTSTRAP", "1")
             .env(
                 "RUSTUP_TOOLCHAIN",
-                if self.esp { "1.90.0" } else { self.sdk },
+                if self.esp { "1.100.0" } else { self.sdk },
             );
         c
     }
@@ -900,7 +900,9 @@ fn build_or_prepare(
             .unwrap_or_else(|| root.join("target/qemu-tools"))
             .join("downloads.sha256");
         if firmware {
-            fs::copy(downloads, out.join("downloads.sha256")).map_err(|e| e.to_string())?;
+            fs::copy(&downloads, out.join("downloads.sha256")).map_err(|error| {
+                format!("cannot copy verified toolchain download manifest {}: {error}", downloads.display())
+            })?;
         }
     } else if tools.sim {
         let mut spec: Value =
@@ -925,10 +927,13 @@ fn build_or_prepare(
     // Encoded flags preserve paths containing spaces without a shell/linker shim.
     let mut flags = vec![
         "-C".to_owned(),
-        "panic=abort".into(),
+        if immediate { "panic=immediate-abort" } else { "panic=abort" }.into(),
         "-C".into(),
         format!("linker={}", linker.display()),
     ];
+    if immediate || tools.esp || tools.sim {
+        flags.push("-Zunstable-options".into());
+    }
     if env::var("NXRS_NUTTX_DIAGNOSTIC_UNWIND").as_deref() == Ok("1") {
         flags.extend(["-C".into(), "force-unwind-tables=yes".into()]);
     }
@@ -961,6 +966,9 @@ fn build_or_prepare(
         .env("CARGO_PROFILE_RELEASE_STRIP", "none")
         .env_remove("RUSTFLAGS")
         .env("CARGO_ENCODED_RUSTFLAGS", flags.join("\x1f"));
+    if tools.esp || tools.sim {
+        cargo.arg("-Zjson-target-spec");
+    }
     build::configure_profile(&mut cargo, &out, root, p, target, "nuttx")?;
     options.configure_cargo(&mut cargo, &[]);
     if tools.esp {
@@ -980,7 +988,7 @@ fn build_or_prepare(
         // std's panic hook is gated by `backtrace`. Trace-only selects raw
         // addresses in the formatter, but does not enable the hook itself.
         cargo.arg(if immediate {
-            "-Zbuild-std-features=backtrace-trace-only,optimize_for_size,panic_immediate_abort"
+            "-Zbuild-std-features=backtrace-trace-only,optimize_for_size"
         } else {
             "-Zbuild-std-features=backtrace-trace-only,optimize_for_size,backtrace"
         });

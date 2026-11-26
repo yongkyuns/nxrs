@@ -28,8 +28,8 @@ Permanent failure does not become a successful cleanup.
 Run the host tests with:
 
 ```sh
-cargo +1.90.0 test --locked --offline -p nxrs-wifi
-cargo +1.90.0 test --locked --offline -p nxrs-std-wifi --lib
+cargo +1.100.0 test --locked --offline -p nxrs-wifi
+cargo +1.100.0 test --locked --offline -p nxrs-std-wifi --lib
 ```
 
 ## Desktop adapter
@@ -37,7 +37,7 @@ cargo +1.90.0 test --locked --offline -p nxrs-std-wifi --lib
 On macOS 11+ with the Xcode SDK, the same scan owner can use CoreWLAN:
 
 ```sh
-NXRS_PLATFORM=macos cargo +1.90.0 run --locked -p nxrs-std-wifi
+NXRS_PLATFORM=macos cargo +1.100.0 run --locked -p nxrs-std-wifi
 ```
 
 This selects the ordinary `wifi` API and existing worker; it does not add a
@@ -77,7 +77,7 @@ invented dBm. The same profile enables [BLE scanning/GATT](../ble/README.md).
 The default `native` profile enables neither radio.
 Build prerequisites on Debian/Ubuntu are `pkg-config` and `libglib2.0-dev`.
 `python3 -B tests/host/test_linux_radio_native.py` additionally needs a C
-compiler and `dbus-daemon`; run `cargo +1.90.0 fetch --locked` first. It checks
+compiler and `dbus-daemon`; run `cargo +1.100.0 fetch --locked` first. It checks
 real IPC against a private fake service, native archive/link metadata, and the
 portable Rust owner's positive/injected-failure paths. The C tests use
 ASan/UBSan. These checks do not qualify Linux RF hardware.

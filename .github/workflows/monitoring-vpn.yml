@@ -34,7 +34,7 @@ jobs:
         run: python3 -m unittest discover -s gateway/tests -p test_vpn_deployment.py -v
       - name: Build independent gateway and verify pinned MediaMTX asset
         run: |
-          rustup toolchain install 1.90.0 --profile minimal
+          rustup toolchain install 1.100.0 --profile minimal
           (cd gateway && cargo build --locked)
           python3 - <<'PY'
           import hashlib, json, pathlib, urllib.request

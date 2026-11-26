@@ -25,12 +25,14 @@ Build the recording-only MediaMTX variant with Go 1.21+ available:
 python3 tools/build-recording-media.py /tmp/nxrs-recording-build
 ```
 
-The builder selects Go 1.27.3, verifies pinned upstream module sums, and applies
+The builder selects Go 1.27.4, verifies pinned upstream module sums, and applies
 the [recorder queue](../../upstream/mediamtx/recorder-drain.patch) and
 [recorder permit](../../upstream/mediamtx/recording-permit.patch) patches.
+Add `--qualify` to run the native queue-drain, permit revision/expiry/cancellation,
+stream, recorder and API regression tests before installing a new build.
 Install its `nxrs-mediamtx-recording` output root-owned and executable at
 `/usr/local/libexec/nxrs-mediamtx-recording`. Recording units require this separate
-binary: upstream 1.21.2 discards queued samples during recorder retirement.
+binary: upstream 1.21.4 discards queued samples during recorder retirement.
 The patch drains only recorder queues before native fMP4 finalization; live
 viewer cancellation and finite service stop/resource limits still apply.
 
@@ -96,7 +98,7 @@ Start `nxrs-monitor.target` after reviewing the existing TLS/VPN prerequisites.
 ## Record, back up and restore
 
 MediaMTX writes one-minute fMP4 segments with one-second parts, an 8 MiB part
-bound and 24-hour native retention. Its [native fMP4 writer](https://github.com/bluenviron/mediamtx/blob/v1.21.2/internal/recorder/format_fmp4_track.go)
+bound and 24-hour native retention. Its [native fMP4 writer](https://github.com/bluenviron/mediamtx/blob/v1.21.4/internal/recorder/format_fmp4_track.go)
 commits a sample when the next timestamp supplies its duration; the final pending
 sample can be omitted on source closure. This is not a lossless archive of every
 captured frame. The fixture verifies the exact decoded 120-frame prefix of 121

@@ -123,16 +123,16 @@ jobs:
             curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain none
           fi
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
-          rustup toolchain install 1.90.0 --profile minimal --component clippy --component rustfmt
-          rustup target add --toolchain 1.90.0 thumbv6m-none-eabi wasm32-unknown-unknown
+          rustup toolchain install 1.100.0 --profile minimal --component clippy --component rustfmt
+          rustup target add --toolchain 1.100.0 thumbv6m-none-eabi wasm32-unknown-unknown
       - name: Test and lint both ordinary binaries
         shell: bash
         run: |
           set -euo pipefail
-          cargo +1.90.0 fmt --check -p nxrs-std-demo -p nxrs-ao-stress
-          cargo +1.90.0 test --locked -p nxrs-std-demo -p nxrs-ao-stress
-          cargo +1.90.0 clippy --locked -p nxrs-std-demo -p nxrs-ao-stress --all-targets -- -D warnings
-          cargo +1.90.0 build --locked -p nxrs-std-demo -p nxrs-ao-stress
+          cargo +1.100.0 fmt --check -p nxrs-std-demo -p nxrs-ao-stress
+          cargo +1.100.0 test --locked -p nxrs-std-demo -p nxrs-ao-stress
+          cargo +1.100.0 clippy --locked -p nxrs-std-demo -p nxrs-ao-stress --all-targets -- -D warnings
+          cargo +1.100.0 build --locked -p nxrs-std-demo -p nxrs-ao-stress
           python3 -m unittest discover -s tests/host -p test_std_apps.py -v
           python3 -m unittest discover -s tests/host -p test_nuttx_memory.py -v
       - name: Qualify workspace and native regressions
@@ -140,35 +140,35 @@ jobs:
         run: |
           set -euo pipefail
           # Adding default workspace members must also preserve existing apps.
-          cargo +1.90.0 test --locked
-          cargo +1.90.0 test --locked -p nxrs-build
+          cargo +1.100.0 test --locked
+          cargo +1.100.0 test --locked -p nxrs-build
           python3 -m unittest discover -s tests/host -p test_architecture.py -v
           python3 -m unittest discover -s tests/host -p test_deployment.py -v
           python3 -m unittest discover -s tests/host -p test_platform_profiles.py -v
           python3 tools/check-architecture.py
-          NXRS_PLATFORM=mock cargo +1.90.0 test --locked -p nxrs-simulator
-          NXRS_PLATFORM=mock cargo +1.90.0 run --locked -p nxrs-simulator --bin nxrs-simulator
+          NXRS_PLATFORM=mock cargo +1.100.0 test --locked -p nxrs-simulator
+          NXRS_PLATFORM=mock cargo +1.100.0 run --locked -p nxrs-simulator --bin nxrs-simulator
           python3 tests/native/qualify.py
           export NXRS_PLATFORM=linux
-          cargo +1.90.0 clippy --locked \
+          cargo +1.100.0 clippy --locked \
             -p nxrs-camera -p nxrs-storage \
             -p nxrs-camera-test-support -p nxrs-native-integration \
             --lib -- -D warnings
           unset NXRS_PLATFORM
-          cargo +1.90.0 check --locked -p nxrs-camera-test-support --lib --target thumbv6m-none-eabi
-          NXRS_PLATFORM=mock cargo +1.90.0 build --locked --release --lib -p nxrs-simulator --target wasm32-unknown-unknown
+          cargo +1.100.0 check --locked -p nxrs-camera-test-support --lib --target thumbv6m-none-eabi
+          NXRS_PLATFORM=mock cargo +1.100.0 build --locked --release --lib -p nxrs-simulator --target wasm32-unknown-unknown
       - name: Check firmware discovery and app isolation
         shell: bash
         run: |
           set -euo pipefail
-          cargo +1.90.0 nxrs apps | tee /tmp/nxrs-std-apps.txt
+          cargo +1.100.0 nxrs apps | tee /tmp/nxrs-std-apps.txt
           grep -x std-demo /tmp/nxrs-std-apps.txt
           grep -x ao-stress /tmp/nxrs-std-apps.txt
           for app in std-demo ao-stress; do
             for platform in pico2-mock mps2-an521-mock esp32s3-qemu-mock; do
-              cargo +1.90.0 nxrs build --app "$app" --profile "$platform" --dry-run
+              cargo +1.100.0 nxrs build --app "$app" --profile "$platform" --dry-run
             done
-            cargo +1.90.0 tree --locked -p "nxrs-$app" > "/tmp/$app-tree.txt"
+            cargo +1.100.0 tree --locked -p "nxrs-$app" > "/tmp/$app-tree.txt"
             ! grep -E 'nxrs-(imu|gnss|camera|storage)' "/tmp/$app-tree.txt"
           done
       - name: Record release behavior
@@ -176,8 +176,8 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p target/std-apps
-          cargo +1.90.0 run --locked --release -p nxrs-std-demo --bin std-demo | tee target/std-apps/std-demo.log
-          cargo +1.90.0 run --locked --release -p nxrs-ao-stress --bin ao-stress -- --duration-ms 1000 --rounds 2 | tee target/std-apps/ao-stress.log
+          cargo +1.100.0 run --locked --release -p nxrs-std-demo --bin std-demo | tee target/std-apps/std-demo.log
+          cargo +1.100.0 run --locked --release -p nxrs-ao-stress --bin ao-stress -- --duration-ms 1000 --rounds 2 | tee target/std-apps/ao-stress.log
       - name: Record CI failure annotations without changing check results
         if: always()
         shell: bash
@@ -272,8 +272,8 @@ jobs:
             curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain none
           fi
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
-          rustup toolchain install 1.90.0 --profile minimal
-          rustup toolchain install nightly-2025-09-15 --profile minimal --component rust-src
+          rustup toolchain install 1.100.0 --profile minimal
+          rustup toolchain install nightly-2026-11-26 --profile minimal --component rust-src
           python3 -m venv target/std-apps-arm-venv
           target/std-apps-arm-venv/bin/pip install kconfiglib==14.1.0
           echo "$GITHUB_WORKSPACE/target/std-apps-arm-venv/bin" >> "$GITHUB_PATH"
@@ -297,9 +297,9 @@ jobs:
                 --bin ao-stack-stress --command ao_stress --priority 100 --stack-size 65536 \
                 --platform "$platform" --out "target/firmware/$APP/$platform"
             elif test "$platform" = mps2-an521-mock; then
-              NXRS_NUTTX_DIAGNOSTIC_UNWIND=1 cargo +1.90.0 nxrs build --app "$APP" --profile "$platform" --out "target/firmware/$APP/$platform" 2>&1 | tee "target/firmware/$APP/$platform/build.log"
+              NXRS_NUTTX_DIAGNOSTIC_UNWIND=1 cargo +1.100.0 nxrs build --app "$APP" --profile "$platform" --out "target/firmware/$APP/$platform" 2>&1 | tee "target/firmware/$APP/$platform/build.log"
             else
-              cargo +1.90.0 nxrs build --app "$APP" --profile "$platform" --out "target/firmware/$APP/$platform" 2>&1 | tee "target/firmware/$APP/$platform/build.log"
+              cargo +1.100.0 nxrs build --app "$APP" --profile "$platform" --out "target/firmware/$APP/$platform" 2>&1 | tee "target/firmware/$APP/$platform/build.log"
             fi
           done
       - name: Execute twice on NuttX and verify actual output

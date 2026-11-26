@@ -30,7 +30,7 @@ for physical capture. Initialize the pinned NuttX/apps submodules. The normal
 are unchanged. Copy [toolchains.example.toml](toolchains.example.toml) outside the
 checkout, then fill in your existing tool paths. Zephyr is pinned to 4.5.0;
 module revisions and board contracts are in [boards.toml](boards.toml). The Rust
-compiler must match the NuttX SDK: ESP 1.90.0.0 for S3, nightly-2025-09-15 for Pico.
+compiler must match the NuttX SDK: ESP 1.100.0.0 for S3, nightly-2026-11-26 for Pico.
 The S3 `nuttx-tools` directory must include the normal frontend's
 `downloads.sha256`; `path` can add existing native build tools such as genromfs.
 

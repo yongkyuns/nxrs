@@ -17,8 +17,8 @@ def write_receipt(root: Path, artifact: Path) -> dict:
     files = api.files_below(docs)
     report = {
         'schema': api.SCHEMA, 'revision': 'a' * 40, 'dirty': False,
-        'toolchain': '1.90.0', 'compiler': 'rustc 1.90.0\nhost: x86_64-unknown-linux-gnu',
-        'rustdoc': 'rustdoc 1.90.0', 'host': 'x86_64-unknown-linux-gnu',
+        'toolchain': '1.100.0', 'compiler': 'rustc 1.100.0\nhost: x86_64-unknown-linux-gnu',
+        'rustdoc': 'rustdoc 1.100.0', 'host': 'x86_64-unknown-linux-gnu',
         'binding': 'unbound', 'features': catalog['features'],
         'packages': catalog['packages'], 'inputs': api.source_inputs(root, catalog),
         'files': {p.relative_to(docs).as_posix(): api.file_hash(p) for p in files},
@@ -35,7 +35,7 @@ def make_api_fixture(root: Path, artifact: Path) -> dict:
         'Cargo.toml': '[workspace]\nmembers = ["hal/demo", "service/helper", "tools/adapter", "shared/common"]\n'
                       '[workspace.dependencies]\nnxrs-common = { path = "shared/common" }\n',
         'Cargo.lock': '# synthetic locked dependency input\n',
-        'rust-toolchain.toml': '[toolchain]\nchannel = "1.90.0"\n',
+        'rust-toolchain.toml': '[toolchain]\nchannel = "1.100.0"\n',
         'website/build_api.py': '# synthetic builder input\n',
         'hal/demo/Cargo.toml': '[package]\nname = "nxrs-demo"\nversion = "0.1.0"\n'
                                'build = "../../tools/adapter/cargo.rs"\n[lib]\nname = "demo"\n'

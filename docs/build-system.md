@@ -436,7 +436,7 @@ python3 tools/qualify-concurrent-builds.py \
 
 The output parent must be fresh, ignored by Git and below this checkout's
 `target/`. The runner first compiles one source-bound frontend with native
-Rust/Cargo 1.90.0, then launches both builds with two Cargo jobs and two NuttX
+Rust/Cargo 1.100.0, then launches both builds with two Cargo jobs and two NuttX
 jobs per build. Both children use the installed host toolchain for Cargo
 catalogue discovery. Each child owns its NuttX/apps trees, patched Rust SDK, generated
 configuration, native helpers, Cargo output and firmware. The installed tool

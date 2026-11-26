@@ -29,7 +29,7 @@ fn main() {
 
     let mut row = [0; 320];
     for (stripe, color) in row
-        .chunks_exact_mut(80)
+        .as_chunks_mut::<80>().0.iter_mut()
         .zip([0xf800, 0x07e0, 0x001f, 0xffff])
     {
         stripe.fill(color);

@@ -110,7 +110,7 @@ class FirmwareFrontendTests(unittest.TestCase):
 
     def cargo_firmware(self, *args: str) -> subprocess.CompletedProcess[str]:
         return subprocess.run(
-            ["cargo", "+1.90.0", "firmware", *args],
+            ["cargo", "+1.100.0", "firmware", *args],
             cwd=ROOT,
             check=True,
             capture_output=True,
@@ -262,7 +262,7 @@ class FirmwareFrontendTests(unittest.TestCase):
         for profile in ("esp32s3-peripherals", "pico2w-peripherals"):
             with self.subTest(profile=profile):
                 result = subprocess.run(
-                    ["cargo", "+1.90.0", "firmware", "build", "--manifest-path", manifest,
+                    ["cargo", "+1.100.0", "firmware", "build", "--manifest-path", manifest,
                      "--profile", profile, "--dry-run"], cwd=ROOT, text=True,
                     capture_output=True, timeout=60)
                 self.assertNotEqual(result.returncode, 0)
@@ -554,7 +554,7 @@ class FirmwareFrontendTests(unittest.TestCase):
         ]:
             with self.subTest(args=args):
                 result = subprocess.run(
-                    ["cargo", "+1.90.0", "firmware", *args, "--dry-run"],
+                    ["cargo", "+1.100.0", "firmware", *args, "--dry-run"],
                     cwd=ROOT,
                     check=False,
                     capture_output=True,

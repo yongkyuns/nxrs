@@ -192,8 +192,8 @@ mod tests {
                         .unwrap()
                         .line(start, (x, y), 1);
                     assert!(pixels
-                        .chunks_exact(5)
-                        .zip(screen.chunks_exact(12).skip(4))
+                        .as_chunks::<5>().0.iter()
+                        .zip(screen.as_chunks::<12>().0.iter().skip(4))
                         .all(|(strip, row)| strip == &row[3..8]));
                 }
             }

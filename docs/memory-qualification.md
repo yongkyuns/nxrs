@@ -153,8 +153,8 @@ sizes and observed Rust allocations. The host witness requests 65,536 bytes per
 worker so its debug and release test paths use the same declared stack budget;
 neither request establishes the actual native allocation or stack high-water mark.
 
-CI qualifies Linux x86-64 with pinned Rust 1.90.0, in debug and release. The test
-requires Unix descriptor APIs and fails explicitly on unsupported hosts when
+CI runs the Linux x86-64 checks with pinned Rust 1.100.0, in debug and release.
+The test requires Unix descriptor APIs and fails explicitly on unsupported hosts when
 selected. The fixture's blocking pipes and two staged reads do not qualify
 NuttX's nonblocking `pipe2`/`poll`, sensor I/O, IRQs, terminal backpressure or
 startup-failure allocation paths. Existing lifecycle tests retain those separate

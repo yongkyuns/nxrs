@@ -629,7 +629,7 @@ class RomSigningTests(unittest.TestCase):
             (metadata_dir / 'METADATA').write_text('Name: imgtool\nVersion: 0.0.0\n')
             from unittest.mock import patch
             with patch.dict(os.environ, {'PYTHONPATH': str(fake_sdk)}):
-                with self.assertRaisesRegex(ValueError, 'factory API requires imgtool 2.2.0'):
+                with self.assertRaisesRegex(ValueError, 'factory API requires imgtool 2.4.0'):
                     factory.prepare(profile, directory, image, root, app_root, flash_key,
                                     directory / 'mismatched-factory')
             self.assertFalse((directory / 'mismatched-factory').exists())

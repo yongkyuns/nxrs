@@ -22,7 +22,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Install pinned Rust toolchain
-        run: rustup toolchain install 1.90.0 --profile minimal --component rustfmt --component clippy
+        run: rustup toolchain install 1.100.0 --profile minimal --component rustfmt --component clippy
       - name: Compile, test and lint independent host workspace
         working-directory: gateway
         run: |

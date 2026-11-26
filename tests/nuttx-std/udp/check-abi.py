@@ -15,17 +15,17 @@ import subprocess
 
 EXPECTED_LIBC = {
     'riscv32imac-unknown-nuttx-elf': (
-        '0.2.175',
-        '6a82ae493e598baaea5209805c49bbf2ea7de956d50d7da0da1164f9c6d28543',
+        '0.2.191',
+        '65cd87c9a6d60536580b316ad985726104730a5151c99845f2490428ef91240a',
         'riscv64-unknown-elf-',
     ),
     'xtensa-esp32s3-nuttx': (
-        '0.2.174',
-        '1171693293099992e19cddea4e8b849964e9846f4acee11b3948bcc337be8776',
+        '0.2.191',
+        '65cd87c9a6d60536580b316ad985726104730a5151c99845f2490428ef91240a',
         'xtensa-esp32s3-elf-',
     ),
 }
-EXPECTED_LIBC_SOURCE_BLOB = '69732d845b400e9b8781724d5a9dc3d5f3856913'
+EXPECTED_LIBC_SOURCE_BLOB = '4970511599f7da3ab4b9ab7c24fd09b586197454'
 EXPECTED_PATCH_MODE = 'nuttx-parker-fcntl-sigign-and-libc-socket-align'
 
 
@@ -127,7 +127,29 @@ def run(out):
     assert commands[1][0] == str(Path(proof['rustc']).resolve()), 'wrong Rust compiler'
     libraries = [Path(arg.removeprefix('libc=')) for arg in commands[1] if arg.startswith('libc=')]
     assert len(libraries) == 1
-    assert hashlib.sha256(libraries[0].read_bytes()).hexdigest() == core['libc_rlib_sha256'], 'changed libc'
+    records = [json.loads(line) for line in (out / 'cargo-messages.jsonl').read_text().splitlines()]
+    recorded_metadata = {(m['package_id'], m['target']['name'], str(Path(p).resolve()))
+                         for m in records if m.get('reason') == 'compiler-artifact'
+                         for p in m['filenames'] if p.endswith('.rmeta')}
+    for metadata in core['rust_metadata']:
+        path = Path(metadata['path'])
+        assert path.is_relative_to(Path(core['target_artifacts'])), 'not target metadata'
+        assert (metadata['package_id'], metadata['crate'], str(path)) in recorded_metadata, 'unrecorded metadata'
+        assert hashlib.sha256(path.read_bytes()).hexdigest() == metadata['sha256'], 'changed Rust metadata'
+    metadata_paths = {m['path'] for m in core['rust_metadata']}
+    for name in ('core', 'compiler_builtins', 'libc'):
+        selected = [arg.removeprefix(name + '=') for arg in commands[1] if arg.startswith(name + '=')]
+        assert len(selected) == 1 and selected[0] in metadata_paths, f'unverified {name} metadata'
+    search_dirs = {arg.removeprefix('-Ldependency=') for arg in commands[1] if arg.startswith('-Ldependency=')}
+    assert search_dirs == {str(Path(p).parent) for p in metadata_paths}, 'changed metadata search directories'
+    libc_metadata = [m for m in core['rust_metadata'] if m['crate'] == 'libc']
+    assert len(libc_metadata) == 1 and libraries[0] == Path(libc_metadata[0]['path']), 'wrong libc metadata'
+    library = Path(core['libc_rlib'])
+    assert library.with_suffix('.rmeta') == libraries[0], 'unpaired libc archive and metadata'
+    assert any(m.get('reason') == 'compiler-artifact' and m['package_id'] == core['libc_package']
+               and str(library) in m['filenames'] and str(libraries[0]) in m['filenames']
+               for m in records), 'libc archive and metadata did not come from the same build'
+    assert hashlib.sha256(library.read_bytes()).hexdigest() == core['libc_rlib_sha256'], 'changed libc archive'
     rows = fields()
     c_source = ('#include <nuttx/config.h>\n#include <stdint.h>\n#include <stddef.h>\n'
                 '#include <sys/types.h>\n#include <sys/socket.h>\n#include <netinet/in.h>\n'
@@ -161,7 +183,8 @@ def run(out):
         values[role] = dict(zip([row[0] for row in rows], struct.unpack('<' + 'I' * len(rows), raw)))
     result = compare(values['native'], values['rust'])
     result.update(commands=executed, target=core['target'], libc_package=core['libc_package'],
-                  libc_rlib_sha256=core['libc_rlib_sha256'], config_sha256=core['config_sha256'],
+                  libc_rlib=core['libc_rlib'], libc_rlib_sha256=core['libc_rlib_sha256'],
+                  rust_metadata=core['rust_metadata'], config_sha256=core['config_sha256'],
                   image_sha256=hashlib.sha256((out / 'nuttx/nuttx').read_bytes()).hexdigest())
     (out / 'socket-abi-report.json').write_text(json.dumps(result, indent=2) + '\n')
     assert result['socket_abi_compatible'], f'Socket ABI gate rejected: {result["errors"]}'

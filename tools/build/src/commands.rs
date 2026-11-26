@@ -306,7 +306,7 @@ mod tests {
             "--output".into(),
             out.display().to_string(),
             "--sdk".into(),
-            "nightly-2025-09-15".into(),
+            "nightly-2026-11-26".into(),
             "--native-app".into(),
             outside.display().to_string(),
         ];

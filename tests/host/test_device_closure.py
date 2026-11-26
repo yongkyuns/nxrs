@@ -249,9 +249,9 @@ class DeviceClosureFixture(unittest.TestCase):
                       "app_package": app_package, "app_bin": app_bin, "platform": "m5stack-cores3-gnss",
                       "target": TARGET, "board": "esp32s3-m5-cores3:nsh", "nuttx_build_mode": "flat",
                       "size_optimized": "1", "app_command": app_bin.replace("-", "_")}
-        compiler = ["rustc 1.90.0-nightly (fixture)", "commit-hash: " + "d" * 40, "commit-date: 2025-09-16",
-                    "host: x86_64-unknown-linux-gnu", "release: 1.90.0-nightly", "LLVM version: 20.1.1",
-                    "xtensa-esp-elf-gcc (crosstool-NG esp-14.2.0_20241119) 14.2.0"]
+        compiler = ["rustc 1.100.0-nightly (fixture)", "commit-hash: " + "d" * 40, "commit-date: 2025-09-16",
+                    "host: x86_64-unknown-linux-gnu", "release: 1.100.0-nightly", "LLVM version: 20.1.1",
+                    "xtensa-esp-elf-gcc (crosstool-NG esp-16.2.0_20261109) 16.2.0"]
         self.put(case, "provenance.txt", "\n".join([*(k + "=" + v for k, v in provenance.items()), *compiler]) + "\n")
         rust = self.put(case, "rust-input.elf", b"\x7fELF Rust fixture " + case.encode())
         final = self.put(case, "nuttx/nuttx", b"\x7fELF final fixture " + case.encode())

@@ -477,7 +477,7 @@ diff --git a/drivers/video/v4l2_cap.c b/drivers/video/v4l2_cap.c
 +  else if (cmng->capture_inf.lower_active &&
 +           next_state != CAPTURE_STATE_CAPTURE)
      {
--          stop_capture(cmng, V4L2_BUF_TYPE_VIDEO_CAPTURE);
+-      stop_capture(cmng, V4L2_BUF_TYPE_VIDEO_CAPTURE);
 +      ret = stop_capture(cmng, V4L2_BUF_TYPE_VIDEO_CAPTURE);
 +      if (ret < 0)
 +        {

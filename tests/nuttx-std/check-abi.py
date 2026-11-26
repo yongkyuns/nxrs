@@ -1,18 +1,21 @@
 #!/usr/bin/env python3
 """Compare target-compiled C/Rust ABI witnesses for the selected NuttX probe.
 
-Uses the libc rlib reported by the std build, not an independently resolved crate.
+Uses the paired libc rmeta/rlib reported by the std build, with both identities
+recorded; it does not independently resolve the crate.
 This is a limited gate, not an assertion that every libc API is safe. Opaque
 pthread objects need sufficient storage/alignment; public layouts and constants
 need exact agreement except the explicitly contained, still-unsupported bindings.
 """
 import argparse
+import copy
 import hashlib
 import json
 import os
 from pathlib import Path
 import struct
 import subprocess
+import tempfile
 
 TARGET = 'riscv32imac-unknown-nuttx-elf'
 SIM_TARGET = 'aarch64-nuttx-sim-darwin'
@@ -22,7 +25,7 @@ TARGETS = {
     'xtensa-esp32s3-nuttx': ('xtensa-esp32s3-elf-', ['-mlongcalls', '-mtext-section-literals']),
     SIM_TARGET: ('', []),
 }
-SCALARS = ['int', 'long', 'size_t', 'time_t', 'off_t', 'nfds_t', 'pthread_t', 'pthread_key_t', 'ino_t', 'blksize_t']
+SCALARS = ['int', 'long', 'size_t', 'time_t', 'off_t', 'nfds_t', 'pthread_t', 'pthread_key_t', 'ino_t', 'blksize_t', 'wchar_t']
 OPAQUE = ['pthread_attr_t', 'pthread_mutex_t', 'pthread_mutexattr_t',
           'pthread_cond_t', 'pthread_condattr_t', 'sem_t']
 # This libc target does not export PTHREAD_MUTEX_RECURSIVE; do not fabricate it.
@@ -54,7 +57,7 @@ def check_imports(text, poll_qualified=False):
     return sorted(undefined)
 
 
-def fields(poll_fixed=False):
+def fields(poll_fixed=False, target=TARGET):
     rows = []
     for name in SCALARS + OPAQUE + ['timespec', 'pollfd'] + list(FILESYSTEM_FIELDS) + (['pollevent_t', 'pollcb_t'] if poll_fixed else []):
         c_type = 'struct ' + name if name in ('timespec', 'pollfd', *FILESYSTEM_FIELDS) else name
@@ -81,11 +84,16 @@ def fields(poll_fixed=False):
         for member in ('events', 'revents'):
             rows.append((f'pollfd.{member}.size', f'sizeof(((struct pollfd *)0)->{member})',
                          f'size_of_val(&unsafe {{ core::mem::zeroed::<libc::pollfd>() }}.{member})', 'exact'))
-    constants = CONSTANTS + (['POLLIN', 'POLLOUT', 'POLLERR', 'POLLHUP', 'POLLNVAL'] if poll_fixed else [])
+    constants = CONSTANTS + (['POLLIN', 'POLLRDNORM', 'POLLRDBAND', 'POLLPRI', 'POLLOUT',
+                              'POLLWRNORM', 'POLLWRBAND', 'POLLERR', 'POLLHUP',
+                              'POLLRDHUP', 'POLLNVAL'] if poll_fixed else [])
     rows.extend((name, name, f'libc::{name}', 'exact') for name in constants)
     # The native std parker passes this header-owned value through sem_setprotocol.
     rows.append(('SEM_PRIO_NONE', 'SEM_PRIO_NONE', '0', 'exact'))
     rows.extend((name, f'(uintptr_t){name}', f'libc::{name}', 'exact') for name in SIGNAL_HANDLERS)
+    if target == 'xtensa-esp32s3-nuttx':
+        rows.append(('wchar_t.signed', '((wchar_t)-1 < (wchar_t)0)',
+                     'libc::wchar_t::MIN != 0', 'exact'))
     return rows
 
 
@@ -95,11 +103,11 @@ KNOWN_POLLFDS = {'pollfd.size': (24, 8), 'pollfd.align': (4, 4),
                 'pollfd.fd': (0, 0), 'pollfd.events': (4, 4), 'pollfd.revents': (8, 6)}
 
 
-def compare(c_values, rust_values, fixes, poll_fixed=False):
-    names = [row[0] for row in fields(poll_fixed)]
+def compare(c_values, rust_values, fixes, poll_fixed=False, target=TARGET):
+    names = [row[0] for row in fields(poll_fixed, target)]
     assert set(c_values) == set(rust_values) == set(names), 'incomplete ABI evidence'
     checks, errors = [], []
-    for name, _, _, rule in fields(poll_fixed):
+    for name, _, _, rule in fields(poll_fixed, target):
         c, rust = c_values[name], rust_values[name]
         if name in KNOWN_POLLFDS and not poll_fixed:
             valid = fixes and (c, rust) == KNOWN_POLLFDS[name]
@@ -184,6 +192,90 @@ def self_test():
     else:
         raise AssertionError('poll layout qualification must not qualify ppoll signal arguments')
     print('PASS: complete native poll layout/constant rejection controls; ppoll remains blocked')
+    xtensa = 'xtensa-esp32s3-nuttx'
+    native.update({'wchar_t.size': 2, 'wchar_t.align': 2, 'wchar_t.signed': 0})
+    rust.update({'wchar_t.size': 2, 'wchar_t.align': 2, 'wchar_t.signed': 0})
+    assert compare(native, rust, True, True, xtensa)['probe_abi_compatible']
+    for name, value in (('wchar_t.size', 4), ('wchar_t.align', 4), ('wchar_t.signed', 1)):
+        assert name in compare(native, dict(rust, **{name: value}), True, True, xtensa)['errors']
+    print('PASS: complete Xtensa evidence accepted; wrong wchar size/alignment/signedness rejected')
+    artifact_self_test()
+
+
+def compiled_artifacts(records, target_artifacts):
+    """Select exact target metadata and retain its matching link archive identity.
+
+    Current Cargo stores metadata separately from stub rlibs, and each crate may
+    have its own output directory. Compile-only witnesses need the recorded
+    rmeta files and all their transitive metadata search directories.
+    """
+    artifacts = [m for m in records if m.get('reason') == 'compiler-artifact'
+                 and any(Path(p).suffix in ('.rlib', '.rmeta')
+                         and Path(p).resolve().is_relative_to(target_artifacts)
+                         for p in m['filenames'])]
+    required = {}
+    for name in ('core', 'compiler_builtins', 'libc'):
+        matches = [m for m in artifacts if m['target']['name'] == name]
+        assert len(matches) == 1, f'ambiguous or missing target {name} artifact'
+        record = matches[0]
+        pair = {}
+        for extension in ('.rlib', '.rmeta'):
+            paths = [Path(p).resolve() for p in record['filenames'] if p.endswith(extension)]
+            assert len(paths) == 1 and paths[0].is_file(), f'missing exact {name} {extension}'
+            assert paths[0].is_relative_to(target_artifacts), f'not the selected target {name}'
+            pair[extension[1:]] = paths[0]
+        assert pair['rlib'].with_suffix('.rmeta') == pair['rmeta'], f'unpaired {name} metadata'
+        required[name] = dict(record=record, **pair)
+    metadata = []
+    for record in artifacts:
+        for filename in record['filenames']:
+            path = Path(filename).resolve()
+            if path.suffix == '.rmeta':
+                assert path.is_file() and path.is_relative_to(target_artifacts), 'invalid target metadata'
+                metadata.append(dict(crate=record['target']['name'], package_id=record['package_id'],
+                                     path=str(path), sha256=hashlib.sha256(path.read_bytes()).hexdigest()))
+    assert len({m['path'] for m in metadata}) == len(metadata), 'duplicate target metadata'
+    return required, metadata
+
+
+def artifact_self_test():
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        target = root / 'target'
+        records = []
+        for name in ('core', 'compiler_builtins', 'libc', 'rustc_std_workspace_core', 'host_libc'):
+            parent = (root if name == 'host_libc' else target) / name / 'out'
+            parent.mkdir(parents=True)
+            paths = [parent / ('lib' + name + suffix) for suffix in ('.rlib', '.rmeta')]
+            for path in paths:
+                path.write_bytes(path.suffix.encode())
+            records.append(dict(reason='compiler-artifact', package_id=name,
+                                target=dict(name='libc' if name == 'host_libc' else name),
+                                filenames=list(map(str, paths))))
+        artifacts, metadata = compiled_artifacts(records, target)
+        assert artifacts['libc']['record']['package_id'] == 'libc', 'selected host libc'
+        assert artifacts['libc']['rmeta'].with_suffix('.rlib') == artifacts['libc']['rlib']
+        assert len(metadata) == 4 and len({Path(m['path']).parent for m in metadata}) == 4
+        foreign = root / 'foreign.rmeta'
+        foreign.write_bytes(b'foreign metadata')
+        for failure in ('missing', 'unpaired', 'foreign', 'duplicate'):
+            mutated = copy.deepcopy(records)
+            libc = next(r for r in mutated if r['package_id'] == 'libc')
+            if failure == 'missing':
+                libc['filenames'] = [str(artifacts['libc']['rlib'])]
+            elif failure == 'unpaired':
+                libc['filenames'][1] = str(artifacts['core']['rmeta'])
+            elif failure == 'foreign':
+                libc['filenames'][1] = str(foreign)
+            else:
+                mutated.append(copy.deepcopy(libc))
+            try:
+                compiled_artifacts(mutated, target)
+            except AssertionError:
+                pass
+            else:
+                raise AssertionError(f'accepted {failure} target metadata')
+    print('PASS: target metadata pairs and transitive directories; host exclusion and 4 refusal controls')
 
 
 def run(out, target=TARGET, target_spec=None, require_finalized_context=False):
@@ -215,29 +307,17 @@ def run(out, target=TARGET, target_spec=None, require_finalized_context=False):
         assert target_spec is None, 'built-in targets must not use a custom spec'
     patch = json.loads((out / 'std-patch.json').read_text())
     poll_fixed = patch.get('libc', {}).get('pollfd_abi') == 'nuttx-13.1'
-    rows = fields(poll_fixed)
+    rows = fields(poll_fixed, target)
     records = [json.loads(line) for line in (out / 'cargo-messages.jsonl').read_text().splitlines()]
     target_artifacts = (Path(os.environ.get('CARGO_TARGET_DIR', out / 'cargo')) / target).resolve()
-    libs = [m for m in records if m.get('reason') == 'compiler-artifact'
-            and m['target']['name'] == 'libc'
-            and any(p.endswith('.rlib') and Path(p).resolve().is_relative_to(target_artifacts)
-                    for p in m['filenames'])]
-    assert len(libs) == 1, 'ambiguous libc artifact'
-    library = [Path(p) for p in libs[0]['filenames'] if p.endswith('.rlib')]
-    assert len(library) == 1 and library[0].is_file(), 'missing compiled libc'
-    library = library[0].resolve()
-    assert f'/{target}/' in str(library), 'not the selected target libc'
-    cores = [Path(p) for m in records if m.get('reason') == 'compiler-artifact'
-             and m['target']['name'] == 'core' for p in m['filenames'] if p.endswith('.rlib')]
-    assert len(cores) == 1 and cores[0].is_file(), 'missing exact rebuilt core'
-    builtins = [Path(p) for m in records if m.get('reason') == 'compiler-artifact'
-                and m['target']['name'] == 'compiler_builtins'
-                for p in m['filenames'] if p.endswith('.rlib')]
-    assert len(builtins) == 1 and builtins[0].is_file(), 'missing exact compiler_builtins'
+    artifacts, metadata = compiled_artifacts(records, target_artifacts)
+    libc_artifact = artifacts['libc']
+    library = libc_artifact['rlib']
+    dependency_dirs = sorted({str(Path(m['path']).parent) for m in metadata})
     rustc = Path(os.environ['RUSTC']).resolve()
-    src = Path(libs[0]['target']['src_path']).resolve()
-    version = '0.2.174' if target == 'xtensa-esp32s3-nuttx' else '0.2.175'
-    assert libs[0]['package_id'].endswith('libc@' + version), 'review ABI checks for a new libc'
+    src = Path(libc_artifact['record']['target']['src_path']).resolve()
+    version = '0.2.191'
+    assert libc_artifact['record']['package_id'].endswith('libc@' + version), 'review ABI checks for a new libc'
     section = '__DATA,__nxrs_abi' if sim else '.nxrs_abi'
     c_source = ('#include <nuttx/config.h>\n#include <stdint.h>\n#include <stddef.h>\n'
                 '#include <time.h>\n#include <sys/types.h>\n#include <poll.h>\n'
@@ -257,10 +337,11 @@ def run(out, target=TARGET, target_spec=None, require_finalized_context=False):
     commands = [
         [*compiler, '-c', '-I' + str(out / 'nuttx/include'),
          str(out / 'abi-native.c'), '-o', str(out / 'abi-native.o')],
-        [str(rustc), '--edition=2021', '--target', target_arg, '--crate-type=lib', '--emit=obj',
-         '-Cpanic=abort', '--extern', 'core=' + str(cores[0]),
-         '--extern', 'compiler_builtins=' + str(builtins[0]),
-         '--extern', 'libc=' + str(library), '-Ldependency=' + str(library.parent),
+        [str(rustc), '--edition=2021', '-Zunstable-options', '--target', target_arg, '--crate-type=lib', '--emit=obj',
+         '-Cpanic=abort', '--extern', 'core=' + str(artifacts['core']['rmeta']),
+         '--extern', 'compiler_builtins=' + str(artifacts['compiler_builtins']['rmeta']),
+         '--extern', 'libc=' + str(libc_artifact['rmeta']),
+         *['-Ldependency=' + directory for directory in dependency_dirs],
          str(out / 'abi-rust.rs'), '-o', str(out / 'abi-rust.o')]]
     for command in commands:
         subprocess.run(command, check=True)
@@ -287,12 +368,14 @@ def run(out, target=TARGET, target_spec=None, require_finalized_context=False):
         and patch.get('startup_sig_ign') == 0
         and patch.get('libc_sockaddr_storage_alignment') == 8
     )
-    result = compare(values['native'], values['rust'], fixes, poll_fixed)
+    result = compare(values['native'], values['rust'], fixes, poll_fixed, target)
     assert result['probe_abi_compatible'], f'ABI gate rejected: {result["errors"]}'
     imports = check_imports((out / 'rust-symbols.txt').read_text(), result['poll_abi_compatible'])
     result.update(target=target, rust_imports=imports,
-                  libc_package=libs[0]['package_id'], libc_source=str(src),
+                  libc_package=libc_artifact['record']['package_id'], libc_source=str(src),
+                  libc_rlib=str(library),
                   libc_rlib_sha256=hashlib.sha256(library.read_bytes()).hexdigest(),
+                  target_artifacts=str(target_artifacts), rust_metadata=metadata,
                   config_sha256=config_hash,
                   commands=commands)
     if require_finalized_context:

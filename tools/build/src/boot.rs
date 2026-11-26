@@ -2,7 +2,7 @@
 use crate::{profile::Profile, Result};
 use serde_json::Value;
 use std::{collections::BTreeMap, path::Path};
-pub const MCUBOOT_REVISION: &str = "8a07053d42e592c85cb35b79c4de1b7749943387";
+pub const MCUBOOT_REVISION: &str = "6d3b3d2c38ab20c242e5b9abb04d050086383eb2";
 pub const HAL_REVISION: &str = "911dbec8e4a92e70056b58a3d2b0d965b8b7bcc9";
 #[derive(Clone, Debug)]
 pub struct Layout {
@@ -430,8 +430,8 @@ impl Signing {
                 return Err("signed image output must not replace an input or key".into());
             }
         }
-        if crate::output(Command::new("imgtool").arg("version"))?.trim() != "2.2.0" {
-            return Err("MCUboot requires pinned imgtool 2.2.0".into());
+        if crate::output(Command::new("imgtool").arg("version"))?.trim() != "2.4.0" {
+            return Err("MCUboot requires pinned imgtool 2.4.0".into());
         }
         let temporary = crate::TempDir::new(&parent)?;
         let candidate = temporary.0.join("image.bin");

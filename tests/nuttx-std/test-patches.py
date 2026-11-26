@@ -44,6 +44,39 @@ def function_definition(text, signature):
 
 
 class PatchSeriesTests(unittest.TestCase):
+    def test_xtensa_wchar_limits_match_compiler_type_and_old_fallbacks(self):
+        source, upstream, _, _ = self.fixture("nuttx")
+        applied = self.apply("nuttx", source)
+        self.assertEqual(applied.returncode, 0, applied.stderr)
+        relative = "arch/xtensa/include/limits.h"
+        cases = [
+            ("current-unsigned", ["__WCHAR_TYPE__=short unsigned int",
+                                  "__WCHAR_MIN__=0", "__WCHAR_MAX__=65535"], "0", "65535"),
+            ("current-signed", ["__WCHAR_TYPE__=int", "__WCHAR_MIN__=(-2147483647-1)",
+                                "__WCHAR_MAX__=2147483647"], "(-2147483647-1)", "2147483647"),
+            ("legacy-unsigned", ["__WCHAR_TYPE__=unsigned int", "__WCHAR_UNSIGNED__=1",
+                                 "__WCHAR_MAX__=4294967295U"], "0", "4294967295U"),
+            ("legacy-signed", ["__WCHAR_TYPE__=int", "__WCHAR_MAX__=2147483647"],
+             "(-2147483647-1)", "2147483647"),
+            ("missing-builtins", [], "(-2147483647-1)", "2147483647"),
+        ]
+        for name, definitions, minimum, maximum in cases:
+            with self.subTest(name=name):
+                for tree in ([upstream, source] if name == "current-unsigned" else [source]):
+                    probe = (f'#include "{tree / relative}"\n'
+                             f'_Static_assert(WCHAR_MIN == {minimum}, "wchar minimum");\n'
+                             f'_Static_assert(WCHAR_MAX == {maximum}, "wchar maximum");\n')
+                    command = ["cc", "-std=c11", "-fsyntax-only", "-x", "c",
+                               "-U__WCHAR_TYPE__", "-U__WCHAR_MIN__",
+                               "-U__WCHAR_MAX__", "-U__WCHAR_UNSIGNED__",
+                               *["-D" + value for value in definitions], "-"]
+                    result = subprocess.run(command, input=probe, text=True, capture_output=True)
+                    if tree == upstream:
+                        self.assertNotEqual(result.returncode, 0, result.stderr)
+                        self.assertIn("wchar minimum", result.stderr)
+                    else:
+                        self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_direct_switch_admission_preserves_other_targets_and_abis(self):
         source, _, _, _ = self.fixture("nuttx")
         applied = self.apply("nuttx", source)

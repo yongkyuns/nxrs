@@ -1,6 +1,6 @@
 # Fixed PICO numerical SDK capsule
 
-`source.json` pins ESP-DL v3.3.0 revision, the unmodified S3 PICO_S8_V1 model,
+`source.json` pins ESP-DL v3.3.14 revision, the unmodified S3 PICO_S8_V1 model,
 MIT notices and every retained numerical source, before and after the port.
 Run `cargo nxrs fetch detector` explicitly; Cargo build scripts never fetch it.
 An existing source directory must pass the reviewed post-port inventory. Editing
@@ -8,7 +8,18 @@ An existing source directory must pass the reviewed post-port inventory. Editing
 
 The reviewed `port.patch` removes SDK dual-core task launch code (attempted use
 aborts), corrects a host pool pointer-width check and removes unused iostream
-initializers. Rust applies it and verifies every prepared source hash.
+initializers. It rejects random tensor generation and missing Conv kernels, which
+are outside the fixed inference graph. Rust applies it and verifies every
+prepared source hash.
+ESP-DL 3.3.14 separates Conv loops, scalar kernels and dispatch metadata.
+`kernels.json` retains the upstream S8 selection rows for scalar and ESP32-S3
+execution. The Rust builder checks their ABI, ordering, precision and symbols,
+then emits the three compile-time SDK tables. Run
+`python3 tests/detection/check_pico_dispatch.py --sdk target/pico-sdk` to compare
+them with the retained, hash-pinned upstream generator and specifications.
+The current LUT interface receives the existing context-owned parameter tensor;
+the model bytes, quantization and fixed graph protocol are unchanged.
+
 Every generated call requests synchronous single-core execution. This capsule
 provides numerical operations, not an RTOS compatibility layer.
 

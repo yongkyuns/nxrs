@@ -147,9 +147,11 @@ def generate(model,destination,optimized):
             if a['dilations']!=[1,1] or a['activation'] not in ['Relu','Linear']:raise ValueError('unsupported convolution')
             pads=a['pads'];init=f'new Conv({"ReLU" if a["activation"]=="Relu" else "Linear"},{values([pads[0],pads[2],pads[1],pads[3]])},{{1,1}},{values(a["strides"])},nullptr,{a["group"]},QUANT_TYPE_SYMM_8BIT)'
         elif op=='Sigmoid':
-            # LUT owns this separate TensorBase view. Context owns the original.
+            # Current SDK reads the context-owned table as the final input.
             lut=params[a['lut']]
-            init=f'new LUT(nullptr,new TensorBase({values(lut["shape"])},static_cast<char*>(parameters.get())+{parameter_offsets[a["lut"]]},{lut["exp"]},DATA_TYPE_INT8,false),MODULE_NON_INPLACE,QUANT_TYPE_SYMM_8BIT)'
+            if lut['dtype']!=3 or lut['shape']!=[256] or lut['exp']!=variables[out]['exp']:raise ValueError('invalid S8 sigmoid table')
+            ins=[*ins,a['lut']]
+            init='new LUT(nullptr,MODULE_NON_INPLACE,QUANT_TYPE_SYMM_8BIT)'
         elif op=='Mul':init='new Mul(nullptr,MODULE_NON_INPLACE,QUANT_TYPE_SYMM_8BIT)'
         elif op=='GlobalAveragePool':init='new GlobalAveragePool(nullptr,QUANT_TYPE_SYMM_8BIT)'
         elif op=='Concat':
@@ -165,10 +167,10 @@ def generate(model,destination,optimized):
         code.append(f'op->m_outputs_index.push_back({ids[out]});')
         shapes='{'+','.join(values((variables if name in variables else params)[name]['shape']) for name in ins)+'}'
         code.append(f'std::vector<std::vector<int>> shapes={shapes}; if(op->get_output_shape(shapes)!=std::vector<std::vector<int>>{{{values(variables[out]["shape"])}}})abort(); ops.emplace_back(op); }}')
-    # ModelContext deletes tensor views only when it owns a root allocation.
-    # This graph instead supplies an external arena, so retire operators first
-    # and explicitly delete every registered view before releasing that arena.
-    code+=['}', '~Engine(){ops.clear();for(auto*t:context.m_variables)delete t;for(auto*t:context.m_parameters)delete t;context.clear();}', 'void run(){for(auto &op:ops)op->forward(&context,RUNTIME_MODE_SINGLE_CORE);}', '};',f'extern "C" void *pico_create() {{void*arena=tool::calloc_aligned(1,{arena},MALLOC_CAP_DEFAULT);if(!arena)return nullptr;void*weights=tool::calloc_aligned(1,{parameter_bytes},MALLOC_CAP_DEFAULT);if(!weights){{free(arena);return nullptr;}}return new Engine(arena,weights);}}','extern "C" void pico_destroy(void *p){delete static_cast<Engine*>(p);}',f'extern "C" void pico_run(void*p,const int8_t*input,int8_t*output){{auto&e=*static_cast<Engine*>(p);memcpy(e.context.get_tensor({ids["input"]})->data,input,150528);e.run();int offset=0;']
+    # Current ModelContext owns every registered tensor view even when the
+    # backing arenas are external. Retire operators before clearing the views;
+    # the Engine's aligned parameter/activation owners release the backing RAM.
+    code+=['}', '~Engine(){ops.clear();context.clear();}', 'void run(){for(auto &op:ops)op->forward(&context,RUNTIME_MODE_SINGLE_CORE);}', '};',f'extern "C" void *pico_create() {{void*arena=tool::calloc_aligned(1,{arena},MALLOC_CAP_DEFAULT);if(!arena)return nullptr;void*weights=tool::calloc_aligned(1,{parameter_bytes},MALLOC_CAP_DEFAULT);if(!weights){{free(arena);return nullptr;}}return new Engine(arena,weights);}}','extern "C" void pico_destroy(void *p){delete static_cast<Engine*>(p);}',f'extern "C" void pico_run(void*p,const int8_t*input,int8_t*output){{auto&e=*static_cast<Engine*>(p);memcpy(e.context.get_tensor({ids["input"]})->data,input,150528);e.run();int offset=0;']
     for name in ['score0','score1','score2','bbox0','bbox1','bbox2']:
         code.append(f'{{auto*t=e.context.get_tensor({ids[name]});memcpy(output+offset,t->data,t->size);offset+=t->size;}}')
     code+=['}']

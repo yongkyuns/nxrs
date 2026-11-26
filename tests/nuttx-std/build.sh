@@ -76,12 +76,12 @@ case "$PROFILE" in
     ;;
   *) echo "unknown qualification profile: $PROFILE" >&2; exit 1 ;;
 esac
-export RUSTUP_TOOLCHAIN=nightly-2025-09-15
-SDK=nightly-2025-09-15
+export RUSTUP_TOOLCHAIN=nightly-2026-11-26
+SDK=nightly-2026-11-26
 if test "$ESP32" = 1; then
   source "$ROOT/target/qemu-tools/environment.sh"
   export RUSTC_BOOTSTRAP=1
-  SDK=esp-1.90.0.0
+  SDK=esp-1.100.0.0
 fi
 SOURCE_RUSTC="${RUSTC:-rustc}"
 for cmd in cargo rustc git make kconfig-tweak "${CROSSDEV}gcc" "${CROSSDEV}objcopy" "${CROSSDEV}readelf" "${CROSSDEV}nm" "${CROSSDEV}size"; do
@@ -248,7 +248,7 @@ if grep -qx 'CONFIG_SIG_DEFAULT=y' .config; then
 fi
 cd "$ROOT"
 # Build the Rust qualification linker before entering the target Cargo build.
-cargo +1.90.0 build --locked -p nxrs-build --target-dir "$ROOT/target"
+cargo +1.100.0 build --locked -p nxrs-build --target-dir "$ROOT/target"
 # Opt in explicitly: these are target std fixes, not an unmodified-upstream claim.
 export NUTTX_STD_SYSROOT="$("$SOURCE_RUSTC" --print sysroot)"
 case "${NUTTX_STD_COMPAT_FIXES:-0}" in
@@ -265,11 +265,12 @@ export RUSTC="$NUTTX_STD_SYSROOT/bin/rustc"
 export CARGO_BUILD_RUSTC="$RUSTC"
 test "$("$RUSTC" --print sysroot)" = "$NUTTX_STD_SYSROOT"
 CARGO_BIN="$NUTTX_STD_SYSROOT/bin/cargo"
+CUSTOM_TARGET_ARGS=()
 TARGET_ARG="$TARGET"
 ABI_ARGS=()
 if test "$ESP32" = 1; then
   # The pinned distribution supplies rustc/std, with upstream Cargo separately.
-  CARGO_BIN="$(rustup which --toolchain 1.90.0 cargo)"
+  CARGO_BIN="$(rustup which --toolchain 1.100.0 cargo)"
   export NUTTX_STD_GNU_LINKER="$(command -v xtensa-esp32s3-elf-ld)"
   # Preserve the pinned compiler's processor/data layout rather than guessing it.
   "$RUSTC" -Z unstable-options --print target-spec-json --target xtensa-esp32s3-none-elf > "$OUT/xtensa-bare-target.json"
@@ -290,6 +291,7 @@ target['metadata'] = {'description': 'Isolated ESP32-S3 NuttX std probe', 'std':
 (out / 'xtensa-esp32s3-nuttx.json').write_text(json.dumps(target, indent=2) + '\n')
 PY_TARGET
   TARGET_ARG="$OUT/$TARGET.json"
+  CUSTOM_TARGET_ARGS=(-Zjson-target-spec)
   ABI_ARGS=(--target-spec "$TARGET_ARG")
   cp "$ROOT/target/qemu-tools/downloads.sha256" "$OUT/downloads.sha256"
 fi
@@ -305,10 +307,10 @@ if test "$INTEGRATION" = 1; then
   # link, so keep that exported symbol across --gc-sections explicitly.
   KEEP_LINK=(-C link-arg=-u -C link-arg=rc_rust_abi_probe)
 fi
-export RUSTFLAGS="-C panic=abort ${CODE_MODEL[*]} -C linker=$ROOT/tests/nuttx-std/link.py ${KEEP_LINK[*]}"
-"$CARGO_BIN" build --locked --release "${CARGO_ARGS[@]}" \
+export RUSTFLAGS="-C panic=immediate-abort -Zunstable-options ${CODE_MODEL[*]} -C linker=$ROOT/tests/nuttx-std/link.py ${KEEP_LINK[*]}"
+"$CARGO_BIN" build --locked --release "${CARGO_ARGS[@]}" "${CUSTOM_TARGET_ARGS[@]}" \
   --bin "$BIN" --target "$TARGET_ARG" -Zbuild-std=std,panic_abort \
-  -Zbuild-std-features=backtrace-trace-only,optimize_for_size,panic_immediate_abort \
+  -Zbuild-std-features=backtrace-trace-only,optimize_for_size \
   --message-format=json-render-diagnostics | tee "$OUT/cargo-messages.jsonl"
 # A patched file alone is not evidence that Cargo compiled it. Check the actual
 # std compiler-artifact source path before accepting the kernel integration.

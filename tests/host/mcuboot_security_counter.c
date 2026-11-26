@@ -29,7 +29,7 @@ static void boot_scramble_slot(void *area, int slot)
     assert(slot == 1 && area == BOOT_IMG_AREA(0, slot));
     ++scrambles;
 }
-static int boot_version_cmp(const unsigned *a, const unsigned *b)
+static int boot_compare_version(const unsigned *a, const unsigned *b)
 {
     (void)a; (void)b;
     assert(0 && "firmware version must not replace security epoch admission");

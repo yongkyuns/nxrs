@@ -154,7 +154,7 @@ impl Driver for Fake {
         }
         if self
             .close_failures
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |value| {
+            .try_update(Ordering::AcqRel, Ordering::Acquire, |value| {
                 value.checked_sub(1)
             })
             .is_ok()

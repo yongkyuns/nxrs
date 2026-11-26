@@ -1,6 +1,6 @@
 """Qualification compatibility; Rust owns boot configuration and validation."""
 from platform_config import _query
-MCUBOOT_REVISION = '8a07053d42e592c85cb35b79c4de1b7749943387'
+MCUBOOT_REVISION = '6d3b3d2c38ab20c242e5b9abb04d050086383eb2'
 HAL_REVISION = '911dbec8e4a92e70056b58a3d2b0d965b8b7bcc9'
 
 
