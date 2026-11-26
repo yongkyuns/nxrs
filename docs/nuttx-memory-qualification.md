@@ -89,6 +89,23 @@ reads occur while owners are intentionally paused after their measured work.
 None of these diagnostic observations is used as a throughput or latency
 benchmark.
 
+## Inspect addressed snapshots
+
+[Memory Explorer](../tools/memory-explorer/README.md) opens the final ELF and GNU
+map alongside addressed heap/task-stack observations in an egui viewer. Its
+read-only GDB exporter records raw default-allocator chunk extents and stack
+reservations. Unlike the procfs meminfo read above, it does not drain delayed
+frees. It also does not sample stack coloration or measure requested payload
+sizes, so keep using this qualification for lifecycle reclamation and stack
+high-water evidence.
+
+The viewer can navigate independently captured lifecycle points, with unknown
+runtime state between them. A host ELF hash prevents accidental artifact mixing;
+it does not verify the running device image or prove allocator quiescence.
+Physical backing requires an explicit board layout. The tool's guide describes
+capture prerequisites, file semantics, controls, and the remaining qualification
+work in issue #442.
+
 ## Flat-build pthread key patchset
 
 The pinned NuttX submodule and fork are not modified. At build time,
