@@ -1,0 +1,4 @@
+extends = "m5stack-cores3-stamp-catm"
+
+[build]
+diagnostics = true

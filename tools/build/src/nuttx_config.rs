@@ -210,9 +210,10 @@ fn standard(profile: &Profile, protected: bool) -> BTreeMap<String, String> {
         v.insert("TLS_GLOBAL_KEYS".into(), "y".into());
     }
     if profile.data.get("init").is_none() {
-        for key in ["NSH_DISABLEBG", "NSH_ARGCAT"] {
-            v.insert(key.into(), "y".into());
-        }
+        // Keep the console available to inspect a running application in diagnostic builds.
+        let background_disabled = if diagnostics_enabled(profile) { "n" } else { "y" };
+        v.insert("NSH_DISABLEBG".into(), background_disabled.into());
+        v.insert("NSH_ARGCAT".into(), "y".into());
     }
     for (key, value) in [
         ("TLS_NELEM", "16"),
@@ -247,6 +248,46 @@ fn protected_config() -> BTreeMap<String, String> {
     ])
 }
 
+fn diagnostics_enabled(profile: &Profile) -> bool {
+    profile.data.pointer("/build/diagnostics").and_then(Value::as_bool) == Some(true)
+}
+
+fn diagnostics(profile: &Profile) -> Result<Vec<(&'static str, &'static str)>> {
+    if !diagnostics_enabled(profile) {
+        return Ok(vec![]);
+    }
+    if profile.data.pointer("/build/protected-runtime") == Some(&json!(true)) {
+        return Err("build.diagnostics requires flat NuttX".into());
+    }
+    let mut settings = vec![
+        ("MM_ALLOC_REQUEST_TRACE", "y"),
+        ("SCHED_INSTRUMENTATION", "y"),
+        ("SCHED_INSTRUMENTATION_FILTER", "y"),
+        ("SCHED_INSTRUMENTATION_FILTER_DEFAULT_MODE", "0x0"),
+        ("SCHED_INSTRUMENTATION_SWITCH", "y"),
+        ("SCHED_INSTRUMENTATION_IRQHANDLER", "y"),
+        ("SCHED_INSTRUMENTATION_HEAP", "y"),
+        ("DRIVERS_NOTE", "y"),
+        ("DRIVERS_NOTERAM", "y"),
+        ("DRIVERS_NOTECTL", "y"),
+        ("DRIVERS_NOTERAM_BUFSIZE", "8192"),
+        ("DRIVERS_NOTE_TASKNAME_BUFSIZE", "1024"),
+        ("SYSTEM_TRACE", "y"),
+        ("SYSTEM_TRACE_STACKSIZE", "4096"),
+        ("STACK_COLORATION", "y"),
+        ("FS_PROCFS", "y"),
+        ("FS_PROCFS_EXCLUDE_MEMINFO", "n"),
+        ("FS_PROCFS_EXCLUDE_PROCESS", "n"),
+    ];
+    if profile.data["target"] == "xtensa-esp32s3-nuttx" {
+        settings.extend([
+            ("ARCH_PERF_EVENTS", "y"),
+            ("PERF_OVERFLOW_CORRECTION", "y"),
+        ]);
+    }
+    Ok(settings)
+}
+
 /// Reject qualification requests that contradict native wiring or required build settings.
 /// This is also used by dry runs, before preparing an output directory or an SDK.
 pub fn validate_overrides(profile: &Profile, app: &App, options: &Options) -> Result<()> {
@@ -258,6 +299,7 @@ fn check_ownership(
     app: &App,
     requested: &BTreeMap<String, Vec<Request>>,
 ) -> Result<()> {
+    let diagnostic_settings = diagnostics(profile)?;
     if requested.is_empty() {
         return Ok(());
     }
@@ -278,6 +320,9 @@ fn check_ownership(
     let protected = profile.data.pointer("/build/protected-runtime") == Some(&json!(true));
     for (key, value) in standard(profile, protected) {
         check(&key, &value, "builder")?;
+    }
+    for (key, value) in diagnostic_settings {
+        check(key, value, "build.diagnostics")?;
     }
     check("SIG_DEFAULT", "n", "builder")?;
     if let Some((key, entries)) = requested.iter().find(|(key, _)| preparation_owned(key)) {
@@ -418,6 +463,14 @@ impl Configuration {
         }
         let standard = standard(p, protected);
         requirements.extend(standard.iter().map(|(k, v)| line(k, v)));
+        let diagnostic_settings = diagnostics(p)?;
+        if !diagnostic_settings.is_empty() {
+            requirements.push("CONFIG_MM_DEFAULT_MANAGER=y".into());
+        }
+        for (key, value) in diagnostic_settings {
+            requirements.push(line(key, value));
+            values.insert(key.into(), value.into());
+        }
         if protected {
             let mode = protected_config();
             requirements.extend(mode.iter().map(|(k, v)| line(k, v)));
@@ -823,6 +876,16 @@ mod tests {
         assert_eq!(kconfig_python(&path).unwrap(), venv.join(&name));
         let recipe = crate::shell_quote(venv.join(name).to_str().unwrap());
         assert!(recipe.contains("venv with spaces"));
+    }
+
+    #[test]
+    fn diagnostics_allow_background_jobs_in_the_default_shell() {
+        let mut profile = Profile::from_data(json!({}), vec![]);
+        assert_eq!(standard(&profile, false)["NSH_DISABLEBG"], "y");
+        profile.data["build"] = json!({ "diagnostics": true });
+        assert_eq!(standard(&profile, false)["NSH_DISABLEBG"], "n");
+        profile.data["init"] = json!({});
+        assert!(!standard(&profile, false).contains_key("NSH_DISABLEBG"));
     }
 
     #[test]

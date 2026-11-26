@@ -1070,6 +1070,33 @@ fn malformed_and_conflicting_kconfig_requests_fail_before_reading_build_inputs()
 }
 
 #[test]
+fn diagnostic_profile_validates_target_and_owns_native_settings() {
+    let root = fixture();
+    let path = root.0.join("tests/profiles/diagnostic-test.toml");
+    let profile = "execution = 'nuttx'\nboard = 'fixture:board'\ntarget = 'thumbv8m.main-nuttx-eabi'\n[hal]\n[build]\n";
+    let args = [
+        "build", "--app", "probe", "--profile", "diagnostic-test", "--dry-run",
+    ];
+    fs::write(&path, format!("{profile}diagnostics = true\n")).unwrap();
+    success(frontend(&root.0, &root.0, &args));
+    let conflict: Vec<_> = args.into_iter()
+        .chain(["--kconfig-disable", "MM_ALLOC_REQUEST_TRACE"])
+        .collect();
+    let error = failure(frontend(&root.0, &root.0, &conflict));
+    assert!(error.contains("build.diagnostics requirement"), "{error}");
+
+    fs::write(&path, format!("{profile}diagnostics = false\n")).unwrap();
+    success(frontend(&root.0, &root.0, &conflict));
+    fs::write(&path, format!("{profile}diagnostics = 'true'\n")).unwrap();
+    let error = failure(frontend(&root.0, &root.0, &args));
+    assert!(error.contains("build.diagnostics must be a boolean"), "{error}");
+
+    fs::write(&path, format!("{profile}diagnostics = true\nprotected-runtime = true\n")).unwrap();
+    let error = failure(frontend(&root.0, &root.0, &args));
+    assert!(error.contains("build.diagnostics requires flat NuttX"), "{error}");
+}
+
+#[test]
 fn native_dry_run_reports_literal_requests_and_preserves_required_configuration() {
     let root = fixture();
     fs::write(
