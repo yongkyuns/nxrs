@@ -116,6 +116,40 @@ Specify what a wakeup tells the reader and what remains available to read. The d
 
 For NXRS, decide per consumer whether it needs current state or ordered history. If one wake can cover several retained records, define how a bounded drain will resume while unread records remain. Check freshness for latest-state readers and use sequence numbers or explicit loss reports for readers that need history.
 
+### Motion Tracker observations and capture
+
+Motion Tracker's acquisition callbacks publish directly to navigation's shared
+observations. The display and communications read them on their own deadlines.
+Today, one mutex protects both IMUs, the GNSS fix and the satellite report.
+Device-open failures and session reaping also write source state. The display
+inbox carries fault hints, and a missed hint cannot hide a retained fault.
+Observation callbacks accept `FnMut`, so each can own its producer endpoints
+through the HAL session.
+
+An independent latest reader starts in `Waiting`, then sees a complete
+committed sample with its original reception time. Later samples may replace
+unread ones. IMU readings expire at 500 ms, GNSS fixes at 3 s and satellite
+reports after two receiver intervals with a six-second minimum. Faults stay
+terminal for the acquisition lifetime. Per-source mailboxes permit skew
+between sources and between readers, so their consumers must tolerate it.
+
+The [owner qualification fixture](../tests/owner-qualification/README.md)
+compares a mutex with two fixed `triple_buffer` 9.0.0 readers using actual sensor
+record types. Each producer owns one input per reader. The fixture verifies
+reading a previous complete record during an unfinished publication, seeing
+different complete versions during fanout, and publishing while a reader retains
+a slot. Device-open rollback, the late communications owner, freshness and
+product scheduling require separate checks. Measure those paths and the linked,
+heap and stack costs before selecting a
+replacement. Freshness thresholds describe which readings are usable; maximum
+publication latency and acceptable acquisition jitter remain to be measured.
+
+Ordered capture belongs to the Motion Tracker export. It uses a 512-record
+pool shared across sources, drains batches of up to 16, and retains the first
+rejected record's source and sequence on overflow. A wake tells communications
+to inspect that retained work. The admission, overflow and wake gates for a
+capture replacement are tracked in [#446](https://github.com/yongkyuns/nxrs/issues/446).
+
 ## Dedicated capacity, one logical wait point
 
 The baseline for a service needing importance isolation is independently bounded

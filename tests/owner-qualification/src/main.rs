@@ -7,7 +7,7 @@ mod scenarios;
 use serde::Serialize;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-pub const CASES: [&str; 7] = [
+pub const CASES: [&str; 8] = [
     "std-blocked-delivery",
     "std-full-progress",
     "std-disconnect",
@@ -15,6 +15,7 @@ pub const CASES: [&str; 7] = [
     "owner-full-stop",
     "owner-fairness-deadline",
     "owner-failure-recovery",
+    "latest-value-progress",
 ];
 static USED: AtomicBool = AtomicBool::new(false);
 
@@ -36,6 +37,8 @@ pub struct Outcome {
     failure_observations: usize,
     stop_requests: usize,
     endpoints_closed: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    latest: Option<scenarios::latest::Comparison>,
 }
 
 fn main() {

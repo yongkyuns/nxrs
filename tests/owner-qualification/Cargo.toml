@@ -12,6 +12,9 @@ qualification-only = true
 
 [dependencies]
 messaging = { package = "nxrs-messaging", path = "../../shared/messaging" }
+imu = { package = "nxrs-imu", path = "../../hal/imu" }
+gnss = { package = "nxrs-gnss", path = "../../hal/gnss" }
+triple_buffer = { version = "=9.0.0", default-features = false }
 wifi = { package = "nxrs-wifi", path = "../../hal/wifi" }
 wifi_scan_owner = { package = "nxrs-std-wifi", path = "../nuttx-std/wifi" }
 serde = { version = "1", features = ["derive"] }

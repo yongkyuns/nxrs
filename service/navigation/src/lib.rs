@@ -32,7 +32,7 @@ mod diagnostics {
 
 fn inbox_sink<T: Copy, E>(
     sender: messaging::Sender<E>,
-    wrap: impl Fn(T) -> Option<E>,
+    mut wrap: impl FnMut(T) -> Option<E>,
 ) -> impl FnMut(T) -> messaging::DeliveryResult<T> {
     use messaging::{DeliveryError, Rejected};
     use std::sync::mpsc::TrySendError;
