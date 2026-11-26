@@ -1,0 +1,4 @@
+extends = "esp32s3-qemu-tracker-coexist"
+
+[build]
+diagnostics = true

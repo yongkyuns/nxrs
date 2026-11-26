@@ -9,6 +9,7 @@ members = [
     "app/home-cam",
     "app/motion-tracker",
     "tools/build",
+    "tools/memory-explorer",
     "tools/build-support",
     "platform",
     "tools/detector-build-support",

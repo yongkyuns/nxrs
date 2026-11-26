@@ -98,6 +98,41 @@ fn ordinary_and_detached_entries_receive_default_policy() {
 }
 
 #[test]
+fn diagnostic_profiles_preserve_mutex_and_instrumentation_requirements() {
+    let root = fixture(false);
+    write(
+        &root.0,
+        "tests/profiles/board.toml",
+        "board='fixture:nsh'\n[build]\ndiagnostics=true\n[hal]\n",
+    );
+    let selection = ["build", "--app", "probe", "--profile", "board", "--dry-run"];
+    let output = frontend(&root.0, &selection);
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let report: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(report["mutex_policy"]["mode"], "inherit");
+    assert_eq!(report["mutex_policy"]["kconfig"]["SEM_PREALLOCHOLDERS"], "0");
+
+    for (request, expected) in [
+        (
+            ["--kconfig-disable", "PRIORITY_INHERITANCE"],
+            "NXRS resource-mutex policy",
+        ),
+        (
+            ["--kconfig-disable", "MM_ALLOC_REQUEST_TRACE"],
+            "build.diagnostics requirement",
+        ),
+    ] {
+        let args: Vec<_> = selection.into_iter().chain(request).collect();
+        failure(frontend(&root.0, &args), expected);
+    }
+    assert!(!root.0.join("target").exists());
+}
+
+#[test]
 fn all_frontend_operations_reject_conflicting_native_requests_before_sdk_access() {
     let root = fixture(false);
     for operation in [

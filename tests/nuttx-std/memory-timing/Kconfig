@@ -1,0 +1,17 @@
+config EXAMPLES_MEMORY_TIMING
+	bool "Memory explorer timing qualification fixture"
+	default n
+	depends on DRIVERS_NOTECTL && DRIVERS_NOTERAM
+	depends on SCHED_INSTRUMENTATION_SWITCH && SCHED_INSTRUMENTATION_IRQHANDLER
+	depends on SCHED_INSTRUMENTATION_DUMP && !DISABLE_PTHREAD && !SMP
+
+config EXAMPLES_MEMORY_TIMING_CMSDK_CLOCK
+	bool "Use the QEMU qualification CMSDK perf clock adapter"
+	default n
+	depends on EXAMPLES_MEMORY_TIMING && ARCH_BOARD_MPS2_AN521
+	---help---
+		Qualification only: reserve the otherwise unused CMSDK APB timer1
+		in QEMU's AN521 model as a free-running 20 MHz counter with IRQ off.
+		QEMU does not implement the ARM DWT cycle counter. The SysTick
+		time-base interpolation is not monotonic at IRQ entry in this build.
+		The build must also pass the three explicit --wrap linker options.

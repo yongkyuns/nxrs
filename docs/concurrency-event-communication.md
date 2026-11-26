@@ -206,7 +206,9 @@ Production capture retains its current pool until those requirements are met.
 #### ARM product build comparison
 
 Matched `mps2-an521-mock` builds of the actual Motion Tracker application
-compare the PI-enabled baseline `204f4297` with this publication integration.
+compared the PI-enabled mutex baseline `204f4297` with publication revision
+`94e1f9ea`. This historical comparison predates the incorporation of #451 into
+the parent branch; it is not the incremental footprint of the current PR.
 Both use the pinned ARM toolchain, identical effective Kconfig, standard-library
 patch receipt, linker script and mutex policy. All 126 native ABI values match.
 
@@ -270,6 +272,33 @@ and the fixed-reader integration. They identify a shared observation-lock wait;
 they do not establish the speedup from replacing a PI-enabled mutex. Keep the
 historical image and its results separate from the current-source publication
 suite and future physical product captures.
+
+#### CoreS3 fixed-reader comparison
+
+The implementation merged in [#451](https://github.com/yongkyuns/nxrs/pull/451)
+used seven mailboxes, with satellite reports available only to the display.
+These measurements predate the normal PI-enabled policy and the reusable
+`messaging::latest` integration described above. With the same profile and priorities, the display retained an IMU reader slot
+through a 120 ms forced pause. Both IMUs kept publishing, with 15 and 12
+publications during the pause, and the longest callback was 2.41 ms. In a
+combined repeat with BLE acknowledgments held for 0.95 s, the IMUs published
+11 and 12 samples during the pause and the longest callback was 2.50 ms. Both
+IMUs and GNSS stayed live through that 25-second run.
+
+A 0.95 s acknowledgment hold alone raised queue depth to 148 records with
+contiguous received sequences. A 7 s hold filled the 512-record queue. The peer
+received all 1,099 admitted records followed by the first-loss marker.
+
+The BMI270 timeout also occurred with fixed readers. Target traces showed
+three consecutive FIFO length snapshots crossing sensor sampling boundaries,
+which is when the driver returns `Timeout`. Both IMUs stayed live in the
+25-second BLE-off and advertising-only controls. The connected runs establish
+the failure path. The cause of the extended register-read intervals and
+sustained acquisition remain open.
+
+The matched build added 3,348 bytes of linked flash and 104 bytes to the boot
+image. Publication setup used 3,720 bytes of heap versus 480 bytes. Static RAM
+and task stack reservations were identical.
 
 ## Dedicated capacity, one logical wait point
 

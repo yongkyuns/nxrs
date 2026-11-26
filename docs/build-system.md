@@ -314,8 +314,17 @@ application deadline. Keep the ownership, wait, overload and shutdown contracts
 in the [concurrency design](concurrency-event-communication.md).
 
 The pinned SDK patch reserves storage for the changed NuttX pthread layouts.
+On the qualified 32-bit configurations, `pthread_rwlock_t` needs 92 bytes
+without `CONFIG_PTHREAD_MUTEX_TYPES` and 96 bytes with mutex types and
+robust-capable mutexes. The latter includes `CONFIG_PTHREAD_MUTEX_BOTH` even
+when `CONFIG_PTHREAD_MUTEX_DEFAULT_UNSAFE` selects the default behavior:
+the native mutex still retains its robust fields and recursive count. The SDK
+reserves 96 bytes for this opaque rwlock. Other layout-changing settings,
+including mutex backtrace storage, still require the effective target check.
 After linking, the ABI comparison gate checks the selected target libc types
-against the native headers before accepting the build. Its size and alignment
+against the native headers before accepting the build. A rejected comparison
+still writes `abi-report.json` with the measured native/Rust values and build
+provenance. Its size and alignment
 coverage of `pthread_rwlock_t` establishes layout compatibility, not priority
 donation behavior for Rust `RwLock`. The owner fixture exercises ordinary Rust
 mutex donation, nested ownership, release and reuse. A new or external SDK,
@@ -338,6 +347,13 @@ recorded in the build provenance.
 The ESP32-S3 RAM controls and CoreS3 sensor build check linked flash, unpadded
 image size, and static RAM in CI. Heap use and worker stacks are measured at
 runtime.
+
+For an instrumented build, set `diagnostics = true` in the profile's
+`[build]` table. It enables kernel tracing, heap request counters, and stack
+high-water measurements on flat NuttX with the default allocator. Start a
+trace from NSH when reproducing a problem. See
+[NuttX diagnostics](nuttx-memory-qualification.md#diagnostic-builds) for commands
+and how to read the results.
 
 NuttX builds accept repeated `--kconfig-enable SYMBOL`,
 `--kconfig-disable SYMBOL`, and `--kconfig-set NAME=VALUE` arguments. Use native

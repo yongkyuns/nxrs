@@ -5,7 +5,7 @@ from contextlib import suppress
 import json
 import os
 from pathlib import Path
-import pty
+import re
 import secrets
 import select
 import shutil
@@ -13,6 +13,24 @@ import subprocess
 import time
 
 import workflow as W
+
+
+def require_fixed_mps2_uart(version):
+    """Admit release branches containing QEMU's MPS2 RX/TX wiring fix."""
+    match = re.match(r"QEMU emulator version (\d+)\.(\d+)\.(\d+)(?:\s|$)", version)
+    if match is not None:
+        major, minor, micro = map(int, match.groups())
+        if ((major, minor) == (8, 2) and micro >= 7
+                or (major, minor) == (9, 0) and micro >= 3
+                or (major, minor) >= (9, 1)):
+            return
+    raise ValueError(
+        "MPS2 qualification requires QEMU 8.2.7+, 9.0.3+, or 9.1+ "
+        "within those release branches; older MPS2 emulators reverse UART RX/TX "
+        "interrupts and can stall after the NSH banner "
+        "(upstream fix 5a558be93ad628e5bed6e0ee062870f49251725c). "
+        "Use tests/owner-qualification/install-qemu.sh or a supported release; "
+        f"reported version: {version.splitlines()[0] if version else '<empty>'}")
 
 
 def quit_qemu(process):
@@ -49,6 +67,8 @@ def quit_qemu(process):
 
 
 def capture_case(executable, version, root, build, case):
+    import pty
+
     run = root / "runs" / case
     run.mkdir(parents=True)
     token = secrets.token_hex(12)
@@ -167,6 +187,7 @@ def main():
         raise ValueError("qemu-system-arm is unavailable")
     executable = Path(executable).resolve()
     version = subprocess.check_output([str(executable), "--version"], text=True, timeout=10).strip()
+    require_fixed_mps2_uart(version)
     root = args.out.resolve()
     root.mkdir(parents=True, exist_ok=False)
     shutil.copyfile(source / "build.json", root / "build.json")
