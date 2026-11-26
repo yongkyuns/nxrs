@@ -80,5 +80,6 @@ jobs:
             /tmp/nxrs-android-metrics.json
             clients/android/core/build/test-results/test/*.xml
             clients/android/app/build/reports/lint-results-debug.xml
+            clients/android/build/reports/dependency-verification/**
           if-no-files-found: ignore
           retention-days: 3
