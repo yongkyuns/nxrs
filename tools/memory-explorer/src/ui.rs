@@ -9,6 +9,7 @@ use eframe::egui::{
 use nxrs_memory_explorer::{AddressDomain, MemoryModel, RegionKind, Span, SpanKind};
 
 mod attribution;
+mod linked;
 mod overview;
 mod timing;
 
@@ -262,6 +263,7 @@ pub struct MemoryExplorer {
     collapse_empty: bool,
     comparison: Option<u64>,
     trace: Option<nxrs_memory_explorer::TimingTrace>,
+    correlation: Option<nxrs_memory_explorer::CheckpointCorrelation>,
     timing: timing::TimingView,
 }
 
@@ -311,6 +313,7 @@ impl MemoryExplorer {
             collapse_empty: true,
             comparison: None,
             trace: None,
+            correlation: None,
             timing: timing::TimingView::default(),
         };
         if let Some(model) = model {
@@ -348,7 +351,21 @@ impl MemoryExplorer {
                 return Err("Timing trace belongs to a different ELF (SHA-256 mismatch).".into());
             }
         }
+        let correlation = self
+            .model
+            .as_ref()
+            .map(|model| nxrs_memory_explorer::correlate_checkpoints(model, &trace))
+            .transpose()
+            .map_err(|error| error.to_string())?
+            .flatten();
         self.timing.reset(&trace);
+        if let Some(link) = correlation.as_ref().and_then(|correlation| {
+            self.time_ns
+                .and_then(|time| correlation.link_for_snapshot(time))
+        }) {
+            self.timing.seek_checkpoint(link, &trace);
+        }
+        self.correlation = correlation;
         self.trace = Some(trace);
         if self.model.is_none() {
             self.view = ViewMode::Timing;
@@ -369,6 +386,7 @@ impl MemoryExplorer {
         self.selected = None;
         self.error = None;
         self.comparison = None;
+        self.correlation = None;
         self.view = if has_backing {
             ViewMode::Overview
         } else {
@@ -664,10 +682,19 @@ impl MemoryExplorer {
                         self.view = ViewMode::Memory;
                     }
                     if ui.add_enabled(self.trace.is_some(), egui::Button::new("Timing").selected(self.view == ViewMode::Timing)).clicked() {
-                        self.view = ViewMode::Timing;
+                        if let Some(time) = self.correlation.as_ref().and_then(|correlation| {
+                            self.time_ns.and_then(|time| time.checked_sub(correlation.origin_ns))
+                        }) {
+                            self.open_timing_at(time);
+                        } else {
+                            self.view = ViewMode::Timing;
+                        }
                     }
                     if self.trace.is_none() {
                         ui.label(RichText::new("Load a trace for measured timing").small().color(MUTED));
+                    } else if let Some(correlation) = &self.correlation {
+                        ui.label(RichText::new(format!("{} linked memory checkpoints · same run and clock", correlation.links.len())).small().color(ACCENT))
+                            .on_hover_text(format!("Recording: {}\nClock: {}\nOnly captured checkpoint instants have observed memory. Matching marker identities and exact source timestamps establish these links.", correlation.recording_id, correlation.clock));
                     } else if self.model.is_some() {
                         ui.label(RichText::new("Memory checkpoints and trace clocks are independent").small().color(MUTED))
                             .on_hover_text("A matching ELF establishes build identity, not a common recording or clock. No alignment between memory checkpoint coordinates and trace time is inferred.");
@@ -904,18 +931,30 @@ impl MemoryExplorer {
                         painter.text(Pos2::new(x, y+15.0), align, format!("{} · {}", index + 1, abbreviated(label, 34)), FontId::proportional(10.0), if selected { TEXT } else { MUTED });
                     }
                 }
-                if let Some(time) = self.time_ns {
+                if let Some(time) = self.time_ns.filter(|time| *time >= first && *time <= last) {
                     let x = x_at(time);
                     painter.line_segment([Pos2::new(x, rect.top()+3.0), Pos2::new(x,y+10.0)], Stroke::new(1.0, if self.exact_snapshot() { ACCENT } else { WARNING }));
                 }
                 ui.horizontal_wrapped(|ui| {
                     let exact = self.time_ns.and_then(|time| snapshots.iter().find(|snapshot| snapshot.0 == time));
                     if let Some((time, label)) = exact {
-                        ui.label(RichText::new(format!("{label}  ·  observation coordinate {time}")).color(TEXT));
+                        if let Some(link) = self.correlation.as_ref().and_then(|correlation| correlation.link_for_snapshot(*time)) {
+                            let event_time = link.trace_time_ns;
+                            ui.label(RichText::new(format!("{label}  ·  source clock {time} ns")).color(TEXT));
+                            if ui.small_button("Show in timing").clicked() {
+                                self.open_timing_at(event_time);
+                            }
+                        } else {
+                            ui.label(RichText::new(format!("{label}  ·  observation coordinate {time}")).color(TEXT));
+                        }
                     } else {
                         ui.label(RichText::new("Between checkpoints: runtime blocks are hidden; no state is interpolated.").color(WARNING));
                     }
-                    ui.label(RichText::new("Ordered checkpoints; elapsed time is not established. Click between points to see the evidence gap.").small().color(MUTED));
+                    ui.label(RichText::new(if self.correlation.is_some() {
+                        "Measured checkpoint times on the recording clock. Runtime state between points remains unknown."
+                    } else {
+                        "Ordered checkpoints; elapsed time is not established. Click between points to see the evidence gap."
+                    }).small().color(MUTED));
                 });
             });
     }
@@ -1429,7 +1468,7 @@ impl MemoryExplorer {
             }
         });
         ui.add_space(10.0);
-        ui.label(RichText::new("Drop ELF, .map, snapshot/layout JSON, or Chrome Trace Event JSON. A trace can open on its own. Supplied build identities must match; clocks are not aligned automatically.").small().color(MUTED));
+        ui.label(RichText::new("Drop ELF, .map, snapshot/layout JSON, or Chrome Trace Event JSON. A trace can open on its own. Checkpoint links require matching build, recording, clock, marker identity, and exact timestamps.").small().color(MUTED));
         ui.add_space(12.0);
         if ui.button(RichText::new("Load evidence").strong()).clicked() {
             if !self.snapshot_entry.trim().is_empty() {
@@ -1645,6 +1684,12 @@ impl MemoryExplorer {
                 smoke
                     .checks
                     .push("measured timing zoom/pan/selection and exact duration");
+                if self.correlation.is_some() {
+                    self.smoke_linked_navigation()?;
+                    smoke
+                        .checks
+                        .push("linked marker/memory navigation and unknown gaps");
+                }
             }
             if smoke.frame >= 10 && !smoke.screenshot_requested {
                 ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(egui::UserData::default()));
@@ -1699,7 +1744,13 @@ impl eframe::App for MemoryExplorer {
         self.keyboard(ctx);
         self.header(ctx);
         if self.view == ViewMode::Timing && self.trace.is_some() {
+            self.linked_checkpoints(ctx);
+            let previous = self.timing.cursor();
             self.timing.show(ctx, self.trace.as_ref().unwrap());
+            self.sync_timing_cursor();
+            if self.timing.cursor() != previous {
+                ctx.request_repaint();
+            }
         } else if self.view == ViewMode::Overview && self.model.is_some() {
             self.timeline(ctx);
             self.overview(ctx);
