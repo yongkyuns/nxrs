@@ -6,16 +6,24 @@ owner in [`tests/nuttx-std/wifi`](../nuttx-std/wifi). It builds through the norm
 `cargo nxrs` frontend. It imports the actual owner and Wi-Fi controller; it does
 not copy the owner into a benchmark adapter or add an application framework.
 
+The [Wi-Fi scan owner contract](../nuttx-std/wifi/CONCURRENCY.md) records the
+actual ownership, queues, wait dependencies, and lifecycle that these cases
+exercise. Its real-provider scheduling and timing limits remain distinct from
+the synthetic schedules below.
+
 The inputs are synthetic `Wifi` implementations and ordinary task-context
 source workers. No radio is acquired or enabled. Physical radio acquisition,
 SDK callback lifetime, sensor I/O, network service, timing bounds and resource
 measurements retain their separate qualification obligations. In particular,
 these small functional witnesses are not a cross-RTOS RAM comparison.
 
-There are **seven cases per target, one case per fresh boot**: fourteen captures
-for the ESP32-S3 and Pico 2 W pair. Every case either completes finitely with
-checked accounting and joined threads, or produces a retained failed capture.
-There is no accepted “expected hang.”
+There are **nine cases**, split across three native build suites. The `owner`
+suite retains the original seven cases and its scheduling configuration. The
+`mutex-inherit` and `mutex-no-inherit` suites each admit one additional case on
+a separate image with the corresponding pthread mutex default. Full coverage
+uses three builds and nine fresh-boot captures per target. Host mode runs all
+nine cases in fresh processes. Every case must complete with checked results
+and joined threads; a hang is a failed capture, never an expected pass.
 
 ## Case inventory
 
@@ -28,6 +36,8 @@ There is no accepted “expected hang.”
 | `owner-full-stop` | Important and ordinary queues are both full. Additional data rejects with `Full`; the isolated stop remains admissible and duplicate stop reports `AlreadyPending`. | 4 data attempts, 2 admitted then explicitly discarded by receiver retirement, 2 rejections, 1 join; old endpoints report `Closed`. |
 | `owner-fairness-deadline` | Two finite owner runs: an ordinary result is serviced after at most seven queued link events plus one accepted important command; logical time then demonstrates deadline reconciliation before the first selected link event. | 23 admitted, 21 handled, 2 discarded on stop, 2 joins. The deadline subcase deliberately releases a timed-out operation before shutdown. This is ordering, not measured deadline latency. |
 | `owner-failure-recovery` | Failure notification is rejected by a full queue while the provider retains its terminal fault. Observer refusal and one injected stop refusal are reported, then the same owner/controller resumes and stops. | 2 data attempts, 1 admitted then discarded, 1 rejection, 3 failure observations, 2 stop attempts, 1 join; sticky fault retained, underlying provider `finish` called once despite an explicit second finish. |
+| `std-mutex-inherit` | Low/medium/high workers at FIFO priorities 120/150/180 contend on an ordinary `std::sync::Mutex`; the high worker is observed blocked while the low holder inherits priority 180. Low and medium are then made runnable together. | Protected value becomes 42; high acquires before medium starts; low returns to priority 120 after unlock; 3 worker joins and schedule restoration. |
+| `std-mutex-no-inherit` | The same Rust mutex workload with kernel PI still enabled and the default pthread mutex protocol set to `NONE`. The low holder remains at priority 120. | Medium completes its finite work window before low releases and high acquires; protected value becomes 42; 3 worker joins and schedule restoration. |
 
 Data accounting excludes the isolated stop token, endpoint-closure probes and
 the owner’s derived reports. A handler may create several reports for one input.
@@ -39,15 +49,41 @@ SDK callbacks.
 
 ## Execution contract and limits
 
-Native runs require flat, single-core NuttX with priority inheritance disabled.
-The build wrapper supplies `--kconfig-disable PRIORITY_INHERITANCE`; the native
-translation unit also rejects an incompatible effective configuration. The
-selected-owner cases set **every fixture participant** to FIFO priority 180:
-coordinator, source workers, owner, command/event callers and stop caller. The
-std cases use the priorities stated above and a priority-220 coordinator. Every
-participant records native thread ID, policy and priority before entry, at
-entry, before exit and after restoring its previous schedule. The parser checks
-the complete participant inventory and schedule restoration.
+Native runs require flat, single-core NuttX. The selected suite fixes the
+synchronization configuration; the build receipt, effective `.config`, and
+runtime observations must agree.
+
+| Native suite | Kernel priority inheritance | Default pthread mutex protocol | Admitted cases |
+| --- | --- | --- | --- |
+| `owner` (default) | Disabled | `NONE` | Original seven channel/owner cases |
+| `mutex-inherit` | Enabled | `INHERIT` | `std-mutex-inherit` |
+| `mutex-no-inherit` | Enabled | `NONE` | `std-mutex-no-inherit` |
+
+The mutex pair keeps kernel PI enabled and changes the pthread default rather
+than treating kernel support as proof that a mutex inherits. A small native
+binding reads freshly initialized default attributes; it never casts or
+accesses the private layout of a Rust mutex. The observed priority donation
+and acquisition order come from contention on the actual `std::sync::Mutex`.
+The prepared std source and effective configuration remain bound to the build.
+
+The selected-owner cases set **every fixture participant** to FIFO priority 180:
+coordinator, source workers, owner, command/event callers and stop caller.
+The std channel cases use their listed priorities and a priority-220
+coordinator. The mutex cases use low/medium/high priorities 120/150/180 and
+coordinator priority 220. Every participant records native thread ID, policy
+and priority before entry, at entry, before exit and after restoring its
+previous schedule. The parser checks the complete inventory and restoration.
+
+For the mutex pair, the coordinator observes the high worker in semaphore wait
+after its lock-attempt marker, records the low holder's effective priority, and
+makes low and medium runnable together before blocking. The worker trace records
+the low worker immediately before dropping its guard, high acquisition, medium
+start/finish, and the holder's return to its base priority. The `low_unlock`
+marker precedes the actual unlock: high can preempt inside guard drop, so this
+is not a post-unlock timestamp. Medium does work for a finite 25 ms observation window. That
+window demonstrates controlled interference; it is not a product blocking
+budget or worst-case execution-time claim. Native ordering is required only
+for the matching target suite.
 
 All endpoint calls occur in task context after scheduling setup. No ISR calls
 std or Crossbeam. Gate loops have a four-second failure deadline and sleep for
@@ -57,9 +93,9 @@ bound a qualification failure path; they are not application response-time or
 worst-case execution-time guarantees. Main and worker stacks are explicitly
 16 KiB on NuttX, a qualification budget rather than a demonstrated minimum.
 
-`native.c` only translates target headers for scheduling, an atomic TCB
-`TSTATE_WAIT_SEM` observation and the watchdog. Rust owns all queues, threads,
-gates, cases, errors, stops and joins. A native blocked witness requires both
+`native.c` translates target headers for scheduling, mutex configuration,
+atomic TCB wait/runnable observations, and the watchdog. Rust owns the mutex,
+queues, threads, gates, cases, errors, stops and joins. A native blocked witness requires both
 the intended unfinished Rust phase and the live target thread’s wait state,
 effective priority and FIFO policy. The selected-owner phase uses the actual
 owner’s pre-selection clock call. This identifies a pending receive/select
@@ -67,10 +103,12 @@ window; it does not claim a particular semaphore address or expose an internal
 queue reservation. The std full-queue case does not cover adversarial
 preemption inside an unpublished reservation.
 
-Host execution verifies the same payload, accounting, fairness, failure and
-join behavior with the host’s scheduler. Host reports have `domain` set to
-`host-functional`, null native schedule fields and `native_waits: 0`. Passing
-host runs cannot establish fixed-priority NuttX progress. Frozen historical
+Host execution verifies payload ownership, accounting, fairness, failure and
+join behavior with the host’s scheduler. The mutex cases check protected data
+and finite control flow, without asserting native donation or ordering.
+Host reports have `domain` set to `host-functional`, null native schedule
+fields, `native_waits: 0`, and `mutex.native: null` for the mutex cases. Passing
+host runs cannot establish NuttX PI or fixed-priority progress. Frozen historical
 P1/P2 artifacts remain separate evidence for their exact source revisions.
 
 ## Build and inspect
@@ -86,6 +124,26 @@ python3 tests/owner-qualification/workflow.py build \
 
 python3 tests/owner-qualification/workflow.py inspect --build /tmp/owner-s3-build
 ```
+
+The commands above default to `--suite owner`. Build the mutex comparison as
+two separate images using the same profile and toolchain, for example:
+
+```sh
+python3 tests/owner-qualification/workflow.py build \
+  --profile pico2w-std-qualification --suite mutex-inherit \
+  --out /tmp/mutex-pico-inherit
+python3 tests/owner-qualification/workflow.py build \
+  --profile pico2w-std-qualification --suite mutex-no-inherit \
+  --out /tmp/mutex-pico-no-inherit
+
+python3 tests/owner-qualification/workflow.py inspect \
+  --build /tmp/mutex-pico-inherit
+```
+
+Repeat the pair with `esp32s3-ram-footprint` for WROOM qualification. `inspect`
+returns only the cases admitted by that retained build. Capture rejects a
+case from another suite; do not run both mutex expectations against one image
+or relabel an older owner build as a mutex qualification.
 
 Output directories must be new. `build` invokes the normal frontend with the
 entry manifest, `owner_qualification` command, the test-only native source and
@@ -112,6 +170,50 @@ These receipts bind the retained build/capture bytes. They do not independently
 attest the physical board or operator’s flashing action. All results retain
 `physical_execution_verified: false`, `timing_qualified: false` and
 `production_qualified: false`.
+
+## ARM QEMU execution
+
+With the ARM [NuttX std prerequisites](../../docs/nuttx-std.md) and
+`qemu-system-arm` available, build the same mutex pair for `mps2-an521-mock`:
+
+```sh
+python3 tests/owner-qualification/workflow.py build \
+  --profile mps2-an521-mock --suite mutex-inherit \
+  --out target/owner-mutex-inherit
+python3 tests/owner-qualification/workflow.py build \
+  --profile mps2-an521-mock --suite mutex-no-inherit \
+  --out target/owner-mutex-no-inherit
+
+python3 tests/owner-qualification/qemu.py \
+  --build target/owner-mutex-inherit --out target/owner-mutex-inherit-qemu
+python3 tests/owner-qualification/qemu.py \
+  --build target/owner-mutex-no-inherit --out target/owner-mutex-no-inherit-qemu
+```
+
+The runner accepts only that ARM profile and automatically selects the case
+admitted by each mutex suite. Each invocation starts a fresh emulated NuttX
+boot, checks the case and shell exit status, observes a final console tail,
+and shuts QEMU down. A new output directory retains the source-bound build,
+console, analysis, and capture receipt with `runtime: qemu`, emulator version,
+and emulator executable hash. The runner replays the capture before reporting
+success. Replay a retained result independently with its explicit artifact root:
+
+```sh
+python3 tests/owner-qualification/workflow.py replay \
+  target/owner-mutex-inherit-qemu/runs/std-mutex-inherit \
+  --artifact-root target/owner-mutex-inherit-qemu
+python3 tests/owner-qualification/workflow.py replay \
+  target/owner-mutex-no-inherit-qemu/runs/std-mutex-no-inherit \
+  --artifact-root target/owner-mutex-no-inherit-qemu
+```
+
+This exercises the NuttX scheduler and std mutex implementation in an emulator.
+It does not establish physical-board execution, hardware timing, or a blocking
+bound. The separate `mutex-qemu` matrix job in
+[MPSC comparison CI](../../.github/workflows/mpsc-comparison.yml) builds and runs
+both suites after host validation, retaining each suite's build and QEMU
+evidence even when a step fails. Physical WROOM and Pico captures still use
+the hardware profiles and procedure below.
 
 ## Fresh-boot capture and replay
 
@@ -178,8 +280,10 @@ python3 -m unittest discover -s tests/owner-qualification -p 'test_*.py'
 ```
 
 The host command builds the current release source with a bound identity, runs
-all seven cases in separate fresh processes and replays every retained result.
+all nine cases in separate fresh processes and replays every retained result.
 Parser controls use explicitly synthetic records to reject missing joins,
 incorrect priority/phase evidence, host-to-target relabeling, wrong image or
 source, late native failure, malformed sessions, duplicate output and altered
-analysis. They are checks of evidence admission, not physical results.
+analysis. Mutex controls additionally reject incompatible suites/protocols,
+missing donation or priority restoration, and impossible acquisition order.
+They check evidence admission and do not create physical results.

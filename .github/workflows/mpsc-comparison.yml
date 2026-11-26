@@ -18,6 +18,7 @@ on:
       - 'tests/profiles/esp32s3-ram-footprint.toml'
       - 'tests/profiles/esp32s3-ram-native-baseline.toml'
       - 'tests/profiles/pico2w-std-qualification.toml'
+      - 'tests/profiles/mps2-an521-mock.toml'
       - 'platform/nuttx/linker/esp32s3-mpsc.ld'
       - 'tools/build/**'
       - 'tools/build-support/**'
@@ -69,7 +70,7 @@ jobs:
           python3 -m unittest discover -s tests/mpsc-comparison -p 'test_*.py' -v
           python3 -m unittest discover -s tests/owner-qualification -p 'test_*.py' -v
           python3 -m unittest discover -s tests/rtos-characterization -p 'test_*.py' -v
-      - name: Run and replay all seven current-source owner host cases
+      - name: Run and replay all nine current-source owner and mutex host cases
         run: |
           python3 tests/owner-qualification/workflow.py host --out target/owner-host-ci
           python3 tests/owner-qualification/workflow.py inspect --build target/owner-host-ci \
@@ -85,6 +86,56 @@ jobs:
             target/owner-host-ci/inspect.json
             target/owner-host-ci/retained/**
             target/owner-host-ci/runs/**
+          include-hidden-files: true
+          if-no-files-found: warn
+          retention-days: 14
+
+  mutex-qemu:
+    name: Standard mutex fixed-priority control (${{ matrix.suite }})
+    needs: host
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        suite: [mutex-inherit, mutex-no-inherit]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+          ref: ${{ env.SOURCE_SHA }}
+          submodules: true
+      - name: Install pinned Rust and ARM native tools
+        run: |
+          rustup toolchain install 1.90.0 --profile minimal
+          rustup toolchain install nightly-2025-09-15 --profile minimal --component rust-src
+          bash .github/scripts/install-ubuntu-packages.sh gcc-arm-none-eabi binutils-arm-none-eabi libnewlib-arm-none-eabi qemu-system-arm bison flex gperf kconfig-frontends genromfs xxd libncurses-dev
+          python3 -m venv target/owner-venv
+          target/owner-venv/bin/pip install kconfiglib==14.1.0 pyelftools==0.32
+          echo "$GITHUB_WORKSPACE/target/owner-venv/bin" >> "$GITHUB_PATH"
+      - name: Build the selected mutex protocol through the normal frontend
+        env:
+          MUTEX_SUITE: ${{ matrix.suite }}
+        run: |
+          python3 tests/owner-qualification/workflow.py build --profile mps2-an521-mock \
+            --suite "$MUTEX_SUITE" --out target/owner-mutex-build
+          python3 tests/owner-qualification/workflow.py inspect --build target/owner-mutex-build \
+            > target/owner-mutex-build/inspect.json
+      - name: Run and replay the native control in a fresh QEMU boot
+        run: |
+          python3 tests/owner-qualification/qemu.py --build target/owner-mutex-build \
+            --out target/owner-mutex-qemu
+      - name: Retain source-bound build and QEMU evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: owner-${{ matrix.suite }}-qemu-functional
+          path: |
+            target/owner-mutex-build/build.json
+            target/owner-mutex-build/build.log
+            target/owner-mutex-build/inspect.json
+            target/owner-mutex-build/retained/**
+            target/owner-mutex-qemu/**
           include-hidden-files: true
           if-no-files-found: warn
           retention-days: 14

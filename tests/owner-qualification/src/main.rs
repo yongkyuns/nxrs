@@ -1,13 +1,14 @@
 //! Current-source finite execution witnesses. No production transport changes.
 #![deny(unsafe_op_in_unsafe_fn)]
 
+mod mutex;
 mod platform;
 mod scenarios;
 
 use serde::Serialize;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-pub const CASES: [&str; 7] = [
+pub const CASES: [&str; 9] = [
     "std-blocked-delivery",
     "std-full-progress",
     "std-disconnect",
@@ -15,6 +16,8 @@ pub const CASES: [&str; 7] = [
     "owner-full-stop",
     "owner-fairness-deadline",
     "owner-failure-recovery",
+    "std-mutex-inherit",
+    "std-mutex-no-inherit",
 ];
 static USED: AtomicBool = AtomicBool::new(false);
 
@@ -36,6 +39,8 @@ pub struct Outcome {
     failure_observations: usize,
     stop_requests: usize,
     endpoints_closed: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    mutex: Option<mutex::Report>,
 }
 
 fn main() {
@@ -58,6 +63,14 @@ fn main() {
     let id = env!("OWNER_QUALIFICATION_BUILD_ID");
     println!("OWNER_QUALIFICATION_BEGIN {id} {case} {token}");
     platform::watchdog(true);
+    if !case.starts_with("std-mutex-") {
+        if let Some(configuration) = platform::mutex_configuration() {
+            assert!(
+                !configuration.priority_inheritance,
+                "existing owner witnesses require the PI-disabled suite"
+            );
+        }
+    }
     let priority = if case.starts_with("owner-") { 180 } else { 220 };
     let coordinator = platform::enter("coordinator", priority);
     let mut result = scenarios::run(case);

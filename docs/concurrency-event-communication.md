@@ -26,6 +26,11 @@ is a legitimate asynchronous boundary even when measurements are periodic.
 This is an in-process Rust application model. Neither availability of `std` nor
 an upstream crate's desktop support qualifies a NuttX or browser target.
 
+The [Wi-Fi scan owner contract](../tests/nuttx-std/wifi/CONCURRENCY.md) applies
+these rules to an existing owner: execution contexts, queue capacities, wait
+dependencies, deadline meaning, and shutdown boundaries. It separates source
+invariants from the timing and resource limits a product still has to qualify.
+
 The [std channel performance analysis](std-channel-performance.md) connects
 these requirements to the bounded inbox implementation and its reported
 ESP32-S3 timing and memory observations. It distinguishes many producers sharing

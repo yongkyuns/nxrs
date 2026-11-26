@@ -6,6 +6,7 @@
 #include <nuttx/wdog.h>
 #include <nuttx/clock.h>
 #include <sched.h>
+#include <pthread.h>
 #include <stdint.h>
 #include <errno.h>
 #include <assert.h>
@@ -13,9 +14,6 @@
 
 #if !defined(CONFIG_BUILD_FLAT) || defined(CONFIG_SMP)
 #  error "owner qualification requires flat single-core NuttX"
-#endif
-#ifdef CONFIG_PRIORITY_INHERITANCE
-#  error "the selected owner witness requires unchanged effective FIFO priorities"
 #endif
 
 static struct wdog_s qualification_watchdog;
@@ -50,6 +48,63 @@ int owner_qualification_waiting(int tid, int priority)
                 (tcb->flags & TCB_FLAG_POLICY_MASK) == TCB_FLAG_SCHED_FIFO;
   leave_critical_section(flags);
   return waiting;
+}
+
+/* Target-header readback only. Rust selects and executes the experiment. The
+ * actual std mutex stays opaque: these are freshly initialized default attrs,
+ * corroborated by the source-bound std implementation and observed donation. */
+int owner_qualification_mutex_configuration(int *values)
+{
+  pthread_mutexattr_t attributes;
+  int protocol;
+  int status = pthread_mutexattr_init(&attributes);
+  if (status != 0)
+    return status;
+  status = pthread_mutexattr_getprotocol(&attributes, &protocol);
+  int destroy_status = pthread_mutexattr_destroy(&attributes);
+  if (status != 0 || destroy_status != 0)
+    return status != 0 ? status : destroy_status;
+#ifdef CONFIG_PRIORITY_INHERITANCE
+  values[0] = 1;
+#else
+  values[0] = 0;
+#endif
+#ifdef CONFIG_PTHREAD_MUTEX_DEFAULT_PRIO_INHERIT
+  values[1] = 1;
+#else
+  values[1] = 0;
+#endif
+  values[2] = protocol;
+  values[3] = PTHREAD_PRIO_NONE;
+  values[4] = PTHREAD_PRIO_INHERIT;
+  return 0;
+}
+
+int owner_qualification_thread_state(int tid, int *values)
+{
+  int policy = sched_getscheduler((pid_t)tid);
+  if (policy < 0)
+    return errno;
+  irqstate_t flags = enter_critical_section();
+  struct tcb_s *tcb = nxsched_get_tcb((pid_t)tid);
+  if (tcb == NULL)
+    {
+      leave_critical_section(flags);
+      return ESRCH;
+    }
+  values[0] = policy;
+  values[1] = tcb->sched_priority;
+#ifdef CONFIG_PRIORITY_INHERITANCE
+  values[2] = tcb->base_priority;
+#else
+  values[2] = tcb->sched_priority;
+#endif
+  values[3] = tcb->task_state;
+  values[4] = tcb->task_state == TSTATE_WAIT_SEM;
+  values[5] = tcb->task_state >= FIRST_READY_TO_RUN_STATE &&
+              tcb->task_state <= LAST_READY_TO_RUN_STATE;
+  leave_critical_section(flags);
+  return 0;
 }
 
 static void qualification_expired(wdparm_t ignored)

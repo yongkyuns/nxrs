@@ -17,7 +17,7 @@ const WORKER_STACK: usize = if cfg!(target_os = "nuttx") {
     131_072
 };
 
-fn until(mut predicate: impl FnMut() -> bool) {
+pub(crate) fn until(mut predicate: impl FnMut() -> bool) {
     let end = Instant::now() + DEADLINE;
     while !predicate() {
         assert!(Instant::now() < end, "qualification phase deadline");
@@ -25,7 +25,7 @@ fn until(mut predicate: impl FnMut() -> bool) {
     }
 }
 
-fn spawn<T: Send + 'static>(
+pub(crate) fn spawn<T: Send + 'static>(
     role: &'static str,
     priority: i32,
     body: impl FnOnce(i32) -> T + Send + 'static,
@@ -41,7 +41,7 @@ fn spawn<T: Send + 'static>(
         .expect("ordinary std thread creation")
 }
 
-fn join<T>(handle: JoinHandle<(platform::Participant, T)>, outcome: &mut Outcome) -> T {
+pub(crate) fn join<T>(handle: JoinHandle<(platform::Participant, T)>, outcome: &mut Outcome) -> T {
     let (participant, value) = handle.join().expect("worker panic");
     outcome.participants.push(participant);
     outcome.joined += 1;
@@ -70,6 +70,8 @@ pub fn run(case: &str) -> Outcome {
         "owner-full-stop" => full_stop(),
         "owner-fairness-deadline" => fairness_deadline(),
         "owner-failure-recovery" => failure_recovery(),
+        "std-mutex-inherit" => crate::mutex::run(true),
+        "std-mutex-no-inherit" => crate::mutex::run(false),
         _ => unreachable!(),
     }
 }

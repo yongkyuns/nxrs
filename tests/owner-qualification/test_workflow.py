@@ -20,6 +20,13 @@ TOKEN = "parser-control-001"
 BUILD_ID = "a" * 64
 
 
+def suite_inputs(native, case="std-disconnect"):
+    suite = (case.removeprefix("std-") if case in W.MUTEX_CASES else "owner") if native else "host-all"
+    return {"kind": "nuttx-target" if native else "host-functional", "suite": suite,
+            "cases": list(W.SUITES[suite]), "priority_inheritance": suite.startswith("mutex-") if native else None,
+            "pthread_mutex_default_protocol": {"mutex-inherit": "inherit", "mutex-no-inherit": "none"}.get(suite)}
+
+
 def report(case, native=False, build_id=BUILD_ID):
     participants = []
     for index, (role, priority) in enumerate(W.ROLES[case], 1):
@@ -40,6 +47,32 @@ def report(case, native=False, build_id=BUILD_ID):
         observed.update(fairness_links_before_ordinary=7, deadline_observations=1, stop_requests=2)
     if case == "owner-failure-recovery":
         observed.update(failure_observations=3, stop_requests=2)
+    if case in W.MUTEX_CASES:
+        inherit = case == "std-mutex-inherit"
+        evidence = None
+        if native:
+            def state(role, effective=None, waiting=False):
+                person = next(p for p in participants if p["role"] == role)
+                return {"tid": person["start"]["tid"], "policy": 1,
+                        "base_priority": person["requested_priority"],
+                        "effective_priority": effective or person["requested_priority"],
+                        "state": 6 if waiting else 3, "waiting_semaphore": waiting, "runnable": not waiting}
+            evidence = {"configuration": {"priority_inheritance": True, "default_prio_inherit": inherit,
+                        "default_protocol": 1 if inherit else 0, "protocol_none": 0, "protocol_inherit": 1},
+                        "low_before_high": state("mutex-low", waiting=True),
+                        "medium_before_high": state("mutex-medium", waiting=True),
+                        "high_wait": state("mutex-high", waiting=True),
+                        "low_while_high_waits": state("mutex-low", 180 if inherit else 120, waiting=True),
+                        "low_ready": state("mutex-low", 180 if inherit else 120),
+                        "medium_ready": state("mutex-medium"),
+                        "low_before_unlock": state("mutex-low", 180 if inherit else 120),
+                        "low_after_unlock": state("mutex-low")}
+        observed["mutex"] = {"expected_inheritance": inherit, "native": evidence,
+                             "order": dict(zip(("low_unlock", "high_acquire", "medium_start", "medium_finish"),
+                                               (1, 2, 3, 4) if inherit else (3, 4, 1, 2))),
+                             "high_wait_us": 100, "medium_window_us": 25000, "medium_elapsed_us": 25000,
+                             "medium_iterations": 100, "high_completed_at_medium_start": inherit,
+                             "high_completed_at_medium_finish": inherit, "final_value": 42}
     return {"schema": "owner-qualification-v1", "case": case, "token": TOKEN, "build_id": build_id,
             "domain": "nuttx-target" if native else "host-functional", "pass": True,
             "native_scheduling": native, "fifo_policy": 1 if native else None,
@@ -61,7 +94,7 @@ def transcript(value, physical=False):
 class ParserControls(unittest.TestCase):
     def parse(self, value, text=None, physical=None):
         native = value["domain"] == "nuttx-target"
-        build = {"build_id": BUILD_ID, "inputs": {"kind": "nuttx-target" if native else "host-functional"}}
+        build = {"build_id": BUILD_ID, "inputs": suite_inputs(native, value["case"])}
         return W.parse(transcript(value, native) if text is None else text,
                        build, value["case"], TOKEN, native if physical is None else physical)
 
@@ -150,6 +183,79 @@ class ParserControls(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "missing or repeated fresh shell boot"):
                 self.parse(value, data)
 
+    def test_mutex_requires_actual_donation_and_restoration(self):
+        base = report("std-mutex-inherit", True)
+        for phase, field, invalid in (("low_before_high", "effective_priority", 180),
+                                     ("high_wait", "waiting_semaphore", False),
+                                     ("high_wait", "tid", 99),
+                                     ("low_while_high_waits", "effective_priority", 120),
+                                     ("low_while_high_waits", "base_priority", 180),
+                                     ("low_ready", "runnable", False),
+                                     ("medium_ready", "runnable", False),
+                                     ("low_before_unlock", "effective_priority", 120),
+                                     ("low_after_unlock", "effective_priority", 180)):
+            with self.subTest(phase=phase, field=field):
+                value = copy.deepcopy(base)
+                value["observations"]["mutex"]["native"][phase][field] = invalid
+                with self.assertRaises(ValueError): self.parse(value)
+
+    def test_mutex_protocol_and_interference_controls_are_required(self):
+        for case in W.MUTEX_CASES:
+            base = report(case, True)
+            mutations = [lambda m: m["native"]["configuration"].update(priority_inheritance=False),
+                         lambda m: m["native"]["configuration"].update(default_prio_inherit=not m["expected_inheritance"]),
+                         lambda m: m["native"]["configuration"].update(default_protocol=99),
+                         lambda m: m["order"].update(low_unlock=m["order"]["high_acquire"]),
+                         lambda m: m.update(high_completed_at_medium_finish=not m["expected_inheritance"]),
+                         lambda m: m.update(medium_elapsed_us=24999),
+                         lambda m: m.update(medium_iterations=0), lambda m: m.update(final_value=0)]
+            for index, mutate in enumerate(mutations):
+                with self.subTest(case=case, mutation=index):
+                    value = copy.deepcopy(base)
+                    mutate(value["observations"]["mutex"])
+                    with self.assertRaises(ValueError): self.parse(value)
+        value = report("std-mutex-no-inherit", True)
+        value["observations"]["mutex"]["native"]["low_while_high_waits"]["effective_priority"] = 180
+        with self.assertRaises(ValueError): self.parse(value)
+
+    def test_host_mutex_cannot_claim_native_priority_inheritance(self):
+        value = report("std-mutex-inherit")
+        value["observations"]["mutex"]["native"] = report("std-mutex-inherit", True)["observations"]["mutex"]["native"]
+        with self.assertRaises(ValueError): self.parse(value)
+        # Host scheduling may produce either ordering; no FIFO conclusion is admitted.
+        value = report("std-mutex-no-inherit")
+        value["observations"]["mutex"]["order"] = report("std-mutex-inherit")["observations"]["mutex"]["order"]
+        self.assertEqual(self.parse(value), value)
+
+    def test_mutex_cannot_run_against_other_suite_or_legacy_build(self):
+        value = report("std-mutex-inherit", True)
+        for specification in (suite_inputs(True), suite_inputs(True, "std-mutex-no-inherit"), {"kind": "nuttx-target"}):
+            with self.subTest(specification=specification), self.assertRaises(ValueError):
+                W.parse(transcript(value), {"build_id": BUILD_ID, "inputs": specification}, value["case"], TOKEN)
+
+
+class BuildSuiteControls(unittest.TestCase):
+    def test_config_requires_flat_single_core_and_both_protocol_settings(self):
+        for case in ("std-disconnect", *W.MUTEX_CASES):
+            specification = suite_inputs(True, case)
+            enabled = ["BUILD_FLAT"]
+            if specification["priority_inheritance"]: enabled.append("PRIORITY_INHERITANCE")
+            if case == "std-mutex-inherit": enabled.append("PTHREAD_MUTEX_DEFAULT_PRIO_INHERIT")
+            def config(symbols): return "".join(f"CONFIG_{symbol}=y\n" for symbol in symbols)
+            W.validate_config(config(enabled), specification)
+            for symbol in ("BUILD_FLAT", "SMP", "PRIORITY_INHERITANCE", "PTHREAD_MUTEX_DEFAULT_PRIO_INHERIT"):
+                changed = set(enabled) ^ {symbol}
+                with self.subTest(case=case, symbol=symbol), self.assertRaises(ValueError):
+                    W.validate_config(config(changed), specification)
+
+    def test_build_identity_cannot_relabel_suite_case_inventory_or_protocol(self):
+        for field, value in (("suite", "owner"), ("suite", "host-all"), ("cases", list(W.CASES)),
+                             ("priority_inheritance", False), ("pthread_mutex_default_protocol", "none")):
+            specification = suite_inputs(True, "std-mutex-inherit")
+            specification[field] = value
+            with self.subTest(field=field, value=value), self.assertRaises(ValueError):
+                W.selected_cases(specification)
+
 
 class RetainedEvidenceControls(unittest.TestCase):
     def setUp(self):
@@ -157,22 +263,28 @@ class RetainedEvidenceControls(unittest.TestCase):
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name)
 
-    def build(self, native=False):
+    def build(self, native=False, case="std-disconnect", profile=None):
         root = self.root / "input-build"
         root.mkdir()
         source = root / "retained/sources/tests/owner-qualification/src/main.rs"
         source.parent.mkdir(parents=True)
         source.write_text("// synthetic evidence-validator input, never executed\n")
-        specification = {"kind": "nuttx-target" if native else "host-functional",
-                         "profile": "esp32s3-ram-footprint" if native else None,
+        specification = {**suite_inputs(native, case),
+                         "profile": (profile or "esp32s3-ram-footprint") if native else None,
                          "sources": {"tests/owner-qualification/src/main.rs": W.digest(source)}}
         build_id = W.identity(specification)
         artifacts = root / "retained/artifacts"
         artifacts.mkdir()
         (artifacts / "firmware.elf").write_bytes(b"\x7fELF parser input only " + build_id.encode())
-        if native: (artifacts / "firmware.bin").write_bytes(b"parser input only " + build_id.encode())
+        if native:
+            (artifacts / "firmware.bin").write_bytes(b"parser input only " + build_id.encode())
+            (artifacts / "frontend").mkdir()
+            config = "CONFIG_BUILD_FLAT=y\n"
+            if specification["priority_inheritance"]: config += "CONFIG_PRIORITY_INHERITANCE=y\n"
+            if specification["pthread_mutex_default_protocol"] == "inherit": config += "CONFIG_PTHREAD_MUTEX_DEFAULT_PRIO_INHERIT=y\n"
+            (artifacts / "frontend/resolved.config").write_text(config)
         records = {str(p.relative_to(root)): {"sha256": W.digest(p), "bytes": p.stat().st_size}
-                   for p in artifacts.iterdir()}
+                   for p in artifacts.rglob("*") if p.is_file()}
         value = {"schema": "owner-qualification-build-v1", "build_id": build_id, "inputs": specification,
                  "artifacts": records, "executable": "retained/artifacts/firmware.elf",
                  "image": "retained/artifacts/firmware.bin" if native else None,
@@ -180,8 +292,8 @@ class RetainedEvidenceControls(unittest.TestCase):
         W.save(root / "build.json", value)
         return root, value
 
-    def run_record(self, native=False):
-        build_root, build = self.build(native)
+    def run_record(self, native=False, profile=None):
+        build_root, build = self.build(native, profile=profile)
         root = self.root / "run"
         root.mkdir()
         shutil.copytree(build_root, root / "build")
@@ -207,7 +319,7 @@ class RetainedEvidenceControls(unittest.TestCase):
         result = W.inspect(root)
         self.assertEqual(result["build_id"], value["build_id"])
         self.assertEqual(result["case_count"], 7)
-        self.assertEqual(result["cases"], list(W.CASES))
+        self.assertEqual(result["cases"], list(W.OWNER_CASES))
         self.assertEqual(result["image"]["sha256"], W.digest(Path(result["image"]["path"])))
         self.assertFalse(result["physical_execution_verified"])
         (root / value["image"]).write_bytes(b"changed image")
@@ -257,6 +369,37 @@ class RetainedEvidenceControls(unittest.TestCase):
         value["observations"]["joined"] = 999
         W.save(root / "analysis.json", value)
         with self.assertRaises(ValueError): W.replay(root)
+
+    def test_mutex_build_rechecks_retained_resolved_protocol(self):
+        root, value = self.build(True, "std-mutex-inherit")
+        self.assertEqual(W.inspect(root)["cases"], ["std-mutex-inherit"])
+        name = "retained/artifacts/frontend/resolved.config"
+        config = root / name
+        config.write_text("CONFIG_BUILD_FLAT=y\nCONFIG_PRIORITY_INHERITANCE=y\n")
+        value["artifacts"][name] = {"sha256": W.digest(config), "bytes": config.stat().st_size}
+        W.save(root / "build.json", value)
+        with self.assertRaisesRegex(ValueError, "resolved pthread mutex default"):
+            W.validate_build(root)
+
+    def test_qemu_requires_fresh_boot_native_profile_and_distinct_receipt(self):
+        root, capture = self.run_record(True, "mps2-an521-mock")
+        capture.update(runtime="qemu", machine="mps2-an521", qemu_version="synthetic-parser-control",
+                       qemu_sha256="b" * 64, exit_code=0)
+        W.save(root / "capture.json", capture)
+        self.assertFalse(W.replay(root)["physical_execution_verified"])
+        for field, invalid in (("machine", "esp32s3"), ("exit_code", 1), ("exit_code", False),
+                               ("qemu_version", ""), ("qemu_sha256", "missing"),
+                               ("physical_execution_verified", True), ("runtime", "host")):
+            changed = {**capture, field: invalid}
+            W.save(root / "capture.json", changed)
+            with self.subTest(field=field), self.assertRaises(ValueError): W.replay(root)
+        W.save(root / "capture.json", capture)
+        console = root / "console.log"
+        console.write_text(console.read_text().replace("NuttShell (NSH)", "old console"))
+        capture["console_sha256"] = W.digest(console)
+        W.save(root / "capture.json", capture)
+        with self.assertRaisesRegex(ValueError, "fresh shell boot"):
+            W.replay(root)
 
     def test_uf2_identity_may_cross_payload_blocks(self):
         data = b"x" * 240 + BUILD_ID.encode() + b"z" * (512 - 304)
