@@ -5,7 +5,7 @@ crossdev = "xtensa-esp32s3-elf-"
 machine = "Tensilica Xtensa Processor"
 image = "nuttx.bin"
 requires-qemu = false
-hal = { boot = "nuttx", rtc = "nuttx", watchdog = "nuttx", flash = "nuttx" }
+hal = { boot = "nuttx", rtc = "nuttx", watchdog = "nuttx", flash = "nuttx", pulse = "nuttx" }
 
 [kconfig]
 enable = [
@@ -53,6 +53,12 @@ mode = "runtime"
 
 [flash]
 device = "/dev/mtdblock0"
+
+# The PWM and GPIO registrations observe the same GPIO14 pad without a jumper.
+[pulse]
+pwm-device = "/dev/pwm0"
+input-device = "/dev/gpio2"
+stack-bytes = 16384
 
 [composition]
 version = 1

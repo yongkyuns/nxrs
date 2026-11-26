@@ -301,6 +301,36 @@ function controllerCommand(p) {
 `);
 }
 
+function pulseControllerCommand(p) {
+  return guideFigure(p, 'Controller command completion and joined shutdown',
+    'The application owns the persistent command sender. try_command attempts admission to an inbox with sixteen waiting slots and returns a completion ticket when accepted. Task-context pulse observations enter the same inbox through a weak callback sender. One controller thread owns the pulse session and command state, handles each command, and sends one result to its ticket. Ticket.wait observes handling completion, not electrical readback. Receipt and dispatch times describe task execution, not physical edge timestamps. stop drops persistent admission, drains accepted work, shuts down output and acquisition, and joins the owner. Cleanup failures remain visible in Stopped; native operations have no hard shutdown deadline.', 944, `
+  ${group(p, 'command', 24, 24, 752, 448, 'Follow one command to its result')}
+  ${panel({ id: 'caller', x: 44, y: 88, w: 304, h: 112, title: 'Application caller', lines: ['Owns persistent sender', 'try_command(command)'] })}
+  ${panel({ id: 'inbox', x: 452, y: 88, w: 304, h: 112, title: 'Bounded inbox', lines: ['16 commands / observations', 'Reject when full'], accent: p.blue })}
+  ${panel({ id: 'ticket', x: 44, y: 288, w: 304, h: 112, title: 'Completion ticket', lines: ['Ticket::wait()', 'Status or device error'], accent: p.blue })}
+  ${panel({ id: 'owner', x: 452, y: 288, w: 304, h: 112, title: 'Controller owner', lines: ['State + pulse session', 'Commands + receipt statistics'], accent: p.orange })}
+  ${edge('caller', 'inbox', 'M348 144 H450')}
+  ${label(400, 126, 'try_send')}
+  ${edge('inbox', 'owner', 'M604 200 V286')}
+  ${label(620, 248, 'receive', 'start')}
+  ${edge('owner', 'ticket', 'M452 344 H350')}
+  ${label(400, 326, 'reply')}
+  ${edge('ticket', 'caller', 'M196 288 V202')}
+  ${label(212, 248, 'wait returns', 'start')}
+  ${label(400, 444, 'Task-context observations use weak, nonblocking admission.')}
+
+  ${group(p, 'shutdown', 24, 508, 752, 376, 'stop() consumes the controller')}
+  ${panel({ id: 'close', x: 44, y: 568, w: 218, h: 112, title: 'Close admission', lines: ['Drop owned sender', 'No stop message'], accent: p.orange })}
+  ${panel({ id: 'drain', x: 290, y: 568, w: 218, h: 112, title: 'Drain the inbox', lines: ['Finish admitted work', 'Observe disconnect'] })}
+  ${panel({ id: 'off', x: 536, y: 568, w: 218, h: 112, title: 'Stop acquisition', lines: ['Output off · cancel', 'Join source worker'] })}
+  ${edge('close', 'drain', 'M262 624 H288')}
+  ${edge('drain', 'off', 'M508 624 H534')}
+  ${panel({ id: 'joined', x: 132, y: 744, w: 536, h: 112, title: 'join() returns Stopped', lines: ['Owner ends after source shutdown is attempted', 'Retain final state, statistics and cleanup errors'], accent: p.blue })}
+  ${edge('off', 'joined', 'M645 680 V710 H400 V742')}
+  ${label(400, 920, 'Native operations must return for joined shutdown to finish.')}
+`);
+}
+
 function navigationDataflow(p) {
   return guideFigure(p, 'Acquisition and service ownership in the navigation example',
     'IMU IRQ or HAL timer readiness wakes a HAL worker that drains the FIFO and produces typed samples. GNSS UART readiness wakes a HAL worker that reads and parses UBX into typed fixes. The corresponding sensor services each own an event inbox and forward normalized events to the fusion owner. Commands enter the service inboxes. No service handler runs inline in the acquisition producer or interrupt.', 756, `
@@ -660,6 +690,7 @@ const guideDiagrams = [
   ['nxrs-owner-event-loop', ownerEventLoop],
   ['nxrs-owner-lifecycle', ownerLifecycle],
   ['nxrs-controller-command', controllerCommand],
+  ['nxrs-pulse-controller-command', pulseControllerCommand],
   ['nxrs-navigation-dataflow', navigationDataflow],
   ['nxrs-service-dependencies', serviceDependencies],
   ['nxrs-ao-stress', aoStress],

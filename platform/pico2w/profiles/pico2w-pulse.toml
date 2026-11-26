@@ -1,0 +1,6 @@
+# Reuse the qualified native endpoints for ordinary pulse applications.
+extends = "pico2w-peripherals"
+
+[composition]
+version = 1
+mode = "hardware"

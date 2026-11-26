@@ -15,6 +15,7 @@
     ["standard-library", "Standard-library APIs", "Threads, time, collections, files and sockets"],
     ["services", "Services and concurrency", "Typed commands, event loops and shutdown"],
     ["controller", "Build a controller", "Switch a simulated LED and confirm the result of each command"],
+    ["pulse-controller", "Observe a PWM output", "Configure PWM, receive GPIO notifications, and qualify the same app on two boards"],
     ["hardware", "Drivers and HALs", "Resources, devices and capability interfaces"],
     ["io", "Networking and storage", "Communication, files and I/O ownership"],
     ["build-system", "Build workflow", "Understand planning, Cargo, native preparation and artifacts"],
@@ -29,7 +30,7 @@
   "sections": [
     {"title": "Getting started", "pages": ["start-here", "getting-started", "first-application", "firmware"]},
     {"title": "Understand NXRS", "pages": ["motivation", "overview", "interfaces"]},
-    {"title": "Develop firmware", "pages": ["designing-applications", "standard-library", "services", "controller", "hardware", "io"]},
+    {"title": "Develop firmware", "pages": ["designing-applications", "standard-library", "services", "controller", "pulse-controller", "hardware", "io"]},
     {"title": "Configure and build", "pages": ["build-system", "profiles"]},
     {"title": "Test and debug", "pages": ["testing", "performance", "troubleshooting"]},
     {"title": "Examples and status", "pages": ["examples", "motion-tracker", "status"]}
