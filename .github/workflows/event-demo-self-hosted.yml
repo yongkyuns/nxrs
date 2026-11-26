@@ -402,6 +402,7 @@ jobs:
             target/firmware/event-demo/imu-protected/*.log
             target/firmware/event-demo/imu-protected/*.config
             target/firmware/event-demo/imu-protected/*.sha256
+            target/firmware/event-demo/imu-protected/esp-hal-patches.json
             target/firmware/event-demo/rust-protected/nuttx/nuttx.bin
             target/firmware/event-demo/rust-protected/nuttx/nuttx_user.bin
             target/firmware/event-demo/rust-protected/nuttx/nuttx_user.elf

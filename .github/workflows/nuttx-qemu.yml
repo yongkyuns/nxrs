@@ -155,6 +155,7 @@ jobs:
             target/nuttx-qemu/*.config
             target/nuttx-qemu/*.sha256
             target/nuttx-qemu/*.log
+            target/nuttx-qemu/esp-hal-patches.json
             target/imu-qemu/*.log
             target/imu-qemu/abi-report.json
             target/imu-qemu/results.json

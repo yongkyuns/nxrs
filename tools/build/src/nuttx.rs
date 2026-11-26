@@ -807,16 +807,7 @@ fn build_or_prepare(
         )?;
     }
     if !reused && tools.esp {
-        let hal = isolated_hal(&nuttx, &nuttx.join("arch/xtensa/src/chip/esp-hal-3rdparty"))?;
-        let rev = output(source::git(&hal).args(["rev-parse", "HEAD"]))?;
-        source::apply_series(
-            root,
-            &hal,
-            "esp-hal-3rdparty",
-            rev.trim(),
-            &out.join("esp-hal-patches.json"),
-            true,
-        )?;
+        patch_esp_hal(root, &nuttx, &out.join("esp-hal-patches.json"))?;
     }
     let (native_config, finalized) = native_context(&tools, &nuttx, &entry, &out, target, &make_args)?;
     configuration.validate(p, &finalized.config)?;
@@ -1323,6 +1314,14 @@ fn build_or_prepare(
     }
     Ok(())
 }
+/// Apply the registered HAL series after NuttX has prepared its native context.
+/// Both product and legacy qualification builds must patch an owned checkout.
+pub fn patch_esp_hal(root: &Path, nuttx: &Path, record: &Path) -> Result<()> {
+    let hal = isolated_hal(nuttx, &nuttx.join("arch/xtensa/src/chip/esp-hal-3rdparty"))?;
+    let revision = output(source::git(&hal).args(["rev-parse", "HEAD"]))?;
+    source::apply_series(root, &hal, "esp-hal-3rdparty", revision.trim(), record, true)
+}
+
 pub fn isolated_hal(nuttx: &Path, hal: &Path) -> Result<PathBuf> {
     let root = nuttx.canonicalize().map_err(|e| e.to_string())?;
     let hal = hal.canonicalize().map_err(|e| e.to_string())?;

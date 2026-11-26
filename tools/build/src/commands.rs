@@ -179,6 +179,10 @@ pub fn run(root: &Path, command: &str, args: &[String]) -> Result<()> {
             }
             println!("{}", sysroot.display());
         }
+        "patch-esp-hal" => {
+            let a = Args::parse(args, &["--nuttx", "--record"], &[])?;
+            crate::nuttx::patch_esp_hal(root, &a.path("--nuttx")?, &a.path("--record")?)?;
+        }
         "patch-source" => {
             let a = Args::parse(
                 args,

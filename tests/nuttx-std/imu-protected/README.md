@@ -11,7 +11,8 @@ deterministic I²C and GPIO devices with the actual NuttX VFS upper halves.
 1. Initialize `external/nuttx` and `external/nuttx-apps` at the Nxrs gitlinks.
 2. Put GNU Make, GNU sed on macOS, the NuttX Kconfig tools (`kconfig-tweak`
    and `olddefconfig` or `kconfig-conf`), `genromfs`, Python 3, `esptool.py`
-   and the ESP32-S3 Xtensa compiler and binutils on `PATH`. CI uses the
+   and the ESP32-S3 Xtensa compiler and binutils on `PATH`. Install Rust 1.100.0
+   for the shared source-patch controller. CI uses the
    repository's pinned Espressif GCC 16.2.0 tool bundle.
 3. Run from the Nxrs checkout with a new output directory. The script stages
    the exact source revisions and creates separate kernel and userspace images.
@@ -22,9 +23,10 @@ deterministic I²C and GPIO devices with the actual NuttX VFS upper halves.
 
    For an offline build, set `NXRS_IMU_WITNESS_HAL_CACHE` to an existing Git
    checkout of Espressif's third-party HAL with its mbedTLS submodule initialized.
-   The script still uses the NuttX-pinned revisions of both repositories.
+   The script still uses the NuttX-pinned revisions of both repositories and
+   applies the registered application HAL patches only to the isolated copy.
 
-The build records the effective configuration, source pins, compiler, ELF
+The build records the effective configuration, source pins, HAL patch ledger, compiler, ELF
 symbol placement, disassembly of the `ioctl` and `poll` syscall stubs, and image
 hashes. `nuttx/` contains `nuttx`, `nuttx_user.elf`, `nuttx.bin` and
 `nuttx_user.bin`. CI cross-links the witness in the existing ESP32-S3 event-demo

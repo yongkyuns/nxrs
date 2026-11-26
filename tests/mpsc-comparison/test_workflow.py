@@ -34,8 +34,14 @@ class WorkflowTests(unittest.TestCase):
     def test_native_simpleboot_parser_handles_legacy_and_digest_offsets(self):
         """Execute the actual SDK parser block before/after the carried patch."""
         name = 'arch/xtensa/src/common/espressif/esp_loader.c'
+        revision = subprocess.check_output(['git', 'rev-parse', ':external/nuttx'],
+                                           cwd=build.ROOT, text=True).strip()
+        release = json.loads((build.ROOT / 'upstream/nuttx/release.json').read_text())
+        self.assertEqual(revision, release['revision'], 'NuttX gitlink/release pin mismatch')
         source = subprocess.check_output(['git', '-C', str(build.ROOT / 'external/nuttx'),
-                                          'show', '2b5c0de5e933281c209f954a63b99cf10c132346:' + name], text=True)
+                                          'show', revision + ':' + name], text=True)
+        self.assertEqual(hashlib.sha256(source.encode()).hexdigest(),
+                         '7ac941445818043cdb5ce0f1444cb53c954a8d920139d3181c81ad20d0563ddb')
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             target = root / name

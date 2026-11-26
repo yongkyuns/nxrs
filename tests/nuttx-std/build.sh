@@ -96,7 +96,7 @@ elif test "$PROFILE" != pico2; then
   command -v qemu-system-riscv32 >/dev/null || { echo "Missing prerequisite: qemu-system-riscv32" >&2; exit 1; }
 fi
 mkdir -p "$OUT"
-rm -f "$OUT/std-parker.patch" "$OUT/std-fd-sanitization.patch" "$OUT/std-patch.json" "$OUT/std-sigign.patch"
+rm -f "$OUT/std-parker.patch" "$OUT/std-fd-sanitization.patch" "$OUT/std-patch.json" "$OUT/std-sigign.patch" "$OUT/esp-hal-patches.json"
 rm -rf "$OUT/nuttx" "$OUT/apps" "$OUT/cargo" "$OUT/toolchain"
 mkdir -p "$OUT/nuttx" "$OUT/apps"
 for pair in nuttx:nuttx nuttx-apps:apps; do
@@ -359,7 +359,14 @@ python3 tests/nuttx-std/check-abi.py --check-imports "$OUT/rust-symbols.txt"
 
 # Unset Rust-only settings before invoking NuttX's C build.
 unset RUSTFLAGS
-make -C "$OUT/nuttx" -j4 CROSSDEV="$CROSSDEV" NXRS_STD_ELF="$ELF" ESPTOOL_BINDIR=.
+if test "$ESP32" = 1; then
+  # Context fetches the release-matched HAL. Apply the same registered series
+  # and isolated-checkout guards as the product frontend before compiling C.
+  make -C "$OUT/nuttx" context CROSSDEV="$CROSSDEV" NXRS_STD_ELF="$ELF" ESPTOOL_BINDIR=.
+  "$ROOT/target/debug/nxrs-build" --workspace-root "$ROOT" patch-esp-hal \
+    --nuttx "$OUT/nuttx" --record "$OUT/esp-hal-patches.json"
+fi
+make -C "$OUT/nuttx" -j"${CARGO_BUILD_JOBS:-4}" CROSSDEV="$CROSSDEV" NXRS_STD_ELF="$ELF" ESPTOOL_BINDIR=.
 
 # Compile the ABI witnesses against generated target headers before any boot.
 python3 tests/nuttx-std/check-abi.py --self-test
