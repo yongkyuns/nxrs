@@ -1235,16 +1235,36 @@ mod tests {
         };
         draw(&mut screen, Reading::Live(report));
         let at = |x: usize, y: usize| y * 320 + x;
-        assert_eq!(screen.display.0[at(40, 150)], MINT);
+        assert_eq!(screen.display.0[at(100, 150)], MINT);
         // The 45 dB-Hz peak sets a 50 dB-Hz ceiling, so 25 is half-height.
-        assert_ne!(screen.display.0[at(63, 150)], 0x661f);
-        assert_eq!(screen.display.0[at(63, 151)], 0x661f);
+        assert_ne!(screen.display.0[at(238, 150)], 0x661f);
+        assert_eq!(screen.display.0[at(238, 151)], 0x661f);
         screen.display.1.clear();
         draw(&mut screen, Reading::Live(report));
         assert!(screen.display.1.is_empty());
+        let dense = SatelliteReport::new(
+            24,
+            24,
+            Some(45),
+            3000,
+            24,
+            (1..=24).map(|id| SatelliteSignal {
+                constellation: Constellation::Gps,
+                id,
+                cn0_db_hz: 45,
+            }),
+        );
+        draw(&mut screen, Reading::Live(dense));
+        let row = at(32, 196)..at(309, 196);
+        assert_eq!(
+            screen.display.0[row.clone()]
+                .split(|&pixel| pixel == BG)
+                .filter(|bar| !bar.is_empty())
+                .count(),
+            24,
+        );
         draw(&mut screen, Reading::Stale);
-        assert_eq!(screen.display.0[at(40, 196)], BG);
-        assert_eq!(screen.display.0[at(63, 196)], BG);
+        assert!(screen.display.0[row].iter().all(|&pixel| pixel == BG));
     }
 
     #[test]
