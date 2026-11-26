@@ -73,14 +73,12 @@ impl View {
         }
         let chart_y = top + 87;
         let row_height = (height - 22 - chart_y) / signals.len().div_ceil(PER_ROW) as i32;
-        let max = i32::from(
-            signals
-                .iter()
-                .map(|signal| signal.cn0_db_hz)
-                .max()
-                .unwrap_or(0),
-        )
-        .max(60);
+        let peak = signals
+            .iter()
+            .map(|signal| u16::from(signal.cn0_db_hz))
+            .max()
+            .unwrap_or(0);
+        let max = i32::from(peak.max(10).div_ceil(10) * 10);
         for (row, signals) in signals.chunks(PER_ROW).enumerate() {
             let y = chart_y + row as i32 * row_height;
             if canvas.intersects_rows(y, row_height) {
