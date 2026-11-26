@@ -302,6 +302,22 @@ attest the physical board or operator’s flashing action. All results retain
 
 ## ARM QEMU execution
 
+The MPS2 clock also needs the SDK's ARMv8-M SysTick correction in
+`0149-armv8m-systick-coherent-status.patch`. The pinned timer driver could pair
+a pre-wrap counter with a newly pending interrupt, or mistake a nonzero counter
+that rounds to zero microseconds for a hardware reset. Either could make
+`CLOCK_MONOTONIC` move backwards by almost one scheduler tick. A retained
+`std-mutex-inherit` run exposed this when its loop observed at least 25 ms, then
+the following elapsed-time read returned 24,130 microseconds and failed the
+unchanged assertion.
+
+The correction retains the raw counter, rereads it after observing a pending
+interrupt, and distinguishes raw zero from rounded zero. Deterministic MMIO
+controls exercise both defects against the original and patched driver. The
+mutex fixture keeps its strict elapsed, priority and event-order checks. This
+repair does not account for multiple timer wraps while interrupts remain
+unserviced, or establish physical timing bounds.
+
 The emulator must contain QEMU's [MPS2 UART interrupt wiring fix](https://github.com/qemu/qemu/commit/5a558be93ad628e5bed6e0ee062870f49251725c).
 The runner admits release versions 8.2.7 or later in the 8.2 branch, 9.0.3 or
 later in the 9.0 branch, and 9.1 or later. It rejects older or unrecognized

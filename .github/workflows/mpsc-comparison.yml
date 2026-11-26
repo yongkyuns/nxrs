@@ -7,6 +7,8 @@ on:
       - '.github/scripts/install-ubuntu-packages.sh'
       - 'tests/mpsc-comparison/**'
       - 'tests/owner-qualification/**'
+      - 'tests/host/test_armv8m_systick.py'
+      - 'tests/host/armv8m_systick.c'
       - 'tests/allocation-probe/**'
       - 'tests/rtos-characterization/**'
       - 'tests/rtos_harness/**'
@@ -77,6 +79,7 @@ jobs:
           cargo test --locked -p nxrs-messaging --features latest
           python3 -m unittest discover -s tests/mpsc-comparison -p 'test_*.py' -v
           python3 -m unittest discover -s tests/owner-qualification -p 'test_*.py' -v
+          python3 -m unittest discover -s tests/host -p test_armv8m_systick.py -v
           python3 -m unittest discover -s tests/rtos-characterization -p 'test_*.py' -v
       - name: Compare ordered capture admission and allocation
         run: |

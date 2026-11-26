@@ -206,11 +206,50 @@ Production capture retains its current pool until those requirements are met.
 #### ARM product build comparison
 
 Matched `mps2-an521-mock` builds of the actual Motion Tracker application
-compared the PI-enabled mutex baseline `204f4297` with publication revision
-`94e1f9ea`. This historical comparison predates the incorporation of #451 into
-the parent branch; it is not the incremental footprint of the current PR.
-Both use the pinned ARM toolchain, identical effective Kconfig, standard-library
-patch receipt, linker script and mutex policy. All 126 native ABI values match.
+compare updated parent `43eca59c`, including the fixed-reader implementation
+from #451, with reusable publication revision `b4948b2f`. Both use the same
+current frontend, pinned ARM compiler, effective Kconfig, SDK patch receipt,
+linker script and normal PI-enabled mutex policy. Both builds pass the native
+ABI gate, with identical results for all 126 checked values within that gate's
+documented scope.
+
+| Linked product measurement | Updated parent with #451 | Reusable ownership API | Change |
+| --- | ---: | ---: | ---: |
+| File-backed allocated ELF sections | 428,026 B | 429,866 B | +1,840 B |
+| Unpadded `nuttx.bin` | 428,028 B | 429,868 B | +1,840 B |
+| Static SRAM sections | 10,900 B | 10,900 B | 0 B |
+
+The binary includes two bytes of flash alignment; the SRAM address span is
+10,908 bytes in both builds, including eight bytes between sections. ELF debug
+file size is excluded. Dynamic publication storage, native heap and task stacks
+are separate from static SRAM. The parent uses seven mailboxes with display-only
+satellites; the reusable API provides satellites to both readers and uses eight.
+Their payload layouts differ, so mailbox counts alone do not establish the net
+runtime heap difference.
+
+Both images completed two sequential four-frame runs in a fresh MPS2 QEMU
+8.2.7 boot using `motion_tracker --interval-ms 100 --frames 4 --stream-usb --ble`.
+Each run returned zero, with both IMUs and GNSS live in its final USB frame.
+This exercises startup, the existing optimized 23 KiB communications task,
+joined shutdown and sensor reopening. Unbound TLS pairing follows its ordinary
+failure path. Active BLE snapshot consumption, physical execution and stack
+high-water remain outside this smoke test.
+
+This ARM mock profile has unbound display and radio capabilities; it does not
+qualify the ESP32/CoreS3 product footprint or timing. Source inputs and final
+artifact hashes were checked before and after retiring reproducible build
+caches. Reproduce each selected revision through the normal frontend:
+
+```sh
+cargo nxrs build --app motion-tracker --profile mps2-an521-mock \
+  --out target/tracker-publication-comparison
+```
+
+#### Earlier ARM mutex comparison
+
+The earlier matched comparison used the PI-enabled mutex product at `204f4297`
+and publication revision `94e1f9ea`, before #451 was incorporated into the
+parent branch. It measured the original mutex-to-fixed-reader change:
 
 | Linked product measurement | Mutex baseline | Fixed-reader implementation | Change |
 | --- | ---: | ---: | ---: |
@@ -218,25 +257,9 @@ patch receipt, linker script and mutex policy. All 126 native ABI values match.
 | Unpadded `nuttx.bin` | 425,300 B | 429,844 B | +4,544 B |
 | Static SRAM sections | 10,900 B | 10,900 B | 0 B |
 
-The binary includes two bytes of flash alignment; the SRAM address span is
-10,908 bytes in both builds, including eight bytes between sections. ELF debug
-file size is excluded. Dynamic publication storage, native heap and task stacks
-are separate from static SRAM. This ARM mock profile has unbound display and
-radio capabilities; it does not qualify the ESP32/CoreS3 product footprint or
-physical execution. Reproduce each source revision through the normal frontend:
-
-```sh
-cargo nxrs build --app motion-tracker --profile mps2-an521-mock \
-  --out target/tracker-publication-comparison
-```
-
-Both images also completed two sequential four-frame runs in one fresh MPS2
-QEMU boot using `motion_tracker --interval-ms 100 --frames 4 --stream-usb --ble`.
-Each run returned zero, with both IMUs and GNSS live in its final USB frame.
-This exercises startup, the existing optimized 23 KiB communications task,
-joined shutdown and sensor reopening. Unbound TLS pairing follows its ordinary
-failure path, so active BLE snapshot consumption and stack high-water remain
-outside this smoke test.
+Those images also passed the two-run headless product smoke under their matched
+SDK and configuration. These historical figures describe their own source pair;
+the current PR's incremental footprint is the +1,840 B comparison above.
 
 #### CoreS3 product-path baseline
 
