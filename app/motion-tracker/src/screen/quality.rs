@@ -7,8 +7,6 @@ use display::graphics::{Area, Raster};
 use gnss::{Constellation, FixQuality, GnssFix, SatelliteReport, SatelliteSignal};
 use std::fmt::Write;
 
-const PER_ROW: usize = 12;
-
 #[derive(PartialEq)]
 pub(super) struct View {
     fix: Reading<Option<FixQuality>>,
@@ -72,18 +70,9 @@ impl View {
             }
         }
         let chart_y = top + 87;
-        let row_height = (height - 22 - chart_y) / signals.len().div_ceil(PER_ROW) as i32;
-        let peak = signals
-            .iter()
-            .map(|signal| u16::from(signal.cn0_db_hz))
-            .max()
-            .unwrap_or(0);
-        let max = i32::from(peak.max(10).div_ceil(10) * 10);
-        for (row, signals) in signals.chunks(PER_ROW).enumerate() {
-            let y = chart_y + row as i32 * row_height;
-            if canvas.intersects_rows(y, row_height) {
-                bars(canvas, width, y, row_height - 12, max, signals);
-            }
+        let chart_height = height - 34 - chart_y;
+        if canvas.intersects_rows(chart_y, chart_height + 18) {
+            bars(canvas, width, chart_y, chart_height, signals);
         }
         legend(canvas, height - 12);
     }
@@ -121,22 +110,26 @@ impl View {
     }
 }
 
-fn bars(
-    canvas: &mut Raster<'_>,
-    width: i32,
-    y: i32,
-    height: i32,
-    max: i32,
-    signals: &[SatelliteSignal],
-) {
-    let slot = (width - 42) / PER_ROW as i32;
+fn bars(canvas: &mut Raster<'_>, width: i32, y: i32, height: i32, signals: &[SatelliteSignal]) {
+    let plot_width = width - 43;
+    let count = signals.len() as i32;
+    let slot = plot_width / count;
+    let first = 32 + (plot_width % count) / 2;
+    let bar_width = slot * 3 / 4;
+    let inset = (slot - bar_width) / 2;
+    let peak = signals
+        .iter()
+        .map(|signal| u16::from(signal.cn0_db_hz))
+        .max()
+        .unwrap_or(0);
+    let max = i32::from(peak.max(10).div_ceil(10) * 10);
     let bottom = y + height;
     for (value, line) in [(max, y), (max / 2, y + height / 2), (0, bottom)] {
         canvas.fill(
             Area {
                 x: 32,
                 y: line,
-                w: width - 43,
+                w: plot_width,
                 h: 1,
             },
             GRID,
@@ -153,23 +146,25 @@ fn bars(
     }
     for (index, signal) in signals.iter().enumerate() {
         let color = series(signal.constellation).1;
-        let x = 32 + index as i32 * slot;
+        let x = first + index as i32 * slot;
         let h = (i32::from(signal.cn0_db_hz) * height / max).max(1);
         canvas.fill(
             Area {
-                x: x + 3,
+                x: x + inset,
                 y: bottom - h,
-                w: slot - 6,
+                w: bar_width,
                 h,
             },
             color,
         );
-        if canvas.intersects_rows(bottom + 3, 7) {
+        // Three-digit IDs need up to 18 pixels. Stagger labels in narrow slots.
+        let label_y = bottom + 3 + if slot < 18 { (index % 2) as i32 * 8 } else { 0 };
+        if canvas.intersects_rows(label_y, 7) {
             let mut label = Text::<3>::new();
             let _ = write!(label, "{}", signal.id);
             canvas.text(
                 x + (slot - label.bytes().len() as i32 * 6) / 2,
-                bottom + 3,
+                label_y,
                 label.bytes(),
                 1,
                 color,

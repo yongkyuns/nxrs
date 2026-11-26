@@ -657,8 +657,8 @@ async def scenario(guest, panel, phone, args):
     await panel.wait_pixel(118, 33, 0x57f4)  # selected IMU 2 underline
     await panel.tap(195, 20)
     guest.gnss.wire.sendall(guest.gnss.satellite_packet(guest.tow_ms, [(0, 3, 45), (2, 11, 25)]))
-    await panel.wait_pixel(40, 196, 0x57f4)  # GPS bar
-    await panel.wait_pixel(63, 196, 0x661f)  # shorter Galileo bar
+    await panel.wait_pixel(100, 196, 0x57f4)  # GPS bar
+    await panel.wait_pixel(238, 196, 0x661f)  # shorter Galileo bar
     await panel.reveal_menu()
     await panel.wait_pixel(195, 33, 0x57f4)  # selected GNSS underline
     await panel.tap(155, 20)
