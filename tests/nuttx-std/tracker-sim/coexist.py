@@ -137,6 +137,22 @@ async def read_heap(guest):
     return parse_meminfo(guest.buffer[offset:].decode(errors='replace'))
 
 
+async def arm_heap_denial(guest, panel):
+    assert await panel.word('tracker_heap_verified') == 1
+    await wait_until(lambda: guest.samples, 'first tracker sample')
+    await panel.query(f'writel {panel.addresses["tracker_heap_deny"]:#x} 1')
+    print('NuttX shared heap denied after startup', flush=True)
+
+
+async def heap_denial_result(panel):
+    count = await panel.word('tracker_heap_rejected')
+    size = await panel.word('tracker_heap_last_bytes')
+    caller = await panel.word('tracker_heap_last_caller')
+    print(f'NuttX shared heap requests denied={count} last_bytes={size} caller={caller:#x}',
+          flush=True)
+    return count
+
+
 async def check_heap_recovery(guest, panel, phone, previous_key):
     offset = len(guest.buffer)
     guest.command('stackmonitor_stop')
@@ -495,13 +511,16 @@ class Scenario:
         guest.command(f'motion_tracker --map-relay {COLLECTOR}:{self.stamp.port} --map-pin {self.pin}')
         await guest.wait_text(b'direct map relay is unavailable with cellular', offset)
         await guest.wait_text(b'nsh>', offset)
-        await start_stack_monitor(guest)
+        if not args.deny_shared_heap:
+            await start_stack_monitor(guest)
         offset = len(guest.buffer)
-        guest.command(
-            f'motion_tracker --frames {FRAMES} --interval-ms {INTERVAL_MS} --stream-usb --ble '
-            '--cellular-apn nxrs.test')
+        limit = '' if args.deny_shared_heap else f'--frames {FRAMES} '
+        guest.command(f'motion_tracker {limit}--interval-ms {INTERVAL_MS} --stream-usb --ble '
+                      '--cellular-apn nxrs.test')
         key = await panel.pairing_key()
         await guest.wait_text(b"cellular Online", offset)
+        if args.deny_shared_heap:
+            await arm_heap_denial(guest, panel)
         connection, stream = await asyncio.wait_for(connect_map_export(phone, key), 8)
         assert stream.windowed_writes and stream.ingress_payload == 239, stream.ingress_payload
 
@@ -588,28 +607,43 @@ class Scenario:
         print(f'PASS: BLE map replies with PPP online, tile crossing, export {stream.sample_counts} '
               f'at {[round(rate, 2) for rate in rates]} Hz without gaps', flush=True)
         await connection.disconnect()
+        if args.deny_shared_heap:
+            return
         await guest.wait_text(b'nsh>', offset + 8, args.timeout)
         exit_offset = len(guest.buffer)
         guest.command('echo tile-exit:$?')
         await guest.wait_text(b'tile-exit:0', exit_offset)
-        check_stack_headroom(bytes(guest.buffer[offset:]), collector=False)
+        if not args.deny_shared_heap:
+            check_stack_headroom(bytes(guest.buffer[offset:]), collector=False)
 
     async def exercise(self, guest, panel, phone, args):
         stamp = self.stamp
         await guest.wait_text(b'nsh>')
-        if args.export:
+        if args.export and not args.deny_shared_heap:
             await start_stack_monitor(guest)
         offset = len(guest.buffer)
         frames = 2 * (args.export_seconds + 30) if args.export else FRAMES
+        start_from_ui = args.deny_shared_heap and args.export
+        ble = '' if start_from_ui else '--ble '
+        limit = '' if args.deny_shared_heap else f'--frames {frames} '
         guest.command(
-            f'motion_tracker --frames {frames} '
-            f'--interval-ms {INTERVAL_MS} --stream-usb --ble '
+            f'motion_tracker {limit}'
+            f'--interval-ms {INTERVAL_MS} --stream-usb {ble}'
             f'--cellular-apn nxrs.test --collector {COLLECTOR}:{stamp.port} --collector-pin {self.pin} '
             f'--cellular-report-secs {CELLULAR_INTERVAL_S}')
+        if start_from_ui:
+            await wait_until(lambda: self.collector_live(1), 'initial cellular TLS telemetry', 12)
+            await arm_heap_denial(guest, panel)
+            await panel.reveal_menu()
+            await panel.tap(275, 20)
         key = await panel.pairing_key()
         await wait_until(lambda: self.collector_live(1), 'initial cellular TLS telemetry', 12)
+        if args.deny_shared_heap and not start_from_ui:
+            await arm_heap_denial(guest, panel)
         if args.export:
             await self.sample_export(guest, panel, phone, key, args.export_seconds)
+            if args.deny_shared_heap:
+                return
             await tracker_exit(guest, offset, frames, args.timeout)
             assert not re.search(rb'PANIC|panicked at|Assertion failed', guest.buffer)
             check_stack_headroom(bytes(guest.buffer[offset:]))
@@ -724,6 +758,8 @@ class Scenario:
             print(f'Collector closures {self.collector_closures}', flush=True)
 
         await connection.disconnect()
+        if args.deny_shared_heap:
+            return
         await guest.wait_text(f'{FRAMES} frames, interval={INTERVAL_MS} ms, IMU 1 live, IMU 2 live, GNSS live'.encode(),
                               offset, args.timeout)
         await guest.wait_text(b'nsh>', offset + 8)
@@ -749,6 +785,8 @@ def main():
     parser.add_argument('--export-seconds', type=int, default=60)
     scenario_kind.add_argument('--tiles', action='store_true', help='verify full-rate export during BLE and PPP tile delivery')
     parser.add_argument('--tile-write-loss', action='store_true', help='drop one unacknowledged tile write in --tiles')
+    parser.add_argument('--deny-shared-heap', action='store_true',
+                        help='deny new general-heap allocations after startup in a guard image')
     parser.add_argument('--timeout', default=100, type=float)
     parser.add_argument('--log', type=Path, default=Path('target/tracker-coexist-sim/coexist.log'))
     args = parser.parse_args()
@@ -764,6 +802,20 @@ def main():
                 directory, args.network_qemu, server.server_address[1]) as ethernet, args.log.open('wb') as log:
             scenario = Scenario(server, pin, ethernet)
             test = scenario.exercise_tiles if args.tiles else scenario.exercise
+            if args.deny_shared_heap:
+                exercise = test
+
+                async def test(guest, panel, phone, args):
+                    assert 'tracker_heap_deny' in panel.addresses, 'build with heap_probe.c and linker wraps'
+                    try:
+                        await exercise(guest, panel, phone, args)
+                    except Exception:
+                        await heap_denial_result(panel)
+                        raise
+                    assert await panel.word('tracker_heap_deny') == 1, 'heap denial never armed'
+                    assert not re.search(rb'PANIC|panicked at|Assertion failed', guest.buffer)
+                    assert await heap_denial_result(panel) == 0
+
             asyncio.run(run(args, log, test, scenario.attach))
 
 

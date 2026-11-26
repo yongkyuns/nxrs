@@ -39,4 +39,7 @@ cfg_if::cfg_if! {
 pub(crate) use selected::{gatt_driver, open};
 
 #[cfg(feature = "peripheral")]
-pub(crate) use selected::open_peripheral;
+pub(crate) use selected::{open_peripheral, prepare_peripheral};
+
+#[cfg(feature = "peripheral")]
+pub(crate) const PERIPHERAL_AVAILABLE: bool = cfg!(all(platform = "nuttx", not(test)));

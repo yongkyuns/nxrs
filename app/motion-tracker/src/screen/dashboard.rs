@@ -10,7 +10,7 @@ use display::graphics::{Area, Raster as Canvas};
 use display::{Display, Error, Rect, Size};
 use gesture::{Contact, Gesture};
 use map::{Position, View as MapView, Viewport};
-use qrcodegen::{QrCode, QrCodeEcc};
+use qrcodegen::{QrCode, QrCodeEcc, Version as QrVersion};
 use std::{
     fmt::Write,
     time::{Duration, Instant},
@@ -22,6 +22,8 @@ const PLOT_LABEL_CAPACITY: usize = 20;
 const GRIP_HEIGHT: i32 = 8;
 const MENU_HEIGHT: i32 = 40;
 const QR_TOP: u16 = 80;
+const QR_VERSION: QrVersion = QrVersion::new(3);
+const QR_BYTES: usize = QR_VERSION.buffer_len();
 const BG: u16 = 0x0883;
 const PANEL: u16 = 0x1126;
 pub(super) const GRID: u16 = 0x226b;
@@ -97,9 +99,61 @@ impl Layout {
 struct Dashboard {
     page: Page,
     metric: Metric,
-    code: Option<QrCode>,
+    code: Option<PairingCode>,
     menu: bool,
     contact: Option<Contact>,
+}
+
+struct PairingCode {
+    size: i32,
+    modules: [u8; QR_BYTES],
+}
+
+impl PairingCode {
+    fn encode(key: &[u8; 32]) -> Result<Self, Error> {
+        let mut text = Text::<70>::new();
+        text.write_str("NXRS1:")
+            .map_err(|_| Error::InvalidPixelCount)?;
+        for byte in key {
+            write!(text, "{byte:02X}").map_err(|_| Error::InvalidPixelCount)?;
+        }
+        let text = std::str::from_utf8(text.bytes()).map_err(|_| Error::InvalidPixelCount)?;
+        let mut temporary = [0; QR_BYTES];
+        let mut output = [0; QR_BYTES];
+        let qr = QrCode::encode_text(
+            text,
+            &mut temporary,
+            &mut output,
+            QrCodeEcc::Low,
+            QrVersion::MIN,
+            QR_VERSION,
+            None,
+            true,
+        )
+        .map_err(|_| Error::InvalidPixelCount)?;
+        let mut code = Self {
+            size: qr.size(),
+            modules: [0; QR_BYTES],
+        };
+        for row in 0..code.size {
+            for col in 0..code.size {
+                if qr.get_module(col, row) {
+                    let index = (row * code.size + col) as usize;
+                    code.modules[index / 8] |= 1 << (index % 8);
+                }
+            }
+        }
+        Ok(code)
+    }
+
+    fn get_module(&self, col: i32, row: i32) -> bool {
+        let range = 0..self.size;
+        if !range.contains(&col) || !range.contains(&row) {
+            return false;
+        }
+        let index = (row * self.size + col) as usize;
+        self.modules[index / 8] & (1 << (index % 8)) != 0
+    }
 }
 
 impl Dashboard {
@@ -128,13 +182,7 @@ impl Dashboard {
     }
 
     fn show_code(&mut self, key: &[u8; 32]) -> Result<(), Error> {
-        let mut code = String::with_capacity(70);
-        code.push_str("NXRS1:");
-        for byte in key {
-            write!(code, "{byte:02X}").map_err(|_| Error::InvalidPixelCount)?;
-        }
-        self.code =
-            Some(QrCode::encode_text(&code, QrCodeEcc::Low).map_err(|_| Error::InvalidPixelCount)?);
+        self.code = Some(PairingCode::encode(key)?);
         self.menu = false;
         Ok(())
     }
@@ -576,7 +624,7 @@ fn chip(canvas: &mut Canvas<'_>, area: Area, text: &[u8], color: u16, highlighte
     );
 }
 
-fn pairing(canvas: &mut Canvas<'_>, layout: &Layout, code: &QrCode) {
+fn pairing(canvas: &mut Canvas<'_>, layout: &Layout, code: &PairingCode) {
     if canvas.area().y < MENU_HEIGHT {
         chip(canvas, layout.tab(LINK_TAB), b"CANCEL", TEXT, true);
     }
@@ -587,7 +635,7 @@ fn pairing(canvas: &mut Canvas<'_>, layout: &Layout, code: &QrCode) {
         2,
         TEXT,
     );
-    let modules = code.size() + 8;
+    let modules = code.size + 8;
     let top = i32::from(QR_TOP);
     let scale = (layout.height - top - 8).min(layout.width - 20) / modules;
     let side = modules * scale;
@@ -603,9 +651,9 @@ fn pairing(canvas: &mut Canvas<'_>, layout: &Layout, code: &QrCode) {
     );
     let first_code_row = ((canvas.area().y - top).div_euclid(scale) - 4).max(0);
     let last_code_row =
-        ((canvas.area().y + canvas.area().h - top).div_euclid(scale) - 3).min(code.size());
+        ((canvas.area().y + canvas.area().h - top).div_euclid(scale) - 3).min(code.size);
     for row in first_code_row..last_code_row {
-        for col in 0..code.size() {
+        for col in 0..code.size {
             if code.get_module(col, row) {
                 canvas.fill(
                     Area {
@@ -1407,9 +1455,8 @@ mod tests {
                 |_| None,
             )
             .unwrap();
-        let code =
-            QrCode::encode_text(&format!("NXRS1:{}", "2A".repeat(32)), QrCodeEcc::Low).unwrap();
-        let side = 4 * (code.size() + 8);
+        let code = PairingCode::encode(&[42; 32]).unwrap();
+        let side = 4 * (code.size + 8);
         let left = (320 - side) / 2;
         for y in 0..side {
             for x in 0..side {

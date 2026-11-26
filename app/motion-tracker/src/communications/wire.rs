@@ -165,10 +165,6 @@ pub fn cellular_frame(snapshot: &Snapshot) -> io::Result<Text<CELLULAR_FRAME_BYT
     Ok(frame)
 }
 
-pub fn frame(snapshot: &Snapshot) -> io::Result<Text<768>> {
-    build(snapshot, None, None, true)
-}
-
 pub fn ble_frame(snapshot: &Snapshot, tile: Option<Key>) -> io::Result<Text<768>> {
     build(snapshot, None, tile, false)
 }
@@ -182,7 +178,9 @@ pub fn export_frame(
 }
 
 pub fn write_usb(output: &mut impl io::Write, snapshot: &Snapshot) -> io::Result<()> {
-    output.write_all(frame(snapshot)?.bytes())?;
+    let mut frame = Text::<768>::new();
+    encode(&mut frame, snapshot, None, None, true).map_err(|_| io::ErrorKind::InvalidData)?;
+    output.write_all(frame.bytes())?;
     output.flush()
 }
 
@@ -236,8 +234,10 @@ mod tests {
             gnss: Reading::Stale,
             clock: None,
         };
+        let mut output = Vec::new();
+        write_usb(&mut output, &snapshot).unwrap();
         assert_eq!(
-            frame(&snapshot).unwrap().bytes(),
+            output,
             b"{\"v\":1,\"imu\":[{\"state\":\"fault\"},{\"state\":\"waiting\"}],\"gnss\":{\"state\":\"stale\"}}\n",
         );
     }
@@ -267,8 +267,9 @@ mod tests {
             }),
             clock: crate::clock::ClockAnchor::new(100_000, 1_767_225_600_000),
         };
-        let usb = frame(&snapshot).unwrap();
-        let json = std::str::from_utf8(usb.bytes()).unwrap();
+        let mut usb = Vec::new();
+        write_usb(&mut usb, &snapshot).unwrap();
+        let json = std::str::from_utf8(&usb).unwrap();
         assert!(json.contains(
             "\"received_ms\":120014,\"timestamp_us\":120014500,\"time_source\":\"capture\""
         ));

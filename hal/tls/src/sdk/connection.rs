@@ -13,6 +13,11 @@ const SERVER_AUTH: &[u8] = b"\x2b\x06\x01\x05\x05\x07\x03\x01";
 const CLIENT_AUTH: &[u8] = b"\x2b\x06\x01\x05\x05\x07\x03\x02";
 thread_local! { static CLOCK: Cell<Option<i64>> = const { Cell::new(None) }; }
 
+pub(super) fn prepare_clock() {
+    // Some targets allocate storage for a thread-local value on first access.
+    CLOCK.set(None);
+}
+
 /// Native SDK clock ABI. No ambient system UTC or retained owner pointer.
 /// # Safety
 /// A non-null output is writable signed 64-bit SDK time storage.
@@ -559,8 +564,8 @@ impl Peer {
 pub struct Connection<'a, T: Stream = TcpStream> {
     ssl: Opaque,
     peer: Peer,
-    socket: Box<Socket<T>>,
-    pending: Box<[u8; RECORD]>,
+    socket: reservation::Owned<Socket<T>>,
+    pending: reservation::Owned<[u8; RECORD]>,
     pending_size: usize,
     identity: &'a Identity,
     until: Instant,
@@ -568,6 +573,8 @@ pub struct Connection<'a, T: Stream = TcpStream> {
     last_epoch: i64,
     ready: bool,
     closed: bool,
+    // Release the slot after every object backed by it has been retired.
+    reservation: reservation::Slot<'a>,
 }
 fn io_error(error: Error) -> io::Error {
     match error {
@@ -580,6 +587,19 @@ fn io_error(error: Error) -> io::Error {
     .into()
 }
 impl Identity {
+    fn reconnect<'a, T: Stream>(
+        &'a self,
+        open: impl FnOnce() -> Result<Connection<'a, T>, Error>,
+    ) -> Result<Connection<'a, T>, Error> {
+        let slot = self.reconnects.checkout()?;
+        let mut connection = {
+            let _arena = slot.enter();
+            open()?
+        };
+        connection.reservation = slot;
+        Ok(connection)
+    }
+
     pub fn accept<'a>(
         &'a self,
         stream: TcpStream,
@@ -593,6 +613,8 @@ impl Identity {
     #[cfg(feature = "pairing")]
     pub fn pairing_key(&self) -> Result<[u8; 32], Error> {
         let mut key = [0; 32];
+        let slot = self.reconnects.checkout()?;
+        let _arena = slot.enter();
         self.sdk(|| unsafe { psa_generate_random(key.as_mut_ptr(), key.len()) })?;
         Ok(key)
     }
@@ -606,7 +628,7 @@ impl Identity {
         key: &[u8; 32],
     ) -> Result<Connection<'a, T>, Error> {
         // The endpoint comes from the pinned SDK's server enum.
-        self.pairing(stream, key, unsafe { tls_server_endpoint() })
+        self.reconnect(|| self.pairing(stream, key, unsafe { tls_server_endpoint() }))
     }
 
     #[cfg(feature = "pairing")]
@@ -671,6 +693,15 @@ impl Identity {
         certificate_sha256: [u8; 32],
         lifetime: Duration,
     ) -> Result<Connection<'a>, Error> {
+        self.reconnect(|| self.pinned(stream, certificate_sha256, lifetime))
+    }
+
+    fn pinned<'a>(
+        &'a self,
+        stream: TcpStream,
+        certificate_sha256: [u8; 32],
+        lifetime: Duration,
+    ) -> Result<Connection<'a>, Error> {
         if lifetime.is_zero()
             || lifetime > Duration::from_secs(60 * 60)
             || certificate_sha256 == [0; 32]
@@ -729,7 +760,7 @@ impl Identity {
         #[cfg(not(feature = "pairing"))]
         let handshake = HANDSHAKE;
         stream.prepare().map_err(|_| Error::Io)?;
-        let socket = try_boxed(Socket {
+        let socket = reservation::Owned::new(Socket {
             stream: RefCell::new(Some(stream)),
             until: Cell::new(until.min(now + handshake)),
             last: Cell::new(now),
@@ -737,7 +768,7 @@ impl Identity {
             bytes: Cell::new(0),
             fault: Cell::new(false),
         })?;
-        let pending = try_boxed([0u8; RECORD])?;
+        let pending = reservation::Owned::new([0u8; RECORD])?;
         let ssl = unsafe {
             Opaque::new(
                 tls_ssl_size(),
@@ -769,6 +800,7 @@ impl Identity {
             last_epoch: lower,
             ready: false,
             closed: false,
+            reservation: reservation::Slot::default(),
         })
     }
 }
@@ -816,7 +848,10 @@ impl<T: Stream> Connection<'_, T> {
             .then(|| self.identity.record.enter())
             .transpose()
             .map_err(|e| self.fail(e))?;
-        let result = timed(self.identity, epoch, || action(self.ssl.pointer()));
+        let result = {
+            let _arena = self.reservation.enter();
+            timed(self.identity, epoch, || action(self.ssl.pointer()))
+        };
         if let Some(record) = record {
             record.finish().map_err(|e| self.fail(e))?;
         }
@@ -862,6 +897,7 @@ impl<T: Stream> Connection<'_, T> {
                                 (Ok(actual), Ok(approved)) if actual == approved)
             }
             Peer::Pinned { sha256, .. } => {
+                let _arena = self.reservation.enter();
                 let actual = bytes(&self.ssl, tls_peer_raw)?;
                 let mut digest = [0; 32];
                 let mut length = 0;

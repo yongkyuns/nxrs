@@ -167,13 +167,20 @@ impl Capture {
         self.sensor_failed.swap(false, Ordering::AcqRel)
     }
 
+    pub fn prepare(&self) -> io::Result<()> {
+        let reservation = self.samples.lock().unwrap().queue.try_reserve_exact(QUEUE);
+        reservation.map_err(|error| {
+            nxrs_buffer::reservation_failed::<Sample>("tracker BLE export queue", QUEUE, error)
+                .into()
+        })
+    }
+
     pub fn enable(&self) -> io::Result<()> {
         let mut samples = self.samples.lock().unwrap();
+        if samples.queue.capacity() < QUEUE {
+            return Err(io::ErrorKind::OutOfMemory.into());
+        }
         samples.queue.clear();
-        samples
-            .queue
-            .try_reserve_exact(QUEUE)
-            .map_err(|_| io::ErrorKind::OutOfMemory)?;
         samples.first_missing = None;
         samples.high_water = 0;
         self.ready.store(false, Ordering::Relaxed);
@@ -183,17 +190,14 @@ impl Capture {
     }
 
     pub fn finish(&self) -> usize {
-        // Move the queue out so its storage is freed after unlocking acquisition.
-        let (_retired_queue, high_water) = {
-            let mut samples = self.samples.lock().unwrap();
-            let epoch = self.epoch.load(Ordering::Relaxed);
-            self.epoch
-                .store(epoch.wrapping_add(epoch & 1), Ordering::Release);
-            self.ready.store(false, Ordering::Relaxed);
-            samples.first_missing = None;
-            (std::mem::take(&mut samples.queue), samples.high_water)
-        };
-        high_water
+        let mut samples = self.samples.lock().unwrap();
+        let epoch = self.epoch.load(Ordering::Relaxed);
+        self.epoch
+            .store(epoch.wrapping_add(epoch & 1), Ordering::Release);
+        self.ready.store(false, Ordering::Relaxed);
+        samples.first_missing = None;
+        samples.queue.clear();
+        samples.high_water
     }
 
     pub fn record(&self, sample: Measurement) {
@@ -383,6 +387,7 @@ mod tests {
     #[test]
     fn arrival_during_queue_access_is_delivered() {
         let capture = Capture::default();
+        capture.prepare().unwrap();
         capture.enable().unwrap();
         thread::scope(|scope| {
             let (started, ready) = mpsc::channel();
@@ -414,6 +419,7 @@ mod tests {
     #[test]
     fn overflow_drains_admitted_records_and_stops_the_export() {
         let capture = Capture::default();
+        capture.prepare().unwrap();
         capture.enable().unwrap();
         for sequence in 0..=(QUEUE + 1) {
             capture.record(fix(sequence as u64));
@@ -441,13 +447,14 @@ mod tests {
     }
 
     #[test]
-    fn disconnect_releases_queue_and_rejects_work_from_the_old_export() {
+    fn disconnect_reuses_queue_and_rejects_work_from_the_old_export() {
         let capture = Capture::default();
+        capture.prepare().unwrap();
         capture.enable().unwrap();
         let old_epoch = capture.epoch.load(Ordering::Relaxed);
         capture.record(fix(1));
         assert_eq!(capture.finish(), 1);
-        assert_eq!(capture.samples.lock().unwrap().queue.capacity(), 0);
+        assert!(capture.samples.lock().unwrap().queue.capacity() >= QUEUE);
 
         capture.enable().unwrap();
         capture.enqueue(old_epoch, fix(2).into());
@@ -462,6 +469,7 @@ mod tests {
     fn timed_batch_preserves_native_counts_and_excludes_pre_anchor_samples() {
         let scale = [0.125_f32.to_bits(), 0.25_f32.to_bits()];
         let capture = Capture::new([Some(scale), None]);
+        capture.prepare().unwrap();
         capture.enable().unwrap();
         let first = u64::from(u32::MAX);
         let imu = |sequence, time| {
@@ -526,6 +534,7 @@ mod tests {
     #[test]
     fn compact_records_preserve_floats_and_use_full_headers_across_gaps() {
         let capture = Capture::default();
+        capture.prepare().unwrap();
         capture.enable().unwrap();
         let point = |sequence, timestamp_ms: u64| {
             Measurement::Imu(

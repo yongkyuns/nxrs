@@ -154,10 +154,14 @@ impl Drop for Link {
 }
 
 fn run(context: &str, shared: &Shared, stop: File) -> Result<(), Error> {
+    // Keep the physical UART and its interrupt registration for this owner.
+    // PPP can be restarted without closing and reopening the peripheral.
+    let mut uart = ffi::open(env!("CELLULAR_DEVICE")).map_err(io_error)?;
+    ffi::raw(&uart).map_err(io_error)?;
     let mut delay = Duration::from_secs(1);
     loop {
         let mut online = false;
-        let result = attempt(context, shared, &stop, &mut online);
+        let result = attempt(context, shared, &stop, &mut uart, &mut online);
         let Err(error) = result else { return result };
         if shared.notify.is_none() || error == Error::RecoveryRequired {
             return result;
@@ -192,11 +196,15 @@ fn run(context: &str, shared: &Shared, stop: File) -> Result<(), Error> {
     }
 }
 
-fn attempt(context: &str, shared: &Shared, stop: &File, online: &mut bool) -> Result<(), Error> {
-    let mut uart = ffi::open(env!("CELLULAR_DEVICE")).map_err(io_error)?;
-    ffi::raw(&uart).map_err(io_error)?;
+fn attempt(
+    context: &str,
+    shared: &Shared,
+    stop: &File,
+    uart: &mut File,
+    online: &mut bool,
+) -> Result<(), Error> {
     let mut modem = Modem {
-        uart: &mut uart,
+        uart,
         cancel: Some((&shared.stop, stop)),
     };
     let mut dialed = false;

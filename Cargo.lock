@@ -1893,6 +1893,13 @@ name = "nxrs-browser-threads"
 version = "0.1.0"
 
 [[package]]
+name = "nxrs-buffer"
+version = "0.1.0"
+dependencies = [
+ "log",
+]
+
+[[package]]
 name = "nxrs-build"
 version = "0.1.0"
 dependencies = [
@@ -2252,6 +2259,7 @@ dependencies = [
  "nxrs-battery",
  "nxrs-ble",
  "nxrs-boot",
+ "nxrs-buffer",
  "nxrs-cellular",
  "nxrs-composition",
  "nxrs-display",
@@ -2265,7 +2273,7 @@ dependencies = [
  "nxrs-tls",
  "nxrs-touch",
  "nxrs-watchdog",
- "qrcodegen",
+ "qrcodegen-no-heap",
 ]
 
 [[package]]
@@ -3134,10 +3142,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d55d956fa96f5ec02be2e13af0e20391a5aa83d6a074e3ad368959d0fab299ea"
 
 [[package]]
-name = "qrcodegen"
-version = "1.8.0"
+name = "qrcodegen-no-heap"
+version = "1.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4339fc7a1021c9c1621d87f5e3505f2805c8c105420ba2f2a4df86814590c142"
+checksum = "d0e2c0bf8be8a1c4a4f48973dabf26943f05da2bfc2d3180aae62409dbba6f0c"
 
 [[package]]
 name = "quick-error"

@@ -1,5 +1,5 @@
 //! Temporary allocations from the pinned SDK's established TLS record path.
-use super::{ffi, Error};
+use super::{ffi, reservation, Error};
 use std::{
     alloc::{alloc_zeroed, dealloc, Layout},
     cell::{Cell, UnsafeCell},
@@ -125,8 +125,20 @@ extern "C" fn tls_record_calloc(count: usize, size: usize) -> *mut c_void {
         workspace.fault.set(Fault::Capacity);
         Some(ptr::null_mut())
     });
-    // SAFETY: outside record I/O the SDK retains its ordinary libc allocator.
-    record.unwrap_or_else(|| unsafe { ffi::calloc(count, size) })
+    if let Some(record) = record {
+        return record;
+    }
+    let Some(layout) = count
+        .checked_mul(size)
+        .and_then(|size| Layout::from_size_align(size, 16).ok())
+    else {
+        return ptr::null_mut();
+    };
+    match reservation::allocate_reserved(layout, true) {
+        Some(bytes) => bytes.map_or(ptr::null_mut(), |bytes| bytes.as_ptr().cast()),
+        // SAFETY: unreserved owners keep the original paired SDK allocator.
+        None => unsafe { ffi::calloc(count, size) },
+    }
 }
 
 /// Mbed TLS free callback. The SDK supplies a pointer from its paired allocator.
@@ -156,7 +168,7 @@ unsafe extern "C" fn tls_record_free(pointer: *mut c_void) {
         }
         false
     });
-    if !released {
+    if !released && !reservation::release_reserved(pointer.cast()) {
         // SAFETY: a non-slot pointer is an SDK allocation from libc calloc.
         unsafe { ffi::free(pointer) };
     }

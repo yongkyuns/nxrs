@@ -52,7 +52,8 @@ PORTABLE_EXTERNAL_BY_PACKAGE = {
     # The actual NuttX publisher is qualified with the camera product image.
     'nxrs-detection-service': {'serde', 'serde_json'},
     # QR encoding and the log facade have no native dependencies.
-    'nxrs-motion-tracker': {'log', 'qrcodegen'},
+    'nxrs-motion-tracker': {'log', 'qrcodegen-no-heap'},
+    'nxrs-buffer': {'log'},
     # Fixed-buffer PPP framing and negotiation with no host/native runtime.
     'nxrs-cellular': {'ppproto'},
     # Navigation uses the portable log facade and a no_std triple buffer

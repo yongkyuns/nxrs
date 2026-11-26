@@ -111,9 +111,11 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
+          LDFLAGS='--wrap=mm_malloc --wrap=mm_memalign --wrap=mm_realloc' \
           cargo nxrs build --app motion-tracker --profile esp32s3-qemu-tracker-coexist \
             --target-c-source tests/nuttx-std/tracker-sim/devices.c \
             --target-c-source tests/nuttx-std/tracker-sim/dashboard_init.c \
+            --target-c-source tests/nuttx-std/tracker-sim/heap_probe.c \
             --out target/tracker-coexist-sim 2>&1 | tee target/tracker-coexist-build.log
           source target/qemu-tools/environment.sh
           # The coexistence build includes BLE map rendering and cellular summaries.
@@ -142,6 +144,16 @@ jobs:
             --qemu target/tracker-qemu/qemu-system-xtensa --qemu-data target/tracker-qemu \
             --network-qemu target/tracker-qemu/qemu-system-xtensa \
             --wall-clock --tiles --tile-write-loss --timeout 140 --log target/tracker-coexist-sim/tiles.log
+          guarded_tracker() {
+            target/tracker-peer/bin/python tests/nuttx-std/tracker-sim/coexist.py \
+              target/tracker-coexist-sim/nuttx/nuttx.merged.bin \
+              --qemu target/tracker-qemu/qemu-system-xtensa --qemu-data target/tracker-qemu \
+              --network-qemu target/tracker-qemu/qemu-system-xtensa \
+              --wall-clock --deny-shared-heap --timeout 175 "$@"
+          }
+          guarded_tracker --export --log target/tracker-coexist-sim/heap-export.log
+          guarded_tracker --tiles --tile-write-loss --log target/tracker-coexist-sim/heap-tiles.log
+          guarded_tracker --log target/tracker-coexist-sim/heap-ppp.log
       - name: Retain firmware, provenance, linkage and execution evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -169,3 +181,4 @@ jobs:
             target/tracker-coexist-build.log
             target/tracker-coexist-sim/*tiles*.log
             target/tracker-coexist-sim/coexist.log
+            target/tracker-coexist-sim/heap-*.log

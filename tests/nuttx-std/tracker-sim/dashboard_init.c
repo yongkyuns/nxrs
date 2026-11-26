@@ -37,6 +37,7 @@ _Static_assert(offsetof(struct uart_rambuf_s, wroff) == CONFIG_RAM_UART_BUFSIZE 
 
 int tracker_sim_devices(void);
 int nsh_main(int argc, char *argv[]);
+int tracker_heap_selftest(void) weak_function;
 
 int tracker_sim_init(int argc, char *argv[])
 {
@@ -66,6 +67,12 @@ int tracker_sim_init(int argc, char *argv[])
     {
       printf("tracker simulator initialization failed: %d (%s)\n", ret, stage);
       return ret;
+    }
+
+  if (tracker_heap_selftest && tracker_heap_selftest() < 0)
+    {
+      puts("tracker shared-heap denial control failed");
+      return -EIO;
     }
 
 #ifdef TRACKER_DEMO_AUTOSTART

@@ -1,5 +1,8 @@
 //! Bounded tile request and reply protocol for the phone and IP relay.
-use std::io::{self, Read};
+use std::{
+    io::{self, Read},
+    sync::{Arc, Mutex},
+};
 
 pub const SIDE: usize = 170;
 const PALETTE_BYTES: usize = 32;
@@ -7,7 +10,10 @@ const ROW_BYTES: usize = SIDE / 2;
 const PIXEL_BYTES: usize = ROW_BYTES * SIDE;
 const METADATA_BYTES: usize = PALETTE_BYTES + SIDE;
 const BLOCK_BYTES: usize = 1024;
-const BLOCKS: usize = PIXEL_BYTES.div_ceil(BLOCK_BYTES);
+const BLOCKS_PER_TILE: usize = PIXEL_BYTES.div_ceil(BLOCK_BYTES);
+const MAP_BLOCKS: usize = 2 * BLOCKS_PER_TILE;
+// Four visible tiles and one incoming transfer.
+const MAP_TILES: usize = 5;
 const MAGIC: &[u8; 4] = b"NXM5";
 pub const REQUEST_BYTES: usize = 13;
 
@@ -61,9 +67,9 @@ pub struct Tile {
 impl Tile {
     #[cfg(test)]
     pub(crate) fn blank_for_test(key: Key) -> Self {
-        let mut pixels = Pixels::allocate().unwrap();
+        let mut pixels = Pool::new().unwrap().take(PIXEL_BYTES).unwrap();
         for _ in 0..SIDE {
-            pixels.push(&[0; ROW_BYTES]).unwrap();
+            pixels.push(&[0; ROW_BYTES]);
         }
         Self {
             key,
@@ -77,40 +83,109 @@ impl Tile {
     }
 }
 
-// Keep validated scanlines in their wire encoding. Small blocks avoid
-// requiring a contiguous tile allocation during BLE export and PPP.
+/// One bounded budget for the incoming tile and everything the screen retains.
+#[derive(Clone)]
+pub struct Pool(Arc<Mutex<Free>>);
+
+struct Free {
+    blocks: Vec<Box<[u8]>>,
+    tiles: Vec<Box<TileStorage>>,
+}
+
+impl Pool {
+    pub fn new() -> io::Result<Self> {
+        let mut blocks = nxrs_buffer::try_vec("tracker map block index", MAP_BLOCKS)?;
+        for _ in 0..MAP_BLOCKS {
+            blocks.push(
+                nxrs_buffer::try_zeroed("tracker map block", BLOCK_BYTES)?.into_boxed_slice(),
+            );
+        }
+        let mut tiles = nxrs_buffer::try_vec("tracker map tile index", MAP_TILES)?;
+        for _ in 0..MAP_TILES {
+            tiles.push(Box::new(TileStorage {
+                blocks: [const { None }; BLOCKS_PER_TILE],
+                row_ends: [0; SIDE],
+                rows: 0,
+            }));
+        }
+        let pool = Self(Arc::new(Mutex::new(Free { blocks, tiles })));
+        // Initialize the native mutex while the startup heap is available.
+        {
+            let _ready = pool.0.lock().unwrap();
+        }
+        Ok(pool)
+    }
+
+    fn take(&self, encoded_bytes: usize) -> Option<Pixels> {
+        debug_assert!(encoded_bytes <= PIXEL_BYTES);
+        let count = encoded_bytes.div_ceil(BLOCK_BYTES);
+        let mut free = self.0.lock().unwrap();
+        if free.blocks.len() < count {
+            return None;
+        }
+        let mut storage = free.tiles.pop()?;
+        for slot in &mut storage.blocks[..count] {
+            *slot = free.blocks.pop();
+        }
+        Some(Pixels {
+            pool: self.clone(),
+            storage: Some(storage),
+        })
+    }
+}
+
+// These blocks are exclusively owned by a transfer or its published tile.
 struct Pixels {
-    blocks: Vec<Vec<u8>>,
-    row_ends: Vec<u16>,
+    pool: Pool,
+    storage: Option<Box<TileStorage>>,
+}
+
+struct TileStorage {
+    blocks: [Option<Box<[u8]>>; BLOCKS_PER_TILE],
+    row_ends: [u16; SIDE],
+    rows: usize,
+}
+
+impl Drop for Pixels {
+    fn drop(&mut self) {
+        let mut tile = self.storage.take().unwrap();
+        let mut free = self.pool.0.lock().unwrap();
+        for block in &mut tile.blocks {
+            if let Some(block) = block.take() {
+                free.blocks.push(block);
+            }
+        }
+        tile.rows = 0;
+        free.tiles.push(tile);
+    }
 }
 
 impl Pixels {
-    fn allocate() -> Result<Self, std::collections::TryReserveError> {
-        let mut blocks = Vec::new();
-        let mut row_ends = Vec::new();
-        blocks.try_reserve_exact(BLOCKS)?;
-        row_ends.try_reserve_exact(SIDE)?;
-        Ok(Self { blocks, row_ends })
+    fn push(&mut self, bytes: &[u8]) {
+        self.storage.as_mut().unwrap().push(bytes);
     }
 
-    fn push(&mut self, mut bytes: &[u8]) -> Result<(), std::collections::TryReserveError> {
-        let mut offset = usize::from(self.row_ends.last().copied().unwrap_or(0));
+    fn row(&self, y: usize, colors: &mut [u8; SIDE]) {
+        self.storage.as_ref().unwrap().row(y, colors);
+    }
+}
+
+impl TileStorage {
+    fn push(&mut self, mut bytes: &[u8]) {
+        let mut offset = self
+            .rows
+            .checked_sub(1)
+            .map_or(0, |row| usize::from(self.row_ends[row]));
         while !bytes.is_empty() {
-            if offset % BLOCK_BYTES == 0 {
-                let mut block = Vec::new();
-                block.try_reserve_exact((PIXEL_BYTES - offset).min(BLOCK_BYTES))?;
-                self.blocks.push(block);
-            }
-            let length = bytes.len().min(BLOCK_BYTES - offset % BLOCK_BYTES);
-            self.blocks
-                .last_mut()
-                .unwrap()
-                .extend_from_slice(&bytes[..length]);
+            let start = offset % BLOCK_BYTES;
+            let length = bytes.len().min(BLOCK_BYTES - start);
+            self.blocks[offset / BLOCK_BYTES].as_mut().unwrap()[start..start + length]
+                .copy_from_slice(&bytes[..length]);
             offset += length;
             bytes = &bytes[length..];
         }
-        self.row_ends.push(offset as u16);
-        Ok(())
+        self.row_ends[self.rows] = offset as u16;
+        self.rows += 1;
     }
 
     fn row(&self, y: usize, colors: &mut [u8; SIDE]) {
@@ -118,8 +193,9 @@ impl Pixels {
             .checked_sub(1)
             .map_or(0, |index| usize::from(self.row_ends[index]));
         let end = usize::from(self.row_ends[y]);
-        let bytes =
-            (start..end).map(|offset| self.blocks[offset / BLOCK_BYTES][offset % BLOCK_BYTES]);
+        let bytes = (start..end).map(|offset| {
+            self.blocks[offset / BLOCK_BYTES].as_ref().unwrap()[offset % BLOCK_BYTES]
+        });
         if end - start == ROW_BYTES {
             for (pair, byte) in colors.chunks_exact_mut(2).zip(bytes) {
                 pair.copy_from_slice(&[byte >> 4, byte & 0x0f]);
@@ -160,7 +236,7 @@ impl Scanline {
                 {
                     return Err(io::ErrorKind::InvalidData.into());
                 }
-                pixels.push(row).map_err(|_| io::ErrorKind::OutOfMemory)?;
+                pixels.push(row);
                 self.row += 1;
                 self.filled = 0;
             }
@@ -171,20 +247,24 @@ impl Scanline {
 
 /// One response can be split at any byte. Fixed metadata bounds the payload.
 pub struct Receiver {
+    pool: Option<Pool>,
     header: [u8; REQUEST_BYTES + 1],
     received: usize,
     remaining: usize,
+    wanted: bool,
     pixels: Option<Pixels>,
     metadata: [u8; METADATA_BYTES],
     scanline: Scanline,
 }
 
-impl Default for Receiver {
-    fn default() -> Self {
+impl Receiver {
+    pub fn new(pool: Option<Pool>) -> Self {
         Self {
+            pool,
             header: [0; REQUEST_BYTES + 1],
             received: 0,
             remaining: 0,
+            wanted: false,
             pixels: None,
             metadata: [0; METADATA_BYTES],
             scanline: Scanline {
@@ -202,10 +282,17 @@ pub enum Response {
 }
 
 impl Receiver {
+    pub fn reset(&mut self) {
+        self.received = 0;
+        self.pixels = None;
+        self.wanted = false;
+    }
+
     /// Free storage for an obsolete transfer even if the stream is blocked.
     /// Continue draining its remaining bytes before admitting another header.
     pub fn retain(&mut self, wanted: Option<Key>) {
-        if self.pixels.is_some() && wanted != self.key() {
+        if self.wanted && wanted != self.key() {
+            self.wanted = false;
             self.pixels = None;
         }
     }
@@ -228,13 +315,8 @@ impl Receiver {
                 0 => {
                     self.scanline.row = 0;
                     self.scanline.filled = 0;
-                    if wanted == Some(key) {
-                        self.pixels = Pixels::allocate()
-                            .inspect_err(|_| {
-                                log::warn!("motion-tracker map: insufficient tile storage")
-                            })
-                            .ok();
-                    }
+                    // Borrow exactly the blocks needed once all row lengths are known.
+                    self.wanted = wanted == Some(key);
                     return Ok(None);
                 }
                 1 => Response::Unavailable(key),
@@ -254,6 +336,12 @@ impl Receiver {
                         return Err(io::ErrorKind::InvalidData.into());
                     }
                     self.remaining = lengths.iter().map(|&length| usize::from(length)).sum();
+                    if self.wanted {
+                        self.pixels = self
+                            .pool
+                            .as_ref()
+                            .and_then(|pool| pool.take(self.remaining));
+                    }
                 }
                 return Ok(None);
             }
@@ -262,18 +350,8 @@ impl Receiver {
             let count = read(source, &mut buffer[..limit])?;
             self.remaining -= count;
             if let Some(pixels) = &mut self.pixels {
-                match self.scanline.append(
-                    pixels,
-                    &self.metadata[PALETTE_BYTES..],
-                    &buffer[..count],
-                ) {
-                    Ok(()) => {}
-                    Err(error) if error.kind() == io::ErrorKind::OutOfMemory => {
-                        log::warn!("motion-tracker map: insufficient tile storage");
-                        self.pixels = None;
-                    }
-                    Err(error) => return Err(error),
-                }
+                self.scanline
+                    .append(pixels, &self.metadata[PALETTE_BYTES..], &buffer[..count])?;
             }
             if self.remaining != 0 {
                 return Ok(None);
@@ -331,15 +409,18 @@ mod tests {
 
     #[test]
     fn rows_preserve_palette_indexes_in_both_encodings() {
-        let mut pixels = Pixels::allocate().unwrap();
         let mut literal = [0x12; ROW_BYTES];
         literal[0] = 0x34;
-        pixels.push(&literal).unwrap();
         let repeated = [0xab; ROW_BYTES];
         let mut flat = [0xfa; 11];
         flat[10] = 0x9a;
-        pixels.push(&flat).unwrap();
-        pixels.push(&repeated).unwrap();
+        let encoded_bytes = literal.len() + flat.len() + repeated.len();
+        let pool = Pool::new().unwrap();
+        let mut pixels = pool.take(encoded_bytes).unwrap();
+        assert_eq!(pool.0.lock().unwrap().blocks.len(), MAP_BLOCKS - 1);
+        pixels.push(&literal);
+        pixels.push(&flat);
+        pixels.push(&repeated);
         let mut row = [0; SIDE];
         pixels.row(0, &mut row);
         assert_eq!(&row[..6], &[3, 4, 1, 2, 1, 2]);
@@ -350,6 +431,25 @@ mod tests {
     }
 
     #[test]
+    fn map_exhaustion_keeps_other_tiles_intact_and_reuses_returned_blocks() {
+        let pool = Pool::new().unwrap();
+        let first = pool.take(PIXEL_BYTES).unwrap();
+        let mut second = pool.take(PIXEL_BYTES).unwrap();
+        second.push(&[0x12; ROW_BYTES]);
+        assert!(pool.take(1).is_none());
+        drop(first);
+        let third = pool.take(PIXEL_BYTES).unwrap();
+        assert!(pool.take(1).is_none());
+        let mut row = [0; SIDE];
+        second.row(0, &mut row);
+        assert!(row.chunks_exact(2).all(|pair| pair == [1, 2]));
+        drop((second, third));
+        let free = pool.0.lock().unwrap();
+        assert_eq!(free.blocks.len(), MAP_BLOCKS);
+        assert_eq!(free.tiles.len(), MAP_TILES);
+    }
+
+    #[test]
     fn fragmented_wire_only_publishes_complete_tiles_and_checks_keys() {
         let key = Key {
             zoom: Zoom::new(18).unwrap(),
@@ -357,7 +457,7 @@ mod tests {
             y: 0x0003_ffff,
         };
         assert_eq!(&key.request(), b"NXM5\x12\0\x02\xff\xfe\0\x03\xff\xff");
-        let mut receiver = Receiver::default();
+        let mut receiver = Receiver::new(Some(Pool::new().unwrap()));
         let mut frame = key.request().to_vec();
         frame.push(0);
         frame.extend([0xab; PALETTE_BYTES]);
@@ -405,7 +505,7 @@ mod tests {
             packet.extend([length; SIDE]);
             packet.extend([0xfa; SIDE]);
             let mut data = packet.as_slice();
-            let mut receiver = Receiver::default();
+            let mut receiver = Receiver::new(Some(Pool::new().unwrap()));
             assert!(receiver.poll(&mut data, Some(key)).unwrap().is_none());
             let result = receiver.poll(&mut data, Some(key));
             let invalid = if length == 1 {
@@ -422,7 +522,7 @@ mod tests {
     fn abandoning_a_partial_tile_releases_it_and_preserves_stream_framing() {
         let old = tile_key(1, 2);
         let new = tile_key(3, 4);
-        let mut receiver = Receiver::default();
+        let mut receiver = Receiver::new(Some(Pool::new().unwrap()));
         let mut frame = old.request().to_vec();
         frame.push(0);
         frame.extend([0; PALETTE_BYTES]);
@@ -431,6 +531,9 @@ mod tests {
         frame.extend(new.request());
         frame.push(1);
         let mut data = frame.as_slice();
+        assert!(receiver.poll(&mut data, Some(old)).unwrap().is_none());
+        assert!(receiver.pixels.is_none());
+        assert!(receiver.poll(&mut data, Some(old)).unwrap().is_none());
         assert!(receiver.poll(&mut data, Some(old)).unwrap().is_none());
         assert!(receiver.pixels.is_some());
         receiver.retain(Some(new));

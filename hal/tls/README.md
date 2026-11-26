@@ -73,6 +73,13 @@ The handshake has a five-second admission deadline. Native cryptography
 and entropy reads are synchronous: qualify their execution latency or isolate
 them from capture before product admission. Drop aborts without waiting on peers.
 
+An identity can call `reserve_reconnects(1)` or `reserve_reconnects(2)` during
+startup. Each slot owns a 24 KiB arena for one paired or pinned connection,
+including its native handshake and peer verification. A connection and its
+transport retire before the slot returns to the identity. Oversized work or
+admission beyond the slot count fails without falling back to the shared heap.
+The identity's established-record scratch is shared by synchronous calls.
+
 `Identity::renew` validates fresh certificates and revocation data for the same
 issuer, identity names and public keys. Verification runs in bounded SDK steps
 so the caller can service a live connection between them. An established

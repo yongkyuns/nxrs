@@ -313,10 +313,10 @@ struct Peripheral {
     retry_advertise: Instant,
 }
 
-pub(crate) fn open_peripheral(
+pub(crate) fn prepare_peripheral(
     legacy: Service,
     notifications: Option<Service>,
-) -> Result<impl Listener, Error> {
+) -> Result<(), Error> {
     if unsafe { ffi::peripheral_max_connections } != 1 {
         return Err(Error::Unsupported);
     }
@@ -335,28 +335,24 @@ pub(crate) fn open_peripheral(
         }
     }
     let mut registered = REGISTERED.try_lock().map_err(|_| Error::Busy)?;
-    let stamp = STAMP.load(Ordering::Acquire);
-    if OPEN.load(Ordering::Acquire) || stamp & CONNECTED != 0 {
-        return Err(Error::Busy);
+    // Rust's pthread mutex allocates its native storage on first use.
+    {
+        let _owner = OWNER.lock().map_err(|_| Error::Io)?;
     }
     match *registered {
         Some(prior) if prior != (legacy, notifications) => return Err(Error::Unsupported),
         Some(_) => {}
         None => {
-            INPUT
-                .lock()
-                .map_err(|_| Error::Io)?
-                .queue
-                .bytes
-                .try_reserve_exact(CAPACITY)
-                .map_err(|_| Error::Io)?;
-            OUTPUT
-                .lock()
-                .map_err(|_| Error::Io)?
-                .queue
-                .bytes
-                .try_reserve_exact(CAPACITY)
-                .map_err(|_| Error::Io)?;
+            let mut ingress = VecDeque::new();
+            let mut egress = VecDeque::new();
+            ingress.try_reserve_exact(CAPACITY).map_err(|_| Error::Io)?;
+            egress.try_reserve_exact(CAPACITY).map_err(|_| Error::Io)?;
+            {
+                let mut input = INPUT.lock().map_err(|_| Error::Io)?;
+                let mut output = OUTPUT.lock().map_err(|_| Error::Io)?;
+                input.queue.bytes = ingress;
+                output.queue.bytes = egress;
+            }
             let little_endian = ids.map(|Uuid(mut bytes)| {
                 bytes.reverse();
                 bytes
@@ -367,6 +363,19 @@ pub(crate) fn open_peripheral(
             };
             *registered = Some((legacy, notifications));
         }
+    }
+    Ok(())
+}
+
+pub(crate) fn open_peripheral(
+    legacy: Service,
+    notifications: Option<Service>,
+) -> Result<impl Listener, Error> {
+    prepare_peripheral(legacy, notifications)?;
+    let _registered = REGISTERED.try_lock().map_err(|_| Error::Busy)?;
+    let stamp = STAMP.load(Ordering::Acquire);
+    if OPEN.load(Ordering::Acquire) || stamp & CONNECTED != 0 {
+        return Err(Error::Busy);
     }
     *OWNER.lock().unwrap() = Some(thread::current());
     READY.store(false, Ordering::Relaxed);

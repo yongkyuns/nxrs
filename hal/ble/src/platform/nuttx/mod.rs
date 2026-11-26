@@ -43,6 +43,8 @@ pub(crate) fn gatt_driver<const N: usize>(
 #[cfg(all(feature = "peripheral", not(test)))]
 mod peripheral;
 #[cfg(all(feature = "peripheral", test))]
-pub(crate) use crate::platform::unavailable_peripheral::open as open_peripheral;
+pub(crate) use crate::platform::unavailable_peripheral::{
+    open as open_peripheral, prepare as prepare_peripheral,
+};
 #[cfg(all(feature = "peripheral", not(test)))]
-pub(crate) use peripheral::open_peripheral;
+pub(crate) use peripheral::{open_peripheral, prepare_peripheral};

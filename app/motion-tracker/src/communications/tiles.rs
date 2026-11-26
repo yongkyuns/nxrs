@@ -2,7 +2,7 @@
 mod wire;
 
 use wire::REQUEST_BYTES;
-pub use wire::{Key, Receiver, Response, Tile, Zoom, SIDE};
+pub use wire::{Key, Pool, Receiver, Response, Tile, Zoom, SIDE};
 
 use super::Endpoint;
 use std::{
@@ -36,13 +36,13 @@ enum Transfer<'a> {
 }
 
 impl<'a> Tiles<'a> {
-    pub fn new(relay: Option<Endpoint>, now: Instant) -> Self {
+    pub fn new(relay: Option<Endpoint>, pool: Option<Pool>, now: Instant) -> Self {
         Self {
             relay,
             dial: None,
             key: None,
             active: None,
-            receiver: Receiver::default(),
+            receiver: Receiver::new(pool),
             next: now,
             throttle: now,
             try_ip: false,
@@ -53,7 +53,7 @@ impl<'a> Tiles<'a> {
         if key != self.key {
             self.key = key;
             self.active = None;
-            self.receiver = Receiver::default();
+            self.receiver.reset();
             self.try_ip = false;
             self.next = now;
         }
@@ -147,7 +147,7 @@ impl<'a> Tiles<'a> {
                 self.try_ip =
                     matches!(self.active, Some(Transfer::Phone(_))) && self.relay.is_some();
                 self.active = None;
-                self.receiver = Receiver::default();
+                self.receiver.reset();
                 self.next = if self.try_ip { now } else { now + RETRY };
                 None
             }

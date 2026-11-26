@@ -13,7 +13,6 @@ pub(super) use wire::write_usb;
 
 use crate::tracker::Snapshot;
 use navigation::observations::FixedReader;
-use std::cell::OnceCell;
 use std::io;
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
@@ -60,10 +59,8 @@ struct Shared {
     tile: Option<Tile>,
 }
 
-#[derive(Clone)]
 pub(super) struct Telemetry {
-    // Keep the reader available if spawning the communications worker fails.
-    readings: Arc<Mutex<FixedReader<2>>>,
+    readings: FixedReader<2>,
     capture: Arc<Capture>,
     interval: Duration,
 }
@@ -71,17 +68,17 @@ pub(super) struct Telemetry {
 impl Telemetry {
     pub fn new(readings: FixedReader<2>, capture: Arc<Capture>, interval: Duration) -> Self {
         Self {
-            readings: Arc::new(Mutex::new(readings)),
+            readings,
             capture,
             interval,
         }
     }
+}
 
-    fn snapshot(&self, readings: &mut FixedReader<2>, now: Instant) -> Snapshot {
-        let mut snapshot = Snapshot::from(readings.snapshot(now));
-        snapshot.clock = self.capture.clock();
-        snapshot
-    }
+fn snapshot(readings: &mut FixedReader<2>, capture: &Capture, now: Instant) -> Snapshot {
+    let mut snapshot = Snapshot::from(readings.snapshot(now));
+    snapshot.clock = capture.clock();
+    snapshot
 }
 
 pub struct Communications {
@@ -92,11 +89,15 @@ pub struct Communications {
 impl Communications {
     pub fn start(
         pair: bool,
+        map: bool,
         cellular: Option<CellularConfig>,
         tile_relay: Option<Endpoint>,
         telemetry: Telemetry,
         mut notify: impl FnMut() + Send + 'static,
     ) -> io::Result<Self> {
+        if ble::peripheral::AVAILABLE && (pair || map) {
+            telemetry.capture.prepare()?;
+        }
         let shared = Arc::new(Mutex::new(Shared::default()));
         let incoming = shared.clone();
         let task = thread::Builder::new()
@@ -106,6 +107,7 @@ impl Communications {
                 let result = run(
                     &incoming,
                     pair,
+                    map,
                     cellular,
                     tile_relay,
                     telemetry,
@@ -176,24 +178,20 @@ impl Drop for Communications {
     }
 }
 
-fn tls_identity(slot: &OnceCell<tls::Identity>) -> io::Result<&tls::Identity> {
-    if slot.get().is_none() {
-        let identity = tls::open().map_err(|error| io::Error::other(format!("TLS: {error:?}")))?;
-        let _ = slot.set(identity);
-    }
-    Ok(slot.get().unwrap())
+fn tls_identity(identity: Option<&tls::Identity>) -> io::Result<&tls::Identity> {
+    identity.ok_or_else(|| io::ErrorKind::Unsupported.into())
 }
 
 fn run(
     shared: &Mutex<Shared>,
     pair: bool,
+    map: bool,
     cellular: Option<CellularConfig>,
     tile_relay: Option<Endpoint>,
-    telemetry: Telemetry,
+    mut telemetry: Telemetry,
     notify: &mut impl FnMut(),
 ) -> io::Result<()> {
-    // Pairing from the display can spawn this worker after the display has
-    // taken its fixed background priority.
+    // Use the profile's normal worker priority for link progress.
     match execution::configure_current(execution::Priority::Normal) {
         Ok(()) | Err(execution::Error::Unsupported) => {}
         Err(error) => {
@@ -204,15 +202,35 @@ fn run(
     }
     telemetry.capture.register_owner();
     let collector = cellular.as_ref().and_then(|config| config.collector);
+    let radio = ble::peripheral::AVAILABLE && (pair || map);
+    if radio {
+        radio::prepare().map_err(|error| io::Error::other(format!("BLE setup: {error:?}")))?;
+    }
+    let mut identity = None;
+    let slots = usize::from(radio) + usize::from(collector.is_some() || tile_relay.is_some());
+    if slots != 0 {
+        let mut tls =
+            tls::open().map_err(|error| io::Error::other(format!("TLS setup: {error:?}")))?;
+        tls.reserve_reconnects(slots)
+            .map_err(|error| io::Error::other(format!("TLS reconnect storage: {error:?}")))?;
+        identity = Some(tls);
+    }
     let mut modem = cellular.map(uplink::Modem::start).transpose()?;
-    let mut readings = telemetry.readings.lock().unwrap();
+    let map = map
+        .then(tiles::Pool::new)
+        .transpose()
+        .unwrap_or_else(|error| {
+            log::warn!("motion-tracker map storage unavailable: {error}");
+            None
+        });
     serve(
         shared,
         pair,
+        map,
         modem.as_ref().map(|modem| (modem, collector)),
         tile_relay,
-        &telemetry,
-        &mut readings,
+        identity.as_ref(),
+        &mut telemetry,
         notify,
     );
     // Both transports and their shared TLS identity have left scope.
@@ -222,15 +240,24 @@ fn run(
 fn serve(
     shared: &Mutex<Shared>,
     pair: bool,
+    map: Option<tiles::Pool>,
     modem: Option<(&uplink::Modem, Option<uplink::Collector>)>,
     tile_relay: Option<Endpoint>,
-    telemetry: &Telemetry,
-    readings: &mut FixedReader<2>,
+    identity: Option<&tls::Identity>,
+    telemetry: &mut Telemetry,
     notify: &mut impl FnMut(),
 ) {
-    let identity = OnceCell::new();
+    let Telemetry {
+        readings,
+        capture,
+        interval,
+    } = telemetry;
     let mut radio: Option<radio::Output<'_, _>> = None;
-    let mut tiles = tiles::Tiles::new(tile_relay, Instant::now());
+    let mut tiles = tiles::Tiles::new(
+        tile_relay.filter(|_| map.is_some()),
+        map.clone(),
+        Instant::now(),
+    );
     let mut next_radio = Instant::now();
     let mut upload = None;
     let mut retry = uplink::Retry::new();
@@ -256,9 +283,9 @@ fn serve(
             if inbox.stopping {
                 break;
             }
-            let tile = inbox
-                .tile_request
-                .filter(|key| inbox.tile.as_ref().is_none_or(|tile| tile.key != *key));
+            let tile = inbox.tile_request.filter(|key| {
+                map.is_some() && inbox.tile.as_ref().is_none_or(|tile| tile.key != *key)
+            });
             (inbox.pairing.take().or(command.take()), tile)
         };
         let now = Instant::now();
@@ -279,8 +306,8 @@ fn serve(
                 Pairing::Cancel => radio = None,
                 Pairing::Start => match radio.as_mut() {
                     Some(output) => output.show_pairing_code(),
-                    None => match tls_identity(&identity)
-                        .and_then(|identity| radio::pair(identity, &telemetry.capture))
+                    None => match tls_identity(identity)
+                        .and_then(|identity| radio::pair(identity, capture, map.clone()))
                     {
                         Ok(output) => radio = Some(output),
                         Err(error) => {
@@ -292,16 +319,16 @@ fn serve(
             }
         }
         let reporting = radio.as_ref().is_some_and(radio::Output::live);
-        let fault = telemetry.capture.take_sensor_failed();
+        let fault = capture.take_sensor_failed();
         let sample = (reporting && (fault || now >= next_report)).then(|| {
-            next_report = now + telemetry.interval;
-            telemetry.snapshot(readings, now)
+            next_report = now + *interval;
+            snapshot(readings, capture, now)
         });
         tiles.select(tile, now);
         let mut phone_tile = None;
         let view = match radio.as_mut() {
             Some(output) => {
-                let samples_ready = telemetry.capture.take_ready();
+                let samples_ready = capture.take_ready();
                 if output.take_ready() || samples_ready || now >= next_radio {
                     phone_tile = output.service(now, tiles.phone_request());
                     next_radio = output.next_service(now + ACTIVE_POLL);
@@ -343,7 +370,7 @@ fn serve(
                 retry_pending = false;
             }
             let progress = if let Some(socket) = socket {
-                tls_identity(&identity)
+                tls_identity(identity)
                     .and_then(|identity| uplink::Upload::open(identity, socket, *collector))
                     .map(|connection| {
                         upload = Some(connection);
@@ -352,7 +379,7 @@ fn serve(
                     })
             } else {
                 upload.as_mut().map_or(Ok(false), |connection| {
-                    connection.service(reports, |now| telemetry.snapshot(readings, now))
+                    connection.service(reports, |now| snapshot(readings, capture, now))
                 })
             };
             match progress {
@@ -372,7 +399,7 @@ fn serve(
             }
         }
         if let Some(Response::Tile(tile)) = tiles.service(
-            || tls_identity(&identity),
+            || tls_identity(identity),
             view.link == LinkStatus::Connected,
             phone_tile,
             now,

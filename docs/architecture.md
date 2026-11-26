@@ -185,6 +185,14 @@ checks linked flash, the unpadded image and static RAM on its existing tracker
 builds. See [memory and image size](rust-std-footprint.md) for the accounting
 and the difference between linked and measured runtime memory.
 
+For capabilities that must remain available after startup, budget storage for
+the maximum number of simultaneous active and retiring operations. A required
+operation takes its storage from that reservation and returns it after teardown
+or cancellation. Include reconnect handshakes, transport queues, and native
+resources in the bound. Optional work uses its own budget or declines admission.
+Qualify the required lifecycle with shared-heap allocations denied after
+startup. Heap snapshots and soak tests complement this check.
+
 ### Camera inference
 
 `hal/detector` owns the portable detector API, models and platform-specific

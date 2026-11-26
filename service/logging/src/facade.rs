@@ -77,6 +77,23 @@ pub fn install(
     Ok(())
 }
 
+/// Install the standalone command sink using static storage.
+pub fn install_stderr(level: LevelFilter) -> Result<(), SetLoggerError> {
+    use std::io::Write;
+    static LOGGER: Backend<fn(Level, Line)> = Backend {
+        level: LevelFilter::Trace,
+        emit: |_, line| {
+            let _ = std::io::stderr().lock().write_all(line.as_bytes());
+        },
+    };
+    log::set_logger(&LOGGER)?;
+    // Initialize the platform stderr lock during setup, before it is needed to
+    // report a failed reservation. Some std implementations allocate it lazily.
+    let _initialized = std::io::stderr().lock();
+    log::set_max_level(level);
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
