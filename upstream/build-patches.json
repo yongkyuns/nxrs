@@ -130,7 +130,8 @@
       "0143-esp32s3-cores3-register-watchdog.patch",
       "0144-ram-uart-report-only-new-rx-bytes.patch",
       "0145-cores3-timestamp-gpio10-edges.patch",
-      "0148-trace-heap-allocation-requests.patch"
+      "0148-trace-heap-allocation-requests.patch",
+      "0149-armv8m-systick-coherent-status.patch"
     ]
   },
   "mcuboot": {
