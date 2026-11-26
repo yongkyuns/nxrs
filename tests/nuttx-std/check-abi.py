@@ -209,6 +209,7 @@ def compiled_artifacts(records, target_artifacts):
     have its own output directory. Compile-only witnesses need the recorded
     rmeta files and all their transitive metadata search directories.
     """
+    target_artifacts = target_artifacts.resolve()
     artifacts = [m for m in records if m.get('reason') == 'compiler-artifact'
                  and any(Path(p).suffix in ('.rlib', '.rmeta')
                          and Path(p).resolve().is_relative_to(target_artifacts)
@@ -241,7 +242,7 @@ def compiled_artifacts(records, target_artifacts):
 def artifact_self_test():
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
-        target = root / 'target'
+        target = root / 'artifacts/target'
         records = []
         for name in ('core', 'compiler_builtins', 'libc', 'rustc_std_workspace_core', 'host_libc'):
             parent = (root if name == 'host_libc' else target) / name / 'out'
@@ -256,6 +257,12 @@ def artifact_self_test():
         assert artifacts['libc']['record']['package_id'] == 'libc', 'selected host libc'
         assert artifacts['libc']['rmeta'].with_suffix('.rlib') == artifacts['libc']['rlib']
         assert len(metadata) == 4 and len({Path(m['path']).parent for m in metadata}) == 4
+        if os.name != 'nt':
+            # Reproduce aliases such as macOS /var -> /private/var on any Unix
+            # host, without changing Cargo's recorded artifact paths.
+            alias = root / 'artifact-parent-alias'
+            alias.symlink_to(target.parent, target_is_directory=True)
+            assert compiled_artifacts(records, alias / target.name) == (artifacts, metadata)
         foreign = root / 'foreign.rmeta'
         foreign.write_bytes(b'foreign metadata')
         for failure in ('missing', 'unpaired', 'foreign', 'duplicate'):

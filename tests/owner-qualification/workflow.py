@@ -27,6 +27,7 @@ CASES = {
     "owner-full-stop": (4, 2, 2, 0, 2, 1, 0),
     "owner-fairness-deadline": (23, 23, 0, 21, 2, 2, 0),
     "owner-failure-recovery": (2, 1, 1, 0, 1, 1, 0),
+    "latest-value-progress": (0, 0, 0, 0, 0, 2, 0),
 }
 ROLES = {
     "std-blocked-delivery": [("std-producer", 120), ("std-receiver", 180), ("coordinator", 220)],
@@ -36,6 +37,7 @@ ROLES = {
     "owner-full-stop": [("selected-owner", 180), ("coordinator", 180)],
     "owner-fairness-deadline": [("selected-owner", 180), ("selected-owner", 180), ("coordinator", 180)],
     "owner-failure-recovery": [("selected-owner", 180), ("coordinator", 180)],
+    "latest-value-progress": [("paused-writer", 120), ("paused-reader", 120), ("coordinator", 220)],
 }
 FIELDS = ("attempted", "admitted", "rejected", "handled", "discarded", "joined", "required_waits")
 FAULT = re.compile(r"\b(panic|panicked|assertion|hardfault|dump_assert|watchdog expired|segmentation fault|aborted|fatal error)\b", re.I)
@@ -84,7 +86,7 @@ def inventory():
     for directory in (HERE, ROOT / "tests/nuttx-std", ROOT / "hal", ROOT / "shared",
                       ROOT / "driver", ROOT / "platform", ROOT / "upstream"):
         paths.extend(p for p in directory.rglob("*") if p.is_file() and not p.is_symlink()
-                     and not any(part in ("target", "__pycache__", "results") for part in p.parts)
+                     and not any(part in ("target", "__pycache__", "results") for part in p.relative_to(ROOT).parts)
                      and (p.suffix in (".rs", ".c", ".h", ".toml", ".lock", ".py", ".sh", ".json", ".ld", ".patch", ".defs")
                           or p.name in ("Makefile", "Kconfig")))
     paths += [ROOT / name for name in ("Cargo.toml", "Cargo.lock", "rust-toolchain.toml", ".cargo/config.toml")]
@@ -229,7 +231,7 @@ def parse(text, build, case, token, physical=False):
         raise ValueError("incorrect domain, identity or unsupported qualification")
     observed = report["observations"]
     if any(type(value) is not int or value < 0 for key, value in observed.items()
-           if key not in ("participants", "endpoints_closed")):
+           if key not in ("participants", "endpoints_closed", "latest")):
         raise ValueError("invalid observation count")
     if any(type(observed[field]) is not int for field in FIELDS) or tuple(observed[field] for field in FIELDS) != CASES[case]:
         raise ValueError("incomplete work, wait or joined cleanup")
@@ -254,6 +256,20 @@ def parse(text, build, case, token, physical=False):
         raise ValueError("fairness/deadline control failed")
     if case == "owner-failure-recovery" and (observed["failure_observations"], observed["stop_requests"]) != (3, 2):
         raise ValueError("failure/retry witnesses missing")
+    if case == "latest-value-progress":
+        latest = observed.get("latest")
+        expected = {"paused_writer_reads": 2, "paused_reader_publications": 32, "fanout_skew_checks": 1, "rounds": 4096}
+        if type(latest) is not dict or any(type(latest.get(key)) is not int or latest[key] != count
+                                           for key, count in expected.items()):
+            raise ValueError("latest-value progress witnesses missing")
+        payloads = latest.get("payloads")
+        fields = {"record_bytes", "mutex_elapsed_ns", "mailbox_elapsed_ns"}
+        if type(payloads) is not list or len(payloads) != 3 or any(
+                type(payload) is not dict or set(payload) != fields or
+                any(type(value) is not int or value <= 0 for value in payload.values()) for payload in payloads):
+            raise ValueError("invalid latest-value comparison")
+    elif "latest" in observed:
+        raise ValueError("latest-value results present for a different case")
     if physical:
         if domain != "nuttx-target":
             raise ValueError("host execution cannot become target evidence")

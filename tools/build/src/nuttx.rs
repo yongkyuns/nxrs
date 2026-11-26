@@ -455,6 +455,9 @@ fn stage_board(profile: &Profile, out: &Path, reused: bool) -> Result<Vec<PathBu
     } else {
         fs::create_dir(&destination).map_err(|error| error.to_string())?;
     }
+    let owned_directory = destination
+        .canonicalize()
+        .map_err(|error| error.to_string())?;
     let mut inputs = Vec::new();
     for (relative, expected) in &board.files {
         let source = board.directory.join(relative);
@@ -470,7 +473,7 @@ fn stage_board(profile: &Profile, out: &Path, reused: bool) -> Result<Vec<PathBu
             || !target
                 .canonicalize()
                 .map_err(|error| error.to_string())?
-                .starts_with(&destination)
+                .starts_with(&owned_directory)
             || hash(&target)? != *expected
         {
             return Err(format!("staged board source differs: {}", target.display()));
@@ -1935,30 +1938,55 @@ mod tests {
             board_configuration(&profile).unwrap(),
             "../board/configs/nsh"
         );
+        let outputs = root.join("outputs");
+        fs::create_dir(&outputs).unwrap();
+        let alias = root.join("path-alias");
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(&outputs, &alias).unwrap();
+        #[cfg(not(unix))]
+        fs::create_dir(&alias).unwrap();
         for name in ["first", "second"] {
-            let out = root.join(name);
+            // Exercise canonical containment even when the caller uses another
+            // spelling, as with macOS /var or Windows canonical path prefixes.
+            let out = alias.join("..").join("outputs").join(name);
             fs::create_dir(&out).unwrap();
             let files = stage_board(&profile, &out, false).unwrap();
             assert_eq!(files.len(), 5);
             assert!(files.iter().all(|path| path.starts_with(&out)));
             assert!(stage_board(&profile, &out, true).is_ok());
         }
+        #[cfg(unix)]
+        {
+            let linked = outputs.join("linked");
+            fs::create_dir(&linked).unwrap();
+            std::os::unix::fs::symlink(outputs.join("second/board"), linked.join("board"))
+                .unwrap();
+            assert!(stage_board(&profile, &linked, true).is_err());
+
+            let header = outputs.join("second/board/include/board.h");
+            let same_bytes = outputs.join("second/board/include/same-bytes.h");
+            fs::rename(&header, &same_bytes).unwrap();
+            std::os::unix::fs::symlink(&same_bytes, &header).unwrap();
+            assert!(stage_board(&profile, &outputs.join("second"), true).is_err());
+            fs::remove_file(&header).unwrap();
+            fs::rename(&same_bytes, &header).unwrap();
+        }
         fs::write(
-            root.join("first/board/include/board.h"),
+            outputs.join("first/board/include/board.h"),
             "changed private copy\n",
         )
         .unwrap();
-        assert!(stage_board(&profile, &root.join("first"), true).is_err());
+        assert!(stage_board(&profile, &outputs.join("first"), true).is_err());
         assert_eq!(
             read(&source.join("include/board.h")).unwrap(),
             "#define BOARD 1\n"
         );
         assert_eq!(
-            read(&root.join("second/board/include/board.h")).unwrap(),
+            read(&outputs.join("second/board/include/board.h")).unwrap(),
             "#define BOARD 1\n"
         );
         fs::write(source.join("include/board.h"), "changed source\n").unwrap();
-        assert!(stage_board(&profile, &root.join("second"), true).is_err());
+        assert!(stage_board(&profile, &outputs.join("second"), true).is_err());
     }
     #[cfg(unix)]
     #[test]
