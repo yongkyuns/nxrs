@@ -15,6 +15,14 @@ The option is off by default and is independent of the application.
 diagnostics = true
 ```
 
+ESP32-S3 diagnostics currently require effective `CONFIG_SMP=n`. Its hardware
+performance counter belongs to each CPU, while the pinned overflow correction
+keeps one shared epoch; counters from different CPUs cannot be treated as one
+clock. Explicit `SMP=y` requests fail before native preparation, and a resolved
+SMP configuration fails validation. Enabling diagnostics does not turn off SMP
+in an existing product profile. A shared, qualified clock is required before
+admitting ESP32-S3 SMP diagnostics.
+
 Motion Tracker's `esp32s3-qemu-tracker-diagnostics` fixture profile enables the
 option. For physical CoreS3 builds, use `cores3-tracker-diagnostics`.
 Diagnostic builds with the default NSH init allow background jobs, so you can

@@ -252,6 +252,10 @@ fn diagnostics_enabled(profile: &Profile) -> bool {
     profile.data.pointer("/build/diagnostics").and_then(Value::as_bool) == Some(true)
 }
 
+fn diagnostic_clock_requires_single_core(profile: &Profile) -> bool {
+    diagnostics_enabled(profile) && profile.data["target"] == "xtensa-esp32s3-nuttx"
+}
+
 fn diagnostics(profile: &Profile) -> Result<Vec<(&'static str, &'static str)>> {
     if !diagnostics_enabled(profile) {
         return Ok(vec![]);
@@ -323,6 +327,9 @@ fn check_ownership(
     }
     for (key, value) in diagnostic_settings {
         check(key, value, "build.diagnostics")?;
+    }
+    if diagnostic_clock_requires_single_core(profile) {
+        check("SMP", "n", "ESP32-S3 diagnostic clock")?;
     }
     check("SIG_DEFAULT", "n", "builder")?;
     if let Some((key, entries)) = requested.iter().find(|(key, _)| preparation_owned(key)) {
@@ -466,6 +473,12 @@ impl Configuration {
         let diagnostic_settings = diagnostics(p)?;
         if !diagnostic_settings.is_empty() {
             requirements.push("CONFIG_MM_DEFAULT_MANAGER=y".into());
+        }
+        if diagnostic_clock_requires_single_core(p) {
+            // CCOUNT belongs to each CPU, but the native overflow extension
+            // has one shared epoch. Require the admitted single-core setup;
+            // never turn off a product's requested SMP configuration here.
+            requirements.push("# CONFIG_SMP is not set".into());
         }
         for (key, value) in diagnostic_settings {
             requirements.push(line(key, value));
@@ -886,6 +899,49 @@ mod tests {
         assert_eq!(standard(&profile, false)["NSH_DISABLEBG"], "n");
         profile.data["init"] = json!({});
         assert!(!standard(&profile, false).contains_key("NSH_DISABLEBG"));
+    }
+
+    #[test]
+    fn esp32s3_diagnostics_require_effective_single_core_without_rewriting_smp() {
+        let app = App {
+            manifest: "Cargo.toml".into(),
+            package: "probe".into(),
+            bin: "probe".into(),
+            command: "probe".into(),
+            priority: 100,
+            stack: 4096,
+        };
+        for (target, diagnostics, restricted) in [
+            ("xtensa-esp32s3-nuttx", true, true),
+            ("xtensa-esp32s3-nuttx", false, false),
+            ("thumbv8m.main-nuttx-eabi", true, false),
+        ] {
+            let profile = Profile::from_data(
+                json!({
+                    "target": target,
+                    "build": { "diagnostics": diagnostics },
+                    "kconfig": { "enable": ["SMP"] }
+                }),
+                vec![],
+            );
+            let configuration = Configuration::assemble(&profile, &app, false, &Options::default())
+                .unwrap();
+            assert_eq!(configuration.values["SMP"], "y", "preserve the product's SMP request");
+            let other_requirements = configuration.requirements.iter()
+                .filter(|line| assignment(line).map(|(key, _)| key) != Some("SMP"))
+                .cloned().collect::<Vec<_>>().join("\n");
+            let smp = format!("{other_requirements}\nCONFIG_SMP=y\n");
+            if restricted {
+                let error = configuration.validate(&profile, &smp).unwrap_err();
+                assert!(error.contains("# CONFIG_SMP is not set"), "{error}");
+                assert!(configuration.validate(&profile, &other_requirements).is_err());
+            } else {
+                configuration.validate(&profile, &smp).unwrap();
+            }
+            configuration.validate(
+                &profile, &format!("{other_requirements}\n# CONFIG_SMP is not set\n")
+            ).unwrap();
+        }
     }
 
     #[test]

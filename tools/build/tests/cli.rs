@@ -1097,6 +1097,32 @@ fn diagnostic_profile_validates_target_and_owns_native_settings() {
 }
 
 #[test]
+fn esp32s3_diagnostics_reject_explicit_smp_before_native_preparation() {
+    let root = fixture();
+    let path = root.0.join("tests/profiles/diagnostic-test.toml");
+    let profile = "execution = 'nuttx'\nboard = 'fixture:board'\ntarget = 'xtensa-esp32s3-nuttx'\n[hal]\n[build]\ndiagnostics = true\n";
+    fs::write(&path, profile).unwrap();
+    let args = ["build", "--app", "probe", "--profile", "diagnostic-test", "--dry-run"];
+    for request in [["--kconfig-enable", "SMP"], ["--kconfig-set", "SMP=y"]] {
+        let command: Vec<_> = args.into_iter().chain(request).collect();
+        let error = failure(frontend(&root.0, &root.0, &command));
+        assert!(error.contains("SMP conflicts with ESP32-S3 diagnostic clock requirement"), "{error}");
+    }
+    let single_core: Vec<_> = args.into_iter().chain(["--kconfig-disable", "SMP"]).collect();
+    success(frontend(&root.0, &root.0, &single_core));
+
+    fs::write(root.0.join("tests/profiles/smp.conf"), "CONFIG_SMP=y\n").unwrap();
+    fs::write(&path, format!("nuttx-config = 'smp.conf'\n{profile}")).unwrap();
+    let error = failure(frontend(&root.0, &root.0, &args));
+    assert!(error.contains("SMP conflicts with ESP32-S3 diagnostic clock requirement"), "{error}");
+
+    fs::write(&path, profile.replace("diagnostics = true", "diagnostics = false")).unwrap();
+    let ordinary: Vec<_> = args.into_iter().chain(["--kconfig-enable", "SMP"]).collect();
+    success(frontend(&root.0, &root.0, &ordinary));
+    assert!(!root.0.join("target").exists(), "preflight must not prepare native output");
+}
+
+#[test]
 fn native_dry_run_reports_literal_requests_and_preserves_required_configuration() {
     let root = fixture();
     fs::write(
