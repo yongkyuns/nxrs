@@ -241,6 +241,34 @@ attest the physical board or operator’s flashing action. All results retain
 
 ## ARM QEMU execution
 
+The emulator must contain QEMU's [MPS2 UART interrupt wiring fix](https://github.com/qemu/qemu/commit/5a558be93ad628e5bed6e0ee062870f49251725c).
+The runner admits release versions 8.2.7 or later in the 8.2 branch, 9.0.3 or
+later in the 9.0 branch, and 9.1 or later. It rejects older or unrecognized
+versions before starting a capture. Ubuntu 24.04's QEMU 8.2.2 reverses the UART
+receive/transmit interrupt wiring: the tested image prints the NSH greeting,
+then repeatedly enters the receive handler while a transmit interrupt remains
+pending. Increasing the console deadline does not repair that mismatch.
+Version admission is a prerequisite; successful runtime captures are still
+required, and historical receipt replay keeps its original rules.
+
+CI builds only `arm-softmmu` from the official QEMU 8.2.7 archive using
+[install-qemu.sh](install-qemu.sh), with a pinned SHA256 verified on downloads
+and cache hits. The source signature was verified against the release key
+published by QEMU. Configuration disables further downloads and optional
+features; the build records its options, compiler, archive and executable hashes.
+It leaves the system and ESP32 emulators unchanged. The native firmware build
+and ABI gates still use the normal frontend. To use that same emulator locally,
+install a C compiler, make, Ninja, pkg-config, Python with venv/distlib support, and the
+glib, pixman, libfdt and zlib development packages, then run:
+
+```sh
+bash tests/owner-qualification/install-qemu.sh
+```
+
+Pass `--qemu target/owner-qemu-tools/qemu-system-arm` to the capture commands
+below. Successful installation removes only its own temporary source/object
+directory; a failed build retains that directory and its log for diagnosis.
+
 With the ARM [NuttX std prerequisites](../../docs/nuttx-std.md) and
 `qemu-system-arm` available, build the same mutex pair for `mps2-an521-mock`:
 

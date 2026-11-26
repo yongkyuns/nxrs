@@ -16,6 +16,10 @@ from unittest.mock import patch
 SPEC = importlib.util.spec_from_file_location("owner_qualification_workflow", Path(__file__).with_name("workflow.py"))
 W = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(W)
+QEMU_SPEC = importlib.util.spec_from_file_location("owner_qualification_qemu", Path(__file__).with_name("qemu.py"))
+Q = importlib.util.module_from_spec(QEMU_SPEC)
+with patch.dict(sys.modules, {"workflow": W}):
+    QEMU_SPEC.loader.exec_module(Q)
 TOKEN = "parser-control-001"
 BUILD_ID = "a" * 64
 
@@ -551,6 +555,19 @@ class RetainedEvidenceControls(unittest.TestCase):
         W.save(root / "capture.json", capture)
         with self.assertRaisesRegex(ValueError, "fresh shell boot"):
             W.replay(root)
+
+    def test_qemu_uart_fix_release_boundaries(self):
+        # The fix entered 9.1, then was backported separately to 8.2.7 and
+        # 9.0.3. A flat >= 8.2.7 comparison would wrongly admit 9.0.0-9.0.2.
+        for version in ("8.2.7", "8.2.8", "9.0.3", "9.1.0", "9.2.0", "10.0.13"):
+            with self.subTest(version=version):
+                Q.require_fixed_mps2_uart(f"QEMU emulator version {version} (distribution build)\nCopyright")
+        for version in ("7.2.0", "8.2.2", "8.2.6", "8.3.0", "9.0.0", "9.0.2", "9.1.0-rc0"):
+            with self.subTest(version=version), self.assertRaisesRegex(ValueError, "UART RX/TX"):
+                Q.require_fixed_mps2_uart(f"QEMU emulator version {version}")
+        for version in ("", "QEMU emulator version unknown", "other emulator 10.0.0"):
+            with self.subTest(version=version), self.assertRaisesRegex(ValueError, "reported version"):
+                Q.require_fixed_mps2_uart(version)
 
     def test_uf2_identity_may_cross_payload_blocks(self):
         data = b"x" * 240 + BUILD_ID.encode() + b"z" * (512 - 304)

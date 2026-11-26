@@ -1,29 +1,33 @@
 # View a CoreS3 kernel trace in Perfetto
 
-Build Motion Tracker with the opt-in trace overlay. Use a distinct build
-directory so the diagnostic and ordinary images are easy to distinguish.
+The `cores3-tracker-diagnostics` profile inherits the CoreS3 tracker configuration
+and enables [NuttX diagnostics](../../../docs/nuttx-memory-qualification.md#diagnostic-builds).
 
 ```sh
 cargo nxrs build --app motion-tracker \
-  --profile m5stack-cores3-stamp-catm \
-  --overlay tests/profiles/cores3-trace.conf \
+  --profile cores3-tracker-diagnostics \
   --out target/cores3-trace
 ```
 
-The overlay enables the native NuttX trace command and reserves a 4 KiB RAM
-buffer. Capture starts only when requested. Save the USB console output to
-a text file and run a bounded workload from the NuttX shell.
+Capture starts only when requested. Save the USB console output to a text
+file and run a bounded workload from the NuttX shell.
 
 ```text
+motion_tracker --frames 60 &
+cat /proc/meminfo
+ps
+cat /proc/<pid>/stack
 trace mode +o +w -i
 trace start
-motion_tracker --frames 25
 trace stop
 trace dump
 ```
 
-This records scheduler switches. Use `trace mode +o +w +i` to include interrupts.
-The trace retains the newest notes once the buffer
+Use a PID from `ps` while the tracker is running. Leave a short interval
+between `trace start` and `trace stop` to capture the running tracker.
+
+This records scheduler switches and heap events. Use `trace mode +o +w +i` to
+include interrupts. The trace retains the newest events when the 8 KiB buffer
 fills. Keep the capture window short when tracing interrupts.
 
 Convert the saved console text and open the JSON with **Open trace file**

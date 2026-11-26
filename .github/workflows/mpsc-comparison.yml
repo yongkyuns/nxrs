@@ -113,10 +113,16 @@ jobs:
         run: |
           rustup toolchain install 1.90.0 --profile minimal
           rustup toolchain install nightly-2025-09-15 --profile minimal --component rust-src
-          bash .github/scripts/install-ubuntu-packages.sh gcc-arm-none-eabi binutils-arm-none-eabi libnewlib-arm-none-eabi qemu-system-arm bison flex gperf kconfig-frontends genromfs xxd libncurses-dev
+          bash .github/scripts/install-ubuntu-packages.sh gcc-arm-none-eabi binutils-arm-none-eabi libnewlib-arm-none-eabi bison flex gperf kconfig-frontends genromfs xxd libncurses-dev build-essential ninja-build pkg-config libglib2.0-dev libpixman-1-dev libfdt-dev zlib1g-dev
           python3 -m venv target/owner-venv
-          target/owner-venv/bin/pip install kconfiglib==14.1.0 pyelftools==0.32
+          target/owner-venv/bin/pip install kconfiglib==14.1.0 pyelftools==0.32 distlib==0.3.8
           echo "$GITHUB_WORKSPACE/target/owner-venv/bin" >> "$GITHUB_PATH"
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: target/owner-qemu-tools/qemu-8.2.7.tar.xz
+          key: owner-arm-qemu-8.2.7-1f0604f296ab9acb4854c054764a1ba408643fc299bd54a6500cccfaaca65b55
+      - name: Build verified ARM QEMU with corrected MPS2 UART interrupts
+        run: bash tests/owner-qualification/install-qemu.sh
       - name: Build the selected mutex protocol through the normal frontend
         env:
           MUTEX_SUITE: ${{ matrix.suite }}
@@ -128,7 +134,7 @@ jobs:
       - name: Run and replay each native control in a fresh QEMU boot
         run: |
           python3 tests/owner-qualification/qemu.py --build target/owner-mutex-build \
-            --out target/owner-mutex-qemu
+            --out target/owner-mutex-qemu --qemu target/owner-qemu-tools/qemu-system-arm
       - name: Retain source-bound build and QEMU evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -140,6 +146,8 @@ jobs:
             target/owner-mutex-build/inspect.json
             target/owner-mutex-build/retained/**
             target/owner-mutex-qemu/**
+            target/owner-qemu-tools/*.txt
+            target/owner-qemu-tools/*.log
           include-hidden-files: true
           if-no-files-found: warn
           retention-days: 14

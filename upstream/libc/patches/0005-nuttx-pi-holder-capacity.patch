@@ -4,9 +4,17 @@ NuttX 13.1 with CONFIG_PRIORITY_INHERITANCE=y and
 CONFIG_SEM_PREALLOCHOLDERS=0 embeds one holder record in each semaphore.
 On the selected 32-bit targets this adds three words per native semaphore
 compared with the positive global-pool configuration. A pthread rwlock
-contains both a mutex and a condition variable, so it needs six more words.
+contains both a mutex and a condition variable.
 
-Keep these bindings opaque and preserve their existing spare capacity.
+With the pinned headers, embedded semaphores are 32 bytes and condition
+variables are 40 bytes. A robust-capable pthread mutex is 40 bytes without
+CONFIG_PTHREAD_MUTEX_TYPES and 44 bytes with it: the recursive payload adds
+an unsigned count. The rwlock's reader/writer counters, flag and padding add
+another 12 bytes, making the two rwlock layouts 92 and 96 bytes. Reserve
+24 words for the larger layout. CONFIG_PTHREAD_MUTEX_BOTH retains the robust
+fields even when CONFIG_PTHREAD_MUTEX_DEFAULT_UNSAFE is selected.
+
+Keep these bindings opaque. The existing mutex capacity covers both layouts.
 Native init/destroy functions still own their representation. Larger storage
 does not qualify the all-zero libc initializers as native initializers.
 The build's target-header ABI gate must check actual size and alignment for
@@ -25,7 +33,7 @@ diff --git a/src/unix/nuttx/mod.rs b/src/unix/nuttx/mod.rs
  const __PTHREAD_CONDATTR_SIZE__: usize = 5;
 -const __PTHREAD_RWLOCK_SIZE__: usize = 17;
 -const __SEM_SIZE__: usize = 6;
-+const __PTHREAD_RWLOCK_SIZE__: usize = 23;
++const __PTHREAD_RWLOCK_SIZE__: usize = 24;
 +const __SEM_SIZE__: usize = 9;
  const __NAME_MAX__: usize = 64;
  const __FDSET_SIZE__: usize = 10;

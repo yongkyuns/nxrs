@@ -2,8 +2,10 @@
 //! HALs acquire and deliver samples. The caller dispatches events and deadlines.
 
 use messaging::{DeliveryResult, Sender};
-use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
+
+mod fixed;
+pub use fixed::{fixed_readers, FixedReader, Publisher};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Reading<T> {
@@ -173,57 +175,11 @@ pub enum SensorFault {
     Gnss(gnss::DeviceError),
 }
 
-/// Shared latest values for consumers with independent deadlines.
-#[derive(Clone)]
-pub struct SharedObservations<const IMUS: usize>(Arc<Mutex<SharedValues<IMUS>>>);
-
-struct SharedValues<const IMUS: usize> {
-    observations: Observations<IMUS>,
-    satellites: Source<gnss::SatelliteReport>,
-}
-
-impl<const IMUS: usize> SharedObservations<IMUS> {
-    pub fn snapshot(&self, now: Instant) -> Snapshot<IMUS> {
-        self.0.lock().unwrap().observations.snapshot(now)
-    }
-
-    /// Expire a report after two receiver intervals, with a six-second minimum.
-    pub fn satellites(&self, now: Instant) -> Reading<gnss::SatelliteReport> {
-        let values = self.0.lock().unwrap();
-        match &values.observations.gnss {
-            Some(source) if matches!(source.latest, Latest::Fault) => Reading::Fault,
-            Some(_) => values.satellites.reading(now),
-            None => Reading::Waiting,
-        }
-    }
-
-    /// Publish an observation before notifying any consumer. The first fault
-    /// is returned as a wake hint; the snapshot retains the terminal state.
-    pub fn record(&self, observation: &Observation) -> Result<Option<Measurement>, SensorFault> {
-        let mut values = self.0.lock().unwrap();
-        if let Input::Gnss(gnss::Event::Satellites(value)) = observation.input {
-            values.satellites.fresh_for =
-                Duration::from_millis(2 * u64::from(value.interval_ms.max(3_000)));
-            values.satellites.receive(value, observation.received);
-            return Ok(None);
-        }
-        if let Some(fault) = values.observations.observe(observation) {
-            return Err(fault);
-        }
-        Ok(observation.measurement())
-    }
-}
-
-enum Values<const IMUS: usize> {
-    Local(Observations<IMUS>),
-    Shared(SharedObservations<IMUS>),
-}
-
 /// One owner for the sessions and their readings. The caller supplies the
 /// inbox, allowing sensor events to share its wait point with other inputs.
 /// Session handles are allocated once on open to support heterogeneous devices.
 pub struct ObservationService<const IMUS: usize> {
-    values: Values<IMUS>,
+    values: Observations<IMUS>,
     imu: [Option<Box<dyn imu::Session + Send>>; IMUS],
     gnss: Option<Box<dyn gnss::Session + Send>>,
     stopping: bool,
@@ -231,41 +187,12 @@ pub struct ObservationService<const IMUS: usize> {
 
 impl<const IMUS: usize> ObservationService<IMUS> {
     pub fn new(imu_fresh_for: Duration, gnss_fresh_for: Option<Duration>) -> Self {
-        Self::with_values(Values::Local(Observations::new(
-            imu_fresh_for,
-            gnss_fresh_for,
-        )))
-    }
-
-    pub fn new_shared(
-        imu_fresh_for: Duration,
-        gnss_fresh_for: Option<Duration>,
-    ) -> (Self, SharedObservations<IMUS>) {
-        let shared = SharedObservations(Arc::new(Mutex::new(SharedValues {
-            observations: Observations::new(imu_fresh_for, gnss_fresh_for),
-            satellites: Source::new(Duration::ZERO),
-        })));
-        (Self::with_values(Values::Shared(shared.clone())), shared)
-    }
-
-    fn with_values(values: Values<IMUS>) -> Self {
-        let gnss_configured = match &values {
-            Values::Local(values) => values.gnss.is_some(),
-            Values::Shared(shared) => shared.0.lock().unwrap().observations.gnss.is_some(),
-        };
-        crate::diagnostics::configured(IMUS, gnss_configured);
+        crate::diagnostics::configured(IMUS, gnss_fresh_for.is_some());
         Self {
-            values,
+            values: Observations::new(imu_fresh_for, gnss_fresh_for),
             imu: std::array::from_fn(|_| None),
             gnss: None,
             stopping: false,
-        }
-    }
-
-    fn update<R>(&mut self, update: impl FnOnce(&mut Observations<IMUS>) -> R) -> R {
-        match &mut self.values {
-            Values::Local(values) => update(values),
-            Values::Shared(shared) => update(&mut shared.0.lock().unwrap().observations),
         }
     }
 
@@ -291,9 +218,7 @@ impl<const IMUS: usize> ObservationService<IMUS> {
         let Some(slot) = self.imu.get(index) else {
             return Err(SensorFault::Imu(index, imu::DeviceError::InvalidData));
         };
-        if self.stopping
-            || slot.is_some()
-            || self.update(|values| matches!(values.imu[index].latest, Latest::Fault))
+        if self.stopping || slot.is_some() || matches!(self.values.imu[index].latest, Latest::Fault)
         {
             return Err(SensorFault::Imu(index, imu::DeviceError::Busy));
         }
@@ -303,7 +228,7 @@ impl<const IMUS: usize> ObservationService<IMUS> {
                 Ok(())
             }
             Err(error) => {
-                self.update(|values| values.imu_failed(index));
+                self.values.imu_failed(index);
                 Err(SensorFault::Imu(index, error))
             }
         }
@@ -326,12 +251,12 @@ impl<const IMUS: usize> ObservationService<IMUS> {
         sender: Sender<E>,
         wrap: impl FnMut(Observation) -> Option<E> + Send + 'static,
     ) -> Result<(), SensorFault> {
-        let Some(failed) = self.update(|values| {
-            values
-                .gnss
-                .as_ref()
-                .map(|source| matches!(source.latest, Latest::Fault))
-        }) else {
+        let Some(failed) = self
+            .values
+            .gnss
+            .as_ref()
+            .map(|source| matches!(source.latest, Latest::Fault))
+        else {
             return Err(SensorFault::Gnss(gnss::DeviceError::Unsupported));
         };
         if self.stopping || self.gnss.is_some() || failed {
@@ -343,25 +268,19 @@ impl<const IMUS: usize> ObservationService<IMUS> {
                 Ok(())
             }
             Err(error) => {
-                self.update(Observations::gnss_failed);
+                self.values.gnss_failed();
                 Err(SensorFault::Gnss(error))
             }
         }
     }
 
     pub fn observe(&mut self, observation: Observation) -> Option<SensorFault> {
-        match &mut self.values {
-            Values::Local(values) => values.observe(&observation),
-            Values::Shared(shared) => shared.record(&observation).err(),
-        }
+        self.values.observe(&observation)
     }
 
     /// Reconcile terminal results before publishing a snapshot, including
     /// faults whose notification could not be admitted to the inbox.
     pub fn reap_finished(&mut self, mut report: impl FnMut(SensorFault)) {
-        // Shared state is published by the sink. Report the joined result
-        // once even if the display's wake notification was lost.
-        let shared = matches!(self.values, Values::Shared(_));
         for index in 0..IMUS {
             let slot = &mut self.imu[index];
             if slot.as_ref().is_some_and(|session| session.is_finished()) {
@@ -371,7 +290,7 @@ impl<const IMUS: usize> ObservationService<IMUS> {
                     .join()
                     .err()
                     .unwrap_or(imu::DeviceError::Io);
-                if self.update(|values| values.imu_failed(index)) || shared {
+                if self.values.imu_failed(index) {
                     report(SensorFault::Imu(index, error));
                 }
             }
@@ -388,17 +307,14 @@ impl<const IMUS: usize> ObservationService<IMUS> {
                 .join()
                 .err()
                 .unwrap_or(gnss::DeviceError::Io);
-            if self.update(Observations::gnss_failed) || shared {
+            if self.values.gnss_failed() {
                 report(SensorFault::Gnss(error));
             }
         }
     }
 
     pub fn snapshot(&self, now: Instant) -> Snapshot<IMUS> {
-        match &self.values {
-            Values::Local(values) => values.snapshot(now),
-            Values::Shared(shared) => shared.snapshot(now),
-        }
+        self.values.snapshot(now)
     }
 
     /// Samples dropped while the corresponding sessions are active.
@@ -486,31 +402,29 @@ mod tests {
     }
 
     #[test]
-    fn shared_satellites_remain_live_across_a_slow_receiver_interval() {
-        let (mut service, readings) =
-            ObservationService::<0>::new_shared(Duration::ZERO, Some(Duration::from_secs(3)));
+    fn fixed_satellites_retain_the_receivers_interval_and_terminal_state() {
+        let (_, mut writer, [mut display, mut links]) =
+            fixed_readers::<0>(Duration::ZERO, Duration::from_secs(3));
         let now = Instant::now();
         let report = gnss::SatelliteReport::new(4, 0, None, 10_000, 0, []);
-        assert!(service
-            .observe(Observation {
+        writer
+            .record(&Observation {
                 input: Input::Gnss(gnss::Event::Satellites(report)),
                 received: now,
             })
-            .is_none());
-        assert_eq!(readings.snapshot(now).gnss, Some(Reading::Waiting));
+            .unwrap();
+        assert_eq!(links.snapshot(now).gnss, Some(Reading::Waiting));
         assert_eq!(
-            readings.satellites(now + Duration::from_secs(10)),
+            display.satellites(now + Duration::from_secs(19)),
             Reading::Live(report)
         );
         assert_eq!(
-            readings.satellites(now + Duration::from_secs(20)),
+            display.satellites(now + Duration::from_secs(20)),
             Reading::Stale
         );
-        service.observe(Observation {
-            input: Input::Gnss(gnss::Event::Failed(gnss::DeviceError::Io)),
-            received: now,
-        });
-        assert_eq!(readings.satellites(now), Reading::Fault);
+        display.fail(SensorFault::Gnss(gnss::DeviceError::Io));
+        assert_eq!(links.snapshot(now).gnss, Some(Reading::Fault));
+        assert_eq!(display.satellites(now), Reading::Fault);
     }
 
     struct FinishedImu;
@@ -560,16 +474,17 @@ mod tests {
     }
 
     #[test]
-    fn shared_samples_are_visible_without_dispatching_the_owner_inbox() {
-        let (service, readings) =
-            ObservationService::<1>::new_shared(Duration::from_millis(500), None);
-        let sink_readings = readings.clone();
+    fn fixed_readers_poll_independently_and_faults_survive_a_full_inbox() {
+        let ([mut writer], _, [mut display, mut links]) =
+            fixed_readers(Duration::from_millis(500), Duration::ZERO);
+        let now = Instant::now();
+        assert_eq!(display.snapshot(now).imu, [Reading::Waiting]);
         let (sender, inbox) = messaging::bounded(1);
         let pending = sender.clone();
         let mut deliver = sink(
             sender,
             |event| Input::Imu(0, event),
-            move |event| sink_readings.record(&event).is_err().then_some(event),
+            move |event| writer.record(&event).is_err().then_some(event),
         );
         let sample = imu::ImuSample {
             sequence: 1,
@@ -581,9 +496,15 @@ mod tests {
         };
         deliver(imu::Event::Sample(sample)).unwrap();
         assert_eq!(
-            readings.snapshot(Instant::now()).imu,
+            display.snapshot(Instant::now()).imu,
             [Reading::Live(sample)]
         );
+        let second = imu::ImuSample {
+            sequence: 2,
+            ..sample
+        };
+        deliver(imu::Event::Sample(second)).unwrap();
+        assert_eq!(links.snapshot(Instant::now()).imu, [Reading::Live(second)]);
         assert!(matches!(
             inbox.try_recv(),
             Err(std::sync::mpsc::TryRecvError::Empty)
@@ -598,9 +519,9 @@ mod tests {
             .unwrap();
         let fault = deliver(imu::Event::Failed(imu::DeviceError::Io)).unwrap_err();
         assert_eq!(fault.error, DeliveryError::Full);
-        assert_eq!(service.snapshot(Instant::now()).imu, [Reading::Fault]);
+        assert_eq!(display.snapshot(Instant::now()).imu, [Reading::Fault]);
         deliver(imu::Event::Sample(sample)).unwrap();
-        assert_eq!(readings.snapshot(Instant::now()).imu, [Reading::Fault]);
+        assert_eq!(links.snapshot(Instant::now()).imu, [Reading::Fault]);
     }
 
     #[test]

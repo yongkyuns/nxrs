@@ -1,0 +1,3 @@
+ifneq ($(CONFIG_EXAMPLES_MEMORY_TIMING),)
+CONFIGURED_APPS += $(APPDIR)/examples/memory_timing
+endif
