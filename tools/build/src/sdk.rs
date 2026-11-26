@@ -391,6 +391,114 @@ pub fn prepare(root: &Path, source: &Path, out: &Path, sdk: &str) -> Result<Path
     )?;
     Ok(destination)
 }
+/// Comparison SDKs are fixture inputs, never an alternative product backend.
+/// Their marker survives sharing/copying the toolchain independently of its receipt.
+pub fn validate_application(sysroot: &Path, receipt: &Path, manifest: &Path) -> Result<()> {
+    let ledger = crate::read_json(receipt)?;
+    let marker = sysroot.join("nxrs-std-comparison.json");
+    let Some(comparison) = ledger.get("comparison") else {
+        if marker.symlink_metadata().is_ok() || ledger["mode"] == "fixture-comparison" {
+            return Err("comparison SDK is missing its qualification receipt".into());
+        }
+        return Ok(());
+    };
+    let fields = [
+        "schema",
+        "candidate",
+        "id",
+        "fixture_manifest",
+        "fixture_manifest_sha256",
+        "production_qualified",
+        "baseline_receipt_sha256",
+        "sources",
+    ];
+    let object = comparison
+        .as_object()
+        .ok_or("malformed SDK comparison metadata")?;
+    if object.len() != fields.len()
+        || fields.iter().any(|key| !object.contains_key(*key))
+        || comparison["schema"] != 1
+        || comparison["production_qualified"] != false
+        || ledger["mode"] != "nuttx-parker-fcntl-sigign-and-libc-socket-align"
+        || !matches!(
+            comparison["candidate"].as_str(),
+            Some("baseline" | "upstream-queue" | "pthread-parker-init" | "no-outlining")
+        )
+    {
+        return Err("unknown or malformed SDK comparison metadata".into());
+    }
+    let digest = |value: &serde_json::Value| {
+        value.as_str().is_some_and(|s| {
+            s.len() == 64
+                && s.bytes()
+                    .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+        })
+    };
+    for field in ["id", "fixture_manifest_sha256", "baseline_receipt_sha256"] {
+        if !digest(&comparison[field]) {
+            return Err(format!("invalid SDK comparison {field}"));
+        }
+    }
+    let mut identity = comparison.clone();
+    identity.as_object_mut().unwrap().remove("id");
+    if comparison["id"]
+        != crate::hash_bytes(&serde_json::to_vec(&identity).map_err(|e| e.to_string())?)
+        || crate::read_json(&marker)? != *comparison
+    {
+        return Err("SDK comparison identity/marker mismatch".into());
+    }
+    let manifest = manifest.canonicalize().map_err(|e| e.to_string())?;
+    if comparison["fixture_manifest"].as_str() != manifest.to_str()
+        || comparison["fixture_manifest_sha256"] != hash(&manifest)?
+        || crate::profile::manifest(&manifest)?.pointer("/package/metadata/nxrs/qualification-only")
+            != Some(&json!(true))
+    {
+        return Err("comparison SDK requires its exact qualification-only manifest".into());
+    }
+    let entries = comparison["sources"]
+        .as_array()
+        .ok_or("comparison SDK sources must be an array")?;
+    if entries.is_empty() {
+        return Err("comparison SDK requires source evidence".into());
+    }
+    let root = sysroot.canonicalize().map_err(|e| e.to_string())?;
+    let mut seen = std::collections::BTreeSet::new();
+    for entry in entries {
+        let object = entry.as_object().ok_or("malformed SDK comparison source")?;
+        let path = Path::new(
+            entry["path"]
+                .as_str()
+                .ok_or("missing SDK comparison source path")?,
+        );
+        if object.len() != 3
+            || !object.contains_key("before_sha256")
+            || !object.contains_key("after_sha256")
+            || path.as_os_str().is_empty()
+            || path
+                .components()
+                .any(|c| !matches!(c, std::path::Component::Normal(_)))
+            || !seen.insert(path.to_owned())
+            || (!entry["before_sha256"].is_null() && !digest(&entry["before_sha256"]))
+            || (!entry["after_sha256"].is_null() && !digest(&entry["after_sha256"]))
+            || (entry["before_sha256"].is_null() && entry["after_sha256"].is_null())
+        {
+            return Err("malformed or duplicate SDK comparison source".into());
+        }
+        let source = root.join(path);
+        if entry["after_sha256"].is_null() {
+            if source.symlink_metadata().is_ok() {
+                return Err("removed comparison SDK source is still present".into());
+            }
+        } else {
+            let source = source.canonicalize().map_err(|e| e.to_string())?;
+            if !source.starts_with(&root) || entry["after_sha256"] != hash(&source)? {
+                return Err("comparison SDK source escaped or changed".into());
+            }
+        }
+    }
+    Ok(())
+}
+
 /// SDK-owned header bindings join the existing native helper build automatically.
 /// Cached older SDKs have no native additions; a new backend requires its ledger.
 pub fn native_sources(sysroot: &Path, receipt: &Path) -> Result<Vec<PathBuf>> {
@@ -488,6 +596,100 @@ fn local_libc_lock(text: &str, locked_version: &str, version: &str) -> Result<St
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn comparison_sdks_require_the_exact_qualified_manifest_and_source() {
+        let temp = crate::TempDir::new(&std::env::temp_dir()).unwrap();
+        let root = temp.0.join("sdk");
+        fs::create_dir(&root).unwrap();
+        let manifest = temp.0.join("Cargo.toml");
+        let qualified = "[package]\nname='comparison'\nversion='0.1.0'\n[package.metadata.nxrs]\nqualification-only=true\n";
+        fs::write(&manifest, qualified).unwrap();
+        let manifest = manifest.canonicalize().unwrap();
+        let source = root.join("source.rs");
+        fs::write(&source, "// selected source\n").unwrap();
+        let receipt = temp.0.join("std-patch.json");
+        write_json(&receipt, &json!({})).unwrap();
+        validate_application(&root, &receipt, &manifest).unwrap();
+        let comparison = json!({"schema":1,"candidate":"upstream-queue",
+            "fixture_manifest":manifest,"fixture_manifest_sha256":hash(&manifest).unwrap(),
+            "production_qualified":false,"baseline_receipt_sha256":"a".repeat(64),
+            "sources":[{"path":"source.rs","before_sha256":hash(&source).unwrap(),"after_sha256":hash(&source).unwrap()}]});
+        let save = |mut value: serde_json::Value| {
+            value.as_object_mut().unwrap().remove("id");
+            value["id"] = json!(crate::hash_bytes(&serde_json::to_vec(&value).unwrap()));
+            write_json(&root.join("nxrs-std-comparison.json"), &value).unwrap();
+            write_json(
+                &receipt,
+                &json!({"mode":"nuttx-parker-fcntl-sigign-and-libc-socket-align","comparison":value}),
+            )
+            .unwrap();
+        };
+        save(comparison.clone());
+        validate_application(&root, &receipt, &manifest).unwrap();
+        for (field, value) in [
+            ("candidate", json!("unknown")),
+            ("schema", json!(2)),
+            ("production_qualified", json!(true)),
+            ("unexpected", json!(false)),
+            ("fixture_manifest_sha256", json!("b".repeat(64))),
+            ("fixture_manifest", json!(temp.0.join("foreign.toml"))),
+            ("baseline_receipt_sha256", json!("invalid")),
+            ("sources", json!([])),
+            ("sources", json!(false)),
+        ] {
+            let mut changed = comparison.clone();
+            changed[field] = value;
+            save(changed);
+            assert!(
+                validate_application(&root, &receipt, &manifest).is_err(),
+                "{field}"
+            );
+        }
+        for path in ["../source.rs", "/source.rs", ""] {
+            let mut changed = comparison.clone();
+            changed["sources"][0]["path"] = json!(path);
+            save(changed);
+            assert!(validate_application(&root, &receipt, &manifest).is_err());
+        }
+        let mut changed = comparison.clone();
+        changed["sources"]
+            .as_array_mut()
+            .unwrap()
+            .push(comparison["sources"][0].clone());
+        save(changed);
+        assert!(validate_application(&root, &receipt, &manifest).is_err());
+        save(comparison.clone());
+        fs::write(&source, "// drift\n").unwrap();
+        assert!(validate_application(&root, &receipt, &manifest).is_err());
+        fs::write(&source, "// selected source\n").unwrap();
+        fs::write(&manifest, qualified.replace("true", "false")).unwrap();
+        let mut changed = comparison.clone();
+        changed["fixture_manifest_sha256"] = json!(hash(&manifest).unwrap());
+        save(changed);
+        assert!(validate_application(&root, &receipt, &manifest).is_err());
+        fs::write(&manifest, qualified).unwrap();
+        save(comparison.clone());
+        write_json(&receipt, &json!({})).unwrap();
+        assert!(validate_application(&root, &receipt, &manifest).is_err());
+        save(comparison.clone());
+        write_json(&root.join("nxrs-std-comparison.json"), &json!({})).unwrap();
+        assert!(validate_application(&root, &receipt, &manifest).is_err());
+        let mut changed = comparison.clone();
+        changed["sources"][0]["after_sha256"] = serde_json::Value::Null;
+        save(changed);
+        assert!(validate_application(&root, &receipt, &manifest).is_err());
+        fs::remove_file(&source).unwrap();
+        validate_application(&root, &receipt, &manifest).unwrap();
+        #[cfg(unix)]
+        {
+            let outside = temp.0.join("outside.rs");
+            fs::write(&outside, "// selected source\n").unwrap();
+            std::os::unix::fs::symlink(&outside, &source).unwrap();
+            save(comparison);
+            assert!(validate_application(&root, &receipt, &manifest).is_err());
+        }
+    }
 
     #[test]
     fn nuttx_main_identity_is_once_but_group_initialization_is_per_entry() {

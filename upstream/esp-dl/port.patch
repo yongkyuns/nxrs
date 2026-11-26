@@ -42,16 +42,6 @@
          }
          if (task_size == 1) { // single task
              forward_args((void *)&m_args.get_args(0));
---- a/esp-dl/dl/module/include/dl_module_creator.hpp
-+++ b/esp-dl/dl/module/include/dl_module_creator.hpp
-@@ -1,7 +1,6 @@
- #pragma once
- #include "dl_module_base.hpp"
- #include <functional>
--#include <iostream>
- #include <malloc.h>
- #include <map>
- namespace dl {
 --- a/esp-dl/dl/module/src/dl_module_base.cpp
 +++ b/esp-dl/dl/module/src/dl_module_base.cpp
 @@ -1,8 +1,6 @@

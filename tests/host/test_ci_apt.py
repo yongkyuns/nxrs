@@ -24,6 +24,8 @@ with open(os.environ['APT_TEST_TRACE'], 'a') as trace:
     trace.write(json.dumps([name, *sys.argv[1:]]) + '\\n')
 if os.environ.get('APT_TEST_FAIL') == name:
     raise SystemExit(42)
+if os.environ.get('APT_TEST_FAIL') == 'source' and sys.argv[1:2] == ['test']:
+    raise SystemExit(43)
 if name == 'timeout':
     os.execvp(sys.argv[3], sys.argv[3:])
 '''
@@ -44,15 +46,24 @@ if name == 'timeout':
         packages = ['gcc-arm-none-eabi', 'qemu-system-arm', 'ffmpeg']
         result, calls = self.run_setup(*packages)
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual([call[0] for call in calls], ['sudo', 'timeout', 'sudo', 'timeout', 'sudo'])
-        self.assertEqual(calls[1][1:3], ['--kill-after=15s', '2m'])
-        self.assertEqual(calls[3][1:3], ['--kill-after=15s', '5m'])
+        self.assertEqual([call[0] for call in calls], ['sudo', 'sudo', 'timeout', 'sudo', 'timeout', 'sudo'])
+        self.assertEqual(calls[1], ['sudo', 'test', '-s', '/etc/apt/sources.list.d/ubuntu.sources'])
+        self.assertEqual(calls[2][1:3], ['--kill-after=15s', '2m'])
+        self.assertEqual(calls[4][1:3], ['--kill-after=15s', '5m'])
         self.assertEqual(calls[0][-1], '/etc/apt/apt-mirrors.txt')
-        for command in (calls[2], calls[4]):
-            for option in ('Acquire::Retries=2', 'Acquire::http::Timeout=30', 'Acquire::https::Timeout=30'):
+        source_parts = []
+        for command in (calls[3], calls[5]):
+            for option in ('Acquire::Retries=2', 'Acquire::http::Timeout=30', 'Acquire::https::Timeout=30',
+                           'Dir::Etc::sourcelist=/etc/apt/sources.list.d/ubuntu.sources'):
                 self.assertIn(option, command)
-        self.assertEqual(calls[2][-1], 'update')
-        self.assertEqual(calls[4][-7:], ['install', '-y', '--no-install-recommends', '--', *packages])
+            source_parts.append(next(value.split('=', 1)[1] for value in command
+                                     if value.startswith('Dir::Etc::sourceparts=')))
+            self.assertNotIn('--allow-unauthenticated', command)
+            self.assertFalse(any('AllowInsecure' in value or 'AllowUnauthenticated' in value for value in command))
+        self.assertEqual(source_parts[0], source_parts[1])
+        self.assertFalse(Path(source_parts[0]).exists(), 'temporary source directory must be removed')
+        self.assertEqual(calls[3][-1], 'update')
+        self.assertEqual(calls[5][-7:], ['install', '-y', '--no-install-recommends', '--', *packages])
         # Use the actual substitution on a temporary mirror list, preserving
         # unrelated entries and both supported Ubuntu runner suite choices.
         primary = 'https://archive.ubuntu.com/ubuntu'
@@ -85,6 +96,11 @@ if name == 'timeout':
     def test_update_timeout_does_not_start_installation(self):
         result, calls = self.run_setup('ffmpeg', fail='timeout')
         self.assertEqual(result.returncode, 42)
+        self.assertEqual(len(calls), 3)
+
+    def test_missing_ubuntu_source_stops_before_apt(self):
+        result, calls = self.run_setup('ffmpeg', fail='source')
+        self.assertEqual(result.returncode, 43)
         self.assertEqual(len(calls), 2)
 
 

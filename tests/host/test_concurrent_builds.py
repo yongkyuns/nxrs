@@ -114,7 +114,9 @@ class Witness:
                  "aliases": {"imu": "imu", "gnss": "navigation"}, "imu_implementation": chip,
                  "gnss_implementation": "NeoM9n", "stack_bytes": 16384, "gnss_stack_bytes": 16384}
         overlays = [str(source / "tests/host/fixtures/lsm6dso-overlay.toml")] if alternate else []
-        profiles = [str(source / "platform/cores3/profile.toml"), *overlays,
+        profiles = [str(source / name)
+                    for name in ("platform/cores3/profile.toml", *CHECK.BOARD_SOURCES)]
+        profiles += [*overlays,
                     str(source / "platform/nuttx/resources/esp32s3-m5-cores3.toml")]
         semantic = text_sha(json.dumps({"graph": graph, "target": TARGET, "nuttx-resources": None},
                                       sort_keys=True, separators=(",", ":")))
@@ -295,6 +297,26 @@ class ConcurrentCheckerTests(unittest.TestCase):
         save(self.out / "provider-selection.json", selection)
         with self.assertRaisesRegex(ValueError, "escapes its own root"):
             CHECK.snapshot_prepared("bmi270", self.out, self.fixture.root)
+
+    def test_board_sources_are_required_and_content_bound(self):
+        receipt_path = self.out / "resolved-profile.json"
+        original = self.fixture.json("bmi270", "resolved-profile.json")
+        for name in CHECK.BOARD_SOURCES:
+            path = self.fixture.root / name
+            with self.subTest(name=name, mutation="omitted"):
+                receipt = copy.deepcopy(original)
+                receipt["dependencies"] = [row for row in receipt["dependencies"]
+                                           if row["path"] != str(path)]
+                save(receipt_path, receipt)
+                with self.assertRaisesRegex(ValueError, "missing profile/BSP source dependency"):
+                    CHECK.snapshot_prepared("bmi270", self.out, self.fixture.root)
+            save(receipt_path, original)
+            before = path.read_bytes()
+            with self.subTest(name=name, mutation="changed"):
+                write(path, before + b"changed board source\n")
+                with self.assertRaisesRegex(ValueError, "changed/duplicate profile source"):
+                    CHECK.snapshot_prepared("bmi270", self.out, self.fixture.root)
+            write(path, before)
 
     def test_native_inputs_cannot_be_owned_by_the_other_output(self):
         resource = self.fixture.json("bmi270", "provider-selection.json")["native-resources"][0]

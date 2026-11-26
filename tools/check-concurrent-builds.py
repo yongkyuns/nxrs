@@ -24,16 +24,6 @@ TARGET = "xtensa-esp32s3-nuttx"
 PROFILE = "m5stack-cores3-gnss"
 OVERLAY = "tests/host/fixtures/lsm6dso-overlay.toml"
 BSP = "platform/nuttx/resources/esp32s3-m5-cores3.toml"
-SOURCE_INPUTS = (
-    "Cargo.toml", "Cargo.lock", "tools/qualify-concurrent-builds.py",
-    "tools/check-concurrent-builds.py", "tools/check-device-closure.py",
-    ".github/workflows/event-demo-self-hosted.yml",
-    *(f"tools/build/src/{name}.rs" for name in
-      ("main", "build", "nuttx", "cargo_graph", "deployment", "sdk", "source")),
-    *(f"tools/build-support/src/{name}.rs" for name in
-      ("preparation", "resolved", "configuration", "prepared_resource")),
-    "platform/cores3/profile.toml", BSP, OVERLAY,
-)
 NATIVE = {"nxrs-acquisition": "shared/acquisition", "nxrs-gnss": "hal/gnss",
           "nxrs-gpio": "driver/gpio", "nxrs-i2c": "driver/i2c"}
 HEX64 = re.compile(r"[0-9a-f]{64}\Z")
@@ -152,6 +142,17 @@ _device_spec = importlib.util.spec_from_file_location(
 _device_checker = importlib.util.module_from_spec(_device_spec)
 _device_spec.loader.exec_module(_device_checker)
 GENERATED = {case: _device_checker.expected_case(case)["generated"] for case in CASES}
+BOARD_SOURCES = _device_checker.BOARD_SOURCES
+SOURCE_INPUTS = (
+    "Cargo.toml", "Cargo.lock", "tools/qualify-concurrent-builds.py",
+    "tools/check-concurrent-builds.py", "tools/check-device-closure.py",
+    ".github/workflows/event-demo-self-hosted.yml",
+    *(f"tools/build/src/{name}.rs" for name in
+      ("main", "build", "nuttx", "cargo_graph", "deployment", "sdk", "source")),
+    *(f"tools/build-support/src/{name}.rs" for name in
+      ("preparation", "resolved", "configuration", "prepared_resource")),
+    "platform/cores3/profile.toml", *BOARD_SOURCES, BSP, OVERLAY,
+)
 
 
 def _prepared(case: str, ctx: Context) -> tuple[dict[str, str], dict]:
@@ -199,7 +200,9 @@ def _prepared(case: str, ctx: Context) -> tuple[dict[str, str], dict]:
             and composition["semantic-digest"] == semantic_digest
             and composition["input-fingerprint"] == receipt["raw_fingerprint"],
             "selection and profile receipt disagree")
-    sources = [str(ctx.original_source / "platform/cores3/profile.toml"), *overlays,
+    sources = [str(ctx.original_source / name)
+               for name in ("platform/cores3/profile.toml", *BOARD_SOURCES)]
+    sources += [*overlays,
                str(ctx.original_source / BSP)]
     require(all(path in seen for path in sources), "missing profile/BSP source dependency")
     require(composition["sources"] == sources, "wrong selected profile source order")

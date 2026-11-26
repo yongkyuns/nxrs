@@ -60,6 +60,13 @@ fn profile_switch_refreshes_generated_sensor_bindings_in_the_same_cargo_output()
         sdk.join("platform/cores3/profile.toml"),
     )
     .unwrap();
+    let board_profile = Profile::resolve(&source, "m5stack-cores3-gnss").unwrap();
+    let board = board_profile.native_board().unwrap();
+    for relative in board.files.keys() {
+        let destination = sdk.join("platform/cores3/board").join(relative);
+        fs::create_dir_all(destination.parent().unwrap()).unwrap();
+        fs::copy(board.directory.join(relative), destination).unwrap();
+    }
     fs::create_dir(root.join("src")).unwrap();
     fs::write(
         root.join("Cargo.toml"),
@@ -471,10 +478,43 @@ fn verify_named() {
     );
     assert_eq!(local.stdout, result.stdout);
 
+    // Keep the same Cargo command and receipt while adding a file that was not
+    // in its dependency list. Watching the board directory must trigger reload.
+    let mut selected = Profile::resolve(&sdk, "m5stack-cores3-gnss").unwrap();
+    let mut prepared = prepare(&selected);
+    assert!(run(Some(&prepared), &selected, false).status.success());
+    let additional_header = sdk.join("platform/cores3/board/include/freshness.h");
+    for add in [true, false] {
+        if add {
+            fs::write(&additional_header, "/* added board header */\n").unwrap();
+        } else {
+            fs::remove_file(&additional_header).unwrap();
+        }
+        let stale = run(Some(&prepared), &selected, false);
+        assert!(
+            !stale.status.success(),
+            "board inventory change was accepted"
+        );
+        assert!(
+            String::from_utf8_lossy(&stale.stderr).contains("stale"),
+            "{}",
+            String::from_utf8_lossy(&stale.stderr)
+        );
+        selected = Profile::resolve(&sdk, "m5stack-cores3-gnss").unwrap();
+        prepared = prepare(&selected);
+        let refreshed = run(Some(&prepared), &selected, false);
+        assert!(
+            refreshed.status.success(),
+            "{}",
+            String::from_utf8_lossy(&refreshed.stderr)
+        );
+    }
+
     // Content changes at the same declared path must invalidate both Cargo and
     // the receipt, even when the resolved values are semantically unchanged.
     for relative in [
         "platform/nuttx/resources/esp32s3-m5-cores3.toml",
+        "platform/cores3/board/Kconfig",
         "driver/bmi270/bindings.toml",
         "driver/lsm6dso/bindings.toml",
         "driver/bmi270/Cargo.toml",

@@ -413,7 +413,6 @@ class FirmwareFrontendTests(unittest.TestCase):
                         'ESP32S3_I2C0', 'ESP32S3_DEVKIT_FREENOVE_CAMERA'):
             self.assertIn(feature, config['enable'])
             self.assertIn('CONFIG_' + feature + '=y', config['require'])
-        self.assertIn('ESP32S3_CAMERA', config['disable'])
         for pin, value in {'XCLK': 15, 'PCLK': 13, 'VSYNC': 6, 'HREF': 7,
                            'D0': 11, 'D1': 9, 'D2': 8, 'D3': 10,
                            'D4': 12, 'D5': 18, 'D6': 17, 'D7': 16}.items():

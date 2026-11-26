@@ -272,26 +272,18 @@ int main(void) {
     @unittest.skipUnless(os.environ.get("NXRS_MCUBOOT_SOURCE"), "set pinned SDK source for image-class regression")
     def test_native_image_class_matches_only_the_configured_product(self):
         sdk = Path(os.environ["NXRS_MCUBOOT_SOURCE"])
-        relative = "boot/espressif/port/esp_mcuboot.c"
         with tempfile.TemporaryDirectory() as temporary:
             directory = Path(temporary)
-            path = directory / relative
-            path.parent.mkdir(parents=True)
-            path.write_bytes((sdk / relative).read_bytes())
-            if "fih_ret boot_uuid_cid_match(" not in path.read_text():
-                subprocess.run(["patch", "--batch", "-p1", "-i", str(ROOT / "upstream/mcuboot/patches/0006-espressif-image-class.patch")],
-                               cwd=directory, check=True, capture_output=True)
-            source = path.read_text().split("fih_ret boot_uuid_cid_match(", 1)[1]
-            (directory / "class.inc").write_text("fih_ret boot_uuid_cid_match(" + source[:source.index("\n}\n") + 3])
             config = directory / "mcuboot_config/mcuboot_config.h"
             config.parent.mkdir()
             expected = UUID(resolve("esp32s3-camera-stream-mcuboot")["image-class"]).bytes
-            config.write_text("#define CONFIG_ESP_IMAGE_CLASS_ID " +
+            config.write_text("#define MCUBOOT_UUID_CID 1\n#define CONFIG_ESP_IMAGE_CLASS_ID " +
                               ",".join(f"0x{byte:02x}" for byte in expected) + "\n")
             executable = directory / "class"
             subprocess.run(["cc", "-std=c11", "-Wall", "-Werror", "-I", str(directory),
                             "-I", str(sdk / "boot/bootutil/include"),
                             str(ROOT / "tests/host/mcuboot_image_class.c"),
+                            str(ROOT / "tools/build/src/ffi/mcuboot_image_class.c"),
                             str(sdk / "boot/bootutil/src/fault_injection_hardening.c"),
                             "-o", str(executable)], check=True)
             subprocess.run([str(executable)], check=True, timeout=5)

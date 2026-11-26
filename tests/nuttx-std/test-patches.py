@@ -163,7 +163,10 @@ class PatchSeriesTests(unittest.TestCase):
                 for name, before in original.items():
                     self.assertEqual(digest(upstream / name), before)
                 if component == "nuttx":
-                    self.assertTrue((source / "arch/xtensa/src/esp32s3/esp32s3_camera.c").is_file())
+                    self.assertFalse((source / "arch/xtensa/src/esp32s3/esp32s3_camera.c").exists())
+                    self.assertTrue((source / "drivers/video/ov3660.c").is_file())
+                    self.assertIn('capture_register("/dev/video0", data, sensors, 1)',
+                                  (source / "boards/xtensa/esp32s3/esp32s3-devkit/src/esp32s3_freenove_camera.c").read_text())
                     self.assertIn("config TLS_GLOBAL_KEYS", (source / "libs/libc/tls/Kconfig").read_text())
                     self.assertIn("return -EINVAL;", (source / "arch/xtensa/src/esp32s3/esp32s3_spiram.c").read_text())
                     self.assertTrue((source / "boards/xtensa/esp32s3/esp32s3-devkit/src/esp32s3_freenove_userled.c").is_file())

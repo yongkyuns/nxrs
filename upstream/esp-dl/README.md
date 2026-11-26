@@ -11,6 +11,11 @@ aborts), corrects a host pool pointer-width check and removes unused iostream
 initializers. It rejects random tensor generation and missing Conv kernels, which
 are outside the fixed inference graph. Rust applies it and verifies every
 prepared source hash.
+The patch changes five of the 320 retained upstream files. The unused
+`dl_module_creator.hpp` stays byte-identical to upstream; its former iostream
+removal was outside the compiled graph. Removing that hunk preserved every
+ESP32-S3 object, the generated graph and the numerical archive byte for byte
+under the pinned GCC 16 toolchain.
 ESP-DL 3.3.14 separates Conv loops, scalar kernels and dispatch metadata.
 `kernels.json` retains the upstream S8 selection rows for scalar and ESP32-S3
 execution. The Rust builder checks their ABI, ordering, precision and symbols,

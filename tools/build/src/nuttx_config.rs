@@ -36,6 +36,8 @@ fn preparation_owned(name: &str) -> bool {
     [
         "APPS_DIR",
         "BASE_DEFCONFIG",
+        "ARCH_BOARD_CUSTOM_DIR",
+        "ARCH_BOARD_CUSTOM_DIR_RELPATH",
         "CYW43439_FIRMWARE_BIN_PATH",
         "CYW43439_FIRMWARE_LEN",
         "CYW43439_BLUETOOTH_FIRMWARE_BIN_PATH",
@@ -196,6 +198,17 @@ pub(crate) const ESP32S3_USERSPACE: u64 = 0x3c000030 + ESP32S3_KERNEL_SIZE;
 
 fn standard(profile: &Profile, protected: bool) -> BTreeMap<String, String> {
     let mut v = BTreeMap::new();
+    if let Some(board) = profile.native_board() {
+        v.extend([
+            ("ARCH_BOARD_CUSTOM".into(), "y".into()),
+            (
+                "ARCH_BOARD_CUSTOM_NAME".into(),
+                format!("\"{}\"", board.name),
+            ),
+            ("ARCH_BOARD_CUSTOM_DIR".into(), "\"../board\"".into()),
+            ("ARCH_BOARD_CUSTOM_DIR_RELPATH".into(), "y".into()),
+        ]);
+    }
     for key in [
         "EXAMPLES_NXRS_STD_APP",
         "FS_LARGEFILE",
@@ -710,7 +723,7 @@ impl Finalized {
     pub fn capture(nuttx: &Path) -> Result<Self> {
         let config = read(&nuttx.join(".config"))?;
         let config_header_sha256 = hash(&nuttx.join("include/nuttx/config.h"))?;
-        let headers = reuse::snapshot(nuttx, &["include"])?;
+        let headers = reuse::native_headers(nuttx, &config)?;
         let headers_sha256 = hash_bytes(&serde_json::to_vec(&headers).map_err(|e| e.to_string())?);
         Ok(Self {
             effective_config_sha256: hash_bytes(config.as_bytes()),

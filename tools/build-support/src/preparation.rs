@@ -41,7 +41,7 @@ pub fn prepare_package(
 
 fn inputs(package: &Package, profile: &Profile) -> Vec<PathBuf> {
     let mut inputs: Vec<_> = package.inputs().map(|input| input.path.clone()).collect();
-    inputs.extend(profile.source_paths().cloned());
+    inputs.extend(profile.watch_paths().cloned());
     inputs.sort();
     inputs.dedup();
     inputs

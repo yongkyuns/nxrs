@@ -159,6 +159,11 @@ kind = "abi"
 reason = "Private CoreWLAN/CoreBluetooth status translation consumed by the owning Rust provider."
 
 [[bridge]]
+path = "tools/build/src/ffi/mcuboot_image_class.c"
+kind = "abi"
+reason = "Implements MCUboot's existing UUID/FIH callback with the product class identifier supplied by the Rust bootloader configuration. MCUboot retains signed-TLV parsing, image authentication and rollback enforcement; this callback does not add a verifier or own firmware-update lifecycle."
+
+[[bridge]]
 path = "tools/detector-build-support/src/ffi/compat.hpp"
 kind = "abi"
 reason = "Mechanical allocator/timing hooks required by the pinned ESP-DL numerical SDK on std and NuttX. No Rust caller consumes these POSIX aliases; Rust owns JPEG validation, model output policy, worker synchronization and shutdown. The SDK launches no tasks."
