@@ -1154,6 +1154,7 @@ dependencies = [
  "nxrs-imu",
  "nxrs-messaging",
  "nxrs-simulation",
+ "triple_buffer",
 ]
 
 [[package]]
@@ -2080,6 +2081,15 @@ name = "toml_writer"
 version = "1.1.1+spec-1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "756daf9b1013ebe47a8776667b466417e2d4c5679d441c26230efd9ef78692db"
+
+[[package]]
+name = "triple_buffer"
+version = "9.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e875ab7068a75b74f419da453927e05527c36f0001b3c7aad3ce443640683487"
+dependencies = [
+ "crossbeam-utils",
+]
 
 [[package]]
 name = "typenum"

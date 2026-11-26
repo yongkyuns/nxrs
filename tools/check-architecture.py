@@ -55,9 +55,9 @@ PORTABLE_EXTERNAL_BY_PACKAGE = {
     'nxrs-motion-tracker': {'log', 'qrcodegen'},
     # Fixed-buffer PPP framing and negotiation with no host/native runtime.
     'nxrs-cellular': {'ppproto'},
-    # Diagnostics use the safe Rust facade. Fixture-only native adapters stay
-    # in tests, and ordinary navigation builds don't enable the probe.
-    'nxrs-navigation-services': {'log'},
+    # Navigation uses the portable log facade and a no_std triple buffer
+    # with setup-only allocation, qualified on the CoreS3 product path.
+    'nxrs-navigation-services': {'log', 'triple_buffer'},
     'nxrs-log-router': {'log'},
 }
 
