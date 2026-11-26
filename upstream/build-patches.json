@@ -123,7 +123,8 @@
       "0142-stack-guard-use-saved-interrupt-context.patch",
       "0144-ram-uart-report-only-new-rx-bytes.patch",
       "0145-gpio-edge-timestamps.patch",
-      "0146-xtensa-compiler-wchar-limits.patch"
+      "0146-xtensa-compiler-wchar-limits.patch",
+      "0148-trace-heap-allocation-requests.patch"
     ]
   },
   "mcuboot": {

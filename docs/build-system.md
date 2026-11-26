@@ -274,6 +274,13 @@ The ESP32-S3 RAM controls and CoreS3 sensor build check linked flash, unpadded
 image size, and static RAM in CI. Heap use and worker stacks are measured at
 runtime.
 
+For an instrumented build, set `diagnostics = true` in the profile's
+`[build]` table. It enables kernel tracing, heap request counters, and stack
+high-water measurements on flat NuttX with the default allocator. Start a
+trace from NSH when reproducing a problem. See
+[NuttX diagnostics](nuttx-memory-qualification.md#diagnostic-builds) for commands
+and how to read the results.
+
 NuttX builds accept repeated `--kconfig-enable SYMBOL`,
 `--kconfig-disable SYMBOL`, and `--kconfig-set NAME=VALUE` arguments. Use native
 symbol names without the `CONFIG_` prefix. Values are literal Kconfig booleans

@@ -118,31 +118,24 @@ For NXRS, decide per consumer whether it needs current state or ordered history.
 
 ### Motion Tracker observations and capture
 
-Motion Tracker's acquisition callbacks publish directly to navigation's shared
-observations. The display and communications read them on their own deadlines.
-Today, one mutex protects both IMUs, the GNSS fix and the satellite report.
-Device-open failures and session reaping also write source state. The display
-inbox carries fault hints, and a missed hint cannot hide a retained fault.
-Observation callbacks accept `FnMut`, so each can own its producer endpoints
-through the HAL session.
+Motion Tracker's acquisition callbacks publish latest values directly to
+navigation's fixed readers. Each IMU and the GNSS fix has one preallocated
+triple buffer per reader. Only the display subscribes to satellite reports.
+Publication runs in the existing acquisition tasks and bypasses the app inbox.
+Communications takes its reader when it starts, including for late pairing.
 
-An independent latest reader starts in `Waiting`, then sees a complete
-committed sample with its original reception time. Later samples may replace
-unread ones. IMU readings expire at 500 ms, GNSS fixes at 3 s and satellite
-reports after two receiver intervals with a six-second minimum. Faults stay
-terminal for the acquisition lifetime. Per-source mailboxes permit skew
-between sources and between readers, so their consumers must tolerate it.
+A reader starts in `Waiting` and then sees complete samples with their
+original reception times. A snapshot can combine sources updated at different
+instants. Later samples may replace unread ones. IMU readings expire at 500 ms,
+GNSS fixes at 3 s and satellite reports after two receiver intervals, with a
+six-second minimum. Callback, open and joined failures all latch terminal
+state for the acquisition lifetime, even if the display misses a wake.
 
 The [owner qualification fixture](../tests/owner-qualification/README.md)
-compares a mutex with two fixed `triple_buffer` 9.0.0 readers using actual sensor
-record types. Each producer owns one input per reader. The fixture verifies
-reading a previous complete record during an unfinished publication, seeing
-different complete versions during fanout, and publishing while a reader retains
-a slot. Device-open rollback, the late communications owner, freshness and
-product scheduling require separate checks. Measure those paths and the linked,
-heap and stack costs before selecting a
-replacement. Freshness thresholds describe which readings are usable. Timing
-acceptance also needs a publication deadline and an acquisition jitter budget.
+compares the former mutex with fixed `triple_buffer` 9.0.0 readers. It checks
+that a reader can retain a complete record while the producer publishes and
+that independent readers can see different complete records. The product
+comparison below measures the application path on CoreS3.
 
 Ordered capture belongs to the Motion Tracker export. It uses a 512-record
 pool shared across sources, drains batches of up to 16, and retains the first
@@ -179,10 +172,29 @@ An IMU stopped early in the control as well as under load. Runs that recorded
 the cause reported a sensor timeout. Qualifying sustained acquisition requires
 isolating the timeout and checking hardware FIFO continuity.
 
-Use the observation handoff as the first comparison for fixed-reader
-publication. Preserve independent reader lifetimes, sensor timestamps and
-sticky faults. Keep ordered capture as a separate comparison with its own
-admission, overflow and recovery checks.
+#### CoreS3 fixed-reader comparison
+
+With the same profile and priorities, the display retained an IMU reader slot
+through a 120 ms forced pause. Both IMUs kept publishing, with 15 and 12
+publications during the pause, and the longest callback was 2.41 ms. In a
+combined repeat with BLE acknowledgments held for 0.95 s, the IMUs published
+11 and 12 samples during the pause and the longest callback was 2.50 ms. Both
+IMUs and GNSS stayed live through that 25-second run.
+
+A 0.95 s acknowledgment hold alone raised queue depth to 148 records with
+contiguous received sequences. A 7 s hold filled the 512-record queue. The peer
+received all 1,099 admitted records followed by the first-loss marker.
+
+The BMI270 timeout also occurred with fixed readers. Target traces showed
+three consecutive FIFO length snapshots crossing sensor sampling boundaries,
+which is when the driver returns `Timeout`. Both IMUs stayed live in the
+25-second BLE-off and advertising-only controls. The connected runs establish
+the failure path. The cause of the extended register-read intervals and
+sustained acquisition remain open.
+
+The matched build added 3,348 bytes of linked flash and 104 bytes to the boot
+image. Publication setup used 3,720 bytes of heap versus 480 bytes. Static RAM
+and task stack reservations were identical.
 
 ## Dedicated capacity, one logical wait point
 

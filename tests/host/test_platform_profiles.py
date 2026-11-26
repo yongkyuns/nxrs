@@ -207,6 +207,8 @@ class FirmwareFrontendTests(unittest.TestCase):
                     **expected["esp32s3-qemu-tracker-upload"], "ble": "nuttx", "execution": "nuttx",
                     "boot": "nuttx", "watchdog": "nuttx",
                 }
+                expected["cores3-tracker-diagnostics"] = expected["m5stack-cores3-stamp-catm"]
+                expected["esp32s3-qemu-tracker-diagnostics"] = expected["esp32s3-qemu-tracker-coexist"]
                 tracker = dict.fromkeys(("battery", "display", "gnss", "imu", "settings", "touch"), "nuttx")
                 expected["esp32s3-qemu-tracker-devices"] = tracker
                 expected["esp32s3-qemu-tracker-dashboard"] = {**tracker, "ble": "nuttx", "tls": "nuttx"}

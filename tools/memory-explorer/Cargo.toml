@@ -1,0 +1,23 @@
+[package]
+name = "nxrs-memory-explorer"
+version.workspace = true
+edition.workspace = true
+rust-version = "1.90"
+publish = false
+
+[features]
+default = []
+gui = ["dep:eframe"]
+
+[[bin]]
+name = "nxrs-memory-explorer"
+path = "src/main.rs"
+required-features = ["gui"]
+
+[dependencies]
+object = { version = "0.37", default-features = false, features = ["read", "elf", "std"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["arbitrary_precision"] }
+sha2 = "0.10"
+# Retain the qualified host graphics version; GUI dependencies stay optional.
+eframe = { version = "=0.33.3", optional = true, default-features = false, features = ["default_fonts", "glow", "x11", "wayland"] }

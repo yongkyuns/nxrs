@@ -1,0 +1,481 @@
+{
+  "schema_version": 1,
+  "qualification": {
+    "name": "MPS2 AN521 RAM storage map",
+    "machine": "mps2-an521",
+    "qemu_version": "10.0.13",
+    "nuttx_revision": "2b5c0de5e933281c209f954a63b99cf10c132346",
+    "scope": "QEMU board-model storage and aliases. Applying this descriptor is an explicit user choice, not automatic target identification or physical-device qualification.",
+    "sources": [
+      "https://github.com/qemu/qemu/blob/v10.0.13/hw/arm/mps2-tz.c",
+      "https://github.com/qemu/qemu/blob/v10.0.13/hw/arm/armsse.c",
+      "https://github.com/qemu/qemu/blob/v10.0.13/hw/arm/armv7m.c",
+      "https://github.com/qemu/qemu/blob/v10.0.13/include/hw/elf_ops.h.inc",
+      "https://github.com/apache/nuttx/blob/2b5c0de5e933281c209f954a63b99cf10c132346/arch/arm/src/mps/hardware/mps_memorymap.h",
+      "https://github.com/apache/nuttx/blob/2b5c0de5e933281c209f954a63b99cf10c132346/boards/arm/mps/mps2-an521/scripts/flash.ld",
+      "https://github.com/apache/nuttx/blob/2b5c0de5e933281c209f954a63b99cf10c132346/arch/arm/src/mps/mps_allocateheap.c"
+    ]
+  },
+  "warnings": [
+    "Explicit MPS2 AN521 layout: RAM capacities and aliases follow QEMU v10.0.13 mps2-tz.c an505_raminfo / AN521 initialization and armsse.c SSE-200 bank/alias definitions. This is an emulator model, not physical-board qualification.",
+    "The NuttX linker region called flash is SSRAM0 in this QEMU machine. All resources declared here are RAM; no physical flash device is inferred.",
+    "SSRAM1 and SSRAM2 form one contiguous 4 MiB resource coordinate space with two validated 2 MiB banks. This preserves allocator arenas and chunks spanning their bank boundary.",
+    "Secure and nonsecure address windows describe shared storage, not current access permissions. MPC/SAU/IDAU state and CPU security state are not attested by this descriptor.",
+    "Linked-load windows explicitly use the QEMU ARMv7-M ELF loader address map (PT_LOAD p_paddr); CPU and linked-load intervals sharing a backing are counted once. Startup copying and current byte contents are not observed.",
+    "Unobserved banks and unowned bytes are unknown, not free heap. Full declared capacity does not establish that firmware allocators can use it.",
+    "Layout applies to QEMU mps2-an521 v10.0.13 and NuttX 2b5c0de5e933281c209f954a63b99cf10c132346. Exact source URLs and scope are recorded in this descriptor's qualification object."
+  ],
+  "physical_resources": [
+    {
+      "id": "ssram0",
+      "name": "SSRAM0 (NuttX linker region flash)",
+      "size": 4194304,
+      "banks": [
+        {
+          "name": "SSRAM0 (QEMU ssram-0)",
+          "offset": 0,
+          "size": 4194304
+        }
+      ]
+    },
+    {
+      "id": "ssram23",
+      "name": "SSRAM1 + SSRAM2 (NuttX SRAM23)",
+      "size": 4194304,
+      "banks": [
+        {
+          "name": "SSRAM1 (QEMU ssram-1)",
+          "offset": 0,
+          "size": 2097152
+        },
+        {
+          "name": "SSRAM2 (QEMU ssram-2)",
+          "offset": 2097152,
+          "size": 2097152
+        }
+      ]
+    },
+    {
+      "id": "sse-sram0",
+      "name": "SSE-200 internal SRAM bank 0",
+      "size": 32768,
+      "banks": [
+        {
+          "name": "SSE SRAM bank 0",
+          "offset": 0,
+          "size": 32768
+        }
+      ]
+    },
+    {
+      "id": "sse-sram1",
+      "name": "SSE-200 internal SRAM bank 1",
+      "size": 32768,
+      "banks": [
+        {
+          "name": "SSE SRAM bank 1",
+          "offset": 0,
+          "size": 32768
+        }
+      ]
+    },
+    {
+      "id": "sse-sram2",
+      "name": "SSE-200 internal SRAM bank 2",
+      "size": 32768,
+      "banks": [
+        {
+          "name": "SSE SRAM bank 2",
+          "offset": 0,
+          "size": 32768
+        }
+      ]
+    },
+    {
+      "id": "sse-sram3",
+      "name": "SSE-200 internal SRAM bank 3",
+      "size": 32768,
+      "banks": [
+        {
+          "name": "SSE SRAM bank 3",
+          "offset": 0,
+          "size": 32768
+        }
+      ]
+    },
+    {
+      "id": "system-ram",
+      "name": "16 MiB system RAM (QEMU mps.ram)",
+      "size": 16777216,
+      "banks": [
+        {
+          "name": "System RAM",
+          "offset": 0,
+          "size": 16777216
+        }
+      ]
+    }
+  ],
+  "regions": [
+    {
+      "id": "cpu-ssram0-ns",
+      "name": "SSRAM0 nonsecure address window",
+      "start": 0,
+      "size": 4194304,
+      "kind": "ram",
+      "domain": "cpu_virtual",
+      "physical": {
+        "id": "ssram0",
+        "offset": 0
+      }
+    },
+    {
+      "id": "cpu-ssram0-ns-mirror",
+      "name": "SSRAM0 nonsecure mirror",
+      "start": 4194304,
+      "size": 4194304,
+      "kind": "ram",
+      "domain": "cpu_virtual",
+      "physical": {
+        "id": "ssram0",
+        "offset": 0
+      }
+    },
+    {
+      "id": "cpu-ssram0-secure",
+      "name": "SSRAM0 secure alias / linked code",
+      "start": 268435456,
+      "size": 4194304,
+      "kind": "ram",
+      "domain": "cpu_virtual",
+      "physical": {
+        "id": "ssram0",
+        "offset": 0
+      }
+    },
+    {
+      "id": "cpu-ssram0-secure-mirror",
+      "name": "SSRAM0 secure mirror",
+      "start": 272629760,
+      "size": 4194304,
+      "kind": "ram",
+      "domain": "cpu_virtual",
+      "physical": {
+        "id": "ssram0",
+        "offset": 0
+      }
+    },
+    {
+      "id": "cpu-sse-sram0-ns",
+      "name": "SSE SRAM bank 0 nonsecure window",
+      "start": 536870912,
+      "size": 32768,
+      "kind": "ram",
+      "domain": "cpu_virtual",
+      "physical": {
+        "id": "sse-sram0",
+        "offset": 0
+      }
+    },
+    {
+      "id": "cpu-sse-sram1-ns",
+      "name": "SSE SRAM bank 1 nonsecure window",
+      "start": 536903680,
+      "size": 32768,
+      "kind": "ram",
+      "domain": "cpu_virtual",
+      "physical": {
+        "id": "sse-sram1",
+        "offset": 0
+      }
+    },
+    {
+      "id": "cpu-sse-sram2-ns",
+      "name": "SSE SRAM bank 2 nonsecure window",
+      "start": 536936448,
+      "size": 32768,
+      "kind": "ram",
+      "domain": "cpu_virtual",
+      "physical": {
+        "id": "sse-sram2",
+        "offset": 0
+      }
+    },
+    {
+      "id": "cpu-sse-sram3-ns",
+      "name": "SSE SRAM bank 3 nonsecure window",
+      "start": 536969216,
+      "size": 32768,
+      "kind": "ram",
+      "domain": "cpu_virtual",
+      "physical": {
+        "id": "sse-sram3",
+        "offset": 0
+      }
+    },
+    {
+      "id": "cpu-ssram23-ns",
+      "name": "SSRAM1 + SSRAM2 nonsecure window",
+      "start": 671088640,
+      "size": 4194304,
+      "kind": "ram",
+      "domain": "cpu_virtual",
+      "physical": {
+        "id": "ssram23",
+        "offset": 0
+      }
+    },
+    {
+      "id": "cpu-sse-sram0-secure",
+      "name": "SSE SRAM bank 0 secure alias",
+      "start": 805306368,
+      "size": 32768,
+      "kind": "ram",
+      "domain": "cpu_virtual",
+      "physical": {
+        "id": "sse-sram0",
+        "offset": 0
+      }
+    },
+    {
+      "id": "cpu-sse-sram1-secure",
+      "name": "SSE SRAM bank 1 secure alias",
+      "start": 805339136,
+      "size": 32768,
+      "kind": "ram",
+      "domain": "cpu_virtual",
+      "physical": {
+        "id": "sse-sram1",
+        "offset": 0
+      }
+    },
+    {
+      "id": "cpu-sse-sram2-secure",
+      "name": "SSE SRAM bank 2 secure alias",
+      "start": 805371904,
+      "size": 32768,
+      "kind": "ram",
+      "domain": "cpu_virtual",
+      "physical": {
+        "id": "sse-sram2",
+        "offset": 0
+      }
+    },
+    {
+      "id": "cpu-sse-sram3-secure",
+      "name": "SSE SRAM bank 3 secure alias",
+      "start": 805404672,
+      "size": 32768,
+      "kind": "ram",
+      "domain": "cpu_virtual",
+      "physical": {
+        "id": "sse-sram3",
+        "offset": 0
+      }
+    },
+    {
+      "id": "cpu-ssram23-secure",
+      "name": "SSRAM1 + SSRAM2 secure alias / runtime RAM",
+      "start": 939524096,
+      "size": 4194304,
+      "kind": "ram",
+      "domain": "cpu_virtual",
+      "physical": {
+        "id": "ssram23",
+        "offset": 0
+      }
+    },
+    {
+      "id": "cpu-system-ram",
+      "name": "System RAM address window",
+      "start": 2147483648,
+      "size": 16777216,
+      "kind": "ram",
+      "domain": "cpu_virtual",
+      "physical": {
+        "id": "system-ram",
+        "offset": 0
+      }
+    },
+    {
+      "id": "load-ssram0-ns",
+      "name": "Linked load: SSRAM0 nonsecure address window",
+      "start": 0,
+      "size": 4194304,
+      "kind": "ram",
+      "domain": "linked_load",
+      "physical": {
+        "id": "ssram0",
+        "offset": 0
+      }
+    },
+    {
+      "id": "load-ssram0-ns-mirror",
+      "name": "Linked load: SSRAM0 nonsecure mirror",
+      "start": 4194304,
+      "size": 4194304,
+      "kind": "ram",
+      "domain": "linked_load",
+      "physical": {
+        "id": "ssram0",
+        "offset": 0
+      }
+    },
+    {
+      "id": "load-ssram0-secure",
+      "name": "Linked load: SSRAM0 secure alias / linked code",
+      "start": 268435456,
+      "size": 4194304,
+      "kind": "ram",
+      "domain": "linked_load",
+      "physical": {
+        "id": "ssram0",
+        "offset": 0
+      }
+    },
+    {
+      "id": "load-ssram0-secure-mirror",
+      "name": "Linked load: SSRAM0 secure mirror",
+      "start": 272629760,
+      "size": 4194304,
+      "kind": "ram",
+      "domain": "linked_load",
+      "physical": {
+        "id": "ssram0",
+        "offset": 0
+      }
+    },
+    {
+      "id": "load-sse-sram0-ns",
+      "name": "Linked load: SSE SRAM bank 0 nonsecure window",
+      "start": 536870912,
+      "size": 32768,
+      "kind": "ram",
+      "domain": "linked_load",
+      "physical": {
+        "id": "sse-sram0",
+        "offset": 0
+      }
+    },
+    {
+      "id": "load-sse-sram1-ns",
+      "name": "Linked load: SSE SRAM bank 1 nonsecure window",
+      "start": 536903680,
+      "size": 32768,
+      "kind": "ram",
+      "domain": "linked_load",
+      "physical": {
+        "id": "sse-sram1",
+        "offset": 0
+      }
+    },
+    {
+      "id": "load-sse-sram2-ns",
+      "name": "Linked load: SSE SRAM bank 2 nonsecure window",
+      "start": 536936448,
+      "size": 32768,
+      "kind": "ram",
+      "domain": "linked_load",
+      "physical": {
+        "id": "sse-sram2",
+        "offset": 0
+      }
+    },
+    {
+      "id": "load-sse-sram3-ns",
+      "name": "Linked load: SSE SRAM bank 3 nonsecure window",
+      "start": 536969216,
+      "size": 32768,
+      "kind": "ram",
+      "domain": "linked_load",
+      "physical": {
+        "id": "sse-sram3",
+        "offset": 0
+      }
+    },
+    {
+      "id": "load-ssram23-ns",
+      "name": "Linked load: SSRAM1 + SSRAM2 nonsecure window",
+      "start": 671088640,
+      "size": 4194304,
+      "kind": "ram",
+      "domain": "linked_load",
+      "physical": {
+        "id": "ssram23",
+        "offset": 0
+      }
+    },
+    {
+      "id": "load-sse-sram0-secure",
+      "name": "Linked load: SSE SRAM bank 0 secure alias",
+      "start": 805306368,
+      "size": 32768,
+      "kind": "ram",
+      "domain": "linked_load",
+      "physical": {
+        "id": "sse-sram0",
+        "offset": 0
+      }
+    },
+    {
+      "id": "load-sse-sram1-secure",
+      "name": "Linked load: SSE SRAM bank 1 secure alias",
+      "start": 805339136,
+      "size": 32768,
+      "kind": "ram",
+      "domain": "linked_load",
+      "physical": {
+        "id": "sse-sram1",
+        "offset": 0
+      }
+    },
+    {
+      "id": "load-sse-sram2-secure",
+      "name": "Linked load: SSE SRAM bank 2 secure alias",
+      "start": 805371904,
+      "size": 32768,
+      "kind": "ram",
+      "domain": "linked_load",
+      "physical": {
+        "id": "sse-sram2",
+        "offset": 0
+      }
+    },
+    {
+      "id": "load-sse-sram3-secure",
+      "name": "Linked load: SSE SRAM bank 3 secure alias",
+      "start": 805404672,
+      "size": 32768,
+      "kind": "ram",
+      "domain": "linked_load",
+      "physical": {
+        "id": "sse-sram3",
+        "offset": 0
+      }
+    },
+    {
+      "id": "load-ssram23-secure",
+      "name": "Linked load: SSRAM1 + SSRAM2 secure alias / runtime RAM",
+      "start": 939524096,
+      "size": 4194304,
+      "kind": "ram",
+      "domain": "linked_load",
+      "physical": {
+        "id": "ssram23",
+        "offset": 0
+      }
+    },
+    {
+      "id": "load-system-ram",
+      "name": "Linked load: system RAM address window",
+      "start": 2147483648,
+      "size": 16777216,
+      "kind": "ram",
+      "domain": "linked_load",
+      "physical": {
+        "id": "system-ram",
+        "offset": 0
+      }
+    }
+  ]
+}

@@ -617,6 +617,7 @@ fn build_or_prepare(
                 [
                     "abi-profile",
                     "size-optimized",
+                    "diagnostics",
                     "trace-only-backtrace",
                     "panic-immediate-abort",
                     "protected-runtime",

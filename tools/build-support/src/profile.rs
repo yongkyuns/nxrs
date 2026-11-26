@@ -917,6 +917,15 @@ impl Profile {
         })
     }
     pub fn validate_target(&self, os: &str) -> Result<()> {
+        if let Some(value) = self.data.pointer("/build/diagnostics") {
+            let enabled = value.as_bool().ok_or("build.diagnostics must be a boolean")?;
+            if enabled
+                && (os != "nuttx"
+                    || self.data.pointer("/build/protected-runtime") == Some(&json!(true)))
+            {
+                return Err("build.diagnostics requires flat NuttX".into());
+            }
+        }
         if let Some(list) = self.data.get("target-os") {
             let list = list
                 .as_array()
