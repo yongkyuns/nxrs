@@ -12,7 +12,7 @@ SDK callback lifetime, sensor I/O, network service, timing bounds and resource
 measurements retain their separate qualification obligations. In particular,
 these small functional witnesses are not a cross-RTOS RAM comparison.
 
-There are **seven cases per target, one case per fresh boot**: fourteen captures
+There are **eight cases per target, one case per fresh boot**: sixteen captures
 for the ESP32-S3 and Pico 2 W pair. Every case either completes finitely with
 checked accounting and joined threads, or produces a retained failed capture.
 There is no accepted “expected hang.”
@@ -28,6 +28,32 @@ There is no accepted “expected hang.”
 | `owner-full-stop` | Important and ordinary queues are both full. Additional data rejects with `Full`; the isolated stop remains admissible and duplicate stop reports `AlreadyPending`. | 4 data attempts, 2 admitted then explicitly discarded by receiver retirement, 2 rejections, 1 join; old endpoints report `Closed`. |
 | `owner-fairness-deadline` | Two finite owner runs: an ordinary result is serviced after at most seven queued link events plus one accepted important command; logical time then demonstrates deadline reconciliation before the first selected link event. | 23 admitted, 21 handled, 2 discarded on stop, 2 joins. The deadline subcase deliberately releases a timed-out operation before shutdown. This is ordering, not measured deadline latency. |
 | `owner-failure-recovery` | Failure notification is rejected by a full queue while the provider retains its terminal fault. Observer refusal and one injected stop refusal are reported, then the same owner/controller resumes and stops. | 2 data attempts, 1 admitted then discarded, 1 rejection, 3 failure observations, 2 stop attempts, 1 join; sticky fault retained, underlying provider `finish` called once despite an explicit second finish. |
+| `latest-value-progress` | Two fixed triple-buffer readers. A priority-120 writer pauses during record preparation and between the two publications. A priority-120 reader then holds a slot while the coordinator publishes to both readers. | 2 complete prior reads, 1 check for different complete versions across readers, 32 publications while the slow reader retains its slot, both peers joined. Separate from FIFO accounting. |
+
+The latest-value case compares 4,096 uncontended rounds for IMU, GNSS fix and
+satellite values with reception stamps. A round publishes once and reads at
+both destinations. Reported time is elapsed time for the whole batch. Reported
+record bytes exclude endpoint metadata and allocator padding. This is a storage
+and copy comparison, with product fanout, lifecycle, and interrupt costs still
+to qualify. The pinned crate uses an `AtomicU8` exchange on publish and on a
+dirty read. Compiler lowering and target progress require separate evidence.
+
+Three fresh boots on CoreS3 using `m5stack-cores3-dual-imu` passed both paused-peer
+controls and the fanout-skew check. The fixture used single-core ESP32-S3 NuttX
+with priority inheritance disabled. The linked candidate's byte exchanges use
+the toolchain's `s32c1i` retry loops. The timings below are medians of the three
+batch times divided by 4,096. The runs have no real sensor I/O or BLE sessions.
+
+| Stamped record | Record bytes | Mutex, µs per round | Two mailboxes, µs per round |
+|---|---:|---:|---:|
+| IMU | 64 | 6.12 | 11.48 |
+| GNSS fix | 112 | 6.58 | 19.10 |
+| Satellites | 104 | 6.57 | 17.88 |
+
+For two IMUs, a fix and satellite reports, the candidate needs 2,064 bytes for
+payload slots before padding, endpoint state and allocation overhead. Product
+latency, footprint and the effect of sensor and transport concurrency are still
+adoption gates.
 
 Data accounting excludes the isolated stop token, endpoint-closure probes and
 the owner’s derived reports. A handler may create several reports for one input.

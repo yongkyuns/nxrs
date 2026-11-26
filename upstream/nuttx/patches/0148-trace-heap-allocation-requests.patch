@@ -1,0 +1,184 @@
+diff --git a/mm/Kconfig b/mm/Kconfig
+--- a/mm/Kconfig
++++ b/mm/Kconfig
+@@ -127,6 +127,14 @@
+ 		Fill all free() with MM_FREE_MAGIC.
+ 		This helps detecting uninitialized variable errors.
+ 
++config MM_ALLOC_REQUEST_TRACE
++	bool "Track heap allocation requests"
++	depends on MM_DEFAULT_MANAGER && BUILD_FLAT && SCHED_INSTRUMENTATION_HEAP
++	default n
++	---help---
++		Count allocator entry calls per heap and emit caller addresses,
++		including requests which the allocator cannot satisfy.
++
+ config MM_BACKTRACE
+ 	int "The depth of backtrace"
+ 	default -1
+diff --git a/include/nuttx/sched_note.h b/include/nuttx/sched_note.h
+--- a/include/nuttx/sched_note.h
++++ b/include/nuttx/sched_note.h
+@@ -274,6 +274,8 @@
+   NOTE_DUMP_BINARY,
+   NOTE_DUMP_COUNTER,
+ 
++  NOTE_HEAP_REQUEST,
++
+   /* Always last */
+ 
+   NOTE_TYPE_LAST
+diff --git a/include/nuttx/mm/mm.h b/include/nuttx/mm/mm.h
+--- a/include/nuttx/mm/mm.h
++++ b/include/nuttx/mm/mm.h
+@@ -437,6 +437,17 @@
+ void kmm_extend(FAR void *mem, size_t size, int region);
+ #endif
+ 
++#ifdef CONFIG_MM_ALLOC_REQUEST_TRACE
++enum mm_request_e
++{
++  MM_REQUEST_MALLOC,
++  MM_REQUEST_MEMALIGN,
++  MM_REQUEST_REALLOC
++};
++
++uint64_t mm_alloc_requests(FAR struct mm_heap_s *heap);
++#endif
++
+ /* Functions contained in mm_mallinfo.c *************************************/
+ 
+ struct mallinfo mm_mallinfo(FAR struct mm_heap_s *heap);
+diff --git a/mm/mm_heap/mm.h b/mm/mm_heap/mm.h
+--- a/mm/mm_heap/mm.h
++++ b/mm/mm_heap/mm.h
+@@ -28,6 +28,7 @@
+  ****************************************************************************/
+ 
+ #include <nuttx/config.h>
++#include <nuttx/atomic.h>
+ 
+ #include <nuttx/mutex.h>
+ #include <nuttx/sched.h>
+@@ -236,6 +237,10 @@
+ 
+   size_t mm_curused;
+ 
++#ifdef CONFIG_MM_ALLOC_REQUEST_TRACE
++  atomic64_t mm_alloc_requests;
++#endif
++
+   /* The first and last allocated nodes of each region */
+ 
+   FAR struct mm_allocnode_s *mm_heapstart[CONFIG_MM_REGIONS];
+diff --git a/mm/mm_heap/mm_malloc.c b/mm/mm_heap/mm_malloc.c
+--- a/mm/mm_heap/mm_malloc.c
++++ b/mm/mm_heap/mm_malloc.c
+@@ -174,6 +174,12 @@
+   size_t nodesize;
+   FAR void *ret = NULL;
+   int ndx;
++
++#ifdef CONFIG_MM_ALLOC_REQUEST_TRACE
++  atomic64_add_relaxed(&heap->mm_alloc_requests, 1);
++  sched_note_heap(NOTE_HEAP_REQUEST, heap, __builtin_return_address(0),
++                  size, MM_REQUEST_MALLOC);
++#endif
+ 
+   /* Free the delay list first */
+ 
+@@ -411,3 +417,10 @@
+   DEBUGASSERT(ret == NULL || ((uintptr_t)ret) % MM_ALIGN == 0);
+   return ret;
+ }
++
++#ifdef CONFIG_MM_ALLOC_REQUEST_TRACE
++uint64_t mm_alloc_requests(FAR struct mm_heap_s *heap)
++{
++  return atomic64_read(&heap->mm_alloc_requests);
++}
++#endif
+diff --git a/mm/mm_heap/mm_memalign.c b/mm/mm_heap/mm_memalign.c
+--- a/mm/mm_heap/mm_memalign.c
++++ b/mm/mm_heap/mm_memalign.c
+@@ -61,6 +61,12 @@
+   size_t mask;
+   size_t allocsize;
+   size_t newsize;
++
++#ifdef CONFIG_MM_ALLOC_REQUEST_TRACE
++  atomic64_add_relaxed(&heap->mm_alloc_requests, 1);
++  sched_note_heap(NOTE_HEAP_REQUEST, heap, __builtin_return_address(0),
++                  size, MM_REQUEST_MEMALIGN);
++#endif
+ 
+   /* Make sure that alignment is less than half max size_t */
+ 
+diff --git a/mm/mm_heap/mm_realloc.c b/mm/mm_heap/mm_realloc.c
+--- a/mm/mm_heap/mm_realloc.c
++++ b/mm/mm_heap/mm_realloc.c
+@@ -77,6 +77,12 @@
+   size_t nextsize = 0;
+   FAR void *newmem;
+ 
++#ifdef CONFIG_MM_ALLOC_REQUEST_TRACE
++  atomic64_add_relaxed(&heap->mm_alloc_requests, 1);
++  sched_note_heap(NOTE_HEAP_REQUEST, heap, __builtin_return_address(0),
++                  size, MM_REQUEST_REALLOC);
++#endif
++
+   /* If oldmem is NULL, then realloc is equivalent to malloc */
+ 
+   if (oldmem == NULL)
+diff --git a/drivers/note/noteram_driver.c b/drivers/note/noteram_driver.c
+--- a/drivers/note/noteram_driver.c
++++ b/drivers/note/noteram_driver.c
+@@ -1251,6 +1251,23 @@
+       break;
+ #endif
+ #ifdef CONFIG_SCHED_INSTRUMENTATION_HEAP
++#  ifdef CONFIG_MM_ALLOC_REQUEST_TRACE
++    case NOTE_HEAP_REQUEST:
++      {
++        FAR struct note_heap_s *request = (FAR struct note_heap_s *)p;
++        static FAR const char * const ops[] =
++          {
++            "malloc", "memalign", "realloc"
++          };
++
++        ret += noteram_dump_header(s, &request->nhp_cmn, ctx);
++        ret += lib_sprintf(s, "heap_request: %s heap: %p size:%zu"
++                           " caller: %p\n",
++                           ops[request->used], request->heap,
++                           request->size, request->mem);
++      }
++      break;
++#  endif
+     case NOTE_HEAP_ADD:
+     case NOTE_HEAP_REMOVE:
+     case NOTE_HEAP_ALLOC:
+diff --git a/fs/procfs/fs_procfsmeminfo.c b/fs/procfs/fs_procfsmeminfo.c
+--- a/fs/procfs/fs_procfsmeminfo.c
++++ b/fs/procfs/fs_procfsmeminfo.c
+@@ -343,6 +343,21 @@
+           copysize   = procfs_memcpy(procfile->line, linesize, buffer,
+                                      buflen, &offset);
+           totalsize += copysize;
++
++#ifdef CONFIG_MM_ALLOC_REQUEST_TRACE
++          if (buflen > copysize && entry->mallinfo == NULL)
++            {
++              buffer += copysize;
++              buflen -= copysize;
++              linesize = procfs_snprintf(procfile->line, MEMINFO_LINELEN,
++                                         "requests %s %llu\n", entry->name,
++                                         (unsigned long long)
++                                         mm_alloc_requests(entry->heap));
++              copysize = procfs_memcpy(procfile->line, linesize, buffer,
++                                      buflen, &offset);
++              totalsize += copysize;
++            }
++#endif
+         }
+     }
+ 

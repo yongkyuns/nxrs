@@ -12,7 +12,7 @@ pub(super) use uplink::{Collector, Config as CellularConfig, Endpoint};
 pub(super) use wire::write_usb;
 
 use crate::tracker::Snapshot;
-use navigation::observations::SharedObservations;
+use navigation::observations::FixedReader;
 use std::cell::OnceCell;
 use std::io;
 use std::sync::{Arc, Mutex};
@@ -62,14 +62,23 @@ struct Shared {
 
 #[derive(Clone)]
 pub(super) struct Telemetry {
-    pub readings: SharedObservations<2>,
-    pub capture: Arc<Capture>,
-    pub interval: Duration,
+    // Keep the reader available if spawning the communications worker fails.
+    readings: Arc<Mutex<FixedReader<2>>>,
+    capture: Arc<Capture>,
+    interval: Duration,
 }
 
 impl Telemetry {
-    pub(super) fn snapshot(&self, now: Instant) -> Snapshot {
-        let mut snapshot = Snapshot::from(self.readings.snapshot(now));
+    pub fn new(readings: FixedReader<2>, capture: Arc<Capture>, interval: Duration) -> Self {
+        Self {
+            readings: Arc::new(Mutex::new(readings)),
+            capture,
+            interval,
+        }
+    }
+
+    fn snapshot(&self, readings: &mut FixedReader<2>, now: Instant) -> Snapshot {
+        let mut snapshot = Snapshot::from(readings.snapshot(now));
         snapshot.clock = self.capture.clock();
         snapshot
     }
@@ -196,12 +205,14 @@ fn run(
     telemetry.capture.register_owner();
     let collector = cellular.as_ref().and_then(|config| config.collector);
     let mut modem = cellular.map(uplink::Modem::start).transpose()?;
+    let mut readings = telemetry.readings.lock().unwrap();
     serve(
         shared,
         pair,
         modem.as_ref().map(|modem| (modem, collector)),
         tile_relay,
         &telemetry,
+        &mut readings,
         notify,
     );
     // Both transports and their shared TLS identity have left scope.
@@ -214,6 +225,7 @@ fn serve(
     modem: Option<(&uplink::Modem, Option<uplink::Collector>)>,
     tile_relay: Option<Endpoint>,
     telemetry: &Telemetry,
+    readings: &mut FixedReader<2>,
     notify: &mut impl FnMut(),
 ) {
     let identity = OnceCell::new();
@@ -283,7 +295,7 @@ fn serve(
         let fault = telemetry.capture.take_sensor_failed();
         let sample = (reporting && (fault || now >= next_report)).then(|| {
             next_report = now + telemetry.interval;
-            telemetry.snapshot(now)
+            telemetry.snapshot(readings, now)
         });
         tiles.select(tile, now);
         let mut phone_tile = None;
@@ -340,7 +352,7 @@ fn serve(
                     })
             } else {
                 upload.as_mut().map_or(Ok(false), |connection| {
-                    connection.service(reports, |now| telemetry.snapshot(now))
+                    connection.service(reports, |now| telemetry.snapshot(readings, now))
                 })
             };
             match progress {

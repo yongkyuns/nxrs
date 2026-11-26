@@ -10,6 +10,8 @@ use wifi::{
 };
 use wifi_scan_owner::{channels, OwnerError, OwnerReport};
 
+pub mod latest;
+
 const DEADLINE: Duration = Duration::from_secs(4);
 const WORKER_STACK: usize = if cfg!(target_os = "nuttx") {
     16_384
@@ -70,6 +72,7 @@ pub fn run(case: &str) -> Outcome {
         "owner-full-stop" => full_stop(),
         "owner-fairness-deadline" => fairness_deadline(),
         "owner-failure-recovery" => failure_recovery(),
+        "latest-value-progress" => latest::run(),
         _ => unreachable!(),
     }
 }

@@ -4,7 +4,7 @@ use communications::{
     Capture, CellularConfig, Collector, Communications, Endpoint, Pairing, Telemetry, View, Zoom,
 };
 use messaging::bounded;
-use navigation::observations::{Observation, ObservationService};
+use navigation::observations::{fixed_readers, Observation, ObservationService, Publisher};
 use screen::{Action, Screen};
 use std::io::{self, Write};
 use std::sync::{
@@ -153,6 +153,24 @@ pub(super) fn run(args: impl Iterator<Item = String>) -> io::Result<()> {
     crate::health::run(|timer| track(options, timer))
 }
 
+fn sensor_events(
+    mut output: Publisher<2>,
+    capture: Arc<Capture>,
+) -> impl FnMut(Observation) -> Option<Event> {
+    move |event| match output.record(&event) {
+        Ok(sample) => {
+            if let Some(sample) = sample {
+                capture.record(sample);
+            }
+            None
+        }
+        Err(_) => {
+            capture.sensor_failed();
+            Some(Event::SensorChanged)
+        }
+    }
+}
+
 fn track(
     options: Options,
     mut timer: Option<&mut dyn watchdog::RuntimeWatchdog>,
@@ -186,27 +204,10 @@ fn track(
         [primary_scale, secondary_scale]
             .map(|applied| applied.ok().and_then(|config| config.counts_scale)),
     ));
-    let (mut sensors, readings) = ObservationService::new_shared(IMU_FRESH, Some(FIX_FRESH));
-    let sensor_event = {
-        let capture = capture.clone();
-        let readings = readings.clone();
-        move |event: Observation| {
-            match readings.record(&event) {
-                Ok(Some(sample)) => capture.record(sample),
-                Ok(None) => {}
-                Err(_) => {
-                    capture.sensor_failed();
-                    return Some(Event::SensorChanged);
-                }
-            }
-            None
-        }
-    };
-    let telemetry = Telemetry {
-        readings,
-        capture,
-        interval,
-    };
+    let mut sensors = ObservationService::new(IMU_FRESH, Some(FIX_FRESH));
+    let ([primary_output, secondary_output], gnss_output, [mut dashboard, links]) =
+        fixed_readers(IMU_FRESH, FIX_FRESH);
+    let telemetry = Telemetry::new(links, capture.clone(), interval);
     let mut communications =
         (options.ble || options.cellular.is_some() || options.tile_relay.is_some())
             .then(|| {
@@ -222,20 +223,32 @@ fn track(
     let mut view = View::default();
     let mut required = Ok(());
     for result in [
-        sensors.start_imu_with(0, primary, events.clone(), sensor_event.clone()),
+        sensors.start_imu_with(
+            0,
+            primary,
+            events.clone(),
+            sensor_events(primary_output, capture.clone()),
+        ),
         sensors.start_gnss_with(
             composition::gnss::primary_gnss(),
             events.clone(),
-            sensor_event.clone(),
+            sensor_events(gnss_output, capture.clone()),
         ),
     ] {
         if let Err(fault) = result {
+            dashboard.fail(fault);
             report_fault(fault);
             required = Err(io::Error::other(format!("open required sensor: {fault:?}")));
         }
     }
     if required.is_ok() && secondary_present {
-        if let Err(fault) = sensors.start_imu_with(1, secondary, events.clone(), sensor_event) {
+        if let Err(fault) = sensors.start_imu_with(
+            1,
+            secondary,
+            events.clone(),
+            sensor_events(secondary_output, capture.clone()),
+        ) {
+            dashboard.fail(fault);
             report_fault(fault);
         }
     }
@@ -315,7 +328,10 @@ fn track(
                         }
                     }
                 }
-                sensors.reap_finished(report_fault);
+                sensors.reap_finished(|fault| {
+                    dashboard.fail(fault);
+                    report_fault(fault);
+                });
                 if touch.as_ref().is_some_and(touch::Session::is_finished) {
                     let mut finished = touch.take().unwrap();
                     let result = finished.join();
@@ -323,7 +339,8 @@ fn track(
                 }
             }
             if report_due {
-                let snapshot = telemetry.snapshot(now);
+                let mut snapshot = Snapshot::from(dashboard.snapshot(now));
+                snapshot.clock = capture.clock();
                 if let Some(serial) = &mut serial {
                     communications::write_usb(&mut serial.lock(), &snapshot)?;
                 }
@@ -355,13 +372,13 @@ fn track(
                 next = now + interval;
             }
             if let Some(screen) = screen.as_mut().filter(|_| plot_due || redraw) {
-                let snapshot = Snapshot::from(sensors.snapshot(now));
+                let snapshot = Snapshot::from(dashboard.snapshot(now));
                 screen
                     .draw(
                         view.link,
                         &snapshot,
                         now,
-                        || telemetry.readings.satellites(now),
+                        || dashboard.satellites(now),
                         |wanted| communications.as_ref().and_then(|links| links.map(wanted)),
                     )
                     .map_err(display_error)?;

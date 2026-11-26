@@ -158,21 +158,20 @@ permissions or substitute for a physical-board memory map.
 
 ## Enable diagnostic recording
 
-[PR #447](https://github.com/yongkyuns/nxrs/pull/447) owns the opt-in configuration
-path for flat NuttX builds using the default allocator:
+For flat NuttX builds using the default allocator, enable diagnostics in the
+product profile:
 
 ```toml
 [build]
 diagnostics = true
 ```
 
-Use that setting with the normal `cargo nxrs build` workflow once the diagnostic
-build changes are integrated. The viewer does not add a second build switch.
+Use that setting with the normal `cargo nxrs build` workflow.
 The diagnostic setting enables heap request counters, stack coloration, and
 bounded scheduler, interrupt, and heap instrumentation. Recording is controlled
 at runtime by `trace start` and `trace stop`; enabling instrumentation does not
-mean that every event since boot was recorded. See the diagnostic PR's
-[capture guide](https://github.com/yongkyuns/nxrs/blob/c01848fd4336181f364f8d3fa01e18be629614d1/docs/nuttx-memory-qualification.md#diagnostic-builds)
+mean that every event since boot was recorded. See the
+[capture guide](../../docs/nuttx-memory-qualification.md#diagnostic-builds)
 for its buffer, stack, target, and trace-mode requirements.
 
 Addressed heap snapshots are a separate debugger observation. They require
