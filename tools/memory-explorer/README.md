@@ -194,6 +194,78 @@ Only exact captured points have runtime state. Between points the runtime layers
 are hidden and marked unknown. Pointer reuse and allocate/free operations between
 those points cannot be reconstructed from snapshots.
 
+## Qualify a real QEMU capture
+
+The [QEMU harness](tests/qualify_qemu.py) runs the existing `std-demo` MPS2
+firmware with a Python-enabled `gdb-multiarch`. It captures three stopped points:
+NSH ready, entry to `std_demo_main`, and return to NSH after
+`std_demo --case channels`. A separate debugger walk reads allocator headers
+and task metadata directly from target memory, compares those facts with the
+exported JSON, and checks that the observed metadata is unchanged across each
+export. The workload must pass, its entry task must retire, and heap topology
+must change across both transitions. No target function is invoked to collect
+the observations.
+
+Use a POSIX host, host `readelf`, and QEMU with the corrected MPS2 UART wiring
+(present in upstream [9.2.0](https://github.com/qemu/qemu/blob/v9.2.0/hw/arm/mps2-tz.c);
+8.2.2 has the old wiring). Reuse an existing diagnostic build, or build
+it through the normal frontend. Run these commands from the repository root:
+
+```sh
+firmware="$PWD/target/build/std-demo/mps2-an521-mock"
+capture="$PWD/target/memory-explorer-qemu/qualification-001"
+
+NXRS_NUTTX_DIAGNOSTIC_UNWIND=1 cargo +1.90.0 nxrs build \
+  --app std-demo --profile mps2-an521-mock --out "$firmware"
+
+python3 tools/memory-explorer/tests/qualify_qemu.py \
+  --qemu "$(command -v qemu-system-arm)" \
+  --gdb "$(command -v gdb-multiarch)" \
+  --image "$firmware/nuttx/nuttx" \
+  --config "$firmware/resolved.config" \
+  --pynuttx "$firmware/nuttx/tools/pynuttx" \
+  --output "$capture"
+
+NXRS_MEMORY_QEMU_EVIDENCE="$capture" \
+NXRS_MEMORY_QEMU_ELF="$firmware/nuttx/nuttx" \
+  cargo +1.90.0 test --locked -p nxrs-memory-explorer \
+    --test qemu_capture -- --ignored --nocapture
+```
+
+Choose a **new output directory for every run**; the harness refuses an existing
+directory. It uses a bounded QEMU/GDB pipe session and records the exact ELF and
+configuration hashes, tool versions, console/GDB logs, `raw-0.json` through
+`raw-2.json`, `capture-0.json` through `capture-2.json`, and `report.json`.
+The Rust test is ignored in ordinary host test runs and requires those real
+observations explicitly. Absolute environment paths avoid Cargo's package
+working-directory ambiguity.
+
+Open the three points in the viewer:
+
+```sh
+cargo run --locked -p nxrs-memory-explorer --features gui -- \
+  --elf "$firmware/nuttx/nuttx" \
+  --map "$firmware/nuttx/nuttx.map" \
+  --snapshot "$capture/capture-0.json" \
+  --snapshot "$capture/capture-1.json" \
+  --snapshot "$capture/capture-2.json"
+```
+
+The coordinates `0`, `1000000000`, and `2000000000` are manually assigned ordering
+coordinates, not measured elapsed time. The middle point precedes the Rust
+workload; it does not capture its peak or every transient worker. Unchanged
+captured metadata establishes no observed exporter mutation of those fields,
+not proof about all memory or every possible stopping point. Deferred frees
+remain allocated in this read-only view and are not by themselves a leak finding.
+CPU backing remains unknown unless a verified layout is supplied. This is
+NuttX/QEMU execution evidence, not physical-board or timing qualification.
+
+The existing [std-apps ARM workflow](../../.github/workflows/std-apps-self-hosted.yml)
+reuses its `std-demo` build for this capture/import gate after the existing
+lifecycle checks and retains the memory-explorer evidence with the firmware
+artifact. The [qualification guide](../../docs/nuttx-memory-qualification.md#real-qemu-capture-witness)
+records the initial real-target witness and its scope.
+
 ## File format
 
 Version 1 uses UTF-8 JSON for offline observations and an optional separate

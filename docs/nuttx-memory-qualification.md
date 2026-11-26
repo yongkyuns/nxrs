@@ -106,6 +106,45 @@ Physical backing requires an explicit board layout. The tool's guide describes
 capture prerequisites, file semantics, controls, and the remaining qualification
 work in issue #442.
 
+### Real QEMU capture witness
+
+The [repeatable capture commands](../tools/memory-explorer/README.md#qualify-a-real-qemu-capture)
+reuse the existing `std-demo` / `mps2-an521-mock` build. The
+[harness](../tools/memory-explorer/tests/qualify_qemu.py) boots that exact ELF,
+runs `std_demo --case channels`, and compares every exported chunk boundary and
+state, plus represented stack bounds, with an independent raw target-memory
+walk. Captured allocator/task metadata must remain unchanged across each export.
+The [Rust import test](../tools/memory-explorer/tests/qemu_capture.rs) then checks
+the real observations against those raw records, including per-arena accounting
+and unknown state between points. That test is explicitly ignored unless its
+evidence directory and exact ELF are supplied.
+
+The initial witness used QEMU 10.0.13 and GDB 16.3 with ELF SHA-256
+`c08b9a62c164948cb348bf85d546f1a96b66143ba18306722c739158f596435f`:
+
+| Stopped point | Raw chunks | Represented task stacks |
+| --- | ---: | ---: |
+| NSH ready | 27 | 3 |
+| `std_demo_main` entry | 32 | 4 |
+| Return after the channels case | 35 | 3 |
+
+The workload passed and all three raw/export comparisons found no change in the
+captured metadata during export. These counts describe this image and run, not
+fixed future acceptance thresholds. The final capture recorded four deferred
+frees; the exporter leaves them untouched, so this is not a leak finding or a
+replacement for the drained, repeated-lifecycle gate above. Coordinates `0`,
+`1000000000`, and `2000000000` label observation order, not measured durations.
+The entry capture precedes the channels workload and does not measure peak
+allocation or worker-stack use. No physical backing map is inferred.
+
+The [std-apps workflow](../.github/workflows/std-apps-self-hosted.yml) runs this
+additional capture/import gate for its existing `std-demo` ARM build after the
+ordinary lifecycle checks. Its firmware artifact retains the exact ELF/map,
+capture and independent raw JSON, configuration, hashes, tool versions, and
+logs. QEMU execution validates the adapter on this Cortex-M33 runtime proxy;
+physical boards and other allocator configurations still require their own
+qualification.
+
 ## Flat-build pthread key patchset
 
 The pinned NuttX submodule and fork are not modified. At build time,

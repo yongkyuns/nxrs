@@ -13,6 +13,7 @@ on:
       - 'driver/**'
       - 'shared/messaging/**'
       - 'tools/build-support/**'
+      - 'tools/memory-explorer/**'
       - 'platform/Cargo.toml'
       - 'platform/src/**'
       - 'platform/tests/**'
@@ -56,6 +57,7 @@ on:
       - 'driver/**'
       - 'shared/messaging/**'
       - 'tools/build-support/**'
+      - 'tools/memory-explorer/**'
       - 'platform/Cargo.toml'
       - 'platform/src/**'
       - 'platform/tests/**'
@@ -265,7 +267,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          bash .github/scripts/install-ubuntu-packages.sh gcc-arm-none-eabi binutils-arm-none-eabi libnewlib-arm-none-eabi qemu-system-arm bison flex gperf kconfig-frontends genromfs libncurses-dev python3 python3-venv curl build-essential
+          bash .github/scripts/install-ubuntu-packages.sh gcc-arm-none-eabi binutils-arm-none-eabi libnewlib-arm-none-eabi qemu-system-arm gdb-multiarch bison flex gperf kconfig-frontends genromfs libncurses-dev python3 python3-venv curl build-essential
           qemu-system-arm --version
           export PATH="$HOME/.cargo/bin:$PATH"
           if ! command -v rustup >/dev/null 2>&1; then
@@ -308,6 +310,29 @@ jobs:
           APP: ${{ matrix.app }}
         run: |
           python3 tests/host/run-std-apps-nuttx.py --qemu "$(command -v qemu-system-arm)" --app "$APP" --image "target/firmware/$APP/mps2-an521-mock/nuttx/nuttx" --log "target/firmware/$APP/mps2-an521-mock/console.log"
+      - name: Capture and verify stopped QEMU heap and task observations
+        if: matrix.app == 'std-demo'
+        shell: bash
+        run: |
+          set -euo pipefail
+          output=target/firmware/std-demo/mps2-an521-mock
+          python3 tools/memory-explorer/tests/qualify_qemu.py \
+            --qemu "$(command -v qemu-system-arm)" \
+            --gdb "$(command -v gdb-multiarch)" \
+            --image "$output/nuttx/nuttx" \
+            --config "$output/resolved.config" \
+            --pynuttx "$output/nuttx/tools/pynuttx" \
+            --output "$output/memory-explorer"
+      - name: Import real QEMU observations and verify the Rust memory model
+        if: matrix.app == 'std-demo'
+        shell: bash
+        run: |
+          set -euo pipefail
+          output="$GITHUB_WORKSPACE/target/firmware/std-demo/mps2-an521-mock"
+          NXRS_MEMORY_QEMU_EVIDENCE="$output/memory-explorer" \
+          NXRS_MEMORY_QEMU_ELF="$output/nuttx/nuttx" \
+            cargo +1.90.0 test --locked -p nxrs-memory-explorer \
+              --test qemu_capture -- --ignored --nocapture
       - name: Retain firmware qualification
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -318,6 +343,8 @@ jobs:
             target/firmware/${{ matrix.app }}/*/*.json
             target/firmware/${{ matrix.app }}/*/*.config
             target/firmware/${{ matrix.app }}/*/nuttx/nuttx
+            target/firmware/${{ matrix.app }}/*/nuttx/nuttx.map
             target/firmware/${{ matrix.app }}/*/nuttx/nuttx.uf2
             target/firmware/${{ matrix.app }}/*/nuttx/nuttx.bin
+            target/firmware/${{ matrix.app }}/*/memory-explorer/
           if-no-files-found: warn

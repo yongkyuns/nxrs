@@ -51,13 +51,14 @@ jobs:
           python-version: '3.12'
       - name: Linux rendering prerequisites
         if: runner.os == 'Linux'
-        run: bash .github/scripts/install-ubuntu-packages.sh libxkbcommon-dev libgl1-mesa-dev xvfb xauth
+        # winit loads libxkbcommon-x11.so.0 at runtime under Xvfb/X11.
+        run: bash .github/scripts/install-ubuntu-packages.sh libxkbcommon-dev libxkbcommon-x11-0 libgl1-mesa-dev xvfb xauth
       - name: Formatting
         run: cargo fmt --check -p nxrs-memory-explorer
       - name: Model and independently linked ELF tests
         run: cargo test --locked -p nxrs-memory-explorer
       - name: NuttX debugger exporter contract
-        run: python -m unittest discover -s tools/memory-explorer/tests -p test_gdb_export.py -v
+        run: python -m unittest discover -s tools/memory-explorer/tests -p 'test_*.py' -v
       - name: GUI contracts
         run: cargo test --locked -p nxrs-memory-explorer --features gui --bin nxrs-memory-explorer
       - name: Lint
