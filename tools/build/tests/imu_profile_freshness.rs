@@ -25,7 +25,7 @@ fn profile_switch_refreshes_generated_sensor_bindings_in_the_same_cargo_output()
     bsp["resources"]
         .as_table_mut()
         .unwrap()
-        .insert("spi2".into(), devkit["resources"]["spi2"].clone());
+        .insert("spi2", devkit["resources"]["spi2"].clone());
     fs::write(
         sdk.join("platform/nuttx/resources/esp32s3-m5-cores3.toml"),
         bsp.to_string(),

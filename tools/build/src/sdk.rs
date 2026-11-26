@@ -494,6 +494,7 @@ mod tests {
         // Apply the real patch, then compile its actual init function with
         // observable OS/main-ID dependencies. The old source is a negative
         // control; this is not a claim of target ABI qualification.
+        let function = regex::Regex::new(r"(?ms)^unsafe fn init\(.*?^\}").unwrap();
         for current in [false, true] {
             let temp = crate::TempDir::new(&std::env::temp_dir()).unwrap();
             let runtime = temp.0.join(LIBRARY).join("std/src/rt.rs");
@@ -537,7 +538,6 @@ unsafe fn init(argc: isize, argv: *const *const u8, sigpipe: u8) {
             );
             assert!(source::patch(&temp.0, &patch).is_err());
             let patched = read(&runtime).unwrap();
-            let function = regex::Regex::new(r"(?ms)^unsafe fn init\(.*?^\}").unwrap();
             let dependencies = r#"
 use std::sync::Once;
 mod thread {

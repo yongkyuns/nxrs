@@ -431,6 +431,7 @@ fn stage_application(root: &Path, out: &Path) -> Result<PathBuf> {
     Ok(entry)
 }
 
+#[derive(Default)]
 pub struct Inspection(Option<(crate::TempDir, String, String)>);
 
 impl Inspection {
