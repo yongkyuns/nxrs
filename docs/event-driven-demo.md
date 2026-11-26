@@ -40,6 +40,46 @@ Synthetic sources use timers solely as explicit mocks; production providers use
 UART readiness or IMU IRQ/ODR-derived wakes. The stock unwired M135 uses a HAL
 timer; a configured IRQ failure remains an error.
 
+## Control without suspending observation
+
+The app registers its thread's wake operation when starting IMU, GNSS and fusion.
+It then uses one `park_timeout` wait for output, control completions and its next
+absolute deadline. Before each wait it checks both retained control replies and
+drains at most eight fusion outputs. A full batch immediately starts another
+dispatch turn, so a coalesced wake cannot strand the remaining output. Deadlines
+are checked even when data stays ready.
+
+`try_request(ControlRequest::Pause)` attempts admission and returns a `RequestId`.
+`try_completion()` later returns the matching command and resulting status. The
+same interface handles resume and status requests. Each sensor handle has one
+reply slot allocated at startup and permits one outstanding retained request until
+that reply is consumed. Requests do not create channels. `Busy`, `Full`, `Closed` and
+identifier exhaustion are explicit admission failures. The older `pause`,
+`resume` and `status` methods remain blocking conveniences for callers that can
+wait; this observation loop does not use them.
+
+The two reply channels and their endpoint bookkeeping add permanent startup
+storage to this demonstration, including when callers use the compatibility
+`start_on` entry point. They add no worker or stack reservation. Existing handle
+`Send`/`Sync` support is preserved; the retained request API requires an exclusive
+mutable borrow. A private receiver wrapper uses only `Mutex::get_mut`, so this
+compatibility wrapper performs no lock acquisition in request or completion calls.
+
+Replies are retained before the wake callback runs. The callback only wakes the
+owner or attempts bounded notification; it must not wait, perform I/O, or run the
+recipient's handler. Failed startup may invoke the sensor retirement wake from
+the startup caller. A rejected wake does not remove its reply. Callers using an
+inbox for wake hints must reconcile retained replies between dispatches. Request
+IDs belong to one unique handle, whose reply storage is never shared with a
+replacement session; an old wake can only trigger another inspection.
+
+The demonstration retries full command admission every five milliseconds and
+expires a control phase after one second. Both use the same deadline-aware wait.
+Expiry ends observation and enters explicit teardown; it does not reopen the
+service's request slot or claim cancellation completed. The two phase decisions
+remain ordered while fusion output continues to be consumed. These constants and
+console reporting illustrate a workflow, not a product response-time guarantee.
+
 ## Lifetime and overload
 
 Create inboxes and sinks before starting acquisition. Ordinary queue-full
@@ -52,6 +92,9 @@ before reporting resource release. Explicit fusion stop drains previously
 admitted inputs; abandoned handles cancel immediately. Drop requests cancellation without joining;
 the detached worker retains resources until its cleanup completes. Terminal
 cleanup failures quarantine the corresponding native capability until reboot.
+Partial startup rolls back owners already started. Observation failure or command
+expiry also joins all started owners before returning the error. An abandoned
+control reply cannot block the service's completion or teardown.
 
 IMU samples carry SI units, host receive time and nominal hardware sample
 interval. Fusion integrates consecutive samples using that interval, skips
@@ -62,7 +105,10 @@ Full FIFO is an explicit source fault.
 ## Qualification
 
 `service/navigation/tests/active.rs` exercises event delivery, pause/resume and
-explicit teardown using mocks. Sensor HAL suites exercise UBX fragmentation,
+explicit teardown using mocks, including retained control replies and the common
+wake point. The control unit cases cover a delayed owner, full wake inbox,
+admission rejection, closure, late consumption and request-identifier exhaustion.
+Sensor HAL suites exercise UBX fragmentation,
 FIFO framing, units, overload and failures. `tests/host/test-event-demo-nuttx.py`
 checks the actual demo transcript in existing NuttX simulator/QEMU runs.
 
