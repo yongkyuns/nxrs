@@ -5,6 +5,63 @@ This qualification complements the host Rust `GlobalAlloc` measurements in
 Cortex-M33/MPS2 qualification image; it does not reinterpret Rust allocator
 counters as operating-system memory.
 
+## Diagnostic builds
+
+Add this to a flat NuttX product profile that uses the default allocator.
+The option is off by default and is independent of the application.
+
+```toml
+[build]
+diagnostics = true
+```
+
+ESP32-S3 diagnostics currently require effective `CONFIG_SMP=n`. Its hardware
+performance counter belongs to each CPU, while the pinned overflow correction
+keeps one shared epoch; counters from different CPUs cannot be treated as one
+clock. Explicit `SMP=y` requests fail before native preparation, and a resolved
+SMP configuration fails validation. Enabling diagnostics does not turn off SMP
+in an existing product profile. A shared, qualified clock is required before
+admitting ESP32-S3 SMP diagnostics.
+
+Motion Tracker's `esp32s3-qemu-tracker-diagnostics` fixture profile enables the
+option. For physical CoreS3 builds, use `cores3-tracker-diagnostics`.
+Diagnostic builds with the default NSH init allow background jobs, so you can
+run the app with `&` and inspect live workers from the same console. Take a
+baseline, then capture a short reproduction. Save the console output as text.
+
+```text
+cat /proc/meminfo
+ps
+cat /proc/<pid>/stack
+trace mode +o +w +i
+trace start
+trace stop
+trace dump
+cat /proc/meminfo
+```
+
+Run the workload between `trace start` and `trace stop`. The 8 KiB trace
+buffer retains the newest events with `+o`. Each `trace` invocation needs a
+4 KiB task stack. Use `-w -i` to preserve more heap history when investigating
+allocations. A `requests <heap> <count>` row
+in `/proc/meminfo` counts allocator entries since heap initialization, even
+when tracing is stopped. It includes failed requests, retries, and backing
+allocations within other allocator calls. Taking a snapshot can itself use OS
+memory. A slot taken from an already reserved application pool does not enter
+the OS allocator.
+
+```sh
+python3 tools/nuttx-trace-to-perfetto.py console.txt diagnostic-trace.json
+```
+
+Open the JSON in [Perfetto](https://ui.perfetto.dev/) to correlate heap requests
+and heap usage with scheduler switches and IRQ handlers. A request records the
+task, operation, byte count, heap address, and immediate caller. Resolve the
+caller using the target toolchain's `addr2line -f -C -e` and the matching
+unstripped `nuttx/nuttx` ELF. The caller can be a libc wrapper such as
+`malloc`. The separate heap usage events show successful allocations and
+frees. Use a matched ordinary image to measure production throughput.
+
 ## What is measured
 
 The MPS2 profile explicitly requires `CONFIG_FS_PROCFS=y` and
