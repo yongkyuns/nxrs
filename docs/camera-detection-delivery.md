@@ -216,3 +216,19 @@ Its native reference alternates red/person and blue/clear pixels, independently
 checks pixel-to-metadata correspondence, then repeats after a source stall and
 restart. This qualifies delivery and clearing, not model accuracy. The pinned
 model, preprocessing and acceptance threshold remain unchanged.
+
+### Physical iPhone decoder check (2026-10-23)
+
+Two 60-second hosted XCTest runs on a physical iPhone exercised the production
+monitor view and native decoder against a single-core ESP32-S3 build
+(`83db7b80`). The tests counted decoded frames and sampled the associated
+detection metadata.
+
+| Run | Decoded frames | Decoder FPS | Sampled frames with mapped metadata |
+| --- | ---: | ---: | ---: |
+| 1 | 879 | 14.65 | 651 / 651 |
+| 2 | 909 | 15.14 | 671 / 671 |
+
+The harness exercised pause and resume through the app's lifecycle callbacks.
+Display refresh, full-screen playback, and backgrounding through the iOS Home
+gesture were outside the test scope.
