@@ -12,6 +12,7 @@ The website is static HTML, CSS, and JavaScript generated from the guide and rep
 - `static/`: local styles, search, theme, and navigation behavior.
 - `examples/basic-firmware/`: a dependency-free Cargo workspace used by the introductory guides.
 - `examples/controller/`: a runnable controller that switches an output and reports completed commands.
+- `examples/pulse-controller/`: a controller that configures PWM and receives GPIO observations through a bounded inbox.
 - `examples/matter-led/`: the same controller and simulated LED, exposed as a Matter light to Home Assistant.
 - `../docs/`: maintained engineering references, rendered from their original Markdown sources.
 
@@ -112,3 +113,5 @@ Repository Settings → Pages → Build and deployment → Source must be **GitH
 The Website workflow builds the Rust API artifact once, renders both `/nxrs/` and `/`, checks examples and content, runs browser tests, and retains preview and API build records. Pull requests only validate. Publication runs from `main` after the build succeeds, using the generated `target/website` artifact and scoped Pages permissions.
 
 The published address is `https://yongkyuns.github.io/nxrs/`. A successful validation run is separate from the Publish GitHub Pages job. Repository source files and artwork remain the maintained inputs.
+
+Run host, QEMU, or on-board checks for the [pulse controller](guide/pulse-controller.md) with `website/tests/pulse_controller_example.py`. Its serial mode uses the receipts from an existing firmware build.

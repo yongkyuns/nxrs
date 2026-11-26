@@ -17,3 +17,7 @@ impl embedded_hal::pwm::Error for Error {
 mod platform;
 #[cfg(target_os = "nuttx")]
 pub use platform::nuttx::Output;
+
+#[cfg(all(test, unix))]
+#[allow(unsafe_code)]
+mod test_support;

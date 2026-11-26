@@ -392,3 +392,5 @@ to switch the simulated LED from Home Assistant.
 Start by defining the new command, its result, and how failure affects later commands. Keep output operations in the controller. If you add a recorder or network worker, decide how much work it can queue and when it reports success.
 
 [Designing an application](designing-applications.md) covers those choices. [Networking and storage](io.md) links the existing I/O contracts, and [Testing and debugging](testing.md) explains how to move from controlled fixtures to target and physical-device evidence.
+
+[Observe a PWM output](pulse-controller.md) adds a continuous stream of GPIO notifications and runs on WROOM and Pico 2 W.

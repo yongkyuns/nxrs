@@ -1,0 +1,6 @@
+# Reuse the qualified native endpoints for ordinary pulse applications.
+extends = "esp32s3-peripherals"
+
+[composition]
+version = 1
+mode = "hardware"

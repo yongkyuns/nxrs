@@ -5,7 +5,7 @@ crossdev = "arm-none-eabi-"
 machine = "ARM"
 image = "nuttx.bin"
 requires-qemu = false
-hal = { boot = "nuttx", rtc = "nuttx", watchdog = "nuttx", flash = "nuttx" }
+hal = { boot = "nuttx", rtc = "nuttx", watchdog = "nuttx", flash = "nuttx", pulse = "nuttx" }
 
 [build]
 size-optimized = true
@@ -54,6 +54,13 @@ mode = "runtime"
 
 [flash]
 device = "/dev/rpflash"
+
+# Match the existing acquisition stack request; measure headroom on the board.
+# PWM7 and GPIO input sense the same GP14 pad without a jumper.
+[pulse]
+pwm-device = "/dev/pwm7"
+input-device = "/dev/gpio14"
+stack-bytes = 8192
 
 [composition]
 version = 1

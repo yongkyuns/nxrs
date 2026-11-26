@@ -18,9 +18,19 @@ on:
       - 'upstream/nuttx-apps/patches/**'
       - 'tools/apply-nuttx-patches.py'
       - 'hal/tls/**'
+      - 'hal/pulse/**'
+      - 'shared/acquisition/**'
+      - 'hal/boot/**'
+      - 'hal/watchdog/**'
+      - 'driver/gpio/**'
+      - 'driver/pwm/**'
+      - 'website/examples/pulse-controller/**'
       - 'upstream/mbedtls/**'
       - 'tests/profiles/pico2-tls.toml'
       - 'tests/profiles/pico2w-mpsc.toml'
+      - 'tests/profiles/pico2w-peripherals.toml'
+      - 'platform/pico2w/profiles/pico2w-pulse.toml'
+      - 'rust-toolchain.toml'
       - 'tools/build-support/**'
       - 'tools/build-nuttx-std-app.sh'
       - 'tools/build/**'
@@ -46,6 +56,7 @@ jobs:
           submodules: true
       - name: Install isolated Rust and ARM tools
         run: |
+          rustup toolchain install 1.90.0 --profile minimal
           rustup toolchain install nightly-2025-09-15 --profile minimal --component rust-src
           bash .github/scripts/install-ubuntu-packages.sh gcc-arm-none-eabi binutils-arm-none-eabi libnewlib-arm-none-eabi bison flex gperf kconfig-frontends genromfs libncurses-dev
           python3 -m pip install --break-system-packages kconfiglib==14.1.0
@@ -73,6 +84,10 @@ jobs:
           for symbol in tls_endpoint_main psa_generate_key mbedtls_x509write_csr_pem mbedtls_platform_get_entropy rp23xx_rng_read mbedtls_ssl_handshake_step mbedtls_ssl_read mbedtls_ssl_write tls_platform_time; do
             grep -Eq " [TtWw] $symbol$" target/nuttx-pico2/symbols.txt
           done
+      - name: Cross-build the canonical controller for Pico 2 W peripherals
+        run: |
+          cargo +1.90.0 nxrs build --manifest-path website/examples/pulse-controller/Cargo.toml \
+            --profile pico2w-pulse --out target/controller-pico2w
       - name: Retain build evidence, not a hardware execution claim
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -90,4 +105,11 @@ jobs:
             target/nuttx-pico2/nuttx/nuttx
             target/nuttx-pico2/nuttx/nuttx.bin
             target/nuttx-pico2/nuttx/nuttx.map
+            target/controller-pico2w/*.json
+            target/controller-pico2w/*.config
+            target/controller-pico2w/*.sha256
+            target/controller-pico2w/provenance.txt
+            target/controller-pico2w/nuttx/nuttx
+            target/controller-pico2w/nuttx/nuttx.bin
+            target/controller-pico2w/nuttx/nuttx.map
           if-no-files-found: warn

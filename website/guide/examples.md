@@ -9,6 +9,7 @@ Run a small Rust program to learn an API, or pick an integration that matches th
 | Build and run a Rust application | [Basic firmware](#basic-firmware) | Yes, as host Rust and in the firmware tutorial |
 | Send messages to a worker and stop it cleanly | [Basic firmware worker](#basic-firmware) | Yes, using the same tutorial workspace |
 | Switch an output and confirm each command | [Controller application](#controller-application) | Yes, with the explicit LED mock on the host and in QEMU |
+| Control PWM and observe output notifications | [Pulse controller](pulse-controller.md) | Yes, with mock pulses. WROOM and Pico 2 W use GPIO readback |
 | Switch a light from Home Assistant | [Simulated Matter light](../examples/matter-led/README.md) | Yes, with the same LED mock and a Matter controller |
 | Try an ESP32-S3 touchscreen and BLE pairing | [Motion Tracker in the browser](motion-tracker.md) | Yes, with two NuttX cores and modeled peripherals |
 | Use Rust collections, channels, and deadlines | [Standard-library recipes](#standard-library-recipes) | Yes |
