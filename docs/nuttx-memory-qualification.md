@@ -343,6 +343,108 @@ The native timing ELF and the separate Rust `std-demo` heap ELF have different
 identities; they are separate observations and are not one synchronized runtime
 history.
 
+### Linked QEMU lifecycle witness
+
+The native timing fixture also supports a stopped-checkpoint mode that supplies
+memory and timing from one firmware invocation. It qualifies the viewer's
+[linked checkpoint navigation](../tools/memory-explorer/README.md#link-memory-checkpoints-to-timing),
+including an actual free hole between live allocations. This mode retains the
+ordinary continuously running timing witness above as a separate regression.
+
+The [lifecycle harness](../tools/memory-explorer/tests/qualify_lifecycle_qemu.py)
+starts the exact ELF in QEMU and supplies a fresh 128-bit recording nonce to
+`memory_timing --checkpoints`. At each of four checkpoints, the single-core
+fixture enters a native critical section, masks interrupts with PRIMASK, emits
+`memory/checkpoint/<id>`, and reaches a hardware breakpoint. The admitted sole
+note driver writes a fixed RAM ring and has no poll subscriber that could wake
+another task. This preserves heap topology and task-stack reservations from the
+marker to the debugger stop; it does not establish current stack usage.
+
+The debugger checks those conditions, independently decodes the last native note
+from the ring, and compares raw allocator headers and task metadata before and
+after the read-only exporter. The dedicated timer must remain unchanged while
+stopped. After the workload finishes, the host requires the ring note's exact
+marker, CPU, task, and timestamp to match the raw UART note. Only then does it
+write a correlated snapshot. Original exporter observations remain in separate
+`unbound-N.json` files, alongside the raw observations and note bytes.
+
+The first qualified interior-hole run used QEMU 10.0.13, GDB 16.3, and ELF SHA-256
+`77f86bbabdd4c829ecd1d97ea4b11b84539460a65fc270edf44edd8599716242`.
+Its recording ID was `32c749812a07eafbe1f65ac4dcd4402e` and the trace source origin
+was 20,655,250 ns. These are observations from that run, not future thresholds.
+
+| Checkpoint | Source time (ns) | Raw chunks | Task stacks | Allocated chunk bytes |
+| --- | ---: | ---: | ---: | ---: |
+| Baseline | 21,290,100 | 37 | 4 | 21,528 |
+| Three allocations | 27,382,900 | 40 | 4 | 87,208 |
+| Middle allocation freed | 48,796,150 | 42 | 5 | 62,896 |
+| Workload released | 84,967,650 | 40 | 4 | 30,032 |
+
+The controlled requests are 16 KiB, 32 KiB, and 16 KiB. Each observed chunk has
+48 bytes of allocator overhead. The three chunks occupy adjacent ranges
+`[0x38012788, 0x380167b8)`, `[0x380167b8, 0x3801e7e8)`, and
+`[0x3801e7e8, 0x38022818)`. At checkpoint 3, the middle range is explicitly free
+and both neighboring allocation extents are unchanged. At checkpoint 4, all three
+controlled payload ranges lie in observed free chunks. Thread creation and
+retirement also affect the heap; the higher final total is not classified as a
+leak. The gate checks addresses and states, not just the totals in this table.
+
+The same recording contains 103 closed timing intervals, seven instants, and
+four counter samples, with no reported record loss. Two scheduler boundaries
+remain unknown-duration markers. Debugger stops pause the admitted peripheral
+clock and perturb execution, so these intervals characterize this instrumented
+QEMU run. They do not establish uninterrupted scheduling costs or physical-MCU
+performance. Memory remains unknown between the four checkpoints; there is no
+allocation-event replay or inferred lifetime continuity.
+
+#### Capture and open the linked observations
+
+First build the current native fixture using the disposable-source procedure
+above. Keep `timing_sources` and `timing_output` set to those directories. Install
+a Python-enabled `gdb-multiarch` and the pinned NuttX `pynuttx` dependencies as
+required by the [memory capture prerequisites](../tools/memory-explorer/README.md#capture-a-nuttx-lifecycle-point).
+Run from the repository root, using a new output directory:
+
+```sh
+lifecycle_output="$timing_output/lifecycle"
+python3 tools/memory-explorer/tests/qualify_lifecycle_qemu.py \
+  --qemu "$(command -v qemu-system-arm)" \
+  --gdb "$(command -v gdb-multiarch)" \
+  --image "$timing_output/build/nuttx" \
+  --config "$timing_output/build/resolved.config" \
+  --pynuttx "$timing_sources/nuttx/tools/pynuttx" \
+  --output "$lifecycle_output"
+
+NXRS_MEMORY_LIFECYCLE_EVIDENCE="$lifecycle_output" \
+NXRS_MEMORY_LIFECYCLE_ELF="$timing_output/build/nuttx" \
+  cargo +1.90.0 test --locked -p nxrs-memory-explorer \
+    --test lifecycle_qemu -- --ignored --nocapture
+
+cargo run --locked -p nxrs-memory-explorer --features gui -- \
+  --elf "$timing_output/build/nuttx" \
+  --map "$timing_output/build/nuttx.map" \
+  --layout tools/memory-explorer/layouts/mps2-an521-qemu.json \
+  --snapshot "$lifecycle_output/capture-1.json" \
+  --snapshot "$lifecycle_output/capture-2.json" \
+  --snapshot "$lifecycle_output/capture-3.json" \
+  --snapshot "$lifecycle_output/capture-4.json" \
+  --trace "$lifecycle_output/timing.json" --view timing
+```
+
+Select checkpoint 3 and **Open captured memory**. Double-click its free middle
+chunk to inspect the exact boundaries, then select **Show in timing** to return
+to its measured marker. Select a time between checkpoints to inspect the
+explicit evidence gap.
+
+The [ignored Rust gate](../tools/memory-explorer/tests/lifecycle_qemu.rs) decodes
+the saved native note bytes independently of the Python collector, parses the
+UART markers, compares every chunk and represented stack, and checks the
+ELF/configuration/current-fixture receipts. It also checks the exact interior
+hole and final payload release. The ARM CI job reuses its native timing build
+for this second invocation and retains `memory-timing/lifecycle/` beside the
+ordinary timing capture. No production build switch, NuttX patch, or extra
+firmware worker is introduced by the viewer's correlation support.
+
 ## Flat-build pthread key patchset
 
 The pinned NuttX submodule and fork are not modified. At build time,

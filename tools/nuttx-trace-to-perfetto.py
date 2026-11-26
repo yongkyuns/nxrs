@@ -113,6 +113,7 @@ def convert(lines, *, clock=None, source=None, elf_sha256=None, notes_lost=None,
     end_indices = [index for index, line in enumerate(lines) if line.startswith(END)]
     framed = bool(begin_indices or end_indices)
     framing = None
+    recording_id = None
     if framed:
         if len(begin_indices) != 1 or len(end_indices) != 1 or begin_indices[0] >= end_indices[0]:
             raise ValueError("Expected exactly one ordered NXRS_NOTE_BEGIN/NXRS_NOTE_END pair")
@@ -120,6 +121,11 @@ def convert(lines, *, clock=None, source=None, elf_sha256=None, notes_lost=None,
         end = _frame(lines[end_indices[0]], END)
         if begin.get("schema") not in ("1", "2") or begin.get("schema") != end.get("schema"):
             raise ValueError("Unsupported or conflicting capture frame schema")
+        recording_id = begin.get("recording_id")
+        if recording_id != end.get("recording_id"):
+            raise ValueError("Capture frame recording_id is missing or conflicts between begin and end")
+        if recording_id is not None and not re.fullmatch(r"[!-~]{1,128}", recording_id):
+            raise ValueError("Capture recording_id must contain 1 to 128 non-whitespace ASCII characters")
         declared_clock = begin.get("clock")
         if clock is not None and declared_clock is not None and clock != declared_clock:
             raise ValueError("Supplied clock conflicts with the capture frame")
@@ -156,6 +162,8 @@ def convert(lines, *, clock=None, source=None, elf_sha256=None, notes_lost=None,
         if clock_fields:
             warnings.append("Declared source clock: " + ", ".join(f"{key}={value}" for key, value in clock_fields.items())
                             + ". No counter rollover correction or cross-capture clock synchronization is inferred.")
+        if begin.get("capture_mode") == "stopped-checkpoints":
+            warnings.append("This recording contains debugger stops at memory checkpoints. The emulator clock pauses while stopped; durations describe this instrumented run, not uninterrupted firmware or physical-MCU performance.")
         lines = lines[begin_indices[0] + 1:end_indices[0]]
 
     metadata_events = [
@@ -421,6 +429,7 @@ def convert(lines, *, clock=None, source=None, elf_sha256=None, notes_lost=None,
         origin = earliest
     events.sort(key=lambda item: (item["ts"], -item.get("dur", 0)))
     nxrs = {"schema_version": 1, "clock": clock, "source": source, "origin_ns": origin,
+            "recording_id": recording_id,
             "elf_sha256": elf_sha256.lower() if elf_sha256 else None, "lost_records": lost_records,
             "loss_detected": loss_detected, "complete": complete, "incomplete_intervals": incomplete,
             "warnings": warnings, "input_format": "nuttx-noteram-ascii"}
