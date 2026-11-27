@@ -1,0 +1,196 @@
+diff --git a/wireless/bluetooth/bt_conn.c b/wireless/bluetooth/bt_conn.c
+--- a/wireless/bluetooth/bt_conn.c
++++ b/wireless/bluetooth/bt_conn.c
+@@ -68,22 +68,28 @@
+  * Private Types
+  ****************************************************************************/
+ 
++#ifndef CONFIG_BLUETOOTH_TXCONN_RESERVE
+ struct bt_conn_handoff_s
+ {
+   sem_t sync_sem;
+   FAR struct bt_conn_s *conn;
+ };
++#endif
+ 
+ /****************************************************************************
+  * Private Data
+  ****************************************************************************/
+ 
+ static struct bt_conn_s g_conns[CONFIG_BLUETOOTH_MAX_CONN];
++#ifdef CONFIG_BLUETOOTH_TXCONN_RESERVE
++static sem_t g_conn_ready = SEM_INITIALIZER(0);
++#else
+ static struct bt_conn_handoff_s g_conn_handoff =
+ {
+   SEM_INITIALIZER(1),
+   NULL
+ };
++#endif
+ 
+ /****************************************************************************
+  * Private Functions
+@@ -149,18 +155,11 @@
+   return connected;
+ }
+ 
+-static int conn_tx_kthread(int argc, FAR char *argv[])
+-{
+-  FAR struct bt_conn_s *conn;
++static void conn_tx_run(FAR struct bt_conn_s *conn)
++{
+   FAR struct bt_buf_s *buf;
+   struct mq_attr attr;
+   int ret;
+-
+-  /* Get the connection instance */
+-
+-  conn = g_conn_handoff.conn;
+-  DEBUGASSERT(conn != NULL);
+-  nxsem_post(&g_conn_handoff.sync_sem);
+ 
+   wlinfo("Started for handle %u\n", conn->handle);
+ 
+@@ -263,7 +262,24 @@
+   /* Release reference taken when thread was created */
+ 
+   bt_conn_release(conn);
++}
++
++static int conn_tx_kthread(int argc, FAR char *argv[])
++{
++#ifdef CONFIG_BLUETOOTH_TXCONN_RESERVE
++  while (nxsem_wait_uninterruptible(&g_conn_ready) >= 0)
++    {
++      conn_tx_run(&g_conns[0]);
++    }
++
++  return EXIT_FAILURE;
++#else
++  FAR struct bt_conn_s *conn = g_conn_handoff.conn;
++  DEBUGASSERT(conn != NULL);
++  nxsem_post(&g_conn_handoff.sync_sem);
++  conn_tx_run(conn);
+   return EXIT_SUCCESS;
++#endif
+ }
+ 
+ static int bt_hci_disconnect(FAR struct bt_conn_s *conn, uint8_t reason)
+@@ -576,7 +592,16 @@
+       return NULL;
+     }
+ 
++#ifdef CONFIG_BLUETOOTH_TXCONN_RESERVE
++  /* The queue belongs to this connection slot across peer lifetimes. */
++
++  struct file queue = conn->tx_queue;
++#endif
++
+   memset(conn, 0, sizeof(*conn));
++#ifdef CONFIG_BLUETOOTH_TXCONN_RESERVE
++  conn->tx_queue = queue;
++#endif
+ 
+   bt_atomic_set(&conn->ref, 1);
+   conn->role = role;
+@@ -640,6 +665,12 @@
+   switch (conn->state)
+     {
+       case BT_CONN_CONNECTED:
++#ifdef CONFIG_BLUETOOTH_TXCONN_RESERVE
++        /* The boot-owned worker retires this reference after draining. */
++
++        bt_conn_addref(conn);
++        nxsem_post(&g_conn_ready);
++#else
+         {
+           int ret;
+ 
+@@ -675,6 +706,7 @@
+ 
+           UNUSED(ret);
+         }
++#endif
+         break;
+ 
+       case BT_CONN_DISCONNECTED:
+@@ -1214,7 +1246,30 @@
+  *
+  ****************************************************************************/
+ 
+-void bt_conn_initialize(void)
+-{
++int bt_conn_initialize(void)
++{
++#ifdef CONFIG_BLUETOOTH_TXCONN_RESERVE
++  int ret;
++#endif
++
+   memset(g_conns, 0, sizeof(g_conns));
+-}
++#ifdef CONFIG_BLUETOOTH_TXCONN_RESERVE
++  ret = bt_queue_open(BT_CONN_TX, O_RDWR | O_CREAT | O_CLOEXEC,
++                      CONFIG_BLUETOOTH_TXCONN_NMSGS, &g_conns[0].tx_queue);
++  if (ret < 0)
++    {
++      return ret;
++    }
++
++  ret = kthread_create("BT Conn Tx", CONFIG_BLUETOOTH_TXCONN_PRIORITY,
++                       CONFIG_BLUETOOTH_TXCONN_STACKSIZE,
++                       conn_tx_kthread, NULL);
++  if (ret < 0)
++    {
++      file_mq_close(&g_conns[0].tx_queue);
++      return ret;
++    }
++#endif
++
++  return OK;
++}
+diff --git a/wireless/bluetooth/bt_conn.h b/wireless/bluetooth/bt_conn.h
+--- a/wireless/bluetooth/bt_conn.h
++++ b/wireless/bluetooth/bt_conn.h
+@@ -425,6 +425,6 @@
+                            uint16_t max, uint16_t latency,
+                            uint16_t timeout);
+ 
+-void bt_conn_initialize(void);
++int bt_conn_initialize(void);
+ 
+ #endif /* __WIRELESS_BLUETOOTH_BT_CONN_H */
+diff --git a/wireless/bluetooth/bt_l2cap.c b/wireless/bluetooth/bt_l2cap.c
+--- a/wireless/bluetooth/bt_l2cap.c
++++ b/wireless/bluetooth/bt_l2cap.c
+@@ -459,7 +459,12 @@
+   g_channels = NULL;
+   g_default = NULL;
+ 
+-  bt_conn_initialize();
++  ret = bt_conn_initialize();
++  if (ret < 0)
++    {
++      return ret;
++    }
++
+   bt_att_initialize();
+ 
+   ret = bt_smp_initialize();
+diff --git a/wireless/bluetooth/Kconfig b/wireless/bluetooth/Kconfig
+--- a/wireless/bluetooth/Kconfig
++++ b/wireless/bluetooth/Kconfig
+@@ -205,6 +205,14 @@
+ 	int "Tx command thread mqueue size"
+ 	default 16
+ 
++config BLUETOOTH_TXCONN_RESERVE
++	bool "Reserve the single ACL transmit worker and queue at initialization"
++	depends on BLUETOOTH_MAX_CONN = 1
++	default n
++	---help---
++		Keep the worker and queue available for reconnection without
++		requiring a new kernel task or queue allocation per connection.
++
+ config BLUETOOTH_TXCONN_STACKSIZE
+ 	int "Tx connection thread stack size"
+ 	default DEFAULT_TASK_STACKSIZE

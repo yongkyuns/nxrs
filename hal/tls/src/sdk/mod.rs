@@ -1,7 +1,7 @@
 //! Shared PSA/X.509 SDK adapter; native calls and callbacks are synchronous.
 #![deny(unsafe_op_in_unsafe_fn)]
 use crate::Error;
-use std::alloc::{alloc, alloc_zeroed, dealloc, Layout};
+use std::alloc::{alloc, Layout};
 use std::cell::{Cell, RefCell};
 use std::ffi::{c_int, c_void};
 use std::marker::PhantomData;
@@ -15,6 +15,7 @@ use ffi::*;
 
 mod connection;
 mod record;
+mod reservation;
 use crate::{Certificates, TimeLease};
 pub use connection::Connection;
 
@@ -64,7 +65,7 @@ impl Opaque {
         }
         let layout = Layout::from_size_align(size, align).map_err(|_| Error::Capacity)?;
         // SAFETY: validated layout; allocation stays stable until SDK retirement.
-        let pointer = NonNull::new(unsafe { alloc_zeroed(layout) }).ok_or(Error::Capacity)?;
+        let pointer = reservation::allocate(layout, true)?;
         // SAFETY: caller pairs actual SDK size/alignment and init/free operations.
         unsafe { initialize(pointer.as_ptr().cast()) };
         Ok(Self {
@@ -82,7 +83,7 @@ impl Drop for Opaque {
         // SAFETY: sole stable allocation, retired before its storage is freed.
         unsafe {
             (self.retire)(self.pointer());
-            dealloc(self.pointer.as_ptr(), self.layout);
+            reservation::release(self.pointer, self.layout);
         }
     }
 }
@@ -175,6 +176,7 @@ pub struct Identity {
     pk: Option<Opaque>,
     _single_thread: PhantomData<Rc<()>>,
     record: record::Memory,
+    reconnects: reservation::Reservations,
     // Declared last: source and workspace retire before another SDK owner.
     _lease: Lease,
 }
@@ -207,6 +209,7 @@ impl Identity {
             pk: None,
             _single_thread: PhantomData,
             record,
+            reconnects: reservation::Reservations::default(),
             _lease: lease,
         };
         // SAFETY: sole SDK owner; the stable callback source already exists.
@@ -252,6 +255,15 @@ impl Identity {
 
     fn failed(&self) -> bool {
         self.callback.failed.load(Ordering::Acquire) || UNEXPECTED_CALLBACK.load(Ordering::Acquire)
+    }
+
+    /// Reserve backing memory for one or two simultaneous paired or pinned
+    /// connections. Future handshakes use these slots until the identity is
+    /// retired, including their native SDK allocations.
+    pub fn reserve_reconnects(&mut self, connections: usize) -> Result<(), Error> {
+        self.reconnects.prepare(connections)?;
+        connection::prepare_clock();
+        Ok(())
     }
 
     /// Validate an approved enrollment and prepare immutable native trust

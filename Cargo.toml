@@ -35,6 +35,7 @@ members = [
     "service/enrollment",
     "service/stream",
     "shared/acquisition",
+    "shared/buffer",
     "shared/messaging",
     "shared/simulation",
     "service/navigation",

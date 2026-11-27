@@ -1,0 +1,15 @@
+diff --git a/fs/Kconfig b/fs/Kconfig
+--- a/fs/Kconfig
++++ b/fs/Kconfig
+@@ -143,9 +143,9 @@ config FS_SENDFILE_BUFSIZE
+ config FS_HEAPSIZE
+ 	int "Independent heap bytes"
+ 	default 0
+-	depends on FS_SHMFS || FS_TMPFS || PSEUDOFS_FILE
++	depends on NET || FS_SHMFS || FS_TMPFS || PSEUDOFS_FILE
+ 	---help---
+-		Support for shm/tmpfs/fs_pseudofile.c ram based fs memory.
++		Reserve VFS and socket descriptor memory at initialization.
+ 		default 0 to use kmm directly. independent heap disabled
+ 
+ config FS_HEAPBUF_SECTION

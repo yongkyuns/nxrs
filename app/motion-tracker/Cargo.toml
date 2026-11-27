@@ -17,6 +17,7 @@ name = "motion-tracker"
 path = "src/main.rs"
 
 [dependencies]
+nxrs-buffer = { path = "../../shared/buffer" }
 log = "0.4"
 nxrs-log-router = { path = "../../service/logging" }
 nxrs-composition = { path = "../../platform", features = ["imu", "gnss", "battery"] }
@@ -34,4 +35,4 @@ nxrs-cellular = { path = "../../hal/cellular" }
 nxrs-ble = { path = "../../hal/ble", features = ["peripheral"] }
 nxrs-execution = { path = "../../hal/execution" }
 nxrs-tls = { path = "../../hal/tls", features = ["pairing"] }
-qrcodegen = "1.8"
+qrcodegen = { package = "qrcodegen-no-heap", version = "1.8.1" }

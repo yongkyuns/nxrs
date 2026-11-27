@@ -2034,6 +2034,7 @@ struct imgsensor_s *ov3660_initialize(struct i2c_master_s *);
                 helpers.append(function_definition(text, "void bt_conn_set_state("))
                 if label == "patched":
                     helpers.append(dispatch)
+                    helpers.append(function_definition(text, "static void conn_tx_run("))
                     helpers.append(function_definition(text, "static int conn_tx_kthread(").replace(
                         "static int conn_tx_kthread(", "static int actual_conn_tx_kthread(", 1))
                 (self.base / "bt-connection-credit-functions.h").write_text("\n\n".join(helpers))

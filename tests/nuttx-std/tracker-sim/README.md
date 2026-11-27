@@ -265,6 +265,39 @@ For a five-minute soak, pass `--export --export-seconds 300 --timeout 440`.
 The runner repeats the fault sequence and checks that the export catches up
 after each minute. CI runs one sequence.
 
+The shared-heap control uses a separate diagnostic image. Build it with the
+same coexistence profile and add the allocator wrapper to the target helpers.
+
+```sh
+LDFLAGS='--wrap=mm_malloc --wrap=mm_memalign --wrap=mm_realloc' \
+  cargo nxrs build --app motion-tracker --profile esp32s3-qemu-tracker-coexist \
+    --target-c-source tests/nuttx-std/tracker-sim/devices.c \
+    --target-c-source tests/nuttx-std/tracker-sim/dashboard_init.c \
+    --target-c-source tests/nuttx-std/tracker-sim/heap_probe.c \
+    --out target/tracker-heap-denial
+```
+
+Use that image with `coexist.py --deny-shared-heap --export` and the same QEMU
+and network-peer arguments as above. Boot checks that requests through
+`malloc`, `mm_memalign`, and `mm_realloc` are rejected when armed. The harness
+arms denial after startup, opens pairing from the UI, then checks full-rate
+export, disconnect and re-pairing. Run without `--export` for the PPP recovery
+scenario or with `--tiles --tile-write-loss` for map delivery. The general heap
+rejects allocation and reallocation while dedicated storage, including the
+boot-reserved VFS heap, remains available. The stack-monitor run is separate
+because the console monitor allocates when it opens procfs entries and formats
+its reports.
+
+Motion Tracker retains the 512-sample export queue across BLE sessions. It
+reserves one 24 KiB TLS arena per admitted simultaneous connection at startup.
+Maps share 30 one-KiB blocks across the decoder and the display cache. The
+budget holds two maximum-size tiles, or up to four smaller visible tiles and
+one incoming tile when their encoded sizes fit. Exhaustion discards the
+incoming tile and keeps the retained tiles valid. The coexistence profile also
+reserves an 8 KiB VFS heap and starts its single native ACL transmit worker and
+queue at boot. The heap-denial checks run through operation and reconnect.
+Whole-application teardown and heap recovery use the ordinary heap-cycle check.
+
 CoreS3 production qualification uses the physical display, both IMUs at
 100 Hz, GNSS at 2 Hz and a cellular TLS collector while a physical iPhone
 receives the stream. Compare source sequence ranges against the phone's

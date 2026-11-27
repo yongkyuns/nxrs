@@ -304,7 +304,7 @@ impl<'a> Upload<'a> {
     ) -> io::Result<Self> {
         let connection = identity
             .connect_pinned(socket, collector.pin, SESSION_LIFETIME)
-            .map_err(|error| io::Error::other(format!("collector TLS: {error:?}")))?;
+            .map_err(tls_error)?;
         Ok(Self {
             connection,
             ready: false,
@@ -317,11 +317,7 @@ impl<'a> Upload<'a> {
         snapshot: impl FnOnce(Instant) -> Snapshot,
     ) -> io::Result<bool> {
         if !self.ready {
-            if !self
-                .connection
-                .poll()
-                .map_err(|error| io::Error::other(format!("collector TLS: {error:?}")))?
-            {
+            if !self.connection.poll().map_err(tls_error)? {
                 return Ok(false);
             }
             self.ready = true;
@@ -340,6 +336,11 @@ impl<'a> Upload<'a> {
         let now = Instant::now();
         reports.service(&mut self.connection, now, || snapshot(now))
     }
+}
+
+fn tls_error(error: tls::Error) -> io::Error {
+    log::warn!("motion-tracker collector TLS: {error:?}");
+    io::ErrorKind::ConnectionAborted.into()
 }
 
 #[cfg(test)]

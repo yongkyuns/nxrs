@@ -208,18 +208,21 @@ fn track(
     let ([primary_output, secondary_output], gnss_output, [mut dashboard, links]) =
         fixed_readers(IMU_FRESH, FIX_FRESH);
     let telemetry = Telemetry::new(links, capture.clone(), interval);
-    let mut communications =
-        (options.ble || options.cellular.is_some() || options.tile_relay.is_some())
-            .then(|| {
-                Communications::start(
-                    options.ble,
-                    options.cellular,
-                    options.tile_relay,
-                    telemetry.clone(),
-                    notify_links.clone(),
-                )
-            })
-            .transpose()?;
+    let mut communications = (options.ble
+        || options.cellular.is_some()
+        || options.tile_relay.is_some()
+        || (screen.is_some() && ble::peripheral::AVAILABLE))
+        .then(|| {
+            Communications::start(
+                options.ble,
+                screen.is_some(),
+                options.cellular,
+                options.tile_relay,
+                telemetry,
+                notify_links,
+            )
+        })
+        .transpose()?;
     let mut view = View::default();
     let mut required = Ok(());
     for result in [
@@ -403,19 +406,11 @@ fn track(
                         .as_mut()
                         .and_then(|screen| screen.input(view.link, event, missed))
                     {
-                        Some(Action::Pair) => match &communications {
-                            Some(links) => links.pair(Pairing::Start),
-                            None => match Communications::start(
-                                true,
-                                None,
-                                None,
-                                telemetry.clone(),
-                                notify_links.clone(),
-                            ) {
-                                Ok(links) => communications = Some(links),
-                                Err(error) => log::warn!("motion-tracker pairing: {error}"),
-                            },
-                        },
+                        Some(Action::Pair) => {
+                            if let Some(links) = &communications {
+                                links.pair(Pairing::Start);
+                            }
+                        }
                         Some(Action::CancelPairing) => {
                             if let Some(links) = &communications {
                                 links.pair(Pairing::Cancel);

@@ -72,9 +72,7 @@ fn preferences(requested: Option<Interval>) -> io::Result<Interval> {
 
 pub fn run(args: impl Iterator<Item = String>) -> std::process::ExitCode {
     // A host may already have installed a logger. Standalone commands use stderr.
-    let _ = logging::install(log::LevelFilter::Info, |_, line| {
-        let _ = io::stderr().lock().write_all(line.as_bytes());
-    });
+    let _ = logging::install_stderr(log::LevelFilter::Info);
     match runtime::run(args) {
         Ok(()) => std::process::ExitCode::SUCCESS,
         Err(error) => {

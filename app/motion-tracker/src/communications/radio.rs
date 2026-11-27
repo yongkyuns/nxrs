@@ -1,7 +1,7 @@
 use super::{
     export::{Capture, Version, MAX_BYTES, REQUEST_LEN, REQUEST_PREFIX},
     publication::Publisher,
-    tiles::{Key, Receiver, Response},
+    tiles::{Key, Pool, Receiver, Response},
     wire,
 };
 use crate::{text::Text, tracker::Snapshot};
@@ -19,18 +19,31 @@ fn uuid(last: u8) -> Uuid {
     ])
 }
 
-pub fn pair<'a>(
-    identity: &'a tls::Identity,
-    capture: &'a Capture,
-) -> io::Result<Output<'a, impl Listener>> {
+fn services() -> (Service, Service) {
     let service = |base| Service {
         uuid: uuid(base),
         ingress: uuid(base + 1),
         egress: uuid(base + 2),
     };
-    let listener = peripheral::open_with_notifications(service(0), service(0x20))
-        .map_err(|error| io::Error::other(format!("BLE: {error:?}")))?;
-    Output::start(listener, identity, capture)
+    (service(0), service(0x20))
+}
+
+pub fn prepare() -> Result<(), ble::Error> {
+    let (legacy, notifications) = services();
+    peripheral::prepare_with_notifications(legacy, notifications)
+}
+
+pub fn pair<'a>(
+    identity: &'a tls::Identity,
+    capture: &'a Capture,
+    pool: Option<Pool>,
+) -> io::Result<Output<'a, impl Listener>> {
+    let (legacy, notifications) = services();
+    let listener = peripheral::open_with_notifications(legacy, notifications).map_err(|error| {
+        log::warn!("motion-tracker BLE listener: {error:?}");
+        io::ErrorKind::NotConnected
+    })?;
+    Output::start(listener, identity, capture, pool)
 }
 
 struct Bearer<T>(T);
@@ -86,17 +99,19 @@ impl<'a, L: Listener> Output<'a, L> {
         listener: L,
         identity: &'a tls::Identity,
         capture: &'a Capture,
+        pool: Option<Pool>,
     ) -> io::Result<Self> {
-        let key = identity
-            .pairing_key()
-            .map_err(|error| io::Error::other(format!("Pairing key: {error:?}")))?;
+        let key = identity.pairing_key().map_err(|error| {
+            log::warn!("motion-tracker pairing key: {error:?}");
+            io::ErrorKind::PermissionDenied
+        })?;
         let now = Instant::now();
         Ok(Self {
             listener,
             identity,
             key,
             capture,
-            tile: Receiver::default(),
+            tile: Receiver::new(pool),
             advertised_tile: None,
             request: [0; REQUEST_LEN],
             request_len: 0,
@@ -171,7 +186,7 @@ impl<'a, L: Listener> Output<'a, L> {
                 self.max_service_gap.as_micros(),
             );
         }
-        self.tile = Receiver::default();
+        self.tile.reset();
         self.advertised_tile = None;
         self.request_len = 0;
         self.export_len = 0;
@@ -195,7 +210,10 @@ impl<'a, L: Listener> Output<'a, L> {
                 let conn = self
                     .identity
                     .accept_pairing(Bearer(stream), &self.key)
-                    .map_err(|_| io::ErrorKind::PermissionDenied)?;
+                    .map_err(|error| {
+                        log::warn!("motion-tracker BLE handshake setup: {error:?}");
+                        io::ErrorKind::PermissionDenied
+                    })?;
                 self.connection = Some(conn);
             }
         }

@@ -38,6 +38,14 @@ pub struct Service {
     pub egress: Uuid,
 }
 
+/// Whether the selected provider implements local notification peripherals.
+pub const AVAILABLE: bool = crate::platform::PERIPHERAL_AVAILABLE;
+
+/// Reserve and register the service without starting advertising.
+pub fn prepare_with_notifications(legacy: Service, notifications: Service) -> Result<(), Error> {
+    crate::platform::prepare_peripheral(legacy, Some(notifications))
+}
+
 /// Advertise one service with a write-with-response ingress and a read egress
 /// characteristic. UUIDs use the conventional (display) byte order.
 pub fn open(service: Uuid, ingress: Uuid, egress: Uuid) -> Result<impl Listener, Error> {

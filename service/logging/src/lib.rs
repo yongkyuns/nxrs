@@ -4,7 +4,7 @@
 mod facade;
 mod file;
 
-pub use facade::{install, Line};
+pub use facade::{install, install_stderr, Line};
 pub use file::{start_file, FileLog};
 
 use std::fs::{self, OpenOptions};

@@ -6,6 +6,10 @@ pub(crate) fn open(_: Service, _: Option<Service>) -> Result<impl Listener, Erro
     Err::<Unavailable, _>(Error::Unsupported)
 }
 
+pub(crate) fn prepare(_: Service, _: Option<Service>) -> Result<(), Error> {
+    Err(Error::Unsupported)
+}
+
 struct Unavailable;
 impl Listener for Unavailable {
     type Transport = Self;
