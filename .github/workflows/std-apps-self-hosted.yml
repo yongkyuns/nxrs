@@ -35,6 +35,7 @@ on:
       - 'tools/build-nuttx-std-app.sh'
       - 'tools/check-architecture.py'
       - 'tools/check-deployment.py'
+      - 'tools/check-armv8m-stack-handover.py'
       - 'tests/host/**'
       - 'tests/portable/**'
       - 'tests/native/**'
@@ -81,6 +82,7 @@ on:
       - 'tools/build-nuttx-std-app.sh'
       - 'tools/check-architecture.py'
       - 'tools/check-deployment.py'
+      - 'tools/check-armv8m-stack-handover.py'
       - 'tests/host/**'
       - 'tests/portable/**'
       - 'tests/native/**'
@@ -140,6 +142,7 @@ jobs:
           cargo +1.90.0 build --locked -p nxrs-std-demo -p nxrs-ao-stress
           python3 -m unittest discover -s tests/host -p test_std_apps.py -v
           python3 -m unittest discover -s tests/host -p test_nuttx_memory.py -v
+          python3 -m unittest discover -s tests/host -p test_armv8m_stack_handover.py -v
       - name: Qualify workspace and native regressions
         shell: bash
         run: |
@@ -307,6 +310,19 @@ jobs:
               cargo +1.90.0 nxrs build --app "$APP" --profile "$platform" --out "target/firmware/$APP/$platform" 2>&1 | tee "target/firmware/$APP/$platform/build.log"
             fi
           done
+      - name: Inspect compiled ARMv8-M startup stack handover
+        shell: bash
+        env:
+          APP: ${{ matrix.app }}
+        run: |
+          set -euo pipefail
+          output="target/firmware/$APP/mps2-an521-mock"
+          python3 tools/check-armv8m-stack-handover.py \
+            --elf "$output/nuttx/nuttx" --hardware-limits enabled \
+            --output "$output/stack-handover.json"
+          python3 tests/nuttx-std/check-armv8m-stack-variants.py \
+            --nuttx "target/firmware/$APP/mps2-an521-mock/nuttx" \
+            --output "target/firmware/$APP/mps2-an521-mock/stack-handover-variants"
       - name: Execute twice on NuttX and verify actual output
         shell: bash
         env:
@@ -426,4 +442,5 @@ jobs:
             target/firmware/${{ matrix.app }}/*/memory-explorer/
             target/firmware/${{ matrix.app }}/*/memory-timing/
             target/firmware/${{ matrix.app }}/*/heap-replay/
+            target/firmware/${{ matrix.app }}/*/stack-handover-variants/
           if-no-files-found: warn

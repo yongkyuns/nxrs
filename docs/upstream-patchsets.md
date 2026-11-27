@@ -11,7 +11,7 @@ hashes in a build ledger. Preserve that ledger with firmware.
 `external/nuttx` is pinned to NuttX 13.1.0
 (`2b5c0de5e933281c209f954a63b99cf10c132346`).
 The authoritative ordered lists for NuttX and NuttX Apps are in
-[`tools/apply-nuttx-patches.py`](../tools/apply-nuttx-patches.py).
+[`upstream/build-patches.json`](../upstream/build-patches.json).
 Patch headers retain their original source and rationale; build ledgers retain
 the exact applied bytes. IDs intentionally have gaps: accepted upstream changes
 and retired investigation tools are not silently renumbered.
@@ -41,6 +41,7 @@ and retired investigation tools are not silently renumbered.
 | Espressif I²S receive and GDMA | 0126 | Roll back failed receive submissions and terminate a short ESP32-S3 descriptor list within its capacity |
 | ESP32-S3 I²S receive interrupt | 0127 | Keep the RX interrupt on its registering CPU and serialize DMA completion with task-context queue operations |
 | ESP32-S3 I²S receive stop | 0128 | Keep active buffers until GDMA is parked and submissions and callbacks have retired, then cancel and release the queued buffers |
+| ARMv8-M startup stacks | 0149 | Preserve the entry interrupt mask, install the separate interrupt stack before selecting the thread stack, and retain the existing PSP and stack limit on an already-PSP entry |
 
 Patch 0090 bounds each RP2350 TRNG block's polling and health-rejection retries,
 including startup. Failure disables the source, clears partial output and keeps
@@ -60,6 +61,43 @@ do not qualify hardware randomness or target timing.
 NuttX Apps retains three patches: the original ESP NimBLE transport, NSH
 `dmesg` reset options, and correct DHCP pad-option parsing. The tracked empty
 fork `build.log` is not part of a patch.
+
+### ARMv8-M startup stack transition
+
+Patch 0149 corrects `arm_initialize_stack()` when a separate interrupt stack
+is configured. The scheduler clock is already initialized on the primary
+startup path. The original helper selects PSP before moving MSP to the
+interrupt stack; an exception in that interval can put the hardware exception
+frame and the handler's C frames in overlapping memory. This caused an
+intermittent pre-shell hard fault in ordinary MPS2-AN521 firmware, independently
+of the diagnostics allocator notes.
+
+The corrected helper saves and restores the caller's exact PRIMASK around the
+transition. It prepares PSP only when the caller still uses MSP, clears the
+old MSP limit, installs the interrupt MSP and its limit, then selects PSP and
+executes an immediate ISB. BASEPRI and unrelated CONTROL bits are unchanged.
+Installing the interrupt stack first also avoids the original overlapping
+stack interval for exceptions that PRIMASK cannot mask. The inline assembly
+declares its scratch registers as early-clobber outputs and declares its
+condition-code effects. It adds no worker, allocation, or retained runtime
+state.
+
+The [ARM std workflow](../.github/workflows/std-apps-self-hosted.yml) checks
+the actual MPS2-AN521 firmware disassembly with
+[`check-armv8m-stack-handover.py`](../tools/check-armv8m-stack-handover.py).
+It also recompiles the prepared startup source at `-O0` and `-Os`, with
+hardware stack limits enabled and disabled, using the native build's compile
+command and unchanged source/configuration. These passive checks require the
+guarded instruction order, matching saved/restored mask registers, the
+already-PSP branch, and the stack-limit sequence. The existing ordinary boot,
+relaunch, and heap-cycle workload remains the runtime check.
+
+The ordinary Pico 2 build keeps its existing configuration without a separate
+interrupt stack, so it compiles out this helper. Compiler-output checks and
+ordinary boot do not establish every interrupt
+interleaving, returning-NMI behavior, SMP startup, or physical-board behavior.
+The separate diagnostics timing/replay fixture builders use pristine pinned
+NuttX trees and do not apply this registered production patch series.
 
 ### Pico integration and limits
 
