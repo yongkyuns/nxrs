@@ -336,6 +336,9 @@ impl<'a, L: Listener> Output<'a, L> {
     /// queued frames and capture epoch. The listener remains available to accept
     /// another peer, and [`Self::view`] reflects the disconnected state. The
     /// caller continues capture retirement and decides when to end this session.
+    // Keep per-turn protocol scratch out of the caller's retained frame; the
+    // caller can perform another TLS handshake between BLE service turns.
+    #[inline(never)]
     pub fn service(
         &mut self,
         capture: &mut Capture,
