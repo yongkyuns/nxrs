@@ -1,4 +1,5 @@
-//! Host contract comparison, not a target timing benchmark or capture replacement.
+//! Host admission, wire and allocation checks of the production capture.
+//! Independent queue models remain comparisons, not target timing evidence.
 #![cfg(not(any(target_os = "nuttx", target_os = "none")))]
 
 #[rustfmt::skip]
@@ -12,6 +13,8 @@ mod clock;
 
 #[path = "support/capture_gate.rs"]
 mod capture_gate;
+#[path = "support/capture_peer.rs"]
+mod capture_peer;
 #[path = "support/capture_pool.rs"]
 mod capture_pool;
 #[path = "support/capture_pool_checks.rs"]
@@ -20,7 +23,7 @@ mod capture_pool_checks;
 mod capture_protocol;
 
 use allocation_probe::{Snapshot, Tracking};
-use capture::{Capture, MAX_BYTES, Version};
+use capture::{Capture, CapturePublisher, MAX_BYTES, Version};
 use heapless::spsc::Queue;
 use navigation::observations::Measurement;
 use std::alloc::System;
@@ -178,15 +181,35 @@ fn decode(bytes: &[u8], records: &mut Vec<Record>) {
     assert_eq!(cursor, bytes.len());
 }
 
-fn drain_capture(capture: &Capture, records: &mut Vec<Record>) -> Option<(u8, u32)> {
+fn reserve_capture() -> (Capture, [CapturePublisher; 3]) {
+    Capture::new([None; 2], [Some(100_000); 2], true).unwrap()
+}
+
+fn same_sources(actual: &[Record], expected: &[Record]) {
+    assert_eq!(actual.len(), expected.len());
+    for source in 1..=3 {
+        assert!(
+            actual
+                .iter()
+                .filter(|record| record.source == source)
+                .eq(expected.iter().filter(|record| record.source == source)),
+            "source {source} lost order or payload bits"
+        );
+    }
+}
+
+fn drain_capture(capture: &mut Capture, records: &mut Vec<Record>) -> Option<(u8, u32)> {
     let mut bytes = [0; MAX_BYTES];
     for _ in 0..=CAPACITY / BATCH {
-        let Some(batch) = capture.take(&mut bytes, true, Version::Fixed) else {
+        let Some(batch) = capture.take(&mut bytes, true, Version::Fixed).unwrap() else {
             return None;
         };
         if batch.terminal {
             assert_eq!(&bytes[..batch.len], &[0xa5, 1, 0, 0]);
-            let terminal = capture.take(&mut bytes, true, Version::Compact).unwrap();
+            let terminal = capture
+                .take(&mut bytes, true, Version::Compact)
+                .unwrap()
+                .unwrap();
             assert!(terminal.terminal);
             assert_eq!(terminal.len, 9);
             assert_eq!(&bytes[..4], &[0xa5, 2, 5, 0]);
@@ -194,7 +217,10 @@ fn drain_capture(capture: &Capture, records: &mut Vec<Record>) -> Option<(u8, u3
                 bytes[4],
                 u32::from_le_bytes(bytes[5..9].try_into().unwrap()),
             );
-            let repeated = capture.take(&mut bytes, true, Version::Timed).unwrap();
+            let repeated = capture
+                .take(&mut bytes, true, Version::Timed)
+                .unwrap()
+                .unwrap();
             assert!(repeated.terminal);
             assert_eq!(repeated.len, 9);
             assert_eq!(missing.0, bytes[4]);
@@ -212,6 +238,7 @@ fn drain_capture(capture: &Capture, records: &mut Vec<Record>) -> Option<(u8, u3
 struct ResultRow {
     backend: &'static str,
     capacities: Option<[usize; 3]>,
+    total_order: bool,
     delivered: Vec<Record>,
     missing: Option<(u8, u32)>,
     setup: Snapshot,
@@ -219,6 +246,7 @@ struct ResultRow {
     steady: Snapshot,
     retired: Snapshot,
     inline_bytes: usize,
+    inactive_retained_bytes: usize,
 }
 
 impl ResultRow {
@@ -231,18 +259,8 @@ impl ResultRow {
             self.missing,
             offers.get(admitted).copied().map(Record::identity)
         );
-        for source in 1..=3 {
-            assert!(
-                self.delivered
-                    .iter()
-                    .filter(|record| record.source == source)
-                    .eq(offers[..admitted]
-                        .iter()
-                        .filter(|record| record.source == source)),
-                "source {source} lost order or payload bits"
-            );
-        }
-        if self.capacities.is_none() {
+        same_sources(&self.delivered, &offers[..admitted]);
+        if self.total_order {
             assert_eq!(self.delivered, offers[..admitted]);
         }
     }
@@ -265,7 +283,7 @@ impl ResultRow {
             encoded_bytes(&self.delivered, Version::Timed),
         ];
         println!(
-            "CAPTURE_COMPARE {{\"case\":\"{case}\",\"backend\":\"{}\",\"usable_slots\":512,\"per_source_slots\":{partition},\"offered\":{},\"admitted\":{admitted},\"rejected_full\":{full},\"rejected_closed\":{closed},\"delivered\":{admitted},\"retained\":0,\"discarded\":0,\"first_missing\":{missing},\"unused_slots_at_overflow\":{},\"cross_source_reordered\":{},\"canonical_record_bytes\":{},\"inline_storage_bytes\":{},\"setup_requested_heap_bytes\":{},\"steady_allocator_calls\":0,\"reclaimed\":true,\"posthoc_wire_bytes_v1_v2_v3\":{wire_bytes:?}}}",
+            "CAPTURE_COMPARE {{\"case\":\"{case}\",\"backend\":\"{}\",\"usable_slots\":512,\"per_source_slots\":{partition},\"offered\":{},\"admitted\":{admitted},\"rejected_full\":{full},\"rejected_closed\":{closed},\"delivered\":{admitted},\"retained\":0,\"discarded\":0,\"first_missing\":{missing},\"unused_slots_at_overflow\":{},\"cross_source_reordered\":{},\"canonical_record_bytes\":{},\"inline_storage_bytes\":{},\"setup_requested_heap_bytes\":{},\"inactive_retained_heap_bytes\":{},\"steady_allocator_calls\":0,\"reclaimed\":true,\"posthoc_wire_bytes_v1_v2_v3\":{wire_bytes:?}}}",
             self.backend,
             offers.len(),
             if full == 0 { 0 } else { CAPACITY - admitted },
@@ -273,28 +291,37 @@ impl ResultRow {
             size_of::<Record>(),
             self.inline_bytes,
             self.ready.live - self.setup.live,
+            self.inactive_retained_bytes,
         );
     }
 }
 
 fn current_capture(offers: &[Record]) -> ResultRow {
     let mut delivered = Vec::with_capacity(CAPACITY);
-    let capture = Capture::default();
-    capture.register_owner();
+    let _thread = thread::current();
     let setup = ALLOCATOR.snapshot();
-    capture.enable().unwrap();
+    let (mut capture, mut publishers) = reserve_capture();
+    capture.register_owner();
+    assert!(capture.enable().unwrap());
     let ready = ALLOCATOR.snapshot();
     for record in offers {
-        capture.record(record.measurement());
+        publishers[usize::from(record.source - 1)].record(record.measurement());
     }
-    let missing = drain_capture(&capture, &mut delivered);
-    assert_eq!(capture.take_ready(), offers.len() >= BATCH);
+    let missing = drain_capture(&mut capture, &mut delivered);
+    assert_eq!(capture.take_ready(), !offers.is_empty());
     let steady = ALLOCATOR.snapshot();
     assert_eq!(capture.finish(), delivered.len());
+    assert!(!capture.retirement_pending());
+    let inactive = ALLOCATOR.snapshot();
+    inactive.no_allocator_calls_since(steady).unwrap();
+    assert_eq!(inactive.live, ready.live);
+    drop(publishers);
+    drop(capture);
     let retired = ALLOCATOR.snapshot();
     ResultRow {
-        backend: "current-capture",
+        backend: "production-pooled-capture",
         capacities: None,
+        total_order: false,
         delivered,
         missing,
         setup,
@@ -302,6 +329,7 @@ fn current_capture(offers: &[Record]) -> ResultRow {
         steady,
         retired,
         inline_bytes: size_of::<Capture>(),
+        inactive_retained_bytes: inactive.live - setup.live,
     }
 }
 
@@ -403,6 +431,7 @@ fn queue_model<Q: Fifo>(
     ResultRow {
         backend,
         capacities,
+        total_order: capacities.is_none(),
         delivered,
         missing,
         setup,
@@ -410,28 +439,30 @@ fn queue_model<Q: Fifo>(
         steady,
         retired,
         inline_bytes: size_of::<Q>(),
+        inactive_retained_bytes: 0,
     }
 }
 
-// Feed the selected merge order through the real encoder, outside all measured
-// allocation windows. This observes wire size, not an integrated replacement.
+// Feed records through the real pool and encoder outside allocation windows.
+// Cross-source interleaving is deliberately unspecified; each source's sequence
+// and payload are checked by the independent decoder for every wire version.
 fn encoded_bytes(records: &[Record], version: Version) -> usize {
-    let capture = Capture::default();
-    capture.enable().unwrap();
+    let (mut capture, mut publishers) = reserve_capture();
+    assert!(capture.enable().unwrap());
     let mut decoded = Vec::with_capacity(records.len());
     let mut bytes = [0; MAX_BYTES];
     let mut total = 0;
     for batch in records.chunks(BATCH) {
         for record in batch {
-            capture.record(record.measurement());
+            publishers[usize::from(record.source - 1)].record(record.measurement());
         }
-        let frame = capture.take(&mut bytes, true, version).unwrap();
+        let frame = capture.take(&mut bytes, true, version).unwrap().unwrap();
         assert!(!frame.terminal);
         total += frame.len;
         decode(&bytes[..frame.len], &mut decoded);
     }
-    assert_eq!(decoded, records);
-    assert!(capture.take(&mut bytes, true, version).is_none());
+    same_sources(&decoded, records);
+    assert!(capture.take(&mut bytes, true, version).unwrap().is_none());
     capture.finish();
     total
 }
@@ -444,7 +475,7 @@ fn compare(case: &str, offers: &[Record]) {
         DesktopMpsc(sender, receiver)
     });
     mpsc.report(case, offers);
-    assert_eq!(mpsc.delivered, baseline.delivered);
+    same_sources(&mpsc.delivered, &baseline.delivered);
     assert_eq!(mpsc.missing, baseline.missing);
     queue_model(
         "heapless-spsc-even-model",
@@ -475,39 +506,38 @@ fn nominal(ticks: u32) -> Vec<Record> {
 }
 
 fn capture_concurrent_overflow_and_restart() {
-    let capture = Capture::default();
-    capture.enable().unwrap();
+    let (mut capture, mut publishers) = reserve_capture();
+    assert!(capture.enable().unwrap());
     let prefix = nominal(300);
     for record in &prefix[..CAPACITY] {
-        capture.record(record.measurement());
+        publishers[usize::from(record.source - 1)].record(record.measurement());
     }
     let rejected = [Record::new(1, 900), Record::new(2, 901)];
     let start = Barrier::new(3);
     thread::scope(|scope| {
-        for record in rejected {
-            let capture = &capture;
+        for (publisher, record) in publishers[..2].iter_mut().zip(rejected) {
             let start = &start;
             scope.spawn(move || {
                 start.wait();
-                capture.record(record.measurement());
+                publisher.record(record.measurement());
             });
         }
         start.wait();
     });
-    capture.record(Record::new(3, 902).measurement());
+    publishers[2].record(Record::new(3, 902).measurement());
     let mut delivered = Vec::with_capacity(CAPACITY);
-    let missing = drain_capture(&capture, &mut delivered).unwrap();
-    assert_eq!(delivered, prefix[..CAPACITY]);
+    let missing = drain_capture(&mut capture, &mut delivered).unwrap();
+    same_sources(&delivered, &prefix[..CAPACITY]);
     assert!(rejected.iter().any(|record| record.identity() == missing));
     assert_eq!(capture.finish(), CAPACITY);
-    capture.enable().unwrap();
-    capture.record(Record::new(3, 903).measurement());
+    assert!(capture.enable().unwrap());
+    publishers[2].record(Record::new(3, 903).measurement());
     delivered.clear();
-    assert_eq!(drain_capture(&capture, &mut delivered), None);
+    assert_eq!(drain_capture(&mut capture, &mut delivered), None);
     assert_eq!(delivered, [Record::new(3, 903)]);
     capture.finish();
     println!(
-        "CAPTURE_CHECK {{\"case\":\"current-capture-concurrent-overflow-restart\",\"admitted\":512,\"delivered\":512,\"retained_first_missing\":true,\"fresh_epoch_clean\":true,\"success\":true}}"
+        "CAPTURE_CHECK {{\"case\":\"production-capture-concurrent-overflow-restart\",\"admitted\":512,\"delivered\":512,\"retained_first_missing\":true,\"fresh_epoch_clean\":true,\"success\":true}}"
     );
 }
 
@@ -692,7 +722,7 @@ fn blob(bytes: &[u8]) -> String {
 fn main() {
     allocation_probe::begin_measurement();
     println!(
-        "CAPTURE_METADATA {{\"schema\":\"capture-comparison-v1\",\"runtime\":\"host\",\"timing\":\"not-measured\",\"std_backend\":\"desktop-standard-library\",\"heapless_version\":\"0.9.4\",\"heapless_features\":[],\"source_hash\":\"git-blob-sha1\",\"capture_blob\":\"{}\",\"clock_blob\":\"{}\",\"fixture_blob\":\"{}\",\"protocol_blob\":\"{}\",\"gate_blob\":\"{}\",\"pool_blob\":\"{}\",\"pool_checks_blob\":\"{}\",\"manifest_blob\":\"{}\",\"lock_blob\":\"{}\"}}",
+        "CAPTURE_METADATA {{\"schema\":\"capture-comparison-v1\",\"runtime\":\"host\",\"timing\":\"not-measured\",\"std_backend\":\"desktop-standard-library\",\"heapless_version\":\"0.9.4\",\"heapless_features\":[],\"source_hash\":\"git-blob-sha1\",\"capture_blob\":\"{}\",\"clock_blob\":\"{}\",\"fixture_blob\":\"{}\",\"protocol_blob\":\"{}\",\"gate_blob\":\"{}\",\"pool_blob\":\"{}\",\"pool_checks_blob\":\"{}\",\"manifest_blob\":\"{}\",\"lock_blob\":\"{}\",\"production_gate_blob\":\"{}\",\"production_pool_blob\":\"{}\",\"policy_blob\":\"{}\"}}",
         blob(include_bytes!(
             "../../../../app/motion-tracker/src/communications/export.rs"
         )),
@@ -706,6 +736,13 @@ fn main() {
         blob(include_bytes!("support/capture_pool_checks.rs")),
         blob(include_bytes!("../Cargo.toml")),
         blob(include_bytes!("../Cargo.lock")),
+        blob(include_bytes!(
+            "../../../../shared/messaging/src/pooled/gate.rs"
+        )),
+        blob(include_bytes!("../../../../shared/messaging/src/pooled.rs")),
+        blob(include_bytes!(
+            "../../../../app/motion-tracker/src/communications/export/policy.rs"
+        )),
     );
     compare("nominal-two-second-stall", &nominal(200));
     compare("nominal-three-second-stall", &nominal(300));
@@ -728,6 +765,7 @@ fn main() {
         .collect::<Vec<_>>();
     compare("uneven-source-burst", &uneven);
     capture_pool_checks::allocation_windows(|| ALLOCATOR.snapshot());
+    capture_peer::run();
     // Start only after allocation windows; an assertion in one barrier
     // participant must fail the process instead of hanging a scoped join.
     let (done, finished) = mpsc::sync_channel(0);
@@ -746,6 +784,6 @@ fn main() {
     done.send(()).unwrap();
     watchdog.join().unwrap();
     println!(
-        "CAPTURE_GATES {{\"production_capture_changed\":true,\"candidate_integrated\":false,\"host_protocol_checked\":true,\"pooled_transport_host_checked\":true,\"native_progress_qualified\":false,\"unmet\":[\"protocol-integration-with-production-capture\",\"actual-owner-wake-clear-recheck-sleep\",\"partial-transport-and-client-compatibility\",\"declared-product-stall-and-memory-budgets\",\"product-target-atomic-and-scheduling-qualification\"],\"success\":true}}"
+        "CAPTURE_GATES {{\"production_capture_changed\":true,\"candidate_integrated\":true,\"host_protocol_checked\":true,\"pooled_transport_host_checked\":true,\"native_progress_qualified\":false,\"scope\":\"production-pool-admission-wire-and-allocation\",\"separate_evidence_required\":[\"communications-session-and-owner-lifecycle\",\"product-target-atomic-and-scheduling-qualification\",\"physical-timing\"],\"success\":true}}"
     );
 }

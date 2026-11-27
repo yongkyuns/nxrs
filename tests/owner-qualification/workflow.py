@@ -38,6 +38,10 @@ CAPTURE_SUPPORT = (
     "tests/mpsc-comparison/rust/tests/support/capture_gate.rs",
     "tests/mpsc-comparison/rust/tests/support/capture_pool.rs",
 )
+CAPTURE_CORE_SUPPORT = (
+    "shared/messaging/src/pooled.rs",
+    "shared/messaging/src/pooled/gate.rs",
+)
 POLICY_SOURCE = "tools/build/src/mutex_policy.rs"
 MUTEX_CASES = ("std-mutex-inherit", "std-mutex-no-inherit")
 CASES.update({case: (0, 0, 0, 0, 0, 3, 3) for case in MUTEX_CASES})
@@ -160,6 +164,9 @@ def selected_cases(specification):
         cases = tuple(case for case in cases if case != "capture-pool-progress")
     elif any(source not in sources for source in CAPTURE_SUPPORT):
         raise ValueError("pooled capture requires retained shared gate and transport sources")
+    if any(source in sources for source in CAPTURE_CORE_SUPPORT) and any(
+            source not in sources for source in CAPTURE_CORE_SUPPORT):
+        raise ValueError("shared pooled capture requires the complete promoted transport sources")
     if "suite" in specification:
         if specification.get("cases") != list(cases):
             raise ValueError("case inventory disagrees with build suite")
@@ -550,7 +557,9 @@ def validate_capture_pool(observed, report, specification):
         return
     capture = observed.get("capture_pool")
     expected = {
-        "scope": "fixture-pooled-scalar-transport",
+        "scope": ("shared-pooled-scalar-transport"
+                  if all(source in specification.get("sources", {}) for source in CAPTURE_CORE_SUPPORT)
+                  else "fixture-pooled-scalar-transport"),
         "pause_stage": "after-slot-claim-before-payload",
         "capacity": 512, "sources": 3, "other_source_records": 511, "restart_records": 2,
         "rejected_full": 1, "rejected_stale": 1, "source_order": "per-source-fifo",

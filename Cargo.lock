@@ -2248,6 +2248,7 @@ dependencies = [
 name = "nxrs-messaging"
 version = "0.1.0"
 dependencies = [
+ "nxrs-allocation-probe",
  "triple_buffer",
 ]
 

@@ -29,7 +29,8 @@ The serial, harness-free
 current `Capture` and clock implementation. It compares their observable
 capture behavior with desktop `std::sync::mpsc` and pinned `heapless::spsc`
 0.9.4 queue models. This is a host contract and storage comparison. It does not
-measure timing, run the patched NuttX std backend, or replace production capture.
+measure timing or run the patched NuttX std backend. The source-included app
+now uses the same shared scalar transport exercised by the pool controls.
 
 Run it from the repository root:
 
@@ -40,13 +41,17 @@ CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0 \
 CARGO_INCREMENTAL=0 CARGO_BUILD_JOBS=1 \
 cargo test --manifest-path tests/mpsc-comparison/rust/Cargo.toml \
   --test capture --locked > target/mpsc/capture-host/results.log
+python3 tests/mpsc-comparison/capture_peer.py target/mpsc/capture-host/results.log \
+  --out target/mpsc/capture-host/python-peer.json
 ```
 
 The executable emits `CAPTURE_METADATA`, `CAPTURE_COMPARE`, `CAPTURE_CHECK`,
-`CAPTURE_PROTOCOL`, `CAPTURE_POOL`, `CAPTURE_POOL_MEMORY` and `CAPTURE_GATES`
+`CAPTURE_PROTOCOL`, `CAPTURE_POOL`, `CAPTURE_POOL_MEMORY`, `CAPTURE_PEER` and `CAPTURE_GATES`
 JSON records. Metadata hashes the compiled-in capture, clock, fixture, lifecycle
-gate, reference adapter, pooled adapter, pool checks, manifest and lockfile
-bytes using Git blob SHA-1. Retain the
+gate, reference adapter, pool facade, pool checks, manifest and lockfile
+bytes using Git blob SHA-1. Separate fields bind the actual shared production
+gate, pool implementation and app budget policy; facade hashes alone would not
+identify the compiled transport. Retain the
 whole output and the command's exit status. The existing allocation probe
 observes requested Rust heap bytes, not process RAM or native allocator use.
 The harness is disabled because an ordinary libtest harness can allocate
@@ -54,11 +59,21 @@ concurrently with an allocation window. The source-included module's own
 `#[test]` functions are not executed by this harness; they remain in the
 Motion Tracker test suite.
 
+The peer checker executes the unchanged `dashboard.py::decode_batch` function
+against eight vectors emitted by the real app encoder, including mixed-source
+v1/v2/v3 batches, count encoding and float fallback, UTC, wrapping sequences and
+timestamps, and overflow framing. It binds both compiled source blobs and the
+current decoder source, and rejects six deliberately damaged controls. It loads
+only that function's AST with `struct`, so no BLE/UI packages are required.
+This is Python decoder execution; terminal framing has a separate oracle, and
+it does not run Swift, an iPhone or TLS/BLE. Nonfinite scalar preservation is a
+transport control; the Swift client intentionally rejects nonfinite readings.
+
 Every variant has **512 usable record slots**:
 
 | Variant | Admission capacity | Extra storage distinction |
 | --- | --- | --- |
-| Current `Capture` | One 512-record pool across all sources | Reserves its private scalar records on enable and releases them on finish |
+| Production pooled `Capture` | One 512-record pool across all sources | Reserves before acquisition, retains while inactive and releases at final endpoint teardown |
 | Desktop std MPSC model | One 512-record pool across all sources | Reports actual requested setup allocation; this is the host standard library |
 | Even SPSC model | IMU 1: 171, IMU 2: 171, GNSS: 170 | Three rings use 172, 172, and 171 physical slots |
 | Rate SPSC model | IMU 1: 254, IMU 2: 254, GNSS: 4 | Three rings use 255, 255, and 5 physical slots |
@@ -90,12 +105,15 @@ All rows reconcile offered = admitted + full + closed and admitted = delivered
 after draining. They report unused slots at overflow, exposing capacity stranded
 in other rings instead of treating equal total capacity as equal admission.
 
-The unchanged encoder subsequently processes each observed drain order in
-batches of 16. Independent decoding verifies full-float v1, v2 and v3 payloads,
-and the report records their different wire sizes. This post-processing is
-outside allocation windows and is not an integrated SPSC capture implementation.
-UTC anchoring, native-count reconstruction, partial transport writes and client
-behavior remain with their owning fixtures.
+The production pool and encoder subsequently process each result in batches
+of 16 outside allocation windows. Independent decoding verifies full-float v1,
+v2 and v3 payloads and per-source FIFO; cross-source interleaving may change
+again when records enter the pool. The reported post-processing wire sizes are
+therefore not measurements of a replacement SPSC exporter. UTC anchoring,
+native-count reconstruction, partial transport writes and client behavior remain
+with their owning fixtures. Production setup and inactive-retention byte counts
+include its separate clock/wake object, while the pool-only harness has a
+different allocation scope.
 
 Additional witnesses check non-Copy value ownership through Full, ring wrap and
 retirement; three producers and a stalled consumer exchange 1,536 records across 32
@@ -114,13 +132,14 @@ atomic commit barrier.
 
 ### Concurrent capture lifecycle fixture
 
-The [shared lifecycle gate](rust/tests/support/capture_gate.rs) owns admission,
-overflow identity, cancellation and retirement for two fixture-only payload
-adapters. The [reference adapter](rust/tests/support/capture_protocol.rs) uses
+The [production lifecycle gate](../../shared/messaging/src/pooled/gate.rs) owns
+admission, overflow identity, cancellation and retirement. Its explicit `probe`
+feature exposes qualification boundaries to two independent payload paths. The [reference adapter](rust/tests/support/capture_protocol.rs) uses
 real host threads, non-Copy payloads and a 512-slot desktop std MPSC queue. The
-[pooled adapter](rust/tests/support/capture_pool.rs) supplies actual shared
-scalar storage without a payload channel. Both use safe Rust and add no
-production dependency, worker or queue. The original serial comparisons and
+[pool facade](rust/tests/support/capture_pool.rs) calls `messaging::pooled`
+without implementing storage or lifecycle again. Both use safe Rust. The app
+uses the optional `pooled` feature of its existing messaging dependency; this
+adds no worker or separate runtime. The original serial comparisons and
 epoch-only negative control remain independent reference checks. Reference
 ownership witnesses and event accounting run outside the allocation windows;
 they are not a product memory measurement.
@@ -151,10 +170,11 @@ source bit and keeps the epoch pending; it cannot overflow a counter or permit
 unsafe reuse. Abandoning an accepted permit cancels the session, so discarded
 work cannot be presented as a lossless overflow prefix.
 
-The candidate checks per-source FIFO and accepted-record accounting. Credit
+The transport checks per-source FIFO and accepted-record accounting. Credit
 reservation order is not global payload order: another source may publish while
-an earlier reservation is paused. The current Capture's mutex-admission order
-and the candidate's cross-source interleaving therefore remain distinct.
+an earlier reservation is paused. This differs from the previous mutex queue's
+cross-source admission order. The production wire decoder keeps each source's
+sequence and delta timestamp independently.
 
 The 24 `CAPTURE_PROTOCOL` cases cover pooled admission under nominal and skewed
 loads; simultaneous overflow and the last shared credit; a credit returned
@@ -171,19 +191,22 @@ Three of those cases use fresh owner threads with readiness checks and a 5 ms
 bounded host poll. They check retained-data progress before a delayed unpark and
 notification during unwind. They do not force publication into the exact final
 recheck-to-park window or qualify the production batch deadline and wait loop.
-The actual communications-owner wake integration remains an adoption gate.
+The app test suite separately exercises the actual communications endpoint
+handoff and export session. The host reference alone does not establish them.
 
 These host checks establish behavior for the controlled schedules in the fixture.
 They do not qualify desktop std MPSC as a nonblocking NuttX transport, prove
 bounded compare-and-exchange retries, or measure acquisition latency. The epoch
-limit is a prototype constraint, not an accepted product lifetime budget.
+limit is 131,071 successful opens per acquisition lifetime. The product returns
+an exhaustion error rather than wrapping or implicitly replacing live endpoints.
 
 ### Shared pooled payload transport
 
 The pooled adapter preallocates 512 shared payload slots, a free-slot bitmap and
 three source-owned index rings. Any source can use all 512 payload slots; the
-index rings do not partition payload capacity. A record stores its 64-bit time,
-sequence and six payload words as nine atomic 32-bit words. A release/acquire
+index rings do not partition payload capacity. A record stores its sequence and eight uninterpreted payload words as nine
+atomic 32-bit words. The app maps its 64-bit time and six sample words into that
+payload; the shared transport has no sensor or wire-format dependency. A release/acquire
 cursor publishes the complete payload and its slot index. The sole owner checks
 at most three source lanes and skips a producer that has not published yet.
 This preserves per-source FIFO, without imposing the mutex queue's cross-source
@@ -206,8 +229,8 @@ owner drains 511 records while the paused producer retains one obligation.
 The original 20 comparison rows, four controls and 24 reference lifecycle cases
 remain in the same executable.
 
-The [recorded host run](https://github.com/yongkyuns/nxrs/issues/446) requested
-**21,712 B in five setup allocations**. Its first offer/read and 4,096 subsequent
+The [historical host run at `60ee9f07`](https://github.com/yongkyuns/nxrs/issues/446)
+requested **21,712 B in five setup allocations**. Its first offer/read and 4,096 subsequent
 round trips made zero Rust allocator calls. The raw storage components are:
 
 | Component | Layout | Bytes |
@@ -220,18 +243,32 @@ round trips made zero Rust allocator calls. The raw storage components are:
 
 The remaining 120 requested bytes contain host structure/control metadata and
 alignment. Native allocator overhead, process RAM and stack high-water are not
-measured here. All **21,712 B remain allocated while inactive**; normal final
-endpoint teardown reclaims them. Production `Capture` instead releases its
-recorded **20,480 B payload allocation** on finish. Its payload allocation and
-the candidate's complete retained allocation are different denominators and
-lifetime policies, so their subtraction is not a full product heap comparison.
+measured by that receipt. All **21,712 B remained allocated while inactive**;
+normal final endpoint teardown reclaimed them. The previous mutex `Capture`
+released its **20,480 B payload allocation** on finish. Those payload-only and
+complete-arena numbers have different scope and lifetime; their subtraction is
+not a full product heap comparison. Current allocator records must be collected
+again because promotion adds peak accounting, configurable notification and a
+feature-dependent probe counter.
 
-Production ordered capture has not migrated to this adapter. Its separate
-owner-registration repair replaces a joined worker's wake handle and retains
-fault/readiness flags before a non-waiting notification attempt; queue allocation
-and retirement remain outside the payload lock. The `CAPTURE_GATES` record
-therefore reports `production_capture_changed: true` and
-`candidate_integrated: false`.
+Production ordered capture now uses this transport. `CAPTURE_GATES` reports
+`candidate_integrated: true` while keeping native qualification separate.
+Each callback owns one source publisher and `Telemetry` transfers the exclusive
+consumer through the existing worker's failed-spawn and joined-reuse paths.
+The app's 22 KiB requested-pool budget is checked before allocation. The fixed
+arena remains reserved between exports; a headless run without BLE does not
+allocate it. The two-second stall budget includes resolved IMU rates, a declared
+2 Hz GNSS assumption and 64 burst records. Oversized IMU configurations fail
+before sensor startup. The exported wire still has 512 shared admissions and
+16-record batches.
+
+Normal shared-library builds exclude the public pause hooks. The independent
+allocator harness also runs without `probe`, checks that a too-small budget
+performs no allocation, compares its requested-byte calculation with the actual
+five setup allocations, and checks no first-use/steady allocation or inactive
+release. Notifier-owned referents and target allocator metadata are outside that
+pool budget. The four array allocations are fallible; the final small `Arc`
+control allocation uses the standard allocator contract.
 
 At source `60ee9f07`, the single-core MPS2 NuttX
 [`capture` suite](../owner-qualification/README.md#pooled-capture-transport-witness)
@@ -243,10 +280,10 @@ the other 511 records, then blocks until publication and obligation retirement
 permit completion. This is evidence for that exact fixture revision and
 controlled schedule, before the later production owner-registration integration.
 
-Adoption still requires communications-owner wake/clear/recheck/sleep and
-batch-deadline integration, partial transport writes and client compatibility,
-product stall and memory budgets, and qualification of each deployed target's
-atomic and scheduling behavior. Bitmap scans and compare-and-exchange retries
+The application suite owns wake/clear/recheck/sleep, batch deadlines, partial
+writes, cancellation/reconnect and v1/v2/v3 compatibility checks. Target adoption
+still requires matching evidence for each deployed target's atomics, scheduling,
+active/idle heap and stack high-water. Bitmap scans and compare-and-exchange retries
 have no per-call SMP bound. These controlled schedules and the separate host
 windows with zero allocator calls do not establish WCET, ISR
 suitability, physical acquisition latency or a whole-product deadline. See

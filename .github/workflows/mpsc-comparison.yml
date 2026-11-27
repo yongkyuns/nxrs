@@ -76,7 +76,9 @@ jobs:
           cargo fmt --manifest-path tests/mpsc-comparison/rust/Cargo.toml --check
           cargo fmt --manifest-path tests/owner-qualification/Cargo.toml --check
           cargo test --locked -p nxrs-lock-order
-          cargo test --locked -p nxrs-messaging --features latest
+          cargo test --locked -p nxrs-messaging --features latest,pooled,probe
+          cargo test --locked -p nxrs-messaging --no-default-features --features pooled
+          cargo test --locked -p nxrs-motion-tracker
           python3 -m unittest discover -s tests/mpsc-comparison -p 'test_*.py' -v
           python3 -m unittest discover -s tests/owner-qualification -p 'test_*.py' -v
           python3 -m unittest discover -s tests/host -p test_armv8m_systick.py -v
@@ -87,7 +89,9 @@ jobs:
           mkdir -p target/capture-comparison
           cargo test --manifest-path tests/mpsc-comparison/rust/Cargo.toml --test capture --locked \
             2>&1 | tee target/capture-comparison/results.log
-      - name: Run and replay all twelve current-source host cases
+          python3 tests/mpsc-comparison/capture_peer.py target/capture-comparison/results.log \
+            --out target/capture-comparison/python-peer.json
+      - name: Run and replay all current-source host cases
         run: |
           python3 tests/owner-qualification/workflow.py host --out target/owner-host-ci
           python3 tests/owner-qualification/workflow.py inspect --build target/owner-host-ci \

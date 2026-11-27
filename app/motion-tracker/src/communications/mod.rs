@@ -6,7 +6,7 @@ mod tiles;
 mod uplink;
 mod wire;
 
-pub(super) use export::Capture;
+pub(super) use export::{Capture, CapturePublisher};
 pub(super) use tiles::{Key, Tile, Zoom, DIRECT_RELAY_AVAILABLE, SIDE};
 pub(super) use uplink::{Collector, Config as CellularConfig, Endpoint};
 pub(super) use wire::write_usb;
@@ -65,15 +65,24 @@ struct Shared {
 
 pub(super) struct Telemetry {
     pub readings: ObservationReader<2>,
-    pub capture: Arc<Capture>,
+    pub capture: Capture,
     pub interval: Duration,
 }
 
 impl Telemetry {
-    pub(super) fn snapshot(&mut self, now: Instant) -> Snapshot {
-        let mut snapshot = Snapshot::from(self.readings.snapshot(now));
-        snapshot.clock = self.capture.clock();
+    fn snapshot_from(
+        readings: &mut ObservationReader<2>,
+        capture: &export::CaptureView,
+        now: Instant,
+    ) -> Snapshot {
+        let mut snapshot = Snapshot::from(readings.snapshot(now));
+        snapshot.clock = capture.clock();
         snapshot
+    }
+
+    #[cfg(test)]
+    fn snapshot(&mut self, now: Instant) -> Snapshot {
+        Self::snapshot_from(&mut self.readings, &self.capture.view(), now)
     }
 }
 
@@ -95,6 +104,12 @@ impl<'a> TelemetryOwner<'a> {
 
 impl Drop for TelemetryOwner<'_> {
     fn drop(&mut self) {
+        // Even initialization failure or unwind closes admission before the
+        // exclusive endpoint is handed back. A paused publisher may retire
+        // later; the next joined owner continues bounded cleanup.
+        if let Some(telemetry) = self.telemetry.as_mut() {
+            telemetry.capture.finish();
+        }
         self.shared
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
@@ -208,6 +223,9 @@ impl Communications {
 
     /// Recover the fixed reader only after joining its previous owner. A later
     /// start may reuse it without adding a subscriber or losing unread values.
+    /// Capture can still be retiring a paused acquisition callback: the joined
+    /// owner returns promptly and the next owner drains before opening an epoch.
+    /// Full application shutdown joins acquisition before retiring this endpoint.
     pub(super) fn take_telemetry(&mut self) -> Option<Telemetry> {
         if self.task.is_some() {
             return None;
@@ -283,9 +301,11 @@ fn serve(
     notify: &mut impl FnMut(),
 ) {
     let identity = OnceCell::new();
-    // Radio retains a capture borrow across iterations; the latest-value
-    // reader remains exclusively mutable within this owner.
-    let capture = telemetry.capture.clone();
+    let capture_view = telemetry.capture.view();
+    let capture = &mut telemetry.capture;
+    let interval = telemetry.interval;
+    let readings = &mut telemetry.readings;
+    let mut snapshot = |now| Telemetry::snapshot_from(readings, &capture_view, now);
     let mut radio: Option<radio::Output<'_, _>> = None;
     let mut tiles = tiles::Tiles::new(tile_relay, Instant::now());
     let mut next_radio = Instant::now();
@@ -318,6 +338,7 @@ fn serve(
                 .filter(|key| inbox.tile.as_ref().is_none_or(|tile| tile.key != *key));
             (inbox.pairing.take().or(command.take()), tile)
         };
+        capture.retire();
         let now = Instant::now();
         if let Some((modem, _)) = modem {
             let status = modem.status();
@@ -327,41 +348,45 @@ fn serve(
             }
         }
         if radio.as_ref().is_some_and(|output| output.expired(now)) {
+            capture.finish();
             radio = None;
         }
         if let Some(pair) = pair {
             pairing_failed = false;
             next_radio = now;
             match pair {
-                Pairing::Cancel => radio = None,
+                Pairing::Cancel => {
+                    capture.finish();
+                    radio = None;
+                }
                 Pairing::Start => match radio.as_mut() {
                     Some(output) => output.show_pairing_code(),
-                    None => match tls_identity(&identity)
-                        .and_then(|identity| radio::pair(identity, &capture))
-                    {
-                        Ok(output) => radio = Some(output),
-                        Err(error) => {
-                            log::warn!("motion-tracker pairing: {error}");
-                            pairing_failed = true;
+                    None => {
+                        match tls_identity(&identity).and_then(|identity| radio::pair(identity)) {
+                            Ok(output) => radio = Some(output),
+                            Err(error) => {
+                                log::warn!("motion-tracker pairing: {error}");
+                                pairing_failed = true;
+                            }
                         }
-                    },
+                    }
                 },
             }
         }
         let reporting = radio.as_ref().is_some_and(radio::Output::live);
-        let fault = telemetry.capture.take_sensor_failed();
+        let fault = capture.take_sensor_failed();
         let sample = (reporting && (fault || now >= next_report)).then(|| {
-            next_report = now + telemetry.interval;
-            telemetry.snapshot(now)
+            next_report = now + interval;
+            snapshot(now)
         });
         tiles.select(tile, now);
         let mut phone_tile = None;
         let view = match radio.as_mut() {
             Some(output) => {
-                let samples_ready = telemetry.capture.take_ready();
+                let samples_ready = capture.take_ready();
                 if output.take_ready() || samples_ready || now >= next_radio {
-                    phone_tile = output.service(now, tiles.phone_request());
-                    next_radio = output.next_service(now + ACTIVE_POLL);
+                    phone_tile = output.service(capture, now, tiles.phone_request());
+                    next_radio = output.next_service(now, now + ACTIVE_POLL);
                 }
                 if let Some(snapshot) = &sample {
                     output.offer(snapshot, now, tiles.phone_request());
@@ -409,7 +434,7 @@ fn serve(
                     })
             } else {
                 upload.as_mut().map_or(Ok(false), |connection| {
-                    connection.service(reports, |now| telemetry.snapshot(now))
+                    connection.service(reports, |now| snapshot(now))
                 })
             };
             match progress {
@@ -443,15 +468,22 @@ fn serve(
         }
         let mut wake = reporting.then_some(next_report);
         let active_radio = radio.as_ref().is_some_and(radio::Output::active);
-        if radio.is_some() && !active_radio {
+        if radio.is_some() {
             wake = Some(wake.map_or(next_radio, |deadline| deadline.min(next_radio)));
         }
-        if active_radio || upload.is_some() || tiles.busy() {
+        if active_radio || upload.is_some() || tiles.busy() || capture.retirement_pending() {
             let poll = Instant::now() + ACTIVE_POLL;
             wake = Some(wake.map_or(poll, |deadline| deadline.min(poll)));
         }
         if retry_pending {
             wake = Some(wake.map_or(retry.next, |deadline| deadline.min(retry.next)));
+        }
+        // Clear/recheck the retained publication hint before sleeping. A
+        // following publication leaves an unpark token; skipped wake-adapter
+        // acquisition is bounded by active/pending work's polling deadline.
+        if capture.take_ready() {
+            next_radio = Instant::now();
+            continue;
         }
         match wake {
             Some(deadline) => {
@@ -460,6 +492,7 @@ fn serve(
             None => thread::park(),
         }
     }
+    capture.finish();
 }
 
 #[cfg(test)]
@@ -474,17 +507,21 @@ mod tests {
         ObservationPublishers<2, 2>,
         ObservationReader<2>,
         Option<Telemetry>,
+        [CapturePublisher; 3],
     ) {
         let (publishers, [display, readings]) =
             publication::<2, 2>(Duration::from_secs(1), Some(Duration::from_secs(3)));
+        let (capture, capture_publishers) =
+            Capture::new([None; 2], [Some(100_000); 2], true).unwrap();
         (
             publishers,
             display,
             Some(Telemetry {
                 readings,
-                capture: Arc::new(Capture::new([None; 2])),
+                capture,
                 interval: Duration::from_millis(500),
             }),
+            capture_publishers,
         )
     }
 
@@ -501,7 +538,7 @@ mod tests {
 
     #[test]
     fn failed_spawn_preserves_the_reader_for_late_start_and_joined_reuse() {
-        let (publishers, mut display, mut pending) = telemetry();
+        let (publishers, mut display, mut pending, _capture_publishers) = telemetry();
         let [mut publisher, _] = publishers.imu;
         let now = Instant::now();
         publisher
@@ -557,8 +594,86 @@ mod tests {
     }
 
     #[test]
+    fn paused_capture_survives_failed_spawn_stop_and_joined_owner_reuse() {
+        use super::export::tests::{decode, imu, pause_record};
+        let (_, _, mut pending, [primary, mut secondary, _gnss]) = telemetry();
+        pending.as_mut().unwrap().capture.enable().unwrap();
+        let paused = pause_record(primary, imu(0, 10, 100));
+        pending.as_mut().unwrap().capture.finish();
+        assert!(pending.as_ref().unwrap().capture.retirement_pending());
+        assert!(Communications::start_owner(&mut pending, |_| {
+            Err(io::Error::other("thread creation failed"))
+        })
+        .is_err());
+        assert!(!pending.as_mut().unwrap().capture.enable().unwrap());
+
+        // Stop/join must return the owner without waiting for that acquisition
+        // task. The actual worker still registers its destination and runs serve.
+        let (started, attached) = mpsc::channel();
+        let mut links = Communications::start_owner(&mut pending, move |incoming| {
+            thread::Builder::new().spawn(move || {
+                let mut owner = TelemetryOwner::take(&incoming);
+                started.send(()).unwrap();
+                run(
+                    &incoming,
+                    false,
+                    None,
+                    None,
+                    owner.telemetry.as_mut().unwrap(),
+                    &mut || {},
+                )
+            })
+        })
+        .unwrap();
+        attached.recv_timeout(Duration::from_secs(2)).unwrap();
+        links.stop().unwrap();
+        pending = links.take_telemetry();
+        assert!(pending.as_ref().unwrap().capture.retirement_pending());
+        assert!(!pending.as_mut().unwrap().capture.enable().unwrap());
+
+        // A later real owner services pending cleanup even without a radio.
+        // A deliberate initial view change lets the test observe its first turn.
+        let (serviced, turns) = mpsc::channel();
+        let mut links = Communications::start_owner(&mut pending, move |incoming| {
+            incoming.lock().unwrap().view.link = LinkStatus::Connected;
+            thread::Builder::new().spawn(move || {
+                let mut owner = TelemetryOwner::take(&incoming);
+                run(
+                    &incoming,
+                    false,
+                    None,
+                    None,
+                    owner.telemetry.as_mut().unwrap(),
+                    &mut || {
+                        let _ = serviced.send(());
+                    },
+                )
+            })
+        })
+        .unwrap();
+        turns.recv_timeout(Duration::from_secs(2)).unwrap();
+        links.shared.lock().unwrap().view.link = LinkStatus::Connected;
+        let _primary = paused.release();
+        turns.recv_timeout(Duration::from_secs(2)).unwrap();
+        links.stop().unwrap();
+        let mut returned = links.take_telemetry().unwrap();
+        assert!(!returned.capture.retirement_pending());
+        assert!(returned.capture.enable().unwrap());
+        secondary.record(imu(1, 20, 200));
+        let mut bytes = [0; export::MAX_BYTES];
+        let batch = returned
+            .capture
+            .take(&mut bytes, true, export::Version::Timed)
+            .unwrap()
+            .unwrap();
+        let records = decode(&bytes[..batch.len], [None; 2]);
+        assert_eq!(records.len(), 1);
+        assert_eq!((records[0].source, records[0].sequence), (1, 20));
+    }
+
+    #[test]
     fn the_running_reader_does_not_need_the_communications_control_mutex() {
-        let (publishers, _, mut pending) = telemetry();
+        let (publishers, _, mut pending, _capture_publishers) = telemetry();
         let [mut publisher, _] = publishers.imu;
         let now = Instant::now();
         let (started, attached) = mpsc::channel();
@@ -594,7 +709,7 @@ mod tests {
     #[test]
     fn error_and_unwinding_workers_return_the_reader_after_join() {
         for panic in [false, true] {
-            let (_, _, mut pending) = telemetry();
+            let (_, _, mut pending, _capture_publishers) = telemetry();
             let mut links = Communications::start_owner(&mut pending, move |incoming| {
                 thread::Builder::new().spawn(move || {
                     let _owner = TelemetryOwner::take(&incoming);

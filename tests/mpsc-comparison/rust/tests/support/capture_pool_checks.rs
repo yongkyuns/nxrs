@@ -12,10 +12,10 @@ use std::time::{Duration, Instant};
 
 fn record(source: u8, sequence: u32, generation: u32) -> Record {
     Record {
-        time_ms: (u64::from(0x8123_0000 | generation) << 32)
-            | u64::from(sequence.wrapping_mul(101).wrapping_add(u32::from(source))),
         sequence,
-        values: [
+        words: [
+            sequence.wrapping_mul(101).wrapping_add(u32::from(source)),
+            0x8123_0000 | generation,
             0,
             u32::MAX,
             0x7fc0_1234 ^ generation,
@@ -29,7 +29,7 @@ fn record(source: u8, sequence: u32, generation: u32) -> Record {
 fn report(case: &str, admitted: usize, delivered: usize, discarded: usize) {
     assert_eq!(admitted, delivered + discarded);
     println!(
-        "CAPTURE_POOL {{\"case\":\"{case}\",\"runtime\":\"host\",\"shared_capacity\":512,\"admitted\":{admitted},\"delivered\":{delivered},\"discarded\":{discarded},\"production_migrated\":false,\"native_progress_qualified\":false,\"success\":true}}"
+        "CAPTURE_POOL {{\"case\":\"{case}\",\"runtime\":\"host\",\"shared_capacity\":512,\"admitted\":{admitted},\"delivered\":{delivered},\"discarded\":{discarded},\"production_transport\":true,\"native_progress_qualified\":false,\"success\":true}}"
     );
 }
 
@@ -649,7 +649,7 @@ pub fn allocation_windows(snapshot: impl Fn() -> Snapshot) {
     inactive.no_allocator_calls_since(steady).unwrap();
     assert_eq!(
         inactive.live, setup.live,
-        "this fixture retains its arena while inactive"
+        "the product policy retains its arena while inactive"
     );
     drop(publishers);
     drop(owner);

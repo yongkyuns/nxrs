@@ -2,12 +2,13 @@
 //!
 //! `channels` supplies bounded event queues; the independent `latest` feature
 //! supplies fixed-reader, coalescing snapshots through `messaging::latest`.
-//! With neither feature, delivery contracts require only core. `latest` uses
-//! `no_std + alloc`; it does not enable the std-backed channel feature.
+//! `pooled` supplies retained, shared-capacity delivery of scalar records from
+//! three exclusive sources. With no features, delivery contracts need only
+//! core. `latest` uses `no_std + alloc`; `channels` and `pooled` use `std`.
 #![no_std]
 #![forbid(unsafe_code)]
 
-#[cfg(feature = "channels")]
+#[cfg(any(feature = "channels", feature = "pooled"))]
 extern crate std;
 #[cfg(feature = "channels")]
 mod channel;
@@ -16,6 +17,9 @@ pub use channel::{bounded, Inbox, Sender};
 
 #[cfg(feature = "latest")]
 pub mod latest;
+
+#[cfg(feature = "pooled")]
+pub mod pooled;
 
 /// Rejection returns the original owned value to its producer.
 #[derive(Debug, PartialEq, Eq)]

@@ -1,4 +1,4 @@
-//! Fixed-priority witness for the fixture-only pooled capture transport.
+//! Fixed-priority witness for the shared pooled capture transport.
 //!
 //! The low producer pauses inside a claimed physical slot before writing the
 //! payload. Another source can use the remaining shared capacity, and the owner
@@ -128,10 +128,12 @@ impl Pause {
 }
 
 fn record(source: u8, sequence: u32, session: u32) -> Record {
+    let time_ms = 0x1234_abcd_0000_0000 | (u64::from(session) << 24) | u64::from(sequence);
     Record {
-        time_ms: 0x1234_abcd_0000_0000 | (u64::from(session) << 24) | u64::from(sequence),
         sequence,
-        values: [
+        words: [
+            time_ms as u32,
+            (time_ms >> 32) as u32,
             0x7fc0_0046 ^ sequence,
             !sequence,
             0x8000_0000 | u32::from(source),
@@ -361,7 +363,7 @@ pub fn run() -> Outcome {
     outcome.handled = 514;
     outcome.endpoints_closed = true;
     outcome.capture_pool = Some(Report {
-        scope: "fixture-pooled-scalar-transport",
+        scope: "shared-pooled-scalar-transport",
         pause_stage: "after-slot-claim-before-payload",
         capacity: pool::CAPACITY,
         sources: pool::SOURCES,

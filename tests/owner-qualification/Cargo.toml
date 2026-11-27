@@ -12,7 +12,7 @@ qualification-only = true
 
 [dependencies]
 lock_order = { package = "nxrs-lock-order", path = "../../shared/lock-order" }
-messaging = { package = "nxrs-messaging", path = "../../shared/messaging", features = ["latest"] }
+messaging = { package = "nxrs-messaging", path = "../../shared/messaging", features = ["latest", "pooled", "probe"] }
 navigation = { package = "nxrs-navigation-services", path = "../../service/navigation" }
 allocation_probe = { package = "nxrs-allocation-probe", path = "../allocation-probe" }
 imu = { package = "nxrs-imu", path = "../../hal/imu" }

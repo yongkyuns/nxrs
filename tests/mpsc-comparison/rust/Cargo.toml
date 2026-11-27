@@ -23,6 +23,7 @@ navigation = { package = "nxrs-navigation-services", path = "../../../service/na
 imu = { package = "nxrs-imu", path = "../../../hal/imu" }
 gnss = { package = "nxrs-gnss", path = "../../../hal/gnss" }
 heapless = { version = "=0.9.4", default-features = false }
+messaging = { package = "nxrs-messaging", path = "../../../shared/messaging", default-features = false, features = ["pooled", "probe"] }
 
 [package.metadata.nxrs]
 qualification-only = true

@@ -22,8 +22,13 @@ suite contains eight channel, owner and latest-value cases. The
 `mutex-inherit` suite contains two cases; `mutex-no-inherit` contains one.
 The `publication` suite contains the production publication witness and repeats
 `std-mutex-inherit` in the same image as its native mutex control.
-The `capture` suite contains the fixture-only pooled scalar transport witness
-and the same native mutex control. It does not replace Motion Tracker capture.
+The `capture` suite imports the shared `messaging::pooled` scalar transport
+through a thin test facade and pairs its witness with the same native mutex
+control. The synthetic schedule qualifies that implementation; the product's
+owner, encoding, memory budget and lifecycle need their own integration checks.
+Current reports identify `shared-pooled-scalar-transport` and retain both shared
+source files. Historical fixture reports remain replayable with their original
+`fixture-pooled-scalar-transport` scope and cannot acquire the shared-core claim.
 Each suite uses a separate image with the corresponding pthread mutex default.
 Full suite coverage uses five builds and fifteen fresh-boot captures per target.
 Host mode runs all thirteen cases in fresh processes. Every case must complete with checked results

@@ -224,6 +224,7 @@ dependencies = [
  "nxrs-allocation-probe",
  "nxrs-gnss",
  "nxrs-imu",
+ "nxrs-messaging",
  "nxrs-navigation-services",
 ]
 

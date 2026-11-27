@@ -208,76 +208,114 @@ failed communications spawn and joined reuse.
 Product scheduling, actual target stack high-water, physical acquisition jitter
 and worst-case latency remain qualification gates. Freshness thresholds describe
 which readings are usable; timing acceptance also needs a publication deadline
-and an acquisition jitter budget. The complete acquisition callback still
-invokes the synchronized ordered-capture path after latest publication.
+and an acquisition jitter budget.
 
-Ordered capture belongs to the Motion Tracker export. It uses a 512-record
-pool shared across sources, drains batches of up to 16, and retains the first
-rejected record's source and sequence on overflow. A wake tells communications
-to inspect that retained work. A replacement communications worker registers its
-own wake target after the previous worker joins. Acquisition retains readiness
-and faults when the wake target is busy, and active export checks them on its
-existing poll. The admission, overflow and wake gates for a
-capture replacement are tracked in [#446](https://github.com/yongkyuns/nxrs/issues/446).
+Ordered capture belongs to Motion Tracker's export. The app uses the optional
+[`messaging::pooled`](../shared/messaging/src/pooled.rs) transport: 512 shared
+scalar records, three exclusive source publishers and one exclusive consumer.
+Each acquisition callback receives its own publisher. The consumer moves with
+`Telemetry` into the existing communications worker, through failed-spawn
+rollback and joined reuse. A separate shared view carries clock, scales and
+fault state. No payload mutex, new worker or runtime dependency is added.
 
-The production capture's wake destination can be replaced after the previous
-communications worker has joined. Registration installs the new thread handle
-under a dedicated owner mutex and retires the old handle after unlocking.
-Acquisition retains fault/readiness flags before trying that mutex for a wake;
-it neither waits for this owner lock nor clones or retires a thread handle.
-Active communications has a bounded poll or service deadline, while starting
-work from idle has its own control wake. Queue allocation and retirement stay
-outside the payload mutex, and fault publication does not need that mutex.
-This repairs joined-owner reuse without changing the ordered payload transport
-or making the complete acquisition callback nonblocking.
+The pool's lifecycle gate reserves capacity, epoch and a source's outstanding
+publication in one atomic operation. A source paused after reservation cannot
+prevent another source from publishing or the owner from reading its complete
+records. The consumer checks at most three index lanes, preserving FIFO within
+each source. Cross-source arrival order is not retained. All three wire versions
+track deltas by source and accept this interleaving.
+
+Closing an export cancels admission and drains published records on the owner.
+A producer can still owe a publication after the visible queue becomes empty;
+that obligation prevents terminal completion and a new epoch. The owner keeps
+retirement in its existing 15 ms bounded poll even after the radio disappears.
+A reconnect retains its request while retirement is pending. It does not block
+communications or overwrite old work. Overflow retains the first missing source
+and sequence until accepted records and source obligations retire. Unexpected
+publisher disconnection closes with an error after accepted records drain; it
+cannot invent an overflow key or become a successful export.
+
+The radio's export session keeps one fixed 604-byte encoded frame while TLS
+writes accept only part of it. Pool slots return after copying and before
+encoding or transport I/O. Full batches contain up to 16 records; smaller ones
+wait for the existing 40 ms v1/v2 or 75 ms v3 deadline. An overflow terminal stays
+pending until its complete bytes have been written. Partial requests, writes,
+`WouldBlock`, disconnect and reconnect use the same session code in the app and
+its host behavioral tests.
+
+The wake destination can be replaced after the previous communications worker
+joins. Registration prewarms the owner mutex and retires the old thread handle
+outside it. Acquisition retains readiness or fault state before a `try_lock`
+wake attempt; it does not wait for this lock or clone/retire thread handles.
+Starting idle work has its own control wake, and active work or pending
+retirement contributes a deadline to the owner's single park. The scalar payload
+path avoids a mutex, but the callback and platform wake primitive are not a
+whole-system lock-free or deadline guarantee.
+
+The app's [capture policy](../app/motion-tracker/src/communications/export/policy.rs)
+checks storage and workload before sensor startup:
+
+| Policy | Enforcement and scope |
+| --- | --- |
+| Shared capacity | Exactly 512 records; any one source can use all slots |
+| Retained pool heap | At most 22 KiB of requested Rust allocations, including pool control storage; checked before allocation |
+| Idle lifetime | The arena remains allocated until final endpoint teardown, including between BLE sessions and joined worker reuse |
+| Runs without export | A headless run without `--ble` reserves no pool; display runs reserve for later pairing |
+| Stall and burst | Two seconds at the resolved IMU rates, 2 Hz GNSS and 64 additional burst records must fit 512 slots |
+| Nominal workload | Two 100 Hz IMUs and 2 Hz GNSS need 468 slots including the burst allowance, leaving 44 slots |
+| GNSS rate | 2 Hz is the current product-profile assumption; the portable device API does not expose a rate query |
+| Excess traffic | First true capacity failure closes the epoch and retains its exact missing key |
+| Epoch lifetime | 131,071 successful opens per acquisition lifetime, then an explicit exhaustion error; no wrap or silent stale reuse |
+
+The four large scalar/index allocations use fallible reservation. Small shared
+`Arc` allocations retain Rust's ordinary allocation-failure behavior, before
+acquisition starts. Pool requested bytes exclude allocator bookkeeping, the
+separate wake/clock object, transport buffers and task stacks. Firmware heap and
+stack measurements must account for those costs separately. Keeping a fixed arena
+avoids replacing shared storage while callbacks still own endpoints; releasing
+it on every BLE disconnect would require a separate quiescent endpoint handoff.
 
 The [host capture comparison](../tests/mpsc-comparison/README.md#host-capture-admission-comparison)
-uses the actual export implementation and wire oracle. It compares equal total
-capacity with desktop std MPSC and fixed per-source SPSC queues. A nominal
-two-second, 404-record stalled-consumer workload fits the shared pool but an
+uses the production pool and encoder with an independent wire oracle. A nominal
+two-second, 404-record stalled-consumer workload fits shared capacity but an
 evenly partitioned SPSC design admits only 346 records. A rate-weighted split
-admits all 404, then admits only 406 of a three-second, 606-record workload while
-106 slots remain unused elsewhere; the shared pool admits 512. Partitioning
-therefore changes admission behavior. The comparison retains non-Copy ownership,
-overflow/restart and epoch-boundary controls.
+admits all 404, then only 406 of a three-second, 606-record workload while 106
+slots remain unused elsewhere. The shared pool admits 512. Partitioning would
+change the product's admission behavior.
 
-One fixture-only lifecycle gate now serves both the non-Copy desktop std MPSC
-reference and an actual pooled scalar adapter. Its atomic state reserves shared
-credits, validates the captured epoch and retains each source's publication
-obligation. An empty queue cannot authorize terminal delivery or restart while
-a producer is still entitled to publish. Cancellation accounts for accepted work
-before reuse, terminals remain available until explicit owner retirement, and
-epoch exhaustion fails instead of wrapping.
+The same production gate serves the independent non-Copy desktop MPSC reference
+through the explicit `probe` feature. Its 24 lifecycle cases and the
+[22 pooled controls](../tests/mpsc-comparison/README.md#shared-pooled-payload-transport)
+cover admission, retained terminal state, stale epochs, cancellation, unwind,
+last-source races and complete per-source records. Public pause hooks are absent
+from normal builds. The host allocation harness checks budget rejection before
+allocation, setup, first use, steady publication, retained inactive storage and
+final teardown. These checks do not turn arbitrary compare-and-exchange retries
+into a per-call SMP bound.
 
-The [pooled adapter and its 22 host controls](../tests/mpsc-comparison/README.md#shared-pooled-payload-transport)
-use 512 shared payload slots, three source-owned index rings and a free-slot
-bitmap. Release/acquire cursor publication exposes complete records; physical
-storage returns before logical credit, including during unwind. A paused source
-does not hide another source's published records. Owner drop closes admission,
-remaining endpoints retain in-flight storage, and opening rechecks last-source
-retirement. The original 24 reference lifecycle cases remain independent checks
-of the shared gate.
+Publication currently requests a wake for every accepted record, whereas the
+previous queue woke when reaching its batch threshold. Batching remains on its
+existing deadlines, but the extra wake load needs target measurement. Stopping
+only communications joins that worker and can return an endpoint with pending
+acquisition obligations; a later owner continues retirement before reopening.
+Full product shutdown stops and joins acquisition before retiring communications.
 
-The recorded host setup requests 21,712 B in five allocations. The raw payload,
-index, bitmap and cursor components occupy 18,432 + 3,072 + 64 + 24 B; these are
-included in that setup total. First use and 4,096 steady round trips make no Rust
-allocator calls. The candidate retains its whole arena while inactive and fully
-reclaims it at final endpoint teardown. Production releases its 20,480 B payload
-allocation on finish; those different allocation scopes and lifetimes are not a
-complete product heap comparison.
+Historical fixture measurements remain source-specific. The setup at `60ee9f07`
+requested 21,712 B in five allocations, retained while inactive; its first use
+and 4,096 steady round trips made no Rust allocator calls. The raw components
+were 18,432 B payload, 3,072 B indices, 64 B bitmap and 24 B cursors, already
+included in that total. The earlier mutex implementation released its 20,480 B
+payload allocation on finish. Different allocation scope and lifetime prevent
+calling their subtraction a complete product heap delta.
 
-These fixtures check controlled schedules and per-source FIFO, without imposing
-a total order on cross-source reservations. At source `60ee9f07`, the
-[native capture suite](../tests/owner-qualification/README.md#pooled-capture-transport-witness)
-passed the shared Gate/pool's single-core fixed-priority witness and its
-same-image std-mutex inheritance control; both retained captures passed
-independent replay. Build `8c3b0380` predates the later production
-owner-registration integration and records progress for that fixture source
-and configuration. CAS and bitmap retries still have no per-call SMP bound.
-Communications wake and batch-deadline integration, partial writes, client
-compatibility, target memory and physical timing remain gates. Production keeps
-its mutex-protected shared payload queue; the pooled candidate has not been
-integrated.
+At `60ee9f07`, native build `8c3b0380` passed the
+[single-core fixed-priority capture witness](../tests/owner-qualification/README.md#pooled-capture-transport-witness)
+and its same-image std-mutex inheritance control, with independent replay. That
+receipt predates promotion and the current owner/transport integration; it is
+not a new-source product qualification. Deployed-target atomics, scheduler and
+wake behavior, active/idle heap, stack high-water and physical timing still need
+matching evidence. The implementation and qualification case are tracked in
+[#446](https://github.com/yongkyuns/nxrs/issues/446).
 
 #### ARM product build comparison
 

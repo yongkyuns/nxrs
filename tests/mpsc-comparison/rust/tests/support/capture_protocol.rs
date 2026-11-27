@@ -6,7 +6,7 @@ use std::cell::Cell;
 use std::collections::{BTreeMap, BTreeSet};
 use std::marker::PhantomData;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering::*};
+use std::sync::atomic::{AtomicUsize, Ordering::*};
 use std::sync::mpsc::{self, Receiver, SyncSender, TryRecvError};
 use std::thread::{self, Thread};
 use std::time::{Duration, Instant};

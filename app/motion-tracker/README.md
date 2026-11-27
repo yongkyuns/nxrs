@@ -231,6 +231,34 @@ up. If the buffer fills, the tracker delivers queued samples and reports an
 incomplete export. Sensor acquisition and the display continue. The phone
 also marks an export incomplete if it detects a sequence gap.
 
+The 512 slots are shared by all sources, so an idle sensor does not strand
+another sensor's capacity. Records preserve each source's order; independent
+sources can interleave differently from their callback arrival order. Capture
+uses one exclusive publisher per acquisition callback and one consumer on the
+existing communications worker. Encoding and partial TLS writes happen after
+the consumer copies records out of the pool.
+
+Export-capable runs reserve the pool before starting sensors and retain it
+between recordings and communications-worker restarts. The requested Rust heap
+ceiling for this pool is 22 KiB, including pool control storage. Its separate
+clock/wake state, allocator overhead, transport buffers and task stacks have
+their own costs. A headless run without `--ble` reserves no export pool; a run
+with a display reserves one so **Pair** can start export later. The
+[capture policy](src/communications/export/policy.rs) rejects resolved IMU rates
+that cannot fit a two-second stall plus 64 burst records. At two 100 Hz IMUs
+and the current 2 Hz GNSS profile rate, that requires 468 of the 512 slots.
+GNSS rate is an explicit profile assumption because its portable device API
+has no rate query. Actual traffic beyond capacity still closes with the first
+missing source and sequence.
+
+On disconnect, the worker cancels admission and retires records without
+waiting for a paused producer. A new export request stays pending until every
+old publication retires; other communications work continues. The same pool
+supports 131,071 successful export opens in one acquisition lifetime and then
+returns an exhaustion error instead of wrapping its session identity. The
+[concurrency contract](../../docs/concurrency-event-communication.md#motion-tracker-observations-and-capture)
+describes the scheduling and qualification boundaries.
+
 Pairing is opt-in for each run. The TLS 1.2 PSK cipher is
 `TLS_PSK_WITH_AES_128_GCM_SHA256` and the PSK identity is `nxrs-tracker-v1`.
 TLS authenticates both peers through possession of a generated 256-bit key.

@@ -31,7 +31,7 @@ def suite_inputs(native, case="std-disconnect"):
              case.removeprefix("std-") if case in W.MUTEX_CASES else "owner") if native else "host-all"
     return {"kind": "nuttx-target" if native else "host-functional", "suite": suite,
             "cases": list(W.SUITES[suite]), "priority_inheritance": suite in W.SUITE_PROTOCOLS if native else None,
-            "sources": {path: "parser-control-source-marker" for path in (W.LATEST_SOURCE, W.NESTED_SOURCE, W.POLICY_SOURCE, W.PUBLICATION_SOURCE, W.CAPTURE_SOURCE, *W.CAPTURE_SUPPORT)},
+            "sources": {path: "parser-control-source-marker" for path in (W.LATEST_SOURCE, W.NESTED_SOURCE, W.POLICY_SOURCE, W.PUBLICATION_SOURCE, W.CAPTURE_SOURCE, *W.CAPTURE_SUPPORT, *W.CAPTURE_CORE_SUPPORT)},
             "mutex_policy": W.mutex_policy("nuttx-target" if native else "host-functional", suite),
             "pthread_mutex_default_protocol": W.SUITE_PROTOCOLS.get(suite) if native else None}
 
@@ -150,7 +150,7 @@ def report(case, native=False, build_id=BUILD_ID):
             return {"occupied": occupied, "busy_sources": busy, "free_slots": free}
         pointer_bytes = 4 if native else 8
         observed["capture_pool"] = {
-            "scope": "fixture-pooled-scalar-transport",
+            "scope": "shared-pooled-scalar-transport",
             "pause_stage": "after-slot-claim-before-payload",
             "capacity": 512, "sources": 3, "other_source_records": 511, "restart_records": 2,
             "rejected_full": 1, "rejected_stale": 1, "source_order": "per-source-fifo",
@@ -526,7 +526,7 @@ class RetainedEvidenceControls(unittest.TestCase):
             publication_source.write_text("// synthetic publication source, never executed\n")
             sources[W.PUBLICATION_SOURCE] = W.digest(publication_source)
         if capture:
-            for path in (W.CAPTURE_SOURCE, *W.CAPTURE_SUPPORT):
+            for path in (W.CAPTURE_SOURCE, *W.CAPTURE_SUPPORT, *W.CAPTURE_CORE_SUPPORT):
                 capture_source = root / "retained/sources" / path
                 capture_source.parent.mkdir(parents=True, exist_ok=True)
                 capture_source.write_text("// synthetic pooled capture source, never executed\n")
@@ -664,11 +664,27 @@ class RetainedEvidenceControls(unittest.TestCase):
         for case in W.SUITES["capture"]:
             value = report(case, True, build["build_id"])
             self.assertEqual(W.parse(transcript(value), build, case, TOKEN), value)
-        for source in (W.CAPTURE_SOURCE, *W.CAPTURE_SUPPORT):
+        for source in (W.CAPTURE_SOURCE, *W.CAPTURE_SUPPORT, *W.CAPTURE_CORE_SUPPORT):
             specification = copy.deepcopy(build["inputs"])
             specification["sources"].pop(source)
             with self.subTest(source=source), self.assertRaises(ValueError):
                 W.selected_cases(specification)
+
+    def test_capture_scope_is_bound_to_retained_implementation(self):
+        _, build = self.build(True, case="capture-pool-progress")
+        value = report("capture-pool-progress", True, build["build_id"])
+        historical = copy.deepcopy(build)
+        for source in W.CAPTURE_CORE_SUPPORT:
+            historical["inputs"]["sources"].pop(source)
+        historical["build_id"] = W.identity(historical["inputs"])
+        value["build_id"] = historical["build_id"]
+        with self.assertRaises(ValueError):
+            W.parse(transcript(value), historical, value["case"], TOKEN)
+        value["observations"]["capture_pool"]["scope"] = "fixture-pooled-scalar-transport"
+        self.assertEqual(W.parse(transcript(value), historical, value["case"], TOKEN), value)
+        value["build_id"] = build["build_id"]
+        with self.assertRaises(ValueError):
+            W.parse(transcript(value), build, value["case"], TOKEN)
 
     def test_source_identity_and_symlink_containment(self):
         root, _ = self.build()

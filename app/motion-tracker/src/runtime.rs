@@ -1,7 +1,8 @@
 use crate::{communications, screen, tracker, ReportOptions};
 use battery::Device as _;
 use communications::{
-    Capture, CellularConfig, Collector, Communications, Endpoint, Pairing, Telemetry, View, Zoom,
+    Capture, CapturePublisher, CellularConfig, Collector, Communications, Endpoint, Pairing,
+    Telemetry, View, Zoom,
 };
 use messaging::bounded;
 use navigation::observations::{
@@ -9,10 +10,7 @@ use navigation::observations::{
 };
 use screen::{Action, Screen};
 use std::io::{self, Write};
-use std::sync::{
-    mpsc::{RecvTimeoutError, TrySendError},
-    Arc,
-};
+use std::sync::mpsc::{RecvTimeoutError, TrySendError};
 use std::time::{Duration, Instant};
 use touch::Session as _;
 use tracker::{report_fault, Snapshot, FIX_FRESH, IMU_FRESH};
@@ -146,7 +144,7 @@ enum Event {
 }
 
 fn sensor_event(
-    capture: Arc<Capture>,
+    mut capture: CapturePublisher,
     mut record: impl FnMut(&Observation) -> Result<Option<Measurement>, SensorFault> + Send + 'static,
 ) -> impl FnMut(Observation) -> Option<Event> + Send + 'static {
     move |event| {
@@ -201,10 +199,17 @@ fn track(
     let secondary_config = secondary.default_config();
     let secondary_present = !matches!(&secondary_config, Err(imu::DeviceError::Unsupported));
     let secondary_scale = secondary_config.and_then(|config| secondary.resolve(config));
-    let capture = Arc::new(Capture::new(
+    // A display can start BLE later; headless builds without BLE retain only
+    // clock/fault state and do not reserve the full-rate export pool.
+    let rates = [&primary_scale, &secondary_scale]
+        .map(|applied| applied.as_ref().ok().map(|config| config.rate_millihz));
+    let (capture, [primary_capture, secondary_capture, gnss_capture]) = Capture::new(
         [primary_scale, secondary_scale]
             .map(|applied| applied.ok().and_then(|config| config.counts_scale)),
-    ));
+        rates,
+        options.ble || screen.is_some(),
+    )?;
+    let capture_view = capture.view();
     let (
         ObservationPublishers {
             imu: [mut primary_publisher, mut secondary_publisher],
@@ -216,7 +221,7 @@ fn track(
     let mut sensors = ObservationService::with_reader(display_readings);
     let mut telemetry = Some(Telemetry {
         readings,
-        capture: capture.clone(),
+        capture,
         interval,
     });
     let mut communications =
@@ -238,14 +243,14 @@ fn track(
             0,
             primary,
             events.clone(),
-            sensor_event(capture.clone(), move |event| {
+            sensor_event(primary_capture, move |event| {
                 primary_publisher.record(event)
             }),
         ),
         sensors.start_gnss_with(
             composition::gnss::primary_gnss(),
             events.clone(),
-            sensor_event(capture.clone(), move |event| gnss_publisher.record(event)),
+            sensor_event(gnss_capture, move |event| gnss_publisher.record(event)),
         ),
     ] {
         if let Err(fault) = result {
@@ -258,12 +263,17 @@ fn track(
             1,
             secondary,
             events.clone(),
-            sensor_event(capture.clone(), move |event| {
+            sensor_event(secondary_capture, move |event| {
                 secondary_publisher.record(event)
             }),
         ) {
             report_fault(fault);
         }
+    } else {
+        // No acquisition owns these endpoints. Their drop must not leave a
+        // phantom source keeping an otherwise disconnected capture alive.
+        drop(secondary_capture);
+        drop(secondary_publisher);
     }
     let mut missed = false;
     let mut touch = screen
@@ -350,7 +360,7 @@ fn track(
             }
             if report_due {
                 let mut snapshot = Snapshot::from(sensors.snapshot(now));
-                snapshot.clock = capture.clock();
+                snapshot.clock = capture_view.clock();
                 if let Some(serial) = &mut serial {
                     communications::write_usb(&mut serial.lock(), &snapshot)?;
                 }
