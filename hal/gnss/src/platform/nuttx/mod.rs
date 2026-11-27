@@ -277,7 +277,14 @@ impl<R: Protocol + AsRef<Serial> + AsMut<Serial> + Send + 'static> crate::Device
                     let read = trace.scope("read_parse_deliver", || device.receiver.read_events(now, |event| {
                         if connected {
                             connected = match event {
-                                Ok(event) => emit(event),
+                                Ok(event) => {
+                                    // Count decoded fix reports independently of UART batches.
+                                    // This precedes delivery; it does not assert sink acceptance.
+                                    if matches!(&event, Event::Fix(_)) {
+                                        trace.instant("fix_received");
+                                    }
+                                    emit(event)
+                                },
                                 Err(DeviceError::Busy) => true,
                                 Err(_) => emit(Event::InvalidFrame),
                             };

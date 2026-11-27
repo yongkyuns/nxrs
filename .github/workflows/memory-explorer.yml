@@ -5,6 +5,9 @@ on:
     paths:
       - 'tools/memory-explorer/**'
       - 'upstream/memory-layouts/**'
+      - 'upstream/nuttx-apps/patches/0007-trace-capture-window.patch'
+      - 'upstream/build-patches.json'
+      - 'tests/nuttx-std/timed-capture/**'
       - 'tools/nuttx-trace-to-perfetto.py'
       - 'tests/host/test_nuttx_trace.py'
       - 'tests/host/test_imu_scheduler_trace.py'
@@ -20,6 +23,9 @@ on:
     paths:
       - 'tools/memory-explorer/**'
       - 'upstream/memory-layouts/**'
+      - 'upstream/nuttx-apps/patches/0007-trace-capture-window.patch'
+      - 'upstream/build-patches.json'
+      - 'tests/nuttx-std/timed-capture/**'
       - 'tools/nuttx-trace-to-perfetto.py'
       - 'tests/host/test_nuttx_trace.py'
       - 'tests/host/test_imu_scheduler_trace.py'

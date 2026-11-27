@@ -177,6 +177,11 @@ timeline can show which named device wakes, drains, performs bus transfers, or
 reads/parses/delivers events. Those scopes identify measured work; they do not
 assert an unrecorded causal edge from an interrupt.
 
+`gnss/<device>/fix_received` is a separate instant for each decoded fix report,
+recorded before delivery to the consumer. Its count is independent of the
+number of UART read/parse batches. It does not establish consumer acceptance,
+a valid position solution, or a physical receiver's configured update rate.
+
 Heap request details retain the native caller PC, resolved source, operation,
 requested size, task, and CPU. A request entry does not establish success or
 failure; the viewer reports an unknown outcome unless the producer records it.
@@ -523,7 +528,7 @@ trace hash stays unknown; loading two files does not establish their identity.
 | Find a task or operation | Filter by track, event name, category, or recorded arguments |
 | Find allocation failures | **Failed calls** or `outcome:failed`; use `outcome:succeeded` or `outcome:unknown` for the other recorded outcomes |
 | Inspect counters | Enable **Counters** and hover a recorded sample |
-| Read the axis | Time relative to the first imported record; the inspector shows exact trace coordinates and source-clock timestamps when an explicit origin is available |
+| Read the axis | Time relative to the declared capture start, or the first imported record for older traces; the inspector shows exact trace coordinates and source-clock timestamps when an explicit origin is available |
 | Assess observation coverage | Per-track union of recorded intervals; missing intervals remain unknown |
 | Place a time cursor | Click an event to use its exact start, or click blank time |
 | Open observed memory from a verified recording | Select a point in **Memory checkpoints**, then **Open captured memory** |
@@ -614,6 +619,84 @@ paired request and result occupy 56 and 40 bytes. Both use the existing bounded
 note ring, so complete pairs consume its available space faster. Nested calls
 have their own records. These sizes exclude other heap and scheduler notes,
 and elapsed allocator-call durations do not measure instrumentation overhead.
+
+### Record several sensor cycles
+
+A memory snapshot describes one observed state. A timing recording can cover
+several seconds without taking another memory snapshot. For a 1 Hz GNSS source,
+two seconds shows a few updates; ten seconds gives more cycles for comparing
+update gaps and per-operation costs. Choose the duration and recorder budget
+for the workload rather than assuming a fixed buffer holds a fixed time.
+
+With a diagnostic build and the application already running, the NuttX console
+can record a measured window using the existing trace task:
+
+```text
+trace mode -o +w +i +d
+trace capture 2 gnss-check-001
+```
+
+The command accepts integer durations from 1 through 30 seconds and a fresh
+recording identifier of 1–128 printable characters without whitespace. Use a
+different identifier for every invocation. It waits while the application
+continues, stops the recorder, and writes one framed dump to the console.
+Save that output and convert it with the exact firmware ELF as usual. The
+[capture guide](../../docs/nuttx-memory-qualification.md#capture-a-measured-window)
+explains filters, overflow, clock admission, and qualification.
+
+For a lower-volume sensor recording, `trace mode -o -w -i +d` retains application
+markers while disabling switch and IRQ observations. Other compiled native
+categories may still contribute records. This choice cannot measure scheduler
+residency or interrupt costs. The frame retains the effective category flags
+and IRQ/tag/syscall masks, so a configured category never implies every possible
+source was instrumented.
+
+The timing view fits the **whole measured window**, including quiet leading and
+trailing time. **Sources** and the selection inspector distinguish:
+
+- **Complete interval starts/s:** fully observed calls whose start lies in the
+  selected half-open interval, divided by its actual seconds. A call is counted
+  in one adjacent window, even when it spans several windows.
+- **Instants/s:** observed semantic instants inside that same interval. Filter
+  an exact operation such as `gnss/primary/fix_received` to inspect its rate.
+- **Mean and maximum full duration:** complete calls assigned by their start.
+  A call crossing a selected display boundary retains its full measured duration.
+- **Clipped overlap and per-track union:** the time intersecting the selection,
+  shown separately from full-call duration. These are not exclusive CPU usage.
+
+Censored boundary markers have no inferred call duration and are excluded from
+occurrence counts. A fully retained window can contain censored calls at its
+edges; those two kinds of completeness are shown separately. Reported loss,
+incomplete retention, an unknown loss status, or a missing explicit window
+makes rates unavailable with a reason. Older recordings remain readable without
+silently turning their first-to-last event extent into an acquisition duration.
+An empty measured recording retains its duration and zero observed events;
+absence of an instrumented event is not proof that uninstrumented work was idle.
+
+The converter accepts schema-3 `NXRS_NOTE_BEGIN` / `NXRS_NOTE_END` framing from
+the native command. It uses the producer's measured source-clock bounds, crops
+raw context notes outside `[start, end)` before pairing intervals, and preserves
+the original dump as the evidence source. It adds this optional metadata beside
+the existing clock, recording identity, origin, and loss fields:
+
+```json
+"capture_window": {
+  "start_ns": 4000000000,
+  "end_ns": 6002000000,
+  "requested_duration_ns": 2000000000,
+  "stop_reason": "duration",
+  "complete": true,
+  "categories": ["switch", "irq", "app", "heap"]
+}
+```
+
+This illustrative window has 2.002 seconds of measured coverage for a requested
+two seconds. `origin_ns` must equal `start_ns`; converted event timestamps are
+relative to that origin. A clean interrupted capture can also retain its whole
+shorter actual window. `capture_window.complete` describes retention and dump
+coverage independently of the older `complete` flag, which also includes
+incomplete interval boundaries. Neither field asserts physical-board clock
+accuracy or instrumentation overhead.
 
 ### Link memory checkpoints to timing
 
