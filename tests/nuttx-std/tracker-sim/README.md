@@ -245,6 +245,23 @@ console task's guard and requires the scheduler to assert.
 On an interrupt-driven switch the assertion reuses the outgoing task's saved
 registers to report the fault.
 
+The application's firmware metadata reserves 16 KiB for the `motion_tracker`
+entry/display task. This adds 1,536 bytes to its previous 14,848-byte reservation;
+the communications and acquisition worker budgets are unchanged. At revision
+`66c57797`, the [retained coexistence run](https://github.com/yongkyuns/nxrs/actions/runs/45913615465)
+reported a 12,352-byte touched peak in all 46 samples of that task, with 14,328
+usable bytes and only 1,976 bytes (13.8%) free. The observed requested-to-usable
+difference is 520 bytes.
+The same headroom gate had already failed in the [merged fixed-reader run](https://github.com/yongkyuns/nxrs/actions/runs/45894819103),
+with 12,236 bytes used and 14.6% free.
+
+Keeping the retained peak and observed 520-byte difference fixed, 16 KiB projects
+15,864 usable bytes and 3,512 bytes (22.1%) free. These projected values are budget
+arithmetic; the export and map workloads still measure actual usable capacity
+and touched peaks. A host regression replays the old failure and checks that the
+declared entry budget covers the retained peak at the existing 20% target. The
+15% rejection floor, worker checks and native memory safeguards remain in force.
+
 For a five-minute soak, pass `--export --export-seconds 300 --timeout 440`.
 The runner repeats the fault sequence and checks that the export catches up
 after each minute. CI runs one sequence.
