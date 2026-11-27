@@ -125,8 +125,8 @@ impl Worker {
             .name("wifi".into())
             .stack_size(stack_bytes)
             .spawn(move || {
-                // The worker holds the interface lease through its final native
-                // call even if the public handle is dropped without joining.
+                // Keep the interface lease through native cleanup, final sink
+                // delivery and sink destruction, including abandoned handles.
                 let _guard = guard;
                 worker(native, sink, session, &state);
             })
@@ -201,6 +201,9 @@ impl Wifi for Worker {
         }
         state.busy = true;
         state.request = Some(request);
+        // Publish the request and release its resource lock before a wake can
+        // schedule the worker or enter the native notification implementation.
+        drop(state);
         if let Some(worker) = &self.worker {
             worker.thread().unpark();
         }
@@ -496,15 +499,19 @@ fn worker<N: Driver, S: FnMut(Event) -> messaging::DeliveryResult<Event>>(
     }
     // No future source calls after Stopped. Drop native resources first.
     drop(native);
-    let mut pending = state.pending.lock().unwrap();
-    state.stopping.store(true, Ordering::Release);
-    pending.request = None;
-    pending.busy = false;
+    {
+        let mut pending = state.pending.lock().unwrap();
+        state.stopping.store(true, Ordering::Release);
+        pending.request = None;
+        pending.busy = false;
+    }
+    // Publish before notifying so an owner can reconcile on this wake. The
+    // final sink may still be in flight when Stopped is observed; finish/join
+    // establishes callback retirement. No provider lock spans external code.
     state.set_status(ProviderStatus::Stopped);
     // Terminal snapshot + one wakeup. A full queue already has a wakeup; the
     // owner reconciles sticky state between dispatches, so no retry is needed.
     let _ = sink(event(EventKind::Status(ProviderStatus::Stopped)));
-    drop(pending);
 }
 
 fn scan<N: Driver, S: FnMut(Event) -> messaging::DeliveryResult<Event>>(

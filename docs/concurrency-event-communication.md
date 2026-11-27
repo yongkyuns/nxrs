@@ -104,6 +104,32 @@ callbacks; no sink trait or forwarding worker is needed. Multi-instance identity
 uses local variants or bounded tags when needed. Explicit fan-out needs a partial-admission policy; a
 sender clone is not a broadcast subscription.
 
+### Requests that leave the owner responsive
+
+While external work is pending, its requesting owner must continue handling its
+other permitted inputs. Retain the operation state and receive completion through
+the existing dispatch/wake path. A synchronous reply-channel wait inside a
+handler introduces a second wait dependency even if the destination itself has
+one well-structured event loop. Blocking sends, worker joins and destructors that
+join need the same review.
+
+The [navigation demonstration](event-driven-demo.md#control-without-suspending-observation)
+uses startup-allocated reply storage, one outstanding request per sensor handle,
+and a wake callback shared with fusion output. Completion is retained before
+notification. Full wake admission therefore does not lose the result. Consuming
+the reply releases the outstanding slot; a caller's expired deadline does not.
+The private reply channel scopes request identity to the service lifetime, and
+stale wake hints carry no response data. Existing blocking convenience calls
+remain available for explicitly blocking callers.
+
+Keep callback behavior bounded and in its declared context. A producer callback
+may publish owned data or a wake hint; it must not call the recipient's mutable
+handler. Source/API checks prevent particular misuse, but do not prove that
+arbitrary Rust, dependency or foreign code cannot block. Qualify the complete
+admission, publication and native wake path on the selected scheduler/backend.
+This follows the event-loop discipline described by
+[Cummings, Managing Concurrency in Complex Embedded Systems](https://www.state-machine.com/doc/Cummings1006.pdf).
+
 ### Notification and retention
 
 Specify what a wakeup tells the reader and what remains available to read. The distinction applies at different layers, from driver buffers to application middleware.
@@ -302,13 +328,22 @@ Lifecycle meanings are separate:
 | Ready | Provider configured and capable of acquisition; not necessarily a valid GNSS fix |
 | Operation accepted | Request admitted; later completion is explicit where needed |
 | Stop requested | Cancellation initiated without blocking normal service dispatch |
-| Provider stopped | Acquisition/callbacks quiescent; no further sink invocations |
+| Acquisition stopped | Native acquisition has ended; apply the capability's callback-retirement contract |
+| Callbacks quiescent | No remaining callback or sink invocation can access its captured resources |
 | Joined | Worker execution has terminated and its resources are reclaimed |
 
 Create queues and install sinks before enabling production. Roll back partial
 starts. Provider stop must wake a blocked device wait. Quiescence does not remove
 already queued events: the session contract defines draining/discard and, when
 restart is supported, how old-session data is rejected.
+
+For Wi-Fi, `ProviderStatus::Stopped` records successful native cleanup before
+the final status sink runs. Retain sink-owned resources until successful
+`Wifi::finish()` establishes callback retirement and worker joining. Publishing
+the terminal snapshot before its wake preserves reconciliation when the final
+event is rejected. Status observation alone is not permission to reclaim the
+sink. The worker releases its pending-state mutex before external wake and final
+notification calls.
 
 Do not join a producer that still needs the joining service to drain a full
 queue. The single-wait rule applies to normal dispatch; explicit joins belong to

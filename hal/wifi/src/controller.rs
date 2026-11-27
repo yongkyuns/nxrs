@@ -266,7 +266,7 @@ impl<D: Wifi> Controller<D> {
                 }
                 if result.is_ok_and(|value| !pending.kind.matches(value)) {
                     // Native state is no longer trustworthy. Report once and
-                    // require explicit quiescent stop before reclaiming it.
+                    // require explicit stop and finish before reclaiming it.
                     return self.observe_status(ProviderStatus::Failed(Error::Protocol));
                 }
                 let pending = self.pending.take().unwrap();
@@ -296,7 +296,8 @@ impl<D: Wifi> Controller<D> {
         if let Some(error) = self.device.fault() {
             self.fault.get_or_insert(error);
         }
-        // Quiescence is final for this session, including delayed fault events.
+        // Native stop is final for this session, including delayed fault events.
+        // Explicit finish below establishes delivery callback retirement.
         if self.status == ProviderStatus::Stopped {
             return Ok(Update::Ignored);
         }
@@ -348,7 +349,7 @@ impl<D: Wifi> Controller<D> {
     }
 
     /// Idempotent after acceptance. Failure leaves ownership intact for retry.
-    /// Worker joining belongs to the composition owner after quiescence.
+    /// Worker joining belongs to the composition owner after Stopped.
     pub fn request_stop(&mut self) -> Result<(), Error> {
         if matches!(
             self.status,
@@ -361,8 +362,9 @@ impl<D: Wifi> Controller<D> {
         Ok(())
     }
 
-    /// Teardown only, after leaving normal dispatch. No hidden join in Drop.
-    /// Failure retains the provider for retry; success is idempotent.
+    /// Teardown only, after leaving normal dispatch. Keep sink-owned resources
+    /// alive until success proves callback retirement and worker joining.
+    /// No hidden join in Drop. Failure retains the provider; success is idempotent.
     pub fn finish(&mut self) -> Result<(), Error> {
         if self.status != ProviderStatus::Stopped {
             return Err(Error::Busy);
