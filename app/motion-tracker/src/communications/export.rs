@@ -59,7 +59,7 @@ pub struct Capture {
     epoch: AtomicUsize,
     ready: AtomicBool,
     sensor_failed: AtomicBool,
-    owner: OnceLock<Thread>,
+    owner: OnceLock<Mutex<Thread>>,
     samples: Mutex<Samples>,
     scales: [Option<[u32; 2]>; 2],
     clock: OnceLock<ClockAnchor>,
@@ -148,8 +148,26 @@ impl Capture {
     }
 
     pub fn register_owner(&self) {
-        // The communications task lives across individual export sessions.
-        assert!(self.owner.set(thread::current()).is_ok());
+        let current = thread::current();
+        let owner = self.owner.get_or_init(|| {
+            let owner = Mutex::new(current.clone());
+            // Some targets initialize the underlying mutex on first use.
+            // Do that on the communications worker before publishing it.
+            drop(owner.lock().unwrap());
+            owner
+        });
+        let retired = std::mem::replace(&mut *owner.lock().unwrap(), current);
+        drop(retired);
+    }
+
+    fn notify_owner(&self) {
+        // Readiness and faults are retained if registration or another
+        // notification holds the lock. Active export also has a poll deadline.
+        if let Some(owner) = self.owner.get() {
+            if let Ok(owner) = owner.try_lock() {
+                owner.unpark();
+            }
+        }
     }
 
     pub fn take_ready(&self) -> bool {
@@ -158,9 +176,7 @@ impl Capture {
 
     pub fn sensor_failed(&self) {
         self.sensor_failed.store(true, Ordering::Release);
-        if let Some(owner) = self.owner.get() {
-            owner.unpark();
-        }
+        self.notify_owner();
     }
 
     pub fn take_sensor_failed(&self) -> bool {
@@ -237,9 +253,7 @@ impl Capture {
             }
             self.ready.store(true, Ordering::Release);
         }
-        if let Some(owner) = self.owner.get() {
-            owner.unpark();
-        }
+        self.notify_owner();
     }
 
     pub fn take(&self, output: &mut [u8; MAX_BYTES], due: bool, version: Version) -> Option<Batch> {
@@ -367,6 +381,7 @@ fn header(output: &mut [u8; MAX_BYTES], version: Version, len: usize) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::Instant;
     use std::{sync::mpsc, thread, time::Duration};
 
     fn fix(sequence: u64) -> Measurement {
@@ -415,14 +430,51 @@ mod tests {
     }
 
     #[test]
-    fn sensor_fault_is_retained_while_export_owns_the_queue() {
+    fn sensor_fault_wakes_each_joined_owner_while_the_queue_is_locked() {
         let capture = Capture::default();
-        let (finished, complete) = mpsc::channel();
+        for _ in 0..2 {
+            thread::scope(|scope| {
+                let (registered, attached) = mpsc::channel();
+                let (notified, observed) = mpsc::channel();
+                let capture = &capture;
+                scope.spawn(move || {
+                    capture.register_owner();
+                    registered.send(()).unwrap();
+                    let deadline = Instant::now() + Duration::from_secs(2);
+                    while Instant::now() < deadline {
+                        thread::park_timeout(deadline.saturating_duration_since(Instant::now()));
+                        if capture.take_sensor_failed() {
+                            notified.send(()).unwrap();
+                            break;
+                        }
+                    }
+                });
+                attached.recv_timeout(Duration::from_secs(1)).unwrap();
+                let result = {
+                    let _queue = capture.samples.lock().unwrap();
+                    scope.spawn(move || capture.sensor_failed());
+                    observed.recv_timeout(Duration::from_secs(1))
+                };
+                assert_eq!(result, Ok(()));
+            });
+        }
+    }
+
+    #[test]
+    fn skipped_wake_retains_fault_and_batch_readiness() {
+        let capture = Capture::default();
+        capture.register_owner();
+        capture.enable().unwrap();
         thread::scope(|scope| {
+            let (finished, complete) = mpsc::channel();
+            let capture = &capture;
             let notified = {
-                let _queue = capture.samples.lock().unwrap();
-                scope.spawn(|| {
+                let _owner = capture.owner.get().unwrap().lock().unwrap();
+                scope.spawn(move || {
                     capture.sensor_failed();
+                    for sequence in 0..BATCH as u64 {
+                        capture.record(fix(sequence));
+                    }
                     finished.send(()).unwrap();
                 });
                 complete.recv_timeout(Duration::from_secs(1))
@@ -431,6 +483,9 @@ mod tests {
         });
         assert!(capture.take_sensor_failed());
         assert!(!capture.take_sensor_failed());
+        assert!(capture.take_ready());
+        assert!(!capture.take_ready());
+        assert_eq!(capture.finish(), BATCH);
     }
 
     #[test]
