@@ -104,6 +104,32 @@ callbacks; no sink trait or forwarding worker is needed. Multi-instance identity
 uses local variants or bounded tags when needed. Explicit fan-out needs a partial-admission policy; a
 sender clone is not a broadcast subscription.
 
+### Requests that leave the owner responsive
+
+While external work is pending, its requesting owner must continue handling its
+other permitted inputs. Retain the operation state and receive completion through
+the existing dispatch/wake path. A synchronous reply-channel wait inside a
+handler introduces a second wait dependency even if the destination itself has
+one well-structured event loop. Blocking sends, worker joins and destructors that
+join need the same review.
+
+The [navigation demonstration](event-driven-demo.md#control-without-suspending-observation)
+uses startup-allocated reply storage, one outstanding request per sensor handle,
+and a wake callback shared with fusion output. Completion is retained before
+notification. Full wake admission therefore does not lose the result. Consuming
+the reply releases the outstanding slot; a caller's expired deadline does not.
+The private reply channel scopes request identity to the service lifetime, and
+stale wake hints carry no response data. Existing blocking convenience calls
+remain available for explicitly blocking callers.
+
+Keep callback behavior bounded and in its declared context. A producer callback
+may publish owned data or a wake hint; it must not call the recipient's mutable
+handler. Source/API checks prevent particular misuse, but do not prove that
+arbitrary Rust, dependency or foreign code cannot block. Qualify the complete
+admission, publication and native wake path on the selected scheduler/backend.
+This follows the event-loop discipline described by
+[Cummings, Managing Concurrency in Complex Embedded Systems](https://www.state-machine.com/doc/Cummings1006.pdf).
+
 ### Notification and retention
 
 Specify what a wakeup tells the reader and what remains available to read. The distinction applies at different layers, from driver buffers to application middleware.
@@ -140,7 +166,10 @@ comparison below measures the application path on CoreS3.
 Ordered capture belongs to the Motion Tracker export. It uses a 512-record
 pool shared across sources, drains batches of up to 16, and retains the first
 rejected record's source and sequence on overflow. A wake tells communications
-to inspect that retained work. The admission, overflow and wake gates for a
+to inspect that retained work. A replacement communications worker registers its
+own wake target after the previous worker joins. Acquisition retains readiness
+and faults when the wake target is busy, and active export checks them on its
+existing poll. The admission, overflow and wake gates for a
 capture replacement are tracked in [#446](https://github.com/yongkyuns/nxrs/issues/446).
 
 #### CoreS3 product-path baseline
@@ -174,8 +203,8 @@ isolating the timeout and checking hardware FIFO continuity.
 
 #### CoreS3 fixed-reader comparison
 
-With the same profile and priorities, the display retained an IMU reader slot
-through a 120 ms forced pause. Both IMUs kept publishing, with 15 and 12
+With the original profile priorities, the display retained an IMU reader
+slot through a 120 ms forced pause. Both IMUs kept publishing, with 15 and 12
 publications during the pause, and the longest callback was 2.41 ms. In a
 combined repeat with BLE acknowledgments held for 0.95 s, the IMUs published
 11 and 12 samples during the pause and the longest callback was 2.50 ms. Both
@@ -185,14 +214,27 @@ A 0.95 s acknowledgment hold alone raised queue depth to 148 records with
 contiguous received sequences. A 7 s hold filled the 512-record queue. The peer
 received all 1,099 admitted records followed by the first-loss marker.
 
-The BMI270 timeout also occurred with fixed readers. Target traces showed
-three consecutive FIFO length snapshots crossing sensor sampling boundaries,
-which is when the driver returns `Timeout`. Both IMUs stayed live in the
-25-second BLE-off and advertising-only controls. The connected runs establish
-the failure path. The cause of the extended register-read intervals and
-sustained acquisition remain open.
+The BMI270 timeout also occurred with fixed readers after three FIFO snapshots
+crossed sensor sampling boundaries. A CoreS3 trace separated the bus lock,
+controller interrupts and dispatch after the interrupt. In one 12.50 ms read,
+the controller phases took 0.52 ms and the acquisition worker waited another
+11.90 ms to resume. The bus lock took 8 µs. Dispatch dominated 106 of the
+first 112 retained slow reads, and `tracker-links` was the most frequent
+running task at completion.
 
-The matched build added 3,348 bytes of linked flash and 104 bytes to the boot
+The dual-IMU profile gives communications priority 99 and keeps acquisition
+at 100. In the matched control with the Mac BLE peer, the longest retained
+post-interrupt delay fell to 4.38 ms. Both IMUs maintained continuous 100 Hz
+timestamps in the control, forced display pause, 0.95 s acknowledgment hold,
+and both combined runs. During the 7 s acknowledgment hold, both IMUs kept
+sampling and the peer received all 1,103 admitted records before the expected
+overflow marker.
+
+The dual-IMU profile also runs NuttX LPWORK at 99 because it dispatches BLE
+callbacks. The matched Mac control and combined-load runs recorded 71 I²C
+transfers of at least 1.8 ms, down from 257 with LPWORK at 100.
+
+The matched fixed-reader build added 3,348 bytes of linked flash and 104 bytes to the boot
 image. Publication setup used 3,720 bytes of heap versus 480 bytes. Static RAM
 and task stack reservations were identical.
 
@@ -273,6 +315,14 @@ Source rates, burst bounds, capacities, permitted retry storage and overflow
 visibility are part of the resource contract. HAL acquisition must not block
 indefinitely on the consumer and become unable to drain hardware or cancel.
 
+Assign task priorities using service deadlines and dependencies. A sensor
+drain should preempt bulk export and rendering when the device buffer requires
+it. Include the driver work that makes the acquisition task runnable. For
+example, GNSS UART service follows receive-buffer headroom at the configured
+baud rate. The fix cadence only describes when fixes are published. Verify
+effective priorities and measure worker wake latency and sample loss with slow
+or stalled consumers.
+
 Lifecycle meanings are separate:
 
 | Milestone | Meaning |
@@ -281,13 +331,22 @@ Lifecycle meanings are separate:
 | Ready | Provider configured and capable of acquisition; not necessarily a valid GNSS fix |
 | Operation accepted | Request admitted; later completion is explicit where needed |
 | Stop requested | Cancellation initiated without blocking normal service dispatch |
-| Provider stopped | Acquisition/callbacks quiescent; no further sink invocations |
+| Acquisition stopped | Native acquisition has ended; apply the capability's callback-retirement contract |
+| Callbacks quiescent | No remaining callback or sink invocation can access its captured resources |
 | Joined | Worker execution has terminated and its resources are reclaimed |
 
 Create queues and install sinks before enabling production. Roll back partial
 starts. Provider stop must wake a blocked device wait. Quiescence does not remove
 already queued events: the session contract defines draining/discard and, when
 restart is supported, how old-session data is rejected.
+
+For Wi-Fi, `ProviderStatus::Stopped` records successful native cleanup before
+the final status sink runs. Retain sink-owned resources until successful
+`Wifi::finish()` establishes callback retirement and worker joining. Publishing
+the terminal snapshot before its wake preserves reconciliation when the final
+event is rejected. Status observation alone is not permission to reclaim the
+sink. The worker releases its pending-state mutex before external wake and final
+notification calls.
 
 Do not join a producer that still needs the joining service to drain a full
 queue. The single-wait rule applies to normal dispatch; explicit joins belong to

@@ -132,8 +132,11 @@ pub enum LinkState {
     Addressed,
 }
 
-/// Stopped guarantees callbacks are quiescent, not that a worker was joined.
-/// Failed is sticky but does NOT guarantee quiescence. Explicit stop is needed.
+/// Stopped means native session cleanup is complete and no more operation or
+/// data events will be produced. Its final status notification may still be
+/// running or about to run. Keep sink-owned resources alive until [`Wifi::finish`]
+/// succeeds; only that boundary guarantees delivery callbacks and workers have
+/// retired. Failed retains the fault but does not establish native cleanup.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ProviderStatus {
     Starting,
@@ -176,7 +179,8 @@ pub struct Event {
 }
 
 /// Provider acquisition installs the typed sink before enabling callbacks.
-/// All methods return promptly. Blocking OS calls belong to provider workers.
+/// Admission and observation return promptly. Blocking OS calls belong to
+/// provider workers; `finish` is the explicit blocking teardown exception.
 /// Link/status events are ordered within their traffic class. Scan results and
 /// their completion must share one FIFO class; priority selection must not let
 /// completion overtake results. Link snapshots remain authoritative even after
@@ -200,8 +204,11 @@ pub trait Wifi {
     /// Stops this session, not unrelated OS-managed radio users. It does not
     /// imply disassociation; use the explicit Disconnect command for that.
     fn request_stop(&mut self) -> Result<(), Error>;
-    /// Explicit teardown after Stopped. May block joining native workers;
-    /// never call from normal service dispatch. On error resources stay owned.
+    /// Explicit teardown after Stopped. Success guarantees that delivery
+    /// callbacks have returned, their captures have been released, and provider
+    /// workers have joined. Keep sink-owned resources alive until success.
+    /// May block; never call from normal service dispatch or from the sink.
+    /// On error the caller retains the provider and its failure for inspection.
     fn finish(&mut self) -> Result<(), Error>;
 }
 

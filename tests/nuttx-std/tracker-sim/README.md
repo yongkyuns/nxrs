@@ -245,6 +245,22 @@ console task's guard and requires the scheduler to assert.
 On an interrupt-driven switch the assertion reuses the outgoing task's saved
 registers to report the fault.
 
+The Motion Tracker entry reserves 16,384 bytes in
+[`app/motion-tracker/Cargo.toml`](../../../app/motion-tracker/Cargo.toml).
+The previous 14,848-byte reservation provided 14,328 usable bytes in this
+ESP32-S3 profile. Two export runs left only
+[1,864 bytes (13.0%)](https://github.com/yongkyuns/nxrs/actions/runs/45895997638/job/140169914131)
+and [1,656 bytes (11.6%)](https://github.com/yongkyuns/nxrs/actions/runs/45902015775/job/140189801518)
+free, below the unchanged 15% floor. The larger reservation adds 1,536 bytes
+to the main task's allocation. If the observed 12,672-byte peak and 520-byte
+reservation overhead stay unchanged, it would leave 3,192 bytes (20.1%) free,
+meeting the 20% target; this is a budget projection, not a new measurement.
+Target qualification of this reservation is pending: rerun both `--export`
+and `--tiles --tile-write-loss` with their existing stack, heap recovery,
+20 KiB largest-free-block, watchdog and guard checks. The extra stack comes
+from the heap, so stack headroom alone cannot qualify the change. Physical
+CoreS3 qualification remains a separate gate.
+
 For a five-minute soak, pass `--export --export-seconds 300 --timeout 440`.
 The runner repeats the fault sequence and checks that the export catches up
 after each minute. CI runs one sequence.

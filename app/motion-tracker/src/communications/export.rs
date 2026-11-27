@@ -59,6 +59,7 @@ pub struct Capture {
     epoch: AtomicUsize,
     ready: AtomicBool,
     sensor_failed: AtomicBool,
+    owner: OnceLock<Mutex<Thread>>,
     samples: Mutex<Samples>,
     scales: [Option<[u32; 2]>; 2],
     clock: OnceLock<ClockAnchor>,
@@ -69,7 +70,6 @@ struct Samples {
     queue: VecDeque<Sample>,
     first_missing: Option<(Source, u32)>,
     high_water: usize,
-    owner: Option<Thread>,
 }
 
 #[derive(Clone, Copy)]
@@ -148,7 +148,26 @@ impl Capture {
     }
 
     pub fn register_owner(&self) {
-        self.samples.lock().unwrap().owner = Some(thread::current());
+        let current = thread::current();
+        let owner = self.owner.get_or_init(|| {
+            let owner = Mutex::new(current.clone());
+            // Some targets initialize the underlying mutex on first use.
+            // Do that on the communications worker before publishing it.
+            drop(owner.lock().unwrap());
+            owner
+        });
+        let retired = std::mem::replace(&mut *owner.lock().unwrap(), current);
+        drop(retired);
+    }
+
+    fn notify_owner(&self) {
+        // Readiness and faults are retained if registration or another
+        // notification holds the lock. Active export also has a poll deadline.
+        if let Some(owner) = self.owner.get() {
+            if let Ok(owner) = owner.try_lock() {
+                owner.unpark();
+            }
+        }
     }
 
     pub fn take_ready(&self) -> bool {
@@ -157,10 +176,7 @@ impl Capture {
 
     pub fn sensor_failed(&self) {
         self.sensor_failed.store(true, Ordering::Release);
-        let owner = self.samples.lock().unwrap().owner.clone();
-        if let Some(owner) = owner {
-            owner.unpark();
-        }
+        self.notify_owner();
     }
 
     pub fn take_sensor_failed(&self) -> bool {
@@ -168,11 +184,20 @@ impl Capture {
     }
 
     pub fn prepare(&self) -> io::Result<()> {
-        let reservation = self.samples.lock().unwrap().queue.try_reserve_exact(QUEUE);
-        reservation.map_err(|error| {
+        if self.samples.lock().unwrap().queue.capacity() >= QUEUE {
+            return Ok(());
+        }
+        let mut queue = VecDeque::new();
+        queue.try_reserve_exact(QUEUE).map_err(|error| {
             nxrs_buffer::reservation_failed::<Sample>("tracker BLE export queue", QUEUE, error)
-                .into()
-        })
+        })?;
+        // Only the export owner prepares the empty queue. Keep allocation
+        // and retirement outside the acquisition lock.
+        {
+            let mut samples = self.samples.lock().unwrap();
+            std::mem::swap(&mut samples.queue, &mut queue);
+        }
+        Ok(())
     }
 
     pub fn enable(&self) -> io::Result<()> {
@@ -219,7 +244,7 @@ impl Capture {
     fn enqueue(&self, epoch: usize, sample: Sample) {
         // This runs in the acquisition task. The consumer holds the lock
         // only for a bounded copy, with no encoding or transport I/O.
-        let owner = {
+        {
             let mut samples = self.samples.lock().unwrap();
             if self.epoch.load(Ordering::Relaxed) != epoch {
                 return;
@@ -236,11 +261,8 @@ impl Capture {
                 }
             }
             self.ready.store(true, Ordering::Release);
-            samples.owner.clone()
-        };
-        if let Some(owner) = owner {
-            owner.unpark();
         }
+        self.notify_owner();
     }
 
     pub fn take(&self, output: &mut [u8; MAX_BYTES], due: bool, version: Version) -> Option<Batch> {
@@ -368,6 +390,7 @@ fn header(output: &mut [u8; MAX_BYTES], version: Version, len: usize) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::Instant;
     use std::{sync::mpsc, thread, time::Duration};
 
     fn fix(sequence: u64) -> Measurement {
@@ -414,6 +437,66 @@ mod tests {
         );
         assert_eq!(bytes[4], 3);
         assert_eq!(&bytes[5..9], &1_u32.to_le_bytes());
+    }
+
+    #[test]
+    fn sensor_fault_wakes_each_joined_owner_while_the_queue_is_locked() {
+        let capture = Capture::default();
+        for _ in 0..2 {
+            thread::scope(|scope| {
+                let (registered, attached) = mpsc::channel();
+                let (notified, observed) = mpsc::channel();
+                let capture = &capture;
+                scope.spawn(move || {
+                    capture.register_owner();
+                    registered.send(()).unwrap();
+                    let deadline = Instant::now() + Duration::from_secs(2);
+                    while Instant::now() < deadline {
+                        thread::park_timeout(deadline.saturating_duration_since(Instant::now()));
+                        if capture.take_sensor_failed() {
+                            notified.send(()).unwrap();
+                            break;
+                        }
+                    }
+                });
+                attached.recv_timeout(Duration::from_secs(1)).unwrap();
+                let result = {
+                    let _queue = capture.samples.lock().unwrap();
+                    scope.spawn(move || capture.sensor_failed());
+                    observed.recv_timeout(Duration::from_secs(1))
+                };
+                assert_eq!(result, Ok(()));
+            });
+        }
+    }
+
+    #[test]
+    fn skipped_wake_retains_fault_and_batch_readiness() {
+        let capture = Capture::default();
+        capture.register_owner();
+        capture.prepare().unwrap();
+        capture.enable().unwrap();
+        thread::scope(|scope| {
+            let (finished, complete) = mpsc::channel();
+            let capture = &capture;
+            let notified = {
+                let _owner = capture.owner.get().unwrap().lock().unwrap();
+                scope.spawn(move || {
+                    capture.sensor_failed();
+                    for sequence in 0..BATCH as u64 {
+                        capture.record(fix(sequence));
+                    }
+                    finished.send(()).unwrap();
+                });
+                complete.recv_timeout(Duration::from_secs(1))
+            };
+            assert_eq!(notified, Ok(()));
+        });
+        assert!(capture.take_sensor_failed());
+        assert!(!capture.take_sensor_failed());
+        assert!(capture.take_ready());
+        assert!(!capture.take_ready());
+        assert_eq!(capture.finish(), BATCH);
     }
 
     #[test]
