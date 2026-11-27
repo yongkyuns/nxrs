@@ -60,6 +60,7 @@ struct SourceCoverage {
     irq_sources: usize,
     heap: usize,
     heap_sources: usize,
+    failed_calls: usize,
     app: usize,
     timers: usize,
 }
@@ -75,6 +76,8 @@ impl SourceCoverage {
             if event.is_heap() {
                 result.heap += 1;
                 result.heap_sources += usize::from(event.source_name().is_some());
+                result.failed_calls +=
+                    usize::from(event.is_heap_call() && event.request_failed() == Some(true));
             }
             if event.category.split(',').any(|part| part.trim() == "app") {
                 result.app += 1;
@@ -194,6 +197,16 @@ fn request_outcome(event: &TimingEvent) -> &'static str {
     match event.request_failed() {
         Some(true) => "failed",
         Some(false) => "succeeded",
+        None if event
+            .argument("request_observed")
+            .and_then(serde_json::Value::as_bool)
+            == Some(false) =>
+        {
+            "result without paired request"
+        }
+        None if event.result_argument("incomplete_reason").is_some() => {
+            "outcome unknown · incomplete call"
+        }
         None => "outcome not captured",
     }
 }
@@ -202,12 +215,18 @@ fn recorded_text(event: &TimingEvent, names: &[&str]) -> Option<String> {
     names
         .iter()
         .find_map(|name| event.argument(name))
-        .map(|value| {
-            value
-                .as_str()
-                .map(str::to_owned)
-                .unwrap_or_else(|| value.to_string())
-        })
+        .map(argument_text)
+}
+
+fn argument_text(value: &serde_json::Value) -> String {
+    value
+        .as_str()
+        .map(str::to_owned)
+        .unwrap_or_else(|| value.to_string())
+}
+
+fn recorded_result_text(event: &TimingEvent, name: &str) -> Option<String> {
+    event.result_argument(name).map(argument_text)
 }
 
 fn unrecorded_source(category: &str) -> &'static str {
@@ -228,7 +247,9 @@ fn unrecorded_source(category: &str) -> &'static str {
 }
 
 fn event_color(event: &TimingEvent) -> Color32 {
-    if event.category.contains("irq") || event.category.contains("interrupt") {
+    if event.request_failed() == Some(true) {
+        WARNING
+    } else if event.category.contains("irq") || event.category.contains("interrupt") {
         Color32::from_rgb(230, 167, 94)
     } else if event.kind == TimingEventKind::Instant {
         WARNING
@@ -364,7 +385,9 @@ impl TimingView {
                         elapsed(event.duration_ns())
                     };
                     let detail = if let Some(bytes) = event.requested_bytes() {
-                        format!(" · request {} B · {}", bytes, request_outcome(event))
+                        format!(" · allocator call {} B · {}", bytes, request_outcome(event))
+                    } else if event.is_heap_call() {
+                        format!(" · {}", request_outcome(event))
                     } else {
                         String::new()
                     };
@@ -432,6 +455,7 @@ impl TimingView {
         self.refresh_analysis(trace, range(selected));
         let analysis = self.analysis.as_ref().unwrap();
         ui.label(RichText::new("Grouped by track, operation and recorded code source; sorted by inclusive duration, then requested bytes. Nested durations overlap. These totals are not CPU utilization.").small().color(MUTED));
+        ui.label(RichText::new("Allocator calls include internal backing calls. Requested call bytes are inputs, not net heap growth or application allocation counts.").small().color(MUTED));
         if analysis.sources.is_empty() {
             ui.label("No sources match this time window and filter.");
         }
@@ -456,7 +480,9 @@ impl TimingView {
                         }
                     });
                     if source.request_count > 0 {
-                        ui.label(RichText::new(format!("{} requested B · {} requests · {} recorded failures · {} outcomes unknown", source.requested_bytes, source.request_count, source.failed_requests, source.unknown_outcomes)).small().color(if source.failed_requests > 0 { WARNING } else { MUTED }));
+                        ui.label(RichText::new(format!("{} requested call B · {} calls · {} failures · {} outcomes unknown", source.requested_bytes, source.request_count, source.failed_requests, source.unknown_outcomes)).small().color(if source.failed_requests > 0 { WARNING } else { MUTED }));
+                    } else if source.unpaired_results > 0 {
+                        ui.label(RichText::new(format!("{} result endpoints without paired requests", source.unpaired_results)).small().color(WARNING));
                     } else { ui.add_space(13.0); }
                 });
             }
@@ -514,6 +540,7 @@ impl TimingView {
                 ui.horizontal_wrapped(|ui| {
                     if ui.small_button(format!("IRQ events sourced {}/{}", coverage.irq_sources, coverage.irqs)).on_hover_text("Observed IRQ events with recorded or resolved handler code locations. A handler may serve multiple devices.").clicked() { self.filter = "cat:irq".into(); self.mode = TimingMode::Sources; }
                     if ui.small_button(format!("Heap events sourced {}/{}", coverage.heap_sources, coverage.heap)).on_hover_text("Observed heap events with caller code locations. Shared allocator wrappers do not establish application ownership.").clicked() { self.filter = "cat:heap".into(); self.mode = TimingMode::Sources; }
+                    if coverage.heap > 0 && ui.small_button(format!("Failed calls ({})", coverage.failed_calls)).on_hover_text("Show allocator calls with a recorded failure outcome. Incomplete calls and unpaired result endpoints stay unknown.").clicked() { self.filter = "outcome:failed".into(); self.mode = TimingMode::Events; }
                     if ui.small_button(format!("{} application observations", coverage.app)).clicked() { self.filter = "cat:app".into(); self.mode = TimingMode::Events; }
                     if ui.small_button(format!("{} timer callbacks", coverage.timers)).clicked() { self.filter = "cat:timer".into(); self.mode = TimingMode::Sources; }
                 });
@@ -542,7 +569,7 @@ impl TimingView {
                 });
                 ui.add_space(12.0);
                 ui.horizontal_wrapped(|ui| {
-                    ui.add(egui::TextEdit::singleline(&mut self.filter).hint_text("Find task, IRQ handler, caller, file, address…").desired_width(280.0));
+                    ui.add(egui::TextEdit::singleline(&mut self.filter).hint_text("Find source, address, outcome:failed…").desired_width(280.0));
                     ui.checkbox(&mut self.show_counters, "Counters");
                     ui.checkbox(&mut self.measure_mode, "Measure range").on_hover_text("Drag across time to measure. Clear this to pan, or hold Shift for a temporary measurement.");
                     if !self.filter.is_empty() && ui.small_button("Clear filter").clicked() { self.filter.clear(); }
@@ -984,7 +1011,11 @@ impl TimingView {
                         ui.add_space(10.0);
                         ui.heading(&event.name);
                         ui.add_space(14.0);
-                        field(ui, "DURATION", &format!("{}  ({} ns)", elapsed(event.duration_ns()), event.duration_ns()));
+                        if event.is_heap_call() && event.kind == TimingEventKind::Instant {
+                            field(ui, "CALL DURATION", "Unknown; only an endpoint was captured");
+                        } else {
+                            field(ui, "DURATION", &format!("{}  ({} ns)", elapsed(event.duration_ns()), event.duration_ns()));
+                        }
                         field(ui, "START · TRACE COORDINATE", &format!("{} ns", event.start_ns));
                         field(ui, "END · TRACE COORDINATE", &format!("{} ns", event.end_ns));
                         if let Some(origin) = trace.metadata.origin_ns {
@@ -1006,7 +1037,10 @@ impl TimingView {
                             ("CPU", &["cpu"][..]),
                             ("OPERATION", &["operation"][..]),
                             ("HEAP", &["heap"][..]),
-                            ("ALLOCATION ADDRESS", &["address"][..]),
+                            ("ALLOCATOR CALL ID", &["request_id"][..]),
+                            ("INPUT ADDRESS", &["old_address"][..]),
+                            ("ALIGNMENT · BYTES", &["alignment"][..]),
+                            ("NATIVE NOTE ADDRESS", &["address"][..]),
                             ("RECORDED PC / SYMBOL", if event.is_callback() { &["handler_pc", "handler"][..] } else { &["caller_pc", "caller"][..] }),
                             ("FILE", if event.is_callback() { &["handler_file"][..] } else { &["caller_file"][..] }),
                             ("LINE", if event.is_callback() { &["handler_line"][..] } else { &["caller_line"][..] }),
@@ -1014,10 +1048,21 @@ impl TimingView {
                         ] {
                             if let Some(value) = recorded_text(event, names) { field(ui, label, &value); }
                         }
-                        if let Some(bytes) = event.requested_bytes() {
-                            field(ui, "REQUESTED SIZE", &format!("{bytes} B"));
-                            field(ui, "REQUEST RESULT", request_outcome(event));
-                            ui.label(RichText::new("A request entry alone does not report success or failure. Missing allocation notes cannot establish the outcome.").small().color(MUTED));
+                        if event.is_heap_call() {
+                            if let Some(bytes) = event.requested_bytes() { field(ui, "REQUESTED SIZE", &format!("{bytes} B")); }
+                            field(ui, "CALL RESULT", request_outcome(event));
+                            for (label, name) in [
+                                ("RETURNED ADDRESS", "result_address"),
+                                ("INCOMPLETE EVIDENCE", "incomplete_reason"),
+                                ("UNPAIRED RETURN ADDRESS", "observed_result_address"),
+                                ("UNPAIRED RETURN OUTCOME", "observed_outcome"),
+                            ] {
+                                if let Some(value) = recorded_result_text(event, name) { field(ui, label, &value); }
+                            }
+                            if event.request_failed() == Some(true) {
+                                field(ui, "FAILURE REASON", event.failure_reason().unwrap_or("Not recorded"));
+                            }
+                            ui.label(RichText::new("Native allocator calls include internal backing calls. A returned address does not establish allocation lifetime, heap topology, or current ownership. Missing endpoints keep the correlated outcome unknown.").small().color(MUTED));
                         } else if event.is_heap() {
                             if let Some(bytes) = recorded_text(event, &["bytes"]) {
                                 field(ui, "NATIVE RECORDED SIZE", &format!("{bytes} B"));
@@ -1298,5 +1343,87 @@ mod tests {
             view.show(context, &trace, egui::Id::new("timing-test"))
         });
         assert!(!output.shapes.is_empty());
+    }
+
+    #[test]
+    fn failure_shortcut_selects_known_calls_and_inspector_explains_orphan_results() {
+        fn render(
+            context: &egui::Context,
+            view: &mut TimingView,
+            trace: &TimingTrace,
+            events: Vec<egui::Event>,
+        ) -> egui::FullOutput {
+            context.run(
+                egui::RawInput {
+                    screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1440.0, 1050.0))),
+                    events,
+                    ..Default::default()
+                },
+                |context| view.show(context, trace, egui::Id::new("allocator-call-test")),
+            )
+        }
+
+        fn visible_text(output: &egui::FullOutput, text: &str) -> Pos2 {
+            output
+                .shapes
+                .iter()
+                .find_map(|clipped| {
+                    if let egui::epaint::Shape::Text(shape) = &clipped.shape {
+                        let bounds = Rect::from_min_size(shape.pos, shape.galley.size());
+                        if shape.galley.text() == text && clipped.clip_rect.contains_rect(bounds) {
+                            return Some(bounds.center());
+                        }
+                    }
+                    None
+                })
+                .unwrap_or_else(|| panic!("Missing visible allocator-call text {text:?}"))
+        }
+
+        let trace = nxrs_memory_explorer::parse_timing(r#"[
+          {"ph":"X","pid":6,"tid":7,"ts":0,"dur":1,"name":"failed malloc","cat":"heap,request","args":{"request_id":"1","request_observed":true,"requested_bytes":4096,"outcome":"failed","result_address":"0x0","failure_reason":"allocator returned NULL"}},
+          {"ph":"X","pid":6,"tid":7,"ts":2,"dur":1,"name":"zero-size malloc","cat":"heap,request","args":{"request_id":"2","request_observed":true,"requested_bytes":0,"outcome":"succeeded","failed":false,"result_address":"0x38001000"}},
+          {"ph":"i","pid":6,"tid":7,"ts":4,"name":"unfinished malloc","cat":"heap,request","args":{"request_id":"3","request_observed":true,"requested_bytes":128,"incomplete_reason":"missing result"}},
+          {"ph":"i","pid":6,"tid":7,"ts":5,"name":"unpaired result","cat":"heap,result","args":{"request_id":"4","request_observed":false,"observed_outcome":"failed","observed_result_address":"0x0","incomplete_reason":"missing request"}}
+        ]"#).unwrap();
+        let context = egui::Context::default();
+        let mut view = TimingView::default();
+        view.reset(&trace);
+        view.selected = Some(trace.events[0].id);
+        render(&context, &mut view, &trace, vec![]);
+        let output = render(&context, &mut view, &trace, vec![]);
+        visible_text(&output, "FAILURE REASON");
+        visible_text(&output, "allocator returned NULL");
+        let at = visible_text(&output, "Failed calls (1)");
+        for pressed in [true, false] {
+            render(
+                &context,
+                &mut view,
+                &trace,
+                vec![
+                    egui::Event::PointerMoved(at),
+                    egui::Event::PointerButton {
+                        pos: at,
+                        button: egui::PointerButton::Primary,
+                        pressed,
+                        modifiers: egui::Modifiers::NONE,
+                    },
+                ],
+            );
+        }
+        render(&context, &mut view, &trace, vec![]);
+        assert_eq!(view.filter, "outcome:failed");
+        assert!(matches!(view.mode, TimingMode::Events));
+        let selected = &view.analysis.as_ref().unwrap().events;
+        assert_eq!(selected.len(), 1);
+        assert_eq!(trace.events[selected[0]].name, "failed malloc");
+
+        view.filter = "outcome:unknown".into();
+        view.selected = Some(trace.events[3].id);
+        let output = render(&context, &mut view, &trace, vec![]);
+        visible_text(&output, "result without paired request");
+        visible_text(&output, "Unknown; only an endpoint was captured");
+        visible_text(&output, "UNPAIRED RETURN OUTCOME");
+        visible_text(&output, "missing request");
+        assert_eq!(view.analysis.as_ref().unwrap().events.len(), 2);
     }
 }

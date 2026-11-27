@@ -370,6 +370,178 @@ fn paired_heap_outcomes_use_terminal_evidence_and_keep_beginning_source_identity
 }
 
 #[test]
+fn allocator_call_results_preserve_zero_size_and_explicit_failure_semantics() {
+    let trace = parse_timing(r#"[
+      {"ph":"X","pid":6,"tid":7,"ts":0,"dur":1,"name":"malloc","cat":"heap,request","args":{"request_id":"9007199254740993","request_observed":true,"requested_bytes":0,"caller_function":"initialize","outcome":"succeeded","failed":true,"result_address":"0x38001000"}},
+      {"ph":"X","pid":6,"tid":7,"ts":2,"dur":1,"name":"realloc","cat":"heap,request","args":{"request_id":"9007199254740994","request_observed":true,"requested_bytes":4096,"old_address":"0x38001000","outcome":"failed","failed":false,"result_address":"0x0","failure_reason":"allocator returned NULL"}},
+      {"ph":"i","pid":6,"tid":7,"ts":4,"name":"malloc","cat":"heap,request","args":{"request_observed":true,"requested_bytes":128,"result_address":"0x38002000"}},
+      {"ph":"i","pid":6,"tid":7,"ts":5,"name":"future outcome","cat":"heap,request","args":{"requested_bytes":0,"outcome":"released","failed":true}}
+    ]"#).unwrap();
+    let zero = &trace.events[0];
+    assert_eq!(zero.requested_bytes(), Some(0));
+    assert_eq!(zero.request_failed(), Some(false));
+    assert_eq!(zero.argument("request_id").unwrap(), "9007199254740993");
+    assert_eq!(
+        zero.result_argument("result_address").unwrap(),
+        "0x38001000"
+    );
+    let failed = &trace.events[1];
+    assert_eq!(failed.request_failed(), Some(true));
+    assert_eq!(failed.failure_reason(), Some("allocator returned NULL"));
+    assert_eq!(failed.argument("old_address").unwrap(), "0x38001000");
+    assert_eq!(
+        trace.events[2].request_failed(),
+        None,
+        "a pointer alone cannot prove an outcome"
+    );
+    assert_eq!(
+        trace.events[3].request_failed(),
+        None,
+        "an unsupported outcome cannot become a failure through its legacy flag"
+    );
+}
+
+#[test]
+fn terminal_call_fields_do_not_replace_the_original_request_or_caller() {
+    let trace = parse_timing(r#"[
+      {"ph":"B","pid":6,"tid":7,"ts":0,"name":"memalign","cat":"heap,request","args":{"request_id":"8","requested_bytes":24,"alignment":32,"caller_function":"packet_buffer","outcome":"unknown","result_address":"0xdead"}},
+      {"ph":"E","pid":6,"tid":7,"ts":1,"args":{"outcome":"succeeded","failed":true,"result_address":"0x38001020","requested_bytes":64,"caller_function":"mm_memalign"}},
+      {"ph":"B","pid":6,"tid":7,"ts":2,"name":"malloc","cat":"heap,request","args":{"requested_bytes":99,"outcome":"unknown"}},
+      {"ph":"E","pid":6,"tid":7,"ts":3,"args":{"failed":true,"failure_reason":"legacy explicit failure"}}
+    ]"#).unwrap();
+    let call = &trace.events[0];
+    assert_eq!(call.request_failed(), Some(false));
+    assert_eq!(call.source_name(), Some("packet_buffer"));
+    assert_eq!(call.requested_bytes(), Some(24));
+    assert_eq!(call.argument("alignment").unwrap(), 32);
+    assert_eq!(
+        call.result_argument("result_address").unwrap(),
+        "0x38001020"
+    );
+    assert_eq!(trace.events[1].request_failed(), Some(true));
+    assert_eq!(
+        trace.events[1].failure_reason(),
+        Some("legacy explicit failure")
+    );
+}
+
+#[test]
+fn incomplete_calls_and_orphan_results_cannot_become_known_outcomes() {
+    let trace = parse_timing(r#"[
+      {"ph":"i","pid":6,"tid":7,"ts":1,"name":"malloc","cat":"heap,request,unknown","args":{"request_id":"1","request_observed":true,"requested_bytes":32,"incomplete_reason":"missing return","outcome":"succeeded","failed":false}},
+      {"ph":"i","pid":6,"tid":7,"ts":2,"name":"malloc result","cat":"heap,result,unknown","args":{"request_id":"2","request_observed":false,"requested_bytes":999,"observed_outcome":"failed","observed_result_address":"0x0","outcome":"failed","failed":true}},
+      {"ph":"i","pid":6,"tid":7,"ts":3,"name":"legacy request","cat":"heap,request","args":{"requested_bytes":16}}
+    ]"#).unwrap();
+    for event in &trace.events {
+        assert_eq!(event.kind, TimingEventKind::Instant);
+        assert_eq!(event.duration_ns(), 0);
+        assert_eq!(event.request_failed(), None);
+    }
+    assert_eq!(trace.events[1].requested_bytes(), None);
+    let sources = trace.source_stats(trace.bounds, "cat:heap", 0);
+    assert_eq!(
+        sources
+            .iter()
+            .map(|group| group.request_count)
+            .sum::<usize>(),
+        2
+    );
+    assert_eq!(
+        sources
+            .iter()
+            .map(|group| group.requested_bytes)
+            .sum::<u128>(),
+        48
+    );
+    assert_eq!(
+        sources
+            .iter()
+            .map(|group| group.failed_requests)
+            .sum::<usize>(),
+        0
+    );
+    assert_eq!(
+        sources
+            .iter()
+            .map(|group| group.unknown_outcomes)
+            .sum::<usize>(),
+        2
+    );
+    assert_eq!(
+        sources
+            .iter()
+            .map(|group| group.unpaired_results)
+            .sum::<usize>(),
+        1
+    );
+}
+
+#[test]
+fn allocator_outcome_filters_are_exact_and_exclude_counters_and_unrelated_tracks() {
+    let trace = parse_timing(r#"[
+      {"ph":"M","pid":9,"name":"process_name","args":{"name":"outcome:failed"}},
+      {"ph":"X","pid":6,"tid":7,"ts":0,"dur":1,"name":"failed call","cat":"heap,request","args":{"requested_bytes":64,"outcome":"failed","failed":true}},
+      {"ph":"X","pid":6,"tid":7,"ts":2,"dur":1,"name":"success with failed flag present","cat":"heap,request","args":{"requested_bytes":64,"outcome":"succeeded","failed":false}},
+      {"ph":"i","pid":6,"tid":7,"ts":4,"name":"legacy entry","cat":"heap,request","args":{"requested_bytes":16}},
+      {"ph":"i","pid":6,"tid":7,"ts":5,"name":"unpaired result","cat":"heap,result","args":{"request_observed":false,"observed_outcome":"failed"}},
+      {"ph":"i","pid":9,"ts":6,"name":"unrelated event"},
+      {"ph":"i","pid":6,"ts":7,"name":"raw heap allocation","cat":"heap,allocation","args":{"bytes":64}},
+      {"ph":"C","pid":9,"ts":8,"name":"outcome:failed","args":{"used":64}}
+    ]"#).unwrap();
+    let names = |filter| {
+        trace
+            .query(trace.bounds, filter)
+            .into_iter()
+            .map(|event| event.name.as_str())
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(names("outcome:failed"), ["failed call"]);
+    assert_eq!(
+        names("OUTCOME:SUCCEEDED"),
+        ["success with failed flag present"]
+    );
+    assert_eq!(
+        names("outcome:unknown"),
+        ["legacy entry", "unpaired result"]
+    );
+    assert!(names("outcome:unsupported").is_empty());
+    assert!(trace
+        .counter_query(trace.bounds, "outcome:failed")
+        .is_empty());
+}
+
+#[test]
+fn nested_allocator_calls_keep_separate_ids_and_inclusive_request_accounting() {
+    let trace = parse_timing(r#"[
+      {"ph":"X","pid":6,"tid":7,"ts":0,"dur":5,"name":"memalign","cat":"heap,request","args":{"request_id":"1","requested_bytes":32,"alignment":64,"outcome":"succeeded","result_address":"0x38001040"}},
+      {"ph":"X","pid":6,"tid":7,"ts":1,"dur":2,"name":"malloc","cat":"heap,request","args":{"request_id":"2","requested_bytes":96,"caller_function":"mm_memalign","outcome":"succeeded","result_address":"0x38001010"}}
+    ]"#).unwrap();
+    assert_eq!((trace.events[0].depth, trace.events[1].depth), (0, 1));
+    assert_ne!(
+        trace.events[0].argument("request_id"),
+        trace.events[1].argument("request_id")
+    );
+    let sources = trace.source_stats(trace.bounds, "cat:heap", 0);
+    assert_eq!(
+        sources
+            .iter()
+            .map(|group| group.request_count)
+            .sum::<usize>(),
+        2
+    );
+    assert_eq!(
+        sources
+            .iter()
+            .map(|group| group.requested_bytes)
+            .sum::<u128>(),
+        128
+    );
+    let timing = trace.stats(trace.bounds, "cat:heap");
+    assert_eq!(timing.clipped_interval_sum_ns, 7_000);
+    assert_eq!(timing.tracks[0].covered_ns, 5_000);
+}
+
+#[test]
 fn native_counts_remain_distinct_from_derived_events_and_reject_malformed_counts() {
     let source = r#"{"otherData":{"nxrs":{"event_counts":{"irq_enter":3,"irq_leave":2,"heap_request":4},"source_attribution":{"callers_resolved":2}}},"traceEvents":[{"ph":"i","pid":1,"ts":0,"name":"one display marker"}]}"#;
     let trace = parse_timing(source).unwrap();

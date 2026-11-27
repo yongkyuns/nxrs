@@ -521,6 +521,7 @@ trace hash stays unknown; loading two files does not establish their identity.
 | Measure arbitrary duration | Enable **Measure range** and drag across time, or use Shift+drag |
 | Measure an exact recorded interval | Select it and choose **Measure this interval** |
 | Find a task or operation | Filter by track, event name, category, or recorded arguments |
+| Find allocation failures | **Failed calls** or `outcome:failed`; use `outcome:succeeded` or `outcome:unknown` for the other recorded outcomes |
 | Inspect counters | Enable **Counters** and hover a recorded sample |
 | Read the axis | Time relative to the first imported record; the inspector shows exact trace coordinates and source-clock timestamps when an explicit origin is available |
 | Assess observation coverage | Per-track union of recorded intervals; missing intervals remain unknown |
@@ -558,6 +559,61 @@ Ordinary memory checkpoints and timing traces retain independent axes. Matching
 ELF identity does not synchronize their clocks. In particular, the three manually
 ordered GDB observations above are never aligned to this timing axis. A capture
 adapter can establish a link through the explicit contract below.
+
+### Inspect allocator call outcomes
+
+Diagnostic firmware records the inputs and return value of native `malloc`,
+`memalign`, and `realloc` calls. Open **Failed calls** to find an observed failure,
+then select its event to inspect the caller, requested size, input address,
+alignment, returned pointer, and exact elapsed interval. **Source summaries**
+group these calls by recorded code location. A failure cause is shown only when
+the producer records one; a null return alone cannot distinguish exhaustion,
+invalid arguments, or another native failure.
+
+Each call has a nonzero, boot-scoped ID that is never reused by the recorder.
+It is independent of the existing per-heap request counter, so reinitializing a
+heap does not restart call IDs. Results must match the entry's ID, heap,
+operation, and task. Task tracks keep nested backing calls separate from calls
+on preempted tasks. Durations include blocking and preemption; they are not CPU
+execution costs.
+
+Correlated outcomes require a capture adapter to provide one
+`NXRS_NOTE_BEGIN`/`NXRS_NOTE_END` envelope with a matching, nonempty
+`recording_id` for one target boot. The converter never constructs reset
+continuity from an ELF hash, filename, or boot-banner heuristic. The
+[native allocator-call witness](../../docs/nuttx-memory-qualification.md#native-allocator-call-witness)
+supplies this envelope. An unframed console dump, or a frame without recording
+identity, still retains the observed request and return endpoints; their paired
+outcome and duration stay unknown. Older entry-only firmware remains readable.
+
+| Evidence | Viewer result |
+| --- | --- |
+| Matching entry and successful return | Succeeded call, returned pointer, and measured elapsed interval |
+| Matching entry and failed return | Failed call and its inputs; failure cause may remain unrecorded |
+| Entry without an admitted return | Requested inputs retained; outcome and duration unknown |
+| Return without an admitted entry | Observed return retained separately; no invented request size or failed-call count |
+| Located record loss | Pending pairs become unknown; later complete pairs can be admitted |
+| Loss without a located boundary | Endpoints retained independently; no call durations reconstructed |
+
+The pinned native allocator rounds zero-byte calls up to its minimum allocation.
+`mm_realloc(pointer, 0)` remains an allocation request; it is not an implicit
+free. The returned pointer can still depend on the allocator path. The viewer
+uses the explicit return outcome and never infers a free from size zero.
+
+`memalign` and `realloc` can invoke other allocator functions internally. Those
+backing calls have their own IDs, so the displayed call count and requested-byte
+sum are not application allocation counts or net heap growth. A returned address
+does not establish a lifetime, its later ownership, or committed chunk geometry.
+Use a separately admitted [heap journal](#replay-one-heap) for topology replay.
+
+The [recorder cost comparison](../../docs/nuttx-memory-qualification.md#allocator-recorder-cost)
+measures the affected native object code, static storage, record sizes, and
+compiler-reported function stack frames separately from viewer performance.
+On the measured 32-bit MPS2 ABI, an entry-only request occupies 32 bytes; the
+paired request and result occupy 56 and 40 bytes. Both use the existing bounded
+note ring, so complete pairs consume its available space faster. Nested calls
+have their own records. These sizes exclude other heap and scheduler notes,
+and elapsed allocator-call durations do not measure instrumentation overhead.
 
 ### Link memory checkpoints to timing
 
