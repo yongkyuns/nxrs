@@ -194,6 +194,18 @@ fn elapsed_u128(ns: u128) -> String {
         .unwrap_or_else(|_| format!("{ns} ns"))
 }
 
+fn elapsed_mean(ns: f64) -> String {
+    if ns < 1_000.0 {
+        format!("{ns:.3} ns")
+    } else if ns < 1_000_000.0 {
+        format!("{:.3} us", ns / 1_000.0)
+    } else if ns < 1_000_000_000.0 {
+        format!("{:.3} ms", ns / 1_000_000.0)
+    } else {
+        format!("{:.6} s", ns / 1_000_000_000.0)
+    }
+}
+
 fn occurrence_rates(counts: &TimingOccurrences, denominator: TimingRateDenominator) -> String {
     match denominator {
         TimingRateDenominator::Observed { duration_ns } => format!(
@@ -220,6 +232,57 @@ fn full_duration_summary(counts: &TimingOccurrences) -> String {
         ),
         _ => "Full duration mean/max unavailable: no observed interval starts with both endpoints in this cohort".into(),
     }
+}
+
+fn instant_spacing_summary(
+    source: &TimingSourceStats,
+    denominator: TimingRateDenominator,
+) -> (String, String) {
+    let unavailable = match denominator {
+        TimingRateDenominator::Unavailable(reason) => reason.description().to_owned(),
+        TimingRateDenominator::Observed { .. } => {
+            if let Some(spacing) = &source.instant_spacing {
+                if let Some(mean) = spacing.mean_ns() {
+                    let maximum = spacing.max_gap.end_ns - spacing.max_gap.start_ns;
+                    let label = format!(
+                        "Observed spacing: {} gaps · min {} · mean {} · max {}",
+                        spacing.gap_count,
+                        elapsed(spacing.min_ns),
+                        elapsed_mean(mean),
+                        elapsed(maximum),
+                    );
+                    let detail = format!(
+                        "Consecutive semantic instants in this source group and selected half-open window.\n{} observed gaps from {} instants.\nMinimum: {} ns\nMean: {:.3} ns; exact ratio {} ns / {} gaps\nMaximum: {} ns\nLongest gap endpoints: {} .. {} ns (trace coordinates)\nCapture boundaries, intervals, counters and censored markers do not supply gap endpoints.",
+                        spacing.gap_count,
+                        source.occurrences.instants,
+                        spacing.min_ns,
+                        mean,
+                        spacing.sum_ns,
+                        spacing.gap_count,
+                        maximum,
+                        spacing.max_gap.start_ns,
+                        spacing.max_gap.end_ns,
+                    );
+                    return (label, detail);
+                }
+            }
+            if source.occurrences.instants == 0 && source.occurrences.excluded_markers > 0 {
+                "Only unknown/censored markers in this window".into()
+            } else if source.occurrences.instants < 2 {
+                format!(
+                    "Need at least 2 semantic instants in the selected window; {} observed",
+                    source.occurrences.instants,
+                )
+            } else {
+                "No admitted gap summary for these observations".into()
+            }
+        }
+    };
+    let label = format!("Observed spacing unavailable: {unavailable}");
+    let detail = format!(
+        "{label}\nSpacing uses consecutive admitted semantic instants from this source group within the selected half-open window. A missing summary does not establish zero spacing."
+    );
+    (label, detail)
 }
 
 fn source_occurrences(counts: &TimingOccurrences, denominator: TimingRateDenominator) -> String {
@@ -516,8 +579,17 @@ impl TimingView {
                     });
                     let occurrences = source_occurrences(&source.occurrences, analysis.stats.rate_denominator);
                     ui.add(egui::Label::new(RichText::new(&occurrences).small().color(ACCENT)).truncate()).on_hover_text(occurrences);
-                    let duration = full_duration_summary(&source.occurrences);
-                    ui.add(egui::Label::new(RichText::new(&duration).small()).truncate()).on_hover_text(duration);
+                    let instant_only = source.interval_count == 0;
+                    let spacing = (instant_only || source.occurrences.instants > 0)
+                        .then(|| instant_spacing_summary(source, analysis.stats.rate_denominator));
+                    if instant_only {
+                        let (label, detail) = spacing.as_ref().unwrap();
+                        ui.add(egui::Label::new(RichText::new(label).small()).truncate()).on_hover_text(detail);
+                    } else {
+                        let duration = full_duration_summary(&source.occurrences);
+                        let detail = spacing.as_ref().map_or_else(|| duration.clone(), |(label, detail)| format!("{duration}\n\n{label}\n{detail}"));
+                        ui.add(egui::Label::new(RichText::new(&duration).small()).truncate()).on_hover_text(detail);
+                    }
                     ui.label(RichText::new(format!("Clipped overlap: {} inclusive · {} max · {} intersecting intervals", elapsed_u128(source.inclusive_ns), elapsed(source.longest_overlap_ns), source.interval_count)).small().color(MUTED));
                     ui.label(RichText::new(format!("{} · {}", trace.tracks[source.track].name, source.category)).small().color(MUTED));
                     ui.horizontal(|ui| {
@@ -532,6 +604,8 @@ impl TimingView {
                         ui.label(RichText::new(format!("{} requested call B · {} intersecting calls · {} failures · {} outcomes unknown", source.requested_bytes, source.request_count, source.failed_requests, source.unknown_outcomes)).small().color(if source.failed_requests > 0 { WARNING } else { MUTED }));
                     } else if source.unpaired_results > 0 {
                         ui.label(RichText::new(format!("{} result endpoints without paired requests", source.unpaired_results)).small().color(WARNING));
+                    } else if let (false, Some((label, detail))) = (instant_only, spacing.as_ref()) {
+                        ui.add(egui::Label::new(RichText::new(label).small()).truncate()).on_hover_text(detail);
                     } else { ui.add_space(13.0); }
                 });
             }
@@ -1315,6 +1389,20 @@ mod tests {
         })
     }
 
+    fn rendered_output(view: &mut TimingView, trace: &TimingTrace, size: Vec2) -> egui::FullOutput {
+        let context = egui::Context::default();
+        let input = egui::RawInput {
+            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, size)),
+            ..Default::default()
+        };
+        let _ = context.run(input.clone(), |context| {
+            view.show(context, trace, egui::Id::new("capture-window-render"));
+        });
+        context.run(input, |context| {
+            view.show(context, trace, egui::Id::new("capture-window-render"));
+        })
+    }
+
     fn rendered_text(view: &mut TimingView, trace: &TimingTrace, size: Vec2) -> String {
         fn text(shape: &egui::epaint::Shape, result: &mut String) {
             match shape {
@@ -1330,22 +1418,190 @@ mod tests {
                 _ => {}
             }
         }
-        let context = egui::Context::default();
-        let input = egui::RawInput {
-            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, size)),
-            ..Default::default()
-        };
-        let _ = context.run(input.clone(), |context| {
-            view.show(context, trace, egui::Id::new("capture-window-render"));
-        });
-        let output = context.run(input, |context| {
-            view.show(context, trace, egui::Id::new("capture-window-render"));
-        });
+        let output = rendered_output(view, trace, size);
         let mut result = String::new();
         for shape in &output.shapes {
             text(&shape.shape, &mut result);
         }
         result
+    }
+
+    fn visible_text(view: &mut TimingView, trace: &TimingTrace, size: Vec2) -> String {
+        fn text(shape: &egui::epaint::Shape, clip: Rect, result: &mut String) {
+            match shape {
+                egui::epaint::Shape::Text(text)
+                    if clip.contains_rect(text.visual_bounding_rect()) =>
+                {
+                    // Inspect painted glyphs rather than the original layout text:
+                    // truncated and off-screen strings must not satisfy visibility.
+                    for row in &text.galley.rows {
+                        result.extend(row.glyphs.iter().map(|glyph| glyph.chr));
+                        result.push('\n');
+                    }
+                }
+                egui::epaint::Shape::Vec(shapes) => {
+                    for shape in shapes {
+                        text(shape, clip, result);
+                    }
+                }
+                _ => {}
+            }
+        }
+        let mut result = String::new();
+        for shape in &rendered_output(view, trace, size).shapes {
+            text(&shape.shape, shape.clip_rect, &mut result);
+        }
+        result
+    }
+
+    fn semantic_instants(timestamps_us: &[u64]) -> serde_json::Value {
+        serde_json::Value::Array(
+            timestamps_us
+                .iter()
+                .map(|timestamp| {
+                    serde_json::json!({
+                        "ph":"i", "pid":1, "name":"gnss/fix_received", "cat":"app", "ts":timestamp
+                    })
+                })
+                .collect(),
+        )
+    }
+
+    #[test]
+    fn instant_spacing_renders_periodic_bursty_and_coincident_observations() {
+        for (timestamps, expected, exact_ratio, endpoints) in [
+            (
+                [250_000, 1_250_000, 2_250_000],
+                "Observed spacing: 2 gaps · min 1.000000 s · mean 1.000000 s · max 1.000000 s",
+                "exact ratio 2000000000 ns / 2 gaps",
+                "Longest gap endpoints: 250000000 .. 1250000000 ns (trace coordinates)",
+            ),
+            (
+                [100_000, 100_000, 2_500_000],
+                "Observed spacing: 2 gaps · min 0 ns · mean 1.200000 s · max 2.400000 s",
+                "exact ratio 2400000000 ns / 2 gaps",
+                "Longest gap endpoints: 100000000 .. 2500000000 ns (trace coordinates)",
+            ),
+            (
+                [100_000, 100_000, 100_000],
+                "Observed spacing: 2 gaps · min 0 ns · mean 0.000 ns · max 0 ns",
+                "exact ratio 0 ns / 2 gaps",
+                "Longest gap endpoints: 100000000 .. 100000000 ns (trace coordinates)",
+            ),
+        ] {
+            let trace = nxrs_memory_explorer::parse_timing(
+                &timed_fixture(semantic_instants(&timestamps)).to_string(),
+            )
+            .unwrap();
+            let mut view = TimingView::default();
+            view.reset(&trace);
+            view.mode = TimingMode::Sources;
+            for size in [Vec2::new(1000.0, 700.0), Vec2::new(1440.0, 940.0)] {
+                let rendered = visible_text(&mut view, &trace, size);
+                assert!(
+                    rendered.contains(expected),
+                    "Missing {expected:?}: {rendered}"
+                );
+            }
+            let sources = trace.source_stats(trace.bounds, "", 0);
+            let (_, detail) =
+                instant_spacing_summary(&sources[0], trace.rate_denominator(trace.bounds));
+            assert!(detail.contains(exact_ratio), "{detail}");
+            assert!(detail.contains(endpoints), "{detail}");
+        }
+    }
+
+    #[test]
+    fn instant_spacing_renders_loss_coverage_legacy_and_insufficient_reasons() {
+        let base = timed_fixture(semantic_instants(&[250_000, 1_250_000, 2_250_000]));
+        let mut loss = base.clone();
+        loss["otherData"]["nxrs"]["loss_detected"] = serde_json::json!(true);
+        loss["otherData"]["nxrs"]["capture_window"]["complete"] = serde_json::json!(false);
+        let mut incomplete = base.clone();
+        incomplete["otherData"]["nxrs"]["capture_window"]["complete"] = serde_json::json!(false);
+        let mut unknown_loss = base.clone();
+        unknown_loss["otherData"]["nxrs"]
+            .as_object_mut()
+            .unwrap()
+            .remove("loss_detected");
+        let mut legacy = base;
+        legacy["otherData"]["nxrs"]
+            .as_object_mut()
+            .unwrap()
+            .remove("capture_window");
+        let one = timed_fixture(semantic_instants(&[1_000_000]));
+        let mut censored = timed_fixture(serde_json::json!([
+            {"ph":"i", "pid":1, "name":"unfinished work", "cat":"app,unknown,capture", "ts":1_000_000,
+             "args":{"duration_unknown":true,"reason":"capture ended"}}
+        ]));
+        censored["otherData"]["nxrs"]["complete"] = serde_json::json!(false);
+        censored["otherData"]["nxrs"]["incomplete_intervals"] = serde_json::json!(1);
+        for (document, reason) in [
+            (
+                loss,
+                "Record loss was reported; the occurrence population is incomplete",
+            ),
+            (incomplete, "Capture-window coverage is incomplete"),
+            (unknown_loss, "Record-loss status is unknown"),
+            (
+                legacy,
+                "No explicit capture window; event extent is not an acquisition duration",
+            ),
+            (
+                one,
+                "Need at least 2 semantic instants in the selected window; 1 observed",
+            ),
+            (censored, "Only unknown/censored markers in this window"),
+        ] {
+            let trace = nxrs_memory_explorer::parse_timing(&document.to_string()).unwrap();
+            let mut view = TimingView::default();
+            view.reset(&trace);
+            view.mode = TimingMode::Sources;
+            let rendered = visible_text(&mut view, &trace, Vec2::new(1600.0, 1000.0));
+            let expected = format!("Observed spacing unavailable: {reason}");
+            assert!(
+                rendered.contains(&expected),
+                "Missing {expected:?}: {rendered}"
+            );
+            assert!(!rendered.contains("Observed spacing: 0 gaps"));
+        }
+    }
+
+    #[test]
+    fn mixed_source_retains_full_durations_and_displays_only_instant_spacing() {
+        let trace = nxrs_memory_explorer::parse_timing(
+            &timed_fixture(serde_json::json!([
+                {"ph":"X", "pid":1, "name":"mixed operation", "cat":"app", "ts":250_000, "dur":1_500_000},
+                {"ph":"i", "pid":1, "name":"mixed operation", "cat":"app", "ts":500_000},
+                {"ph":"i", "pid":1, "name":"mixed operation", "cat":"app", "ts":1_500_000},
+                {"ph":"i", "pid":1, "name":"mixed operation", "cat":"app", "ts":2_500_000}
+            ]))
+            .to_string(),
+        )
+        .unwrap();
+        let mut view = TimingView::default();
+        view.reset(&trace);
+        view.mode = TimingMode::Sources;
+        let rendered = visible_text(&mut view, &trace, Vec2::new(1600.0, 1000.0));
+        for expected in [
+            "Full durations for 1 starts with both endpoints: mean 1500000000.000 ns",
+            "Observed spacing: 2 gaps · min 1.000000 s · mean 1.000000 s · max 1.000000 s",
+            "Clipped overlap: 1.500000 s inclusive · 1.500000 s max · 1 intersecting intervals",
+        ] {
+            assert!(
+                rendered.contains(expected),
+                "Missing {expected:?}: {rendered}"
+            );
+        }
+        let sources = trace.source_stats(trace.bounds, "", 0);
+        assert_eq!(sources.len(), 1);
+        let (_, detail) =
+            instant_spacing_summary(&sources[0], trace.rate_denominator(trace.bounds));
+        assert!(
+            detail.contains("2 observed gaps from 3 instants"),
+            "{detail}"
+        );
+        assert!(detail.contains("500000000 .. 1500000000 ns"), "{detail}");
     }
 
     #[test]
