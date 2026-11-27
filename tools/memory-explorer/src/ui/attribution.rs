@@ -74,7 +74,11 @@ fn allocator_frame(frame: &SourceFrame) -> bool {
 impl MemoryExplorer {
     pub(super) fn source_controls(&mut self, ui: &mut egui::Ui) {
         ui.horizontal_wrapped(|ui| {
-            ui.label(RichText::new("Color allocations by").small().color(MUTED));
+            ui.label(RichText::new("Colors").small().color(MUTED));
+            ui.selectable_value(&mut self.color_by_role, true, "Memory purpose");
+            ui.selectable_value(&mut self.color_by_role, false, "Source");
+            ui.add_enabled_ui(!self.color_by_role, |ui| {
+            ui.label(RichText::new("Allocation source").small().color(MUTED));
             egui::ComboBox::from_id_salt("allocation-source-policy")
                 .selected_text(self.source_choice.label())
                 .show_ui(ui, |ui| {
@@ -90,6 +94,7 @@ impl MemoryExplorer {
             ui.label(RichText::new("?").color(MUTED)).on_hover_text(
                 "Caller candidate selects the first resolved recorded frame outside recognized allocator files/functions. This is an explicit display heuristic, not proof of current ownership. Select any recorded frame in the inspector. Missing frames stay unattributed."
             );
+            });
             ui.checkbox(&mut self.collapse_empty, "Collapse empty tracks");
         });
     }
@@ -112,6 +117,7 @@ impl MemoryExplorer {
                     let name = frame.function.as_deref().unwrap_or("Unresolved function");
                     if ui.selectable_label(chosen, format!("#{index}  {name}")).clicked() {
                         self.source_choice = SourceChoice::Frame(index);
+                        self.color_by_role = false;
                     }
                     let location = match (&frame.file, frame.line) {
                         (Some(file), Some(line)) => format!("{file}:{line}"),

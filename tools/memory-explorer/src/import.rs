@@ -23,6 +23,7 @@ pub struct MapContribution {
 struct ParsedMap {
     sections: BTreeMap<String, AddressRange>,
     contributions: Vec<MapContribution>,
+    memory: Vec<Region>,
 }
 
 #[derive(Debug)]
@@ -59,6 +60,52 @@ pub fn load_inputs(
     snapshots: &[PathBuf],
     layout: Option<&Path>,
 ) -> Result<MemoryModel> {
+    load_inputs_inner(elf, map, snapshots, layout, None, false, false)
+}
+
+/// Reopen only a prepared session's listed companions, preserving whether each
+/// optional companion was selected automatically at packaging time.
+pub fn load_prepared_inputs(
+    elf: &Path,
+    map: Option<&Path>,
+    snapshots: &[PathBuf],
+    layout: Option<&Path>,
+    automatic_map: bool,
+    automatic_layout: bool,
+) -> Result<MemoryModel> {
+    load_inputs_inner(
+        elf,
+        map,
+        snapshots,
+        layout,
+        None,
+        automatic_layout,
+        automatic_map,
+    )
+}
+
+/// Load loose build artifacts, finding adjacent maps and identity-bound board
+/// metadata when no explicit companion is supplied. Prepared sessions use
+/// `load_inputs` so unlisted files cannot change an integrity-checked recording.
+pub fn load_inputs_discovered(
+    elf: &Path,
+    map: Option<&Path>,
+    snapshots: &[PathBuf],
+    layout: Option<&Path>,
+    board: Option<&str>,
+) -> Result<MemoryModel> {
+    load_inputs_inner(elf, map, snapshots, layout, Some(board), false, false)
+}
+
+fn load_inputs_inner(
+    elf: &Path,
+    map: Option<&Path>,
+    snapshots: &[PathBuf],
+    layout: Option<&Path>,
+    discover_board: Option<Option<&str>>,
+    preserve_capture_regions: bool,
+    optional_map: bool,
+) -> Result<MemoryModel> {
     let bytes = fs::read(elf).map_err(|error| Error(format!("{}: {error}", elf.display())))?;
     let file = object::File::parse(bytes.as_slice())
         .map_err(|error| Error(format!("ELF parse: {error}")))?;
@@ -94,12 +141,41 @@ pub fn load_inputs(
             "Runtime state is unknown between point snapshots. Unowned gaps are not free heap.".into(),
         ],
     };
-    if let Some(path) = layout {
-        let layout = parse_layout(&fs::read_to_string(path)?)?;
-        model.regions = layout.regions;
-        model.physical_resources = layout.physical_resources;
-        model.warnings.extend(layout.warnings);
+    let discovered = discover_board
+        .map(|board| crate::layout::discover(elf, map, layout, board, &model.build.elf_sha256))
+        .transpose()?;
+    let layout_text = if let Some(discovered) = &discovered {
+        model.warnings.extend(discovered.warnings.clone());
+        discovered.layout.clone()
+    } else {
+        layout
+            .map(|path| {
+                crate::layout::checked_layout(
+                    &crate::layout::read_layout_text(path)?,
+                    &model.build.elf_sha256,
+                    false,
+                )
+            })
+            .transpose()?
+    };
+    let automatic_layout = preserve_capture_regions
+        || discovered
+            .as_ref()
+            .is_some_and(|inputs| !inputs.explicit_layout);
+    let parsed_layout = layout_text.as_deref().map(parse_layout).transpose()?;
+    let mut layout_applied = false;
+    if !automatic_layout {
+        if let Some(layout) = &parsed_layout {
+            model.regions = layout.regions.clone();
+            model.physical_resources = layout.physical_resources.clone();
+            model.warnings.extend(layout.warnings.clone());
+            layout_applied = true;
+        }
     }
+    let automatic_map = optional_map || discovered.is_some() && map.is_none();
+    let map = discovered
+        .as_ref()
+        .map_or(map, |inputs| inputs.map.as_deref());
     for path in snapshots {
         let mut snapshot_file = parse_snapshot(&fs::read_to_string(path)?)?;
         if !model.build.matches(&snapshot_file.build) {
@@ -141,6 +217,11 @@ pub fn load_inputs(
         }
         model.snapshots.extend(snapshot_file.snapshots);
         model.warnings.extend(snapshot_file.warnings);
+    }
+    if automatic_layout {
+        if let Some(layout) = parsed_layout {
+            layout_applied = merge_automatic_layout(&mut model, layout)?;
+        }
     }
     model.snapshots.sort_by_key(|snapshot| snapshot.time_ns);
     if !model.snapshots.is_empty() {
@@ -207,31 +288,73 @@ pub fn load_inputs(
         model.warnings.push("ELF TLS sections are per-thread templates, not unique CPU RAM locations. Their file/load template bytes may be shown, but no per-thread runtime placement is inferred; that requires runtime observations.".into());
     }
 
-    let parsed_map = if let Some(path) = map {
-        let parsed = read_map(&fs::read_to_string(path)?)?;
-        let mut matches = 0;
-        for section in &sections {
-            if let Some(mapped) = parsed.sections.get(&section.name) {
-                if mapped != &section.range {
-                    return Err(Error(format!(
-                        "map output section {} does not match ELF address/size",
-                        section.name
-                    )));
+    let parsed_map = map
+        .map(|path| -> Result<ParsedMap> {
+            let parsed = read_map(&crate::layout::read_map_text(path)?)?;
+            let mut matches = 0;
+            for section in &sections {
+                if let Some(mapped) = parsed.sections.get(&section.name) {
+                    if mapped != &section.range {
+                        return Err(Error(format!(
+                            "map output section {} does not match ELF address/size",
+                            section.name
+                        )));
+                    }
+                    matches += 1;
                 }
-                matches += 1;
             }
+            if matches == 0 {
+                return Err(Error(
+                    "GNU map has no matching allocated ELF output sections".into(),
+                ));
+            }
+            if !file.is_64()
+                && parsed
+                    .memory
+                    .iter()
+                    .any(|region| region.end() > 1_u64 << 32)
+            {
+                return Err(Error(
+                    "linker MEMORY region exceeds the ELF32 address space".into(),
+                ));
+            }
+            Ok(parsed)
+        })
+        .transpose();
+    let parsed_map = match parsed_map {
+        Ok(parsed) => parsed,
+        Err(reason) if automatic_map => {
+            model.warnings.push(format!("Automatically found linker map was not applied: {reason}. ELF placement remains available."));
+            None
         }
-        if matches == 0 {
-            return Err(Error(
-                "GNU map has no matching allocated ELF output sections".into(),
-            ));
-        }
+        Err(reason) => return Err(reason),
+    };
+    if parsed_map.is_some() {
         model.warnings.push("GNU map address/size checks match ELF output sections; no cryptographic map identity is available. Sources identify retained input objects/archives. LTO, folded code and merged strings can prevent unique ownership; unmatched bytes remain unattributed.".into());
-        Some(parsed)
     } else {
         model.warnings.push("No GNU map supplied: ELF symbols are available, but object/source ownership is unknown.".into());
-        None
-    };
+    }
+    // Apply optional budgets only after map/ELF consistency checks. A stale
+    // automatically found map must not leave any regions behind after rejection.
+    if !layout_applied {
+        if let Some(map) = &parsed_map {
+            for region in &map.memory {
+                if model.regions.iter().any(|existing| {
+                    existing.domain == region.domain
+                        && existing.range().is_ok_and(|range| {
+                            range.overlaps(region.range().expect("validated map range"))
+                        })
+                }) {
+                    model.warnings.push(format!("Linker MEMORY budget {} overlaps a captured region or another budget and was omitted; retained capture coordinates and backing take precedence.", region.name));
+                } else {
+                    model.regions.push(region.clone());
+                }
+            }
+            if !map.memory.is_empty() {
+                model.warnings.push("Named regions and capacities come from the linker's MEMORY budgets, not measured board capacity. Unplaced bytes are available to the linker, not known free heap. CPU aliases still require an explicit physical layout.".into());
+            }
+        }
+    }
 
     // Infer only extents present in this ELF, never board memory capacity.
     infer_windows(
@@ -481,7 +604,16 @@ fn infer_windows(
         }
         regions.push(Region {
             id,
-            name: format!("ELF {domain:?} window {:#x} (backing unknown)", range.start),
+            name: format!(
+                "{} at {:#x}",
+                match domain {
+                    AddressDomain::CpuVirtual => "Firmware runtime",
+                    AddressDomain::LinkedLoad => "Linked image",
+                    AddressDomain::Image => "Image bytes",
+                    AddressDomain::Physical => "Storage",
+                },
+                range.start
+            ),
             start: range.start,
             size: range.size(),
             kind: RegionKind::Unknown,
@@ -591,6 +723,121 @@ fn add_load_section(
         }
     }
     Ok(())
+}
+
+/// Automatic companions must not rename captured coordinates: a heap journal
+/// may refer to those exact IDs. Retain captures, then split unused board
+/// windows around them and apply only consistent declared translations.
+fn merge_automatic_layout(model: &mut MemoryModel, layout: LayoutFile) -> Result<bool> {
+    let conflict = layout.physical_resources.iter().any(|incoming| {
+        model
+            .physical_resources
+            .iter()
+            .any(|existing| existing.id == incoming.id && existing != incoming)
+    }) || model.regions.iter().any(|captured| {
+        let overlaps: Vec<_> = layout
+            .regions
+            .iter()
+            .filter(|region| {
+                region.domain == captured.domain
+                    && region.range().is_ok_and(|range| {
+                        captured
+                            .range()
+                            .is_ok_and(|capture| range.overlaps(capture))
+                    })
+            })
+            .collect();
+        if overlaps.is_empty() {
+            return false;
+        }
+        let Some(region) = overlaps.iter().find(|region| {
+            region.range().is_ok_and(|range| {
+                captured
+                    .range()
+                    .is_ok_and(|capture| range.contains(capture))
+            })
+        }) else {
+            return true;
+        };
+        captured.physical.as_ref().is_some_and(|mapping| {
+            !region.physical.as_ref().is_some_and(|backing| {
+                backing.id == mapping.id
+                    && backing.offset.checked_add(captured.start - region.start)
+                        == Some(mapping.offset)
+            })
+        })
+    });
+    if conflict {
+        model.warnings.push("Automatically discovered layout conflicts with captured memory geometry or backing. Captured region IDs and mappings were retained; the automatic physical layout was not applied.".into());
+        return Ok(false);
+    }
+    for captured in &mut model.regions {
+        if captured.physical.is_some() {
+            continue;
+        }
+        if let Some(region) = layout.regions.iter().find(|region| {
+            region.domain == captured.domain
+                && region.range().is_ok_and(|range| {
+                    captured
+                        .range()
+                        .is_ok_and(|capture| range.contains(capture))
+                })
+        }) {
+            if let Some(backing) = &region.physical {
+                captured.physical = Some(PhysicalBacking {
+                    id: backing.id.clone(),
+                    offset: backing.offset + captured.start - region.start,
+                });
+            }
+        }
+    }
+    let captured_regions = model.regions.clone();
+    let mut ids: BTreeSet<_> = captured_regions
+        .iter()
+        .map(|region| region.id.clone())
+        .collect();
+    for region in layout.regions {
+        let mut ranges = vec![region.range()?];
+        for captured in captured_regions
+            .iter()
+            .filter(|captured| captured.domain == region.domain)
+        {
+            let captured = captured.range()?;
+            ranges = ranges
+                .into_iter()
+                .flat_map(|range| subtract(range, captured))
+                .collect();
+        }
+        for (index, range) in ranges.into_iter().enumerate() {
+            let mut remaining = region.clone();
+            remaining.start = range.start;
+            remaining.size = range.size();
+            if let Some(backing) = &mut remaining.physical {
+                backing.offset += range.start - region.start;
+            }
+            if range != region.range()? || ids.contains(&remaining.id) {
+                remaining.id = format!("{}-uncovered-{index}", region.id);
+            }
+            while !ids.insert(remaining.id.clone()) {
+                remaining.id.push('-');
+            }
+            model.regions.push(remaining);
+        }
+    }
+    for resource in layout.physical_resources {
+        if !model
+            .physical_resources
+            .iter()
+            .any(|existing| existing.id == resource.id)
+        {
+            model.physical_resources.push(resource);
+        }
+    }
+    model.warnings.extend(layout.warnings);
+    if !captured_regions.is_empty() {
+        model.warnings.push("The automatic board layout preserves captured region IDs and extents. Declared board windows fill only uncovered coordinates, so linked heap journals retain their capture identity.".into());
+    }
+    Ok(true)
 }
 
 fn merge_region(regions: &mut Vec<Region>, incoming: &Region) -> Result<String> {
@@ -733,7 +980,44 @@ fn read_map(text: &str) -> Result<ParsedMap> {
     let mut result = ParsedMap {
         sections: BTreeMap::new(),
         contributions: Vec::new(),
+        memory: Vec::new(),
     };
+    if let Some((_, memory)) = text.split_once("Memory Configuration") {
+        let memory = memory
+            .split_once("Linker script and memory map")
+            .map_or(memory, |(head, _)| head);
+        for line in memory.lines() {
+            let fields: Vec<_> = line.split_whitespace().collect();
+            if fields.len() < 3 || fields[0] == "Name" || fields[0] == "*default*" {
+                continue;
+            }
+            let (Some(start), Some(size)) = (hex(fields[1]), hex(fields[2])) else {
+                continue;
+            };
+            if size == 0 {
+                continue;
+            }
+            AddressRange::new(start, size)?;
+            let attributes = fields.get(3).copied().unwrap_or("");
+            result.memory.push(Region {
+                id: format!("linker-memory-{}", result.memory.len()),
+                name: format!(
+                    "Linker {}{}",
+                    fields[0],
+                    if attributes.is_empty() {
+                        String::new()
+                    } else {
+                        format!(" ({attributes})")
+                    }
+                ),
+                start,
+                size,
+                kind: RegionKind::Unknown,
+                domain: AddressDomain::CpuVirtual,
+                physical: None,
+            });
+        }
+    }
     let body = text
         .split_once("Linker script and memory map")
         .map_or(text, |(_, body)| body);

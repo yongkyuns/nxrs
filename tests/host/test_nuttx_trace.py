@@ -36,6 +36,7 @@ class NuttxTraceTest(unittest.TestCase):
         self.assertEqual((request["ph"], request["ts"]), ("i", 12))
         self.assertEqual(request["args"], {
             "heap": "0xa", "requested_bytes": 8, "caller": "0xb", "task": "process", "task_id": 7,
+            "cpu": 0, "operation": "malloc", "outcome": "unknown; allocator entry only",
         })
         self.assertEqual((usage["name"], usage["ts"], usage["args"]), ("Heap 0xa", 13, {"used_bytes": 200}))
 

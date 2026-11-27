@@ -236,4 +236,5 @@ def run():
         gdb.execute("quit 1")
 
 
-run()
+if __name__ == "__main__":
+    run()

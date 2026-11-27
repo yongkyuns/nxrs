@@ -20,6 +20,7 @@ fn empty_board() -> MemoryModel {
             label: "synthetic point".into(),
             spans: vec![],
             complete_regions: vec![],
+            correlation: None,
         }],
         warnings: layout.warnings,
         capture: None,

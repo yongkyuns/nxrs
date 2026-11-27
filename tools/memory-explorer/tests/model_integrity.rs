@@ -41,6 +41,7 @@ fn observation(spans: Vec<Span>) -> SnapshotFile {
             label: "observed point".into(),
             spans,
             complete_regions: vec![],
+            correlation: None,
         }],
         capture: None,
         warnings: vec![],

@@ -548,6 +548,8 @@ fn build_or_prepare(
                     "abi-profile",
                     "size-optimized",
                     "diagnostics",
+                    "diagnostics-trace-bytes",
+                    "diagnostics-heap-backtrace-depth",
                     "trace-only-backtrace",
                     "panic-immediate-abort",
                     "protected-runtime",
@@ -960,7 +962,7 @@ fn build_or_prepare(
             "CARGO_PROFILE_RELEASE_LTO",
             if size { "fat" } else { "false" },
         )
-        .env("CARGO_PROFILE_RELEASE_DEBUG", if size { "0" } else { "1" })
+        .env("CARGO_PROFILE_RELEASE_DEBUG", if size && p.diagnostics()?.is_none() { "0" } else { "1" })
         .env("CARGO_PROFILE_RELEASE_STRIP", "none")
         .env_remove("RUSTFLAGS")
         .env("CARGO_ENCODED_RUSTFLAGS", flags.join("\x1f"));
@@ -1015,6 +1017,7 @@ fn build_or_prepare(
     deployment["dependency_resolution"] = selection.json();
     deployment["model_features"] = json!(selection.model_features);
     deployment["driver_features"] = json!(selection.driver_features);
+    deployment["diagnostic_features"] = json!(selection.diagnostic_features);
     let editor_sdk: BTreeMap<_, _> = ["NXRS_PICO_SDK", "NXRS_TLS_ARCHIVE"]
         .into_iter()
         .filter_map(|name| env::var_os(name).map(|path| (name, PathBuf::from(path))))
@@ -1024,6 +1027,7 @@ fn build_or_prepare(
         "features": options.features.iter()
             .chain(&selection.driver_features)
             .chain(&selection.model_features)
+            .chain(&selection.diagnostic_features)
             .collect::<Vec<_>>(),
         "no_default_features": options.no_default_features,
         "sdk": editor_sdk,
