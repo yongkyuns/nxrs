@@ -580,3 +580,156 @@ fn compile_selected_resource_archives(
     }
     assert_eq!(archives.len(), helpers.len());
 }
+
+#[test]
+fn diagnostic_probes_follow_consumed_renamed_capabilities_without_activating_optional_ones() {
+    let fixture = Fixture::new("[dependencies]\nsensor={package=\"nxrs-detector\",path=\"../../sdk/hal/detector\",optional=true}\n[features]\nwith-sensor=[\"dep:sensor\"]\n");
+    fixture.write("sdk/hal/detector/Cargo.toml", "[package]\nname=\"nxrs-detector\"\nversion=\"0.1.0\"\nedition=\"2024\"\n[package.metadata.nxrs]\ndiagnostic-features=[\"probe\"]\n[features]\nprobe=[]\n");
+    fixture.write("sdk/hal/detector/src/lib.rs", "pub fn sensor() {}\n");
+    fixture.lock();
+    let diagnostic = Profile::from_data(json!({"build":{"diagnostics":true}}), vec![]);
+    let mut absent = fixture.build();
+    let selection = cargo_graph::resolve(&mut absent, &diagnostic).unwrap();
+    assert!(!contains(&selection, "nxrs-detector"));
+    assert!(selection.diagnostic_features.is_empty());
+    let mut active = fixture.build();
+    active.args(["--features", "with-sensor"]);
+    let selection = cargo_graph::resolve(&mut active, &diagnostic).unwrap();
+    assert_eq!(selection.diagnostic_features, ["sensor?/probe"]);
+    succeeded(&mut active);
+    let ordinary = Profile::from_data(json!({}), vec![]);
+    let mut active = fixture.build();
+    active.args(["--features", "with-sensor"]);
+    assert!(cargo_graph::resolve(&mut active, &ordinary)
+        .unwrap()
+        .diagnostic_features
+        .is_empty());
+}
+
+#[test]
+fn diagnostic_probes_follow_real_composition_in_a_detached_consumer() {
+    let composition = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../platform")
+        .canonicalize()
+        .unwrap();
+    let fixture = Fixture::new(&format!(
+        r#"
+[dependencies]
+catalogue = {{ package = "nxrs-composition", path = {}, optional = true }}
+[features]
+catalogue-only = ["dep:catalogue"]
+with-gnss = ["dep:catalogue", "catalogue/gnss"]
+with-imu = ["dep:catalogue", "catalogue/imu"]
+"#,
+        serde_json::to_string(&composition).unwrap()
+    ));
+    fixture.write(
+        "consumer/app/src/main.rs",
+        r#"fn main() {
+    #[cfg(feature = "with-gnss")]
+    let _ = catalogue::gnss::primary_gnss();
+    #[cfg(feature = "with-imu")]
+    let _ = catalogue::imu::primary_imu();
+}
+"#,
+    );
+    fixture.lock();
+    for (features, diagnostics, imu, gnss) in [
+        ("with-gnss", true, false, true),
+        ("", true, false, false),
+        ("catalogue-only", true, false, false),
+        ("with-gnss", false, false, true),
+        ("with-imu", true, true, false),
+        ("with-gnss,with-imu", true, true, true),
+    ] {
+        let mut build = fixture.build();
+        // This fixture qualifies Cargo forwarding and the real portable modules;
+        // a developer's current target profile must not select native providers.
+        build
+            .env_remove("NXRS_PLATFORM")
+            .env_remove("NXRS_RESOLVED_PROFILE")
+            .env("CARGO_BUILD_JOBS", "1");
+        if !features.is_empty() {
+            build.args(["--features", features]);
+        }
+        let profile = Profile::from_data(json!({"build":{"diagnostics":diagnostics}}), vec![]);
+        let selection = cargo_graph::resolve(&mut build, &profile)
+            .unwrap_or_else(|error| panic!("{features}, diagnostics={diagnostics}: {error}"));
+        assert_eq!(contains(&selection, "nxrs-imu"), imu, "{features}");
+        assert_eq!(contains(&selection, "nxrs-gnss"), gnss, "{features}");
+        assert_eq!(
+            selection.diagnostic_features,
+            if diagnostics && !features.is_empty() {
+                vec!["catalogue?/probe"]
+            } else {
+                vec![]
+            },
+            "{features}"
+        );
+        for (identity, _, selected) in selection.path_packages() {
+            if [
+                "nxrs-composition",
+                "nxrs-imu",
+                "nxrs-gnss",
+                "nxrs-acquisition",
+            ]
+            .iter()
+            .any(|name| identity.starts_with(&format!("{name} v")))
+            {
+                assert_eq!(selected.contains("probe"), diagnostics, "{identity}");
+            }
+            if identity.starts_with("nxrs-messaging v") {
+                assert!(!selected.contains("channels"), "{identity}: {selected:?}");
+            }
+        }
+        succeeded(&mut build);
+    }
+}
+
+#[test]
+fn diagnostics_recheck_new_requirements_after_cargo_feature_forwarding() {
+    let fixture = Fixture::new("[dependencies]\ncatalogue={path=\"../../sdk/catalogue\"}\n");
+    fixture.write(
+        "sdk/Cargo.toml",
+        "[workspace]\nmembers=[\"catalogue\",\"capture-backend\"]\nresolver=\"2\"\n",
+    );
+    fixture.write(
+        "sdk/catalogue/Cargo.toml",
+        r#"[package]
+name = "catalogue"
+version = "0.1.0"
+edition = "2021"
+[package.metadata.nxrs]
+diagnostic-features = ["probe"]
+[features]
+probe = ["dep:capture-backend"]
+[dependencies]
+capture-backend = { path = "../capture-backend", optional = true }
+"#,
+    );
+    fixture.write("sdk/catalogue/src/lib.rs", "");
+    fixture.write(
+        "sdk/capture-backend/Cargo.toml",
+        r#"[package]
+name = "capture-backend"
+version = "0.1.0"
+edition = "2021"
+[package.metadata.nxrs]
+diagnostic-features = ["probe"]
+[features]
+probe = []
+"#,
+    );
+    fixture.write("sdk/capture-backend/src/lib.rs", "");
+    fixture.lock();
+    let profile = Profile::from_data(json!({"build":{"diagnostics":true}}), vec![]);
+    let mut build = fixture.build();
+    let before: Vec<_> = build.get_args().map(ToOwned::to_owned).collect();
+    let error = cargo_graph::resolve(&mut build, &profile).unwrap_err();
+    assert!(error.contains("capture-backend"), "{error}");
+    assert!(error.contains("forward"), "{error}");
+    assert_eq!(
+        before,
+        build.get_args().map(ToOwned::to_owned).collect::<Vec<_>>()
+    );
+}

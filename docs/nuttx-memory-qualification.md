@@ -13,7 +13,27 @@ The option is off by default and is independent of the application.
 ```toml
 [build]
 diagnostics = true
+# Optional: 32768 bytes by default; multiples of 4 from 4096 through 4194304.
+diagnostics-trace-bytes = 65536
+# Optional: 0 for task identity only, or 1..16 captured allocation frames.
+diagnostics-heap-backtrace-depth = 4
 ```
+
+The recorder is a fixed native buffer. Choose its size for the target's available
+RAM and the duration/event density of the reproduction. Recording preserves the
+start by default and stops admitting notes when full; explicit overwrite mode
+can retain the tail instead. Neither mode guarantees a complete workload.
+Without the backtrace-depth option, the target's existing allocator setting is
+preserved. Captured frames add allocator metadata and work and require a working
+target unwinder. These two options require `diagnostics = true`.
+
+Diagnostic builds retain the final map, native debug symbols, and Rust line
+tables for host-side source resolution. They also enable application markers and
+select the existing `probe` implementation for consumed IMU/GNSS providers. These
+providers record canonical device names with wake, drain, bus-transfer, or
+read/parse/deliver work in task context. They add no recorder thread or heap
+allocation per marker. A shared IRQ handler still does not establish which
+attached sensor caused the interrupt.
 
 ESP32-S3 diagnostics currently require effective `CONFIG_SMP=n`. Its hardware
 performance counter belongs to each CPU, while the pinned overflow correction
@@ -33,16 +53,17 @@ baseline, then capture a short reproduction. Save the console output as text.
 cat /proc/meminfo
 ps
 cat /proc/<pid>/stack
-trace mode +o +w +i
+trace mode -o +w +i +d
 trace start
 trace stop
 trace dump
 cat /proc/meminfo
 ```
 
-Run the workload between `trace start` and `trace stop`. The 8 KiB trace
-buffer retains the newest events with `+o`. Each `trace` invocation needs a
-4 KiB task stack. Use `-w -i` to preserve more heap history when investigating
+Run the workload between `trace start` and `trace stop`. The default 32 KiB trace
+buffer retains the earliest events with `-o`; use `+o` deliberately to retain
+the newest events instead. Each `trace` invocation needs a 4 KiB task stack.
+Keep `+d` for named device scopes. Use `-w -i` to preserve more heap history when investigating
 allocations. A `requests <heap> <count>` row
 in `/proc/meminfo` counts allocator entries since heap initialization, even
 when tracing is stopped. It includes failed requests, retries, and backing
@@ -51,16 +72,41 @@ memory. A slot taken from an already reserved application pool does not enter
 the OS allocator.
 
 ```sh
-python3 tools/nuttx-trace-to-perfetto.py console.txt diagnostic-trace.json
+python3 tools/nuttx-trace-to-perfetto.py console.txt diagnostic-trace.json \
+  --elf target/build/<app>/<profile>/nuttx/nuttx
 ```
 
-Open the JSON in [Perfetto](https://ui.perfetto.dev/) to correlate heap requests
-and heap usage with scheduler switches and IRQ handlers. A request records the
-task, operation, byte count, heap address, and immediate caller. Resolve the
-caller using the target toolchain's `addr2line -f -C -e` and the matching
-unstripped `nuttx/nuttx` ELF. The caller can be a libc wrapper such as
-`malloc`. The separate heap usage events show successful allocations and
-frees. Use a matched ordinary image to measure production throughput.
+Open the JSON in [Memory Explorer](../tools/memory-explorer/README.md) or
+[Perfetto](https://ui.perfetto.dev/) to correlate heap requests and usage with
+scheduler switches, IRQ handlers, and named application scopes. Supplying the
+ELF resolves IRQ/caller addresses to function and file/line, records resolution
+coverage, and binds the converted trace to that host ELF's SHA-256. Pass
+`--addr2line /path/to/target-addr2line` if the tool is not discoverable. The host
+ELF still needs to be the one actually flashed; conversion does not attest that.
+The caller can be a libc wrapper such as `malloc`. A request records entry,
+including failed attempts; it is not proof of either success or failure.
+Separate heap events retain successful operations and observed used-byte counts.
+Use a matched ordinary image to measure production throughput.
+
+The converter also accepts native watchdog events when a qualified producer
+records them. They are excluded from the diagnostic preset because the pinned
+native watchdog hooks bypass the runtime enabled filter. Enabling those hooks
+manually can retain notes after `trace stop`.
+
+Package each recording with `tools/memory-explorer/prepare_capture.py` and open
+the resulting `session.json` in the viewer. Normal build receipts let the tool
+find the linker map and select a bundled BSP memory layout automatically after
+checking the ELF and configuration hashes. The layout catalog covers CoreS3,
+ESP32-S3 DevKit/WROOM, Pico 2/2W, and the MPS2 QEMU fixture. It keeps external
+memory mappings unknown when the build supplies only capacity. The BSP source
+definitions and their provenance are checked in, so opening sessions works
+offline. See [automatic board layouts](../tools/memory-explorer/README.md#automatic-board-layouts)
+for selection, overrides, and source refresh.
+
+Use a separate [recording tab](../tools/memory-explorer/README.md#keep-several-recordings-open)
+for each run. Repeat `--session` or use **+ New** to keep a baseline and a
+diagnostic capture open together. Each tab retains its own time axis, filters,
+memory position, and validated evidence; switching tabs does not combine runs.
 
 ## What is measured
 
@@ -156,10 +202,11 @@ frees. It also does not sample stack coloration or measure requested payload
 sizes, so keep using this qualification for lifecycle reclamation and stack
 high-water evidence.
 
-The viewer can navigate independently captured lifecycle points, with unknown
-runtime state between them. A host ELF hash prevents accidental artifact mixing;
+The viewer plots per-heap usage and observed peaks across independently captured
+lifecycle points, with unknown runtime state between them. A host ELF hash prevents accidental artifact mixing;
 it does not verify the running device image or prove allocator quiescence.
-Physical backing requires an explicit board layout. The tool's guide describes
+The firmware overview can use named linker memory regions without a descriptor;
+physical backing requires an explicit board layout. The tool's guide describes
 capture prerequisites, file semantics, controls, and the remaining qualification
 work in issue #442.
 

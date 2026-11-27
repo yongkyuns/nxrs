@@ -1,0 +1,228 @@
+diff --git a/boards/Kconfig b/boards/Kconfig
+--- a/boards/Kconfig
++++ b/boards/Kconfig
+@@ -512,6 +512,14 @@
+ 		The ESP32-S3-DevKitM-1 version contains the ESP32-S3-MINI-1/1U module and the
+ 		ESP32-S3-DevKitC-1 version may be based either on ESP32-S3-WROOM-1/1U or
+ 		ESP32-S3-WROOM-2/2U.
++
++config ARCH_BOARD_ESP32S3_M5_CORES3
++	bool "M5Stack CoreS3 (ESP32-S3)"
++	depends on ARCH_CHIP_ESP32S3CUSTOM
++	select ARCH_BOARD_COMMON
++	---help---
++		CoreS3 raw UART and I2C resources. Optional device protocols are
++		owned by their consumers; display, audio and camera stay disabled.
+ 
+ config ARCH_BOARD_ESP32S3_M5_CARDPUTER
+ 	bool "M5Stack Cardputer (ESP32-S3)"
+@@ -3905,6 +3913,7 @@
+ 	default "esp32s2-saola-1"              if ARCH_BOARD_ESP32S2_SAOLA_1
+ 	default "franzininho-wifi"             if ARCH_BOARD_FRANZININHO_WIFI
+ 	default "esp32s3-devkit"               if ARCH_BOARD_ESP32S3_DEVKIT
++	default "esp32s3-m5-cores3"           if ARCH_BOARD_ESP32S3_M5_CORES3
+ 	default "esp32s3-m5-cardputer"         if ARCH_BOARD_ESP32S3_M5_CARDPUTER
+ 	default "esp32s3-8048S043"             if ARCH_BOARD_ESP32S3_8048S043
+ 	default "esp32s3-eye"                  if ARCH_BOARD_ESP32S3_EYE
+@@ -5274,6 +5283,9 @@
+ if ARCH_BOARD_ESP32S3_DEVKIT
+ source "boards/xtensa/esp32s3/esp32s3-devkit/Kconfig"
+ endif
++if ARCH_BOARD_ESP32S3_M5_CORES3
++source "boards/xtensa/esp32s3/esp32s3-m5-cores3/Kconfig"
++endif
+ if ARCH_BOARD_ESP32S3_M5_CARDPUTER
+ source "boards/xtensa/esp32s3/esp32s3-m5-cardputer/Kconfig"
+ endif
+diff --git a/boards/xtensa/esp32s3/esp32s3-m5-cores3/Kconfig b/boards/xtensa/esp32s3/esp32s3-m5-cores3/Kconfig
+new file mode 100644
+--- /dev/null
++++ b/boards/xtensa/esp32s3/esp32s3-m5-cores3/Kconfig
+@@ -0,0 +1 @@
++# CoreS3 resources are configured by the ESP32-S3 UART/I2C Kconfig.
+diff --git a/boards/xtensa/esp32s3/esp32s3-m5-cores3/include/board.h b/boards/xtensa/esp32s3/esp32s3-m5-cores3/include/board.h
+new file mode 100644
+--- /dev/null
++++ b/boards/xtensa/esp32s3/esp32s3-m5-cores3/include/board.h
+@@ -0,0 +1,10 @@
++/* SPDX-License-Identifier: Apache-2.0 */
++#ifndef __BOARDS_ESP32S3_M5_CORES3_BOARD_H
++#define __BOARDS_ESP32S3_M5_CORES3_BOARD_H
++#include <nuttx/config.h>
++#define BOARD_XTAL_FREQUENCY 40000000
++#define BOARD_CLOCK_FREQUENCY (CONFIG_ESP32S3_DEFAULT_CPU_FREQ_MHZ * 1000000)
++#if defined(CONFIG_I2C_DRIVER) && !defined(__ASSEMBLY__)
++int board_i2c_init(void);
++#endif
++#endif
+diff --git a/boards/xtensa/esp32s3/esp32s3-m5-cores3/src/Make.defs b/boards/xtensa/esp32s3/esp32s3-m5-cores3/src/Make.defs
+new file mode 100644
+--- /dev/null
++++ b/boards/xtensa/esp32s3/esp32s3-m5-cores3/src/Make.defs
+@@ -0,0 +1,4 @@
++# SPDX-License-Identifier: Apache-2.0
++CSRCS = esp32s3_boot.c
++DEPPATH += --dep-path board
++VPATH += :board
+diff --git a/boards/xtensa/esp32s3/esp32s3-m5-cores3/src/esp32s3_boot.c b/boards/xtensa/esp32s3/esp32s3-m5-cores3/src/esp32s3_boot.c
+new file mode 100644
+--- /dev/null
++++ b/boards/xtensa/esp32s3/esp32s3-m5-cores3/src/esp32s3_boot.c
+@@ -0,0 +1,33 @@
++/* SPDX-License-Identifier: Apache-2.0 */
++/* Board registration only; device protocols belong to Rust capability HALs. */
++#include <nuttx/config.h>
++#include <nuttx/board.h>
++#include <nuttx/arch.h>
++#include <arch/board/board.h>
++#include <nuttx/fs/fs.h>
++#include <syslog.h>
++#include "esp32s3_i2c.h"
++void esp32s3_board_initialize(void) {}
++#ifdef CONFIG_BOARD_LATE_INITIALIZE
++void board_late_initialize(void)
++{
++#ifdef CONFIG_I2C_DRIVER
++  int result = board_i2c_init();
++  if (result < 0) syslog(LOG_ERR, "CoreS3 I2C registration failed: %d\n", result);
++#endif
++#ifdef CONFIG_FS_PROCFS
++  int mounted = nx_mount(NULL, "/proc", "procfs", 0, NULL);
++  if (mounted < 0) syslog(LOG_ERR, "CoreS3 procfs mount failed: %d\n", mounted);
++#endif
++  /* Preserve PMIC/charger defaults. No optional display/audio rails or 5V
++   * output are enabled here; those require separate power qualification. */
++}
++#endif
++#ifdef CONFIG_BOARDCTL_RESET
++int board_reset(int status)
++{
++  (void)status;
++  up_systemreset();
++  return 0;
++}
++#endif
+diff --git a/boards/xtensa/esp32s3/esp32s3-m5-cores3/scripts/Make.defs b/boards/xtensa/esp32s3/esp32s3-m5-cores3/scripts/Make.defs
+new file mode 100644
+--- /dev/null
++++ b/boards/xtensa/esp32s3/esp32s3-m5-cores3/scripts/Make.defs
+@@ -0,0 +1,56 @@
++############################################################################
++# boards/xtensa/esp32s3/esp32s3-m5-cores3/scripts/Make.defs
++#
++# SPDX-License-Identifier: Apache-2.0
++#
++# Licensed to the Apache Software Foundation (ASF) under one or more
++# contributor license agreements.  See the NOTICE file distributed with
++# this work for additional information regarding copyright ownership.  The
++# ASF licenses this file to you under the Apache License, Version 2.0 (the
++# "License"); you may not use this file except in compliance with the
++# License.  You may obtain a copy of the License at
++#
++#   http://www.apache.org/licenses/LICENSE-2.0
++#
++# Unless required by applicable law or agreed to in writing, software
++# distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
++# WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.  See the
++# License for the specific language governing permissions and limitations
++# under the License.
++#
++############################################################################
++
++include $(TOPDIR)/.config
++include $(TOPDIR)/tools/Config.mk
++include $(TOPDIR)/tools/esp32s3/Config.mk
++include $(TOPDIR)/arch/xtensa/src/lx7/Toolchain.defs
++
++ARCHSCRIPT += $(BOARD_COMMON_DIR)$(DELIM)scripts$(DELIM)esp32s3_peripherals.ld
++ARCHSCRIPT += $(BOARD_COMMON_DIR)$(DELIM)scripts$(DELIM)esp32s3_rom_aliases.ld
++
++# Pick the linker scripts from the board level if they exist, if not
++# pick the common linker scripts.
++
++ifeq ($(CONFIG_BUILD_PROTECTED),y)
++  ARCHSCRIPT += $(call FINDSCRIPT,protected_memory.ld)
++  ARCHSCRIPT += $(call FINDSCRIPT,kernel-space.ld)
++else
++  ARCHSCRIPT += $(call FINDSCRIPT,flat_memory.ld)
++  ifneq ($(CONFIG_ESP32S3_APP_FORMAT_LEGACY),y)
++    ARCHSCRIPT += $(call FINDSCRIPT,esp32s3_sections.ld)
++  else
++    ARCHSCRIPT += $(call FINDSCRIPT,legacy_sections.ld)
++  endif
++endif
++
++ifneq ($(CONFIG_DEBUG_NOOPT),y)
++  ARCHOPTIMIZATION += -fno-strength-reduce
++endif
++
++
++CFLAGS := $(ARCHCFLAGS) $(ARCHOPTIMIZATION) $(ARCHCPUFLAGS) $(ARCHINCLUDES) $(ARCHDEFINES) $(EXTRAFLAGS)
++CPICFLAGS = $(ARCHPICFLAGS) $(CFLAGS)
++CXXFLAGS := $(ARCHCXXFLAGS) $(ARCHOPTIMIZATION) $(ARCHCPUFLAGS) $(ARCHXXINCLUDES) $(ARCHDEFINES) $(EXTRAFLAGS)
++CXXPICFLAGS = $(ARCHPICFLAGS) $(CXXFLAGS)
++CPPFLAGS := $(ARCHINCLUDES) $(ARCHDEFINES) $(EXTRAFLAGS)
++AFLAGS := $(CFLAGS) -D__ASSEMBLY__
+diff --git a/boards/xtensa/esp32s3/esp32s3-m5-cores3/configs/nsh/defconfig b/boards/xtensa/esp32s3/esp32s3-m5-cores3/configs/nsh/defconfig
+new file mode 100644
+--- /dev/null
++++ b/boards/xtensa/esp32s3/esp32s3-m5-cores3/configs/nsh/defconfig
+@@ -0,0 +1,58 @@
++#
++# This file is autogenerated: PLEASE DO NOT EDIT IT.
++#
++# You can use "make menuconfig" to make any modifications to the installed .config file.
++# You can then do "make savedefconfig" to generate a new defconfig file that includes your
++# modifications.
++#
++# CONFIG_NSH_ARGCAT is not set
++# CONFIG_NSH_CMDOPT_HEXDUMP is not set
++CONFIG_ARCH="xtensa"
++CONFIG_ARCH_BOARD="esp32s3-m5-cores3"
++CONFIG_ARCH_BOARD_COMMON=y
++CONFIG_ARCH_BOARD_ESP32S3_M5_CORES3=y
++CONFIG_ARCH_CHIP="esp32s3"
++CONFIG_ARCH_CHIP_ESP32S3=y
++CONFIG_ARCH_CHIP_ESP32S3CUSTOM=y
++CONFIG_ARCH_INTERRUPTSTACK=2048
++CONFIG_ARCH_IRQ_TO_NDX=y
++CONFIG_ARCH_MINIMAL_VECTORTABLE_DYNAMIC=y
++CONFIG_ARCH_NUSER_INTERRUPTS=2
++CONFIG_ARCH_STACKDUMP=y
++CONFIG_ARCH_XTENSA=y
++CONFIG_BOARDCTL_RESET=y
++CONFIG_BOARD_LOOPSPERMSEC=16717
++CONFIG_BUILTIN=y
++CONFIG_DEBUG_FULLOPT=y
++CONFIG_DEBUG_SYMBOLS=y
++CONFIG_ESP32S3_USBSERIAL=y
++CONFIG_ETC_ROMFS=y
++CONFIG_EXPERIMENTAL=y
++CONFIG_FS_PROCFS=y
++CONFIG_FS_ROMFS=y
++CONFIG_IDLETHREAD_STACKSIZE=3072
++CONFIG_INIT_ENTRYPOINT="init_main"
++CONFIG_INIT_STACKSIZE=8192
++CONFIG_INTELHEX_BINARY=y
++CONFIG_LIBC_EXECFUNCS=y
++CONFIG_LIBC_PERROR_STDOUT=y
++CONFIG_LIBC_STRERROR=y
++CONFIG_LINE_MAX=64
++CONFIG_NSH_BUILTIN_APPS=y
++CONFIG_NSH_FILEIOSIZE=512
++CONFIG_NSH_READLINE=y
++CONFIG_PREALLOC_TIMERS=4
++CONFIG_RR_INTERVAL=200
++CONFIG_SCHED_CHILD_STATUS=y
++CONFIG_SCHED_HAVE_PARENT=y
++CONFIG_SCHED_WAITPID=y
++CONFIG_START_DAY=29
++CONFIG_START_MONTH=11
++CONFIG_START_YEAR=2019
++CONFIG_SYSLOG_BUFFER=y
++CONFIG_SYSTEM_NSH=y
++CONFIG_SYSTEM_NSH_STACKSIZE=8192
++CONFIG_SYSTEM_NXINIT=y
++CONFIG_ESP32S3CUSTOM_FLASH_16M=y
++CONFIG_ESP32S3_PSRAM_8M=y
++CONFIG_BOARD_LATE_INITIALIZE=y

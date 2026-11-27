@@ -7,6 +7,16 @@ mod disabled;
 #[cfg(feature = "probe")]
 mod enabled;
 
+// Select the recorder once. Host observers remain usable without native notes.
+#[cfg(all(feature = "probe", target_os = "nuttx"))]
+#[path = "../platform/nuttx/ffi/trace.rs"]
+#[allow(unsafe_code)]
+mod recorder;
+#[cfg(all(feature = "probe", not(target_os = "nuttx")))]
+mod recorder {
+    pub fn record(_: u8, _: &[u8]) {}
+}
+
 #[cfg(not(feature = "probe"))]
 pub use disabled::{Observed, Trace};
 #[cfg(feature = "probe")]

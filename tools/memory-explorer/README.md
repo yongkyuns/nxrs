@@ -1,19 +1,21 @@
 # NXRS Memory Explorer
 
 Open a final firmware ELF, its GNU linker map, captured NuttX heap/stack
-snapshots, and execution traces in a native egui viewer. The board overview
-shows declared storage banks and load/runtime relationships. The address canvas
-preserves placement and gaps while you zoom, pan, search, and inspect individual
-extents. Source colors connect linked objects and recorded allocation call
-stacks to those extents. The timing view shows observed execution intervals,
-interrupt nesting, application scopes, and counters on their recorded clock.
-Explicitly matched checkpoint markers link those times to captured memory.
+snapshots, and execution traces in a native egui viewer. The overview explains
+code, constants, static variables, and the linker's named memory budgets. An
+optional physical layout adds storage banks, aliases, and load/runtime
+relationships. The memory view shows placement, readable purpose colors, and
+per-heap usage history. Timing has a timeline, a searchable event list, and
+source summaries with resolved IRQ handlers and allocation callers. Explicitly
+matched checkpoint markers link execution times to captured memory.
 
 This is the offline foundation of [issue #442](https://github.com/yongkyuns/nxrs/issues/442).
 It shows static placement, discrete memory observations, imported timing events,
 and a separately validated heap topology journal. The first replay collector is
-an isolated QEMU qualification fixture. Production recording, live transport,
-and physical-device capture qualification remain follow-up work in that issue.
+an isolated QEMU qualification fixture. Diagnostic product builds record native
+scheduler/IRQ/heap events and named IMU/GNSS work. Production heap-topology
+recording, live transport, and physical-device capture qualification remain
+follow-up work in that issue.
 
 ## Open the viewer
 
@@ -45,20 +47,57 @@ cargo run --locked -p nxrs-memory-explorer --features gui -- \
 ```
 
 The ELF alone is enough to see linked sections and symbol labels. The map adds
-retained object/archive contributions. It must come from the same link: the
+retained object/archive contributions and named `MEMORY` region budgets. It must come from the same link: the
 importer checks matching allocated output-section addresses and sizes, but a
 GNU map has no cryptographic build identity of its own.
 
-An empty invocation opens the input form. **Open files** also opens it; paste
-paths or drag an ELF, `.map`, and JSON files into the window, then select **Load
-memory evidence**. `--help` prints all command options without opening a window.
+An empty invocation opens a new recording tab. **+ New** and **Open recording**
+add a fresh input tab. Paste paths or drag an ELF, `.map`,
+and JSON files into the window, then select **Load evidence**. A
+[prepared capture session](#package-and-reopen-a-diagnostic-session) loads
+matching inputs together with `--session session.json` or **Open session**.
+`--help` prints all command options without opening a window.
+
+### Keep several recordings open
+
+Each recording has its own tab, evidence, memory selection, timing cursor,
+filters, zoom, scroll position, and replay state. Opening another recording
+preserves the one already loaded. Switching tabs uses the retained model and
+does not reread the capture or align its clock with another recording.
+
+Open several sessions at startup by repeating `--session`:
+
+```sh
+cargo run --locked -p nxrs-memory-explorer --features gui -- \
+  --session target/baseline-session/session.json \
+  --session target/diagnostic-session/session.json
+```
+
+You can also drop several session files or directories into the window, or
+drop multiple standalone traces. Raw ELF/map/snapshot groups need one clear
+owner: drop one build's artifacts together, then load them in a new tab.
+An invalid session leaves the loaded recordings intact. Tab tooltips show
+the full source path, build identity, and recording identity when available;
+tab numbers distinguish recordings with the same filename.
+An initial `--view` applies to the first tab; other recordings retain their
+own default view, so timing and memory-only sessions can be opened together.
+
+| Task | Control |
+| --- | --- |
+| Add an empty recording tab | **+ New**, `Ctrl+T` / `Cmd+T` |
+| Switch recordings | Click a tab, `Ctrl+Tab`, or `Ctrl+Shift+Tab` |
+| Close a recording | Its **×**, middle-click its label, or `Ctrl+W` / `Cmd+W` |
+
+Closing a tab releases its loaded data. Closing the last tab opens an empty
+input tab. Recordings remain independent even if their ELF hashes match.
 
 ## Navigate an address space
 
 | Task | Control |
 | --- | --- |
 | Choose a CPU/load/image window or physical resource | Select its sidebar card |
-| Inspect board banks, aliases, and load placement | Select **Board overview**, then a resource or address link |
+| Inspect board banks, aliases, and load placement | Select **Memory overview**, then a resource or address link |
+| Understand firmware without a board descriptor | Open **Memory overview** for named linker regions, section purposes, and direct address links |
 | Inspect exact range, source, role, and containing object | Click a block |
 | Fit a block | Double-click it, or select **Zoom to block** |
 | Fit the selected region | **Fit region**, `F`, or `Home` |
@@ -69,6 +108,9 @@ memory evidence**. `--help` prints all command options without opening a window.
 | Find a source, section, object, or symbol | Use the sidebar search; select a result to focus it |
 | Inspect an allocator arena or task stack | Select it under **Captured arenas and stacks** |
 | Choose an observation | Click a timeline point, **Previous** / **Next**, or `Page Up` / `Page Down` |
+| See heap usage change | Choose an arena in **Memory usage history**, then Allocated, Free, Largest free, or All |
+| Distinguish code, data, allocations, and known free bytes | Keep **Memory purpose** selected; choose source colors for attribution |
+| Find the largest live allocations | Clear the selection and use the inspector's largest-chunk links |
 | Inspect a gap between observations | Click between timeline points |
 | Change coordinates | **Runtime / image** or **Physical backing** |
 | Hide optional ELF symbol labels | Clear **ELF symbols** |
@@ -82,6 +124,11 @@ Search dims nonmatching blocks without moving them. Byte geometry therefore
 stays meaningful during filtering. Small or zero-size symbol labels use ticks;
 they are annotations and do not add occupied bytes. The inspector exposes full
 labels when a block is too narrow to contain its text.
+
+The default purpose legend explains code, constants, initialized data, BSS,
+reservations, allocations, and known free chunks. Section jump buttons focus
+small sections without requiring address arithmetic. Source colors remain
+available for object and allocation attribution.
 
 The canvas has separate layers for linked sections, source objects/symbols,
 captured heap or pool state, and task stacks. A task stack contained in an
@@ -102,6 +149,48 @@ endpoints. An address reused between observations does not establish that the
 same allocation survived. Timeline labels show observation order and phase;
 manual coordinates are not presented as measured elapsed time.
 
+Memory history accounts for each selected arena separately and excludes stack
+overlays and nested arena containers. Missing bytes remain unobserved. The
+default Allocated plot uses its own scale, so a large free heap does not flatten
+allocation growth. Its peak is the largest retained observation; samples do
+not prove an intervening peak. Snapshot points are not joined into invented
+continuous state. An admitted replay journal can hold state across its validated
+coverage; lost or missing mutations break the history until a complete checkpoint.
+
+## Find the source of timing and allocation work
+
+Use **Timeline**, **Events**, and **Source summary** in the timing toolbar, or
+start with `--view timing`, `--view timing-events`, or `--view timing-sources`.
+Category shortcuts isolate IRQs, allocation requests, application scopes, or
+timers. The minimum-duration filter applies to intervals and retains instants.
+The event list is chronological; click for details or double-click to focus
+the corresponding timeline range. Source summaries show count, total observed
+duration, maximum duration, and request bytes where the producer records them.
+Overlapping durations are inclusive and are not CPU-utilization percentages.
+
+Convert with `--elf` and an appropriate `--addr2line` when necessary. An IRQ
+inspection then shows its native vector, handler address, resolved function and
+file/line, and the separately recorded interrupted task. A shared GPIO or UART
+handler does not identify its attached sensor. Diagnostic IMU and GNSS builds
+also emit task-side `imu/<device>/...` and `gnss/<device>/...` scopes, so the
+timeline can show which named device wakes, drains, performs bus transfers, or
+reads/parses/delivers events. Those scopes identify measured work; they do not
+assert an unrecorded causal edge from an interrupt.
+
+Heap request details retain the native caller PC, resolved source, operation,
+requested size, task, and CPU. A request entry does not establish success or
+failure; the viewer reports an unknown outcome unless the producer records it.
+Successful heap observations retain their native operation, address, size, and
+used-byte counter. They show usage at those events, but inconsistent native
+pointer conventions across allocation functions prevent treating them as an
+ordered allocation-lifetime journal. The separate validated journal remains
+the source for exact heap replay.
+
+**Capture diagnostics** reports native record counts, IRQ/caller resolution
+coverage, incomplete intervals, and loss evidence. Missing heap or application
+events are visible there. Wake-to-dispatch intervals are emitted only where
+the retained wake and dispatch observations establish unambiguous endpoints.
+
 ## Read the coordinates correctly
 
 | View | What an address means | Evidence required |
@@ -117,8 +206,11 @@ offset, and the physical view uses that resource's full capacity. Accounting
 unions aliased ranges rather than adding their bytes twice.
 
 Without a layout, inferred ELF windows cover the allocated sections visible in
-the file. They do not establish total board RAM or flash capacity. The viewer
-labels their backing as unknown. Empty space is never inferred to be free heap:
+the file. With a compatible GNU map, nonoverlapping `MEMORY` declarations instead
+supply named CPU regions and their link-time budgets. Neither establishes unique
+physical board RAM or flash capacity. Overlapping linker declarations are omitted
+with a warning, and explicit layout mappings take precedence. The overview stays
+usable in both cases. Empty space is never inferred to be free heap:
 only captured `free` chunks establish that state.
 
 The `.data` section has CPU storage and file-backed initializer bytes. The
@@ -140,6 +232,57 @@ an occupied load reservation. Reuse of load-only staging RAM would need explicit
 lifecycle evidence before those reservations could be released. The importer requires a
 final `ET_EXEC` ELF with allocated section headers; relocatable objects, archives,
 PIE/`ET_DYN` files needing a load bias, and section-header-free images are rejected.
+
+### Automatic board layouts
+
+The viewer bundles memory descriptors in [layouts](layouts/) and retains their
+pinned BSP source material under [upstream/memory-layouts](../../upstream/memory-layouts/).
+The [catalog](layouts/catalog.json) maps the repository's
+CoreS3, ESP32-S3 DevKit/WROOM, Pico 2/2W, and MPS2 AN521 firmware boards to
+their descriptors. Host, web, and NuttX simulator profiles use process address
+spaces; they do not acquire a physical MCU bank map.
+
+| Board/profile family | Explicit `--board` ID |
+| --- | --- |
+| M5Stack CoreS3 | `esp32s3-cores3` |
+| ESP32-S3 DevKit / WROOM | `esp32s3-devkit` |
+| Pico 2, NSH profile | `raspberrypi-pico-2` |
+| Pico 2 / 2 W, USB NSH profile | `raspberrypi-pico-2-usbnsh` |
+| MPS2 AN521 QEMU | `mps2-an521-qemu` |
+
+For a normal `cargo nxrs build` output, opening the final ELF is enough to
+discover its sibling linker map and a matching bundled layout. The viewer
+checks the final ELF and effective configuration against `binaries.sha256`,
+then matches the board and pinned NuttX revision recorded in `provenance.txt`.
+Source identity and selection notes appear with the memory overview. No network
+access is needed to open a recording.
+
+If the build receipts are unavailable, choose the known board in the input
+form or pass `--board` with a catalog ID. That is an explicit board declaration;
+the viewer labels the descriptor's scope and assumptions. A custom `--layout`
+remains available. An automatically discovered adjacent `layout.json` must be
+bound to the selected ELF's SHA-256. Conflicting or incomplete metadata leaves
+the linker/ELF overview available with an explanation.
+
+Fixed on-chip banks and their known aliases come from the retained BSP sources.
+Effective build settings can also declare PSRAM or flash capacity. An external
+address aperture alone does not establish those capacities, partition ownership,
+or an MMU mapping. Those remain separate from the linker's named budgets and
+captured allocator state. Automatic layout enrichment preserves captured region
+and journal identities; it never relabels a capture to fit a guessed board.
+
+Maintainers can verify the retained source files and retrieve the exact pinned
+upstream copies with:
+
+```sh
+python3 tools/memory-explorer/refresh_bsp.py --check
+python3 tools/memory-explorer/refresh_bsp.py --download
+```
+
+The source manifest retains URLs, revisions, checksums, and original license
+headers. Updating a BSP requires reviewing its new memory definitions and the
+descriptor together. A catalog coverage check flags a new firmware board that
+has no descriptor or explicit non-hardware classification.
 
 ### Verified MPS2 QEMU layout
 
@@ -168,11 +311,18 @@ product profile:
 ```toml
 [build]
 diagnostics = true
+# Optional: default is 32768 bytes, preserving the start of the recording.
+diagnostics-trace-bytes = 65536
+# Optional: allocator caller stacks; requires the target's working unwinder.
+diagnostics-heap-backtrace-depth = 4
 ```
 
 Use that setting with the normal `cargo nxrs build` workflow.
-The diagnostic setting enables heap request counters, stack coloration, and
-bounded scheduler, interrupt, and heap instrumentation. Recording is controlled
+The diagnostic setting retains native debug symbols, Rust line tables, and the
+linker map. It enables heap request counters, stack coloration, bounded
+scheduler/interrupt/heap instrumentation, and application markers. Consumed
+IMU/GNSS providers select their existing `probe` implementation to name work.
+Recording is controlled
 at runtime by `trace start` and `trace stop`; enabling instrumentation does not
 mean that every event since boot was recorded. See the
 [capture guide](../../docs/nuttx-memory-qualification.md#diagnostic-builds)
@@ -438,12 +588,11 @@ setting. The stopped-checkpoint adapter is currently qualified only for this
 native MPS2 QEMU fixture. Enabling diagnostics on another firmware or board does
 not by itself establish the quiescence, clock, or marker evidence required here.
 
-The current viewer is qualified with bounded diagnostic captures. It loads the
-trace into host memory and scans events for filtering and per-track painting.
-The importer limits files to 128 MiB, one million input records, and 1,024
-nesting levels; those are admission limits, not demonstrated interactive
-performance at those sizes. Large-recording indexes and vertical track
-virtualization remain follow-up work.
+The current viewer is qualified with bounded diagnostic captures. It retains
+each opened trace in host memory, uses track indexes, and virtualizes visible
+rows. The importer limits files to 128 MiB, one million input records, and
+1,024 nesting levels; those are admission limits, not demonstrated interactive
+performance at those sizes. Several large tabs add their retained memory costs.
 
 The [native timing witness](../../tests/nuttx-std/memory-timing/) and its
 [build](tests/build_timing_nuttx.py) / [capture](tests/qualify_timing_qemu.py)
@@ -730,3 +879,63 @@ capture or a physical board's memory map.
 For existing lifecycle retention and stack high-water checks, continue using
 [NuttX heap and stack qualification](../../docs/nuttx-memory-qualification.md)
 and [Rust allocation qualification](../../docs/memory-qualification.md).
+
+## Package and reopen a diagnostic session
+
+Keep a recording's inputs together and open them with one path:
+
+```sh
+python3 tools/memory-explorer/prepare_capture.py \
+  --elf target/cores3-trace/nuttx/nuttx \
+  --console cores3-console.txt \
+  --output target/cores3-session
+
+cargo run --locked -p nxrs-memory-explorer --features gui -- \
+  --session target/cores3-session/session.json
+```
+
+The output parent must already exist; the session directory must be new. The
+preparer copies the exact ELF, original console, discovered or explicitly
+supplied map/layout, and converted trace. It resolves recorded IRQ handlers and
+heap caller PCs against the ELF;
+use `--addr2line /path/to/target-addr2line` when automatic discovery cannot find
+the target tool. The generated session has only relative filenames, so the whole
+directory can be moved without changing paths.
+
+Add `--snapshot path/to/observation.json` for each memory observation and
+`--heap-journal path/to/journal.json` for an independently recorded heap journal.
+Their explicit ELF hashes must match the selected executable. The preparer also
+rejects conflicting host-ELF hashes in snapshot capture metadata and conflicting
+ELF identities in native console frames. It does not manufacture recording IDs
+or synchronize clocks. The viewer still validates each format, map placement,
+memory geometry, and any claimed timeline correlation when opening the session.
+
+The preparer uses the same [automatic board discovery](#automatic-board-layouts)
+as the viewer and packages the selected descriptor, its provenance, and the
+discovery notes. The resulting session remains self-contained when moved away
+from the original build directory. Supply `--layout path/to/verified-layout.json`
+for a custom board map, or use `--board` for a known catalog entry when build
+metadata is unavailable. For the qualified QEMU machine, the ID is
+`mps2-an521-qemu`. These two options are mutually exclusive. Without a matching
+layout, the ELF/linker view remains available.
+
+`session.json` uses schema version 1 with `build.elf_sha256`, `elf`, optional
+`map`, `layout`, `trace`, `heap_journal`, a `snapshots` array, and a `files` object
+mapping every retained filename to `{ "sha256": "...", "bytes": 123 }`.
+Optional `automatic_layout` and `automatic_map` flags retain discovery behavior
+when reopening: captured region IDs remain stable, and an incompatible optional
+map is skipped with an explanation. Older sessions retain their original
+explicit-input behavior. Prepared sessions keep their verified inventory and do
+not search neighboring files again when opened.
+The reader checks the inventory before loading. Inputs are copied from stable
+regular files; symlink inputs, duplicate JSON fields, existing output paths,
+oversized files, and mismatched identities fail without publishing a partial
+session. Publication uses an atomic rename that cannot replace an existing
+directory. Bounds are 512 MiB for the ELF, 128 MiB each for console and trace,
+64 MiB for the map, 8 MiB for a layout, 32 MiB for each snapshot or journal, up to
+128 snapshot files, and 1 GiB total retained content.
+
+A hash-bound package proves which files the viewer used. An unbound console log
+still relies on the producer to select the firmware that actually ran; packaging
+does not turn that assertion into target attestation. The original capture and
+source-attribution warnings remain visible in the converted trace.

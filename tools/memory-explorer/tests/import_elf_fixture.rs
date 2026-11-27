@@ -2,12 +2,109 @@
 //! exercise the import boundary. Target objects are synthetic, not device proof.
 #![cfg(target_os = "linux")]
 
-use nxrs_memory_explorer::{load_inputs, AddressDomain, SpanKind, TimeConfidence};
+use nxrs_memory_explorer::{
+    load_heap_journal, load_inputs, AddressDomain, SpanKind, TimeConfidence,
+};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
 struct Fixture(PathBuf);
+
+#[test]
+fn linker_memory_budgets_give_named_navigation_without_inventing_board_backing() {
+    let fixture = Fixture::new();
+    let model = load_inputs(
+        &fixture.path("fixture.elf"),
+        Some(&fixture.path("fixture.map")),
+        &[],
+        None,
+    )
+    .unwrap();
+    let flash = model
+        .regions
+        .iter()
+        .find(|region| region.name == "Linker FLASH (xr)")
+        .or_else(|| {
+            model
+                .regions
+                .iter()
+                .find(|region| region.name.starts_with("Linker FLASH"))
+        })
+        .unwrap();
+    let ram = model
+        .regions
+        .iter()
+        .find(|region| region.name.starts_with("Linker RAM"))
+        .unwrap();
+    assert_eq!((flash.start, flash.size), (0x0800_0000, 65536));
+    assert_eq!((ram.start, ram.size), (0x2000_0000, 16384));
+    assert!(flash.physical.is_none() && ram.physical.is_none());
+    assert!(model.physical_resources.is_empty());
+    assert!(model
+        .static_spans
+        .iter()
+        .all(|span| span.kind != SpanKind::Free));
+    let captured = load_inputs(
+        &fixture.path("fixture.elf"),
+        Some(&fixture.path("fixture.map")),
+        &[fixture.path("exporter-snapshot.json")],
+        None,
+    )
+    .unwrap();
+    assert!(captured
+        .snapshots
+        .iter()
+        .flat_map(|snapshot| &snapshot.spans)
+        .all(|span| captured
+            .regions
+            .iter()
+            .any(|region| region.id == span.region)));
+}
+
+#[test]
+fn linker_budgets_preserve_captured_backing_and_journal_region_identity() {
+    let fixture = Fixture::new();
+    let snapshot_path = fixture.path("exporter-snapshot.json");
+    let mut snapshot: serde_json::Value =
+        serde_json::from_slice(&fs::read(&snapshot_path).unwrap()).unwrap();
+    let region = &mut snapshot["regions"][0];
+    let region_id = region["id"].as_str().unwrap().to_owned();
+    let region_size = region["size"].as_u64().unwrap();
+    region["physical"] = serde_json::json!({"id":"captured-bank","offset":0});
+    snapshot["physical_resources"] = serde_json::json!([
+        {"id":"captured-bank","name":"Captured backing","size":region_size}
+    ]);
+    fs::write(&snapshot_path, serde_json::to_vec(&snapshot).unwrap()).unwrap();
+    let model = load_inputs(
+        &fixture.path("fixture.elf"),
+        Some(&fixture.path("fixture.map")),
+        &[snapshot_path],
+        None,
+    )
+    .unwrap();
+    let retained = model
+        .regions
+        .iter()
+        .find(|region| region.id == region_id)
+        .unwrap();
+    assert_eq!(retained.physical.as_ref().unwrap().id, "captured-bank");
+    assert_eq!(retained.size, region_size);
+    assert!(model.snapshots[0]
+        .spans
+        .iter()
+        .all(|span| span.region == region_id));
+    assert!(model
+        .warnings
+        .iter()
+        .any(|warning| warning.contains("retained capture coordinates")));
+    let journal_path = fixture.path("heap-journal.json");
+    let mut journal: serde_json::Value =
+        serde_json::from_slice(&fs::read(&journal_path).unwrap()).unwrap();
+    journal["heap"]["region"] = serde_json::json!(region_id);
+    fs::write(&journal_path, serde_json::to_vec(&journal).unwrap()).unwrap();
+    load_heap_journal(&journal_path, &model, None).unwrap();
+}
 
 impl Fixture {
     fn new() -> Self {

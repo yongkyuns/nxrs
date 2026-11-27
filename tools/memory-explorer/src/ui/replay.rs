@@ -23,6 +23,7 @@ impl MemoryExplorer {
         let heap_region = replay.journal.heap.region.clone();
         let heap_start = replay.journal.heap.start;
         let heap_size = replay.journal.heap.size;
+        self.history.install_replay(&replay);
         self.replay = Some(replay);
         self.replay_enabled = true;
         self.select_replay_cursor(ReplayCursor::Point(0));
@@ -285,8 +286,8 @@ impl MemoryExplorer {
         let mut seek = None;
         let mut open_memory = false;
         let mut open_timing = false;
-        egui::TopBottomPanel::bottom("heap-replay-timeline")
-            .exact_height(224.0)
+        egui::TopBottomPanel::bottom(self.widget_id("heap-replay-timeline"))
+            .resizable(true).default_height(360.0).min_height(260.0)
             .frame(egui::Frame::new().fill(PANEL).inner_margin(egui::Margin::symmetric(20, 10)))
             .show(ctx, |ui| {
                 ui.horizontal(|ui| {
@@ -306,6 +307,7 @@ impl MemoryExplorer {
                         }
                     });
                 });
+                if let Some(time) = self.replay_usage_chart(ui) { seek = Some(ReplayCursor::Time(time)); }
                 if !recording_label.is_empty() {
                     ui.label(RichText::new(&recording_label).small().color(MUTED));
                 }

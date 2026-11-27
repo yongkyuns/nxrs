@@ -1,8 +1,9 @@
 //! Ask Cargo which production dependencies and features this build actually selects.
 //!
 //! `cargo tree` uses the selected package, features, target, compiler, and Cargo
-//! configuration. Metadata is used only for the app's declared dependency aliases;
-//! this module does not traverse manifests or evaluate Cargo's cfg/feature language.
+//! configuration. Metadata supplies the app's dependency aliases and consumed
+//! packages' diagnostic declarations; this module does not traverse manifests or
+//! evaluate Cargo's cfg/feature language.
 use crate::{profile::Profile, Result};
 use serde_json::{json, Value};
 use std::{
@@ -20,10 +21,11 @@ pub struct Selection {
     /// Profile features that were verified by Cargo and appended to the build.
     pub model_features: Vec<String>,
     pub driver_features: Vec<String>,
+    pub diagnostic_features: Vec<String>,
 }
 impl Selection {
     pub fn json(&self) -> Value {
-        json!({"status":"resolved","packages":self.packages,"model_features":self.model_features,"driver_features":self.driver_features})
+        json!({"status":"resolved","packages":self.packages,"model_features":self.model_features,"driver_features":self.driver_features,"diagnostic_features":self.diagnostic_features})
     }
 
     pub fn path_packages(&self) -> impl Iterator<Item = (&str, &Path, &BTreeSet<String>)> {
@@ -130,6 +132,7 @@ pub fn resolve(build: &mut Command, profile: &Profile) -> Result<Selection> {
         }
     }
     let model_features = resolve_model(&mut trial, profile, &mut graph)?;
+    let diagnostic_features = resolve_diagnostics(&mut trial, profile, &mut graph)?;
     for (capability, catalogue) in profile.catalogs().packages() {
         let required = profile.driver_features(capability)?;
         if required.is_empty() {
@@ -156,7 +159,94 @@ pub fn resolve(build: &mut Command, profile: &Profile) -> Result<Selection> {
             .collect(),
         model_features,
         driver_features,
+        diagnostic_features,
     })
+}
+
+/// Owning packages declare their existing optional probes. Only consumed
+/// packages participate; Cargo still resolves aliases and feature propagation.
+/// A directly consumed catalogue can forward its probe through weak dependency
+/// edges to selected HALs without making those HALs direct app dependencies.
+fn resolve_diagnostics(
+    build: &mut Command,
+    profile: &Profile,
+    graph: &mut Graph,
+) -> Result<Vec<String>> {
+    if profile.diagnostics()?.is_none() {
+        return Ok(vec![]);
+    }
+    let mut selected = Vec::new();
+    loop {
+        let mut required = Vec::new();
+        for (identity, package) in graph.iter() {
+            let Some((_, source)) = identity.split_once(" (") else {
+                continue;
+            };
+            let Some(source) = source.strip_suffix(')') else {
+                continue;
+            };
+            let directory = Path::new(source);
+            if !directory.is_absolute() {
+                continue;
+            }
+            let manifest = nxrs_build_support::profile::manifest(&directory.join("Cargo.toml"))?;
+            let Some(features) = manifest.pointer("/package/metadata/nxrs/diagnostic-features")
+            else {
+                continue;
+            };
+            for feature in features
+                .as_array()
+                .ok_or("package diagnostic-features must be an array")?
+            {
+                let feature = feature
+                    .as_str()
+                    .filter(|feature| *feature == "probe")
+                    .ok_or("package diagnostic-features must select the existing probe feature")?;
+                required.push((identity.clone(), package.depth, feature.to_owned()));
+            }
+        }
+        required.sort_by_key(|(_, depth, _)| *depth);
+        let mut missing = Vec::new();
+        let mut changed = false;
+        for (identity, _, wanted) in &required {
+            let package = graph
+                .get(identity)
+                .ok_or("diagnostic package disappeared from Cargo graph")?;
+            if package.features.contains(wanted) {
+                continue;
+            }
+            let query = Query::from_build(build)?;
+            for feature in query.feature_candidates(build, package, wanted)? {
+                let resolved = query.graph(build, Some(&feature))?;
+                if resolved
+                    .get(identity)
+                    .is_some_and(|p| p.features.contains(wanted))
+                {
+                    build.args(["--features", &feature]);
+                    *graph = resolved;
+                    selected.push(feature);
+                    changed = true;
+                    break;
+                }
+            }
+            if changed {
+                // Re-read requirements from Cargo's new graph. Forwarding may
+                // satisfy deeper HALs or introduce another diagnostic package.
+                break;
+            }
+            missing.push(format!("{wanted} for {identity}"));
+        }
+        if changed {
+            continue;
+        }
+        if missing.is_empty() {
+            return Ok(selected);
+        }
+        return Err(format!(
+            "diagnostic build needs {}; forward the existing probe through a consumed dependency's ordinary Cargo features and declare diagnostic-features = [\"probe\"] on that catalogue",
+            missing.join(", ")
+        ));
+    }
 }
 
 fn resolve_model(build: &mut Command, profile: &Profile, graph: &mut Graph) -> Result<Vec<String>> {

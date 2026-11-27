@@ -25,3 +25,12 @@ Explicit mock providers use the cancellable timer in `acquisition::mock`.
 The optional `probe` feature provides wake/drain timing and I²C/SPI
 transaction observers. The owning HAL selects the observation points and
 must keep callbacks in task context and nonblocking.
+
+On NuttX, `Trace::for_source` also records bounded native B/E/instant notes using
+the canonical capability and device ID. IMU names its wake, drain, and bus
+transactions; GNSS names wake and read/parse/deliver work. The native enabled
+filter controls retention, so these markers follow `trace start` / `trace stop`.
+They use fixed stack storage and add no observer allocation or worker thread.
+Long or sanitized source names retain a visible stable hash suffix, and scopes
+preserve their stage name. Host observer callbacks remain available through
+`Trace::new`. Without `probe`, tracing is a zero-sized no-op implementation.

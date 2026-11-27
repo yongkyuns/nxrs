@@ -436,8 +436,12 @@ Use `probe` as the single opt-in name for diagnostic instrumentation and SDK
 witnesses. Select coherent tracing implementations at a module boundary instead
 of repeating cfg conditions on their fields and methods. The IMU selects either
 instrumented tracing or a zero-sized no-op implementation; its ordinary
-acquisition code has no diagnostic cfg. Enabled builds still require an explicit
-observer before collecting timings.
+acquisition code has no diagnostic cfg. Explicit observers remain available for
+qualification callbacks. On NuttX, a canonical source trace can instead write
+bounded scheduler notes, controlled by the native runtime trace filter. Product
+diagnostic builds opt consumed providers into their declared existing `probe`
+features. Ordinary builds retain the zero-sized path. Native glue only copies
+the event and bounded label; Rust owns scope lifetime and source naming.
 Ordinary tests use `cfg(test)` and named test targets; software-feature
 requirements such as replay belong in Cargo's `required-features`, not in OS
 or hardware-admission guards. Do not add a separate feature for each probe,

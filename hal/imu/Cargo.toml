@@ -9,6 +9,7 @@ name = "imu"
 
 [package.metadata.nxrs]
 kind = "hal-capability"
+diagnostic-features = ["probe"]
 platforms = ["mock", "nuttx", "simulation"]
 
 [features]
