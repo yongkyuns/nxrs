@@ -471,6 +471,116 @@ workload is still required to measure instrumentation overhead and stack
 headroom. This witness establishes allocator-call outcomes, not continuous
 product-heap topology or application allocation lifetimes.
 
+### Allocator recorder cost
+
+The [object comparison](../tools/memory-explorer/tests/measure_request_cost.py)
+measures the existing entry-only recorder and the paired request/result recorder
+with `MM_ALLOC_REQUEST_TRACE` enabled and compiled out. It compiles six complete
+production translation units: malloc, memalign, realloc, the note driver, the RAM
+note driver, and the procfs memory reporter. This includes allocator hook sites
+that the linked-symbol inventory above cannot isolate.
+
+The measurement uses the real pinned NuttX headers and a retained MPS2
+allocator-witness configuration. It validates the prepared source against its
+patch ledger, reconstructs each patch in a private overlay, and generates a
+complete private `config.h` with NuttX's `mkconfig`. The heap-request application
+is disabled in every variant; only the request-tracing setting changes between
+each enabled/disabled pair. It does not modify or reconfigure the supplied
+native tree. A changed dependency between compilations rejects the comparison.
+
+The compiler policy is explicit and retained with the commands: little-endian
+Thumb ARMv8-M/Cortex-M33, soft float, frame pointers, unwind tables, no LTO, and
+either `-O0` or `-Os`. The optimization switch changes the compiler command;
+it does not claim to reproduce an optimized firmware configuration or final
+link. The layout witness is compiled separately and excluded from the six-unit
+totals. Every report includes patch, configuration, dependency, compiler,
+measurement-tool and object hashes, section categories, per-unit comparisons,
+and GCC's per-function stack-usage records.
+
+The 2026-11-27 measurement used ARM GCC 14.2.1 (`15:14.2.rel1-1`), NuttX
+`2b5c0de5e933281c209f954a63b99cf10c132346`, entry-only NXRS revision
+`604975b086d0dad5ac3a973190ebcb283b1c875e`, and paired revision
+`4baa8d8fe73bb9418392b140478083462ba01528`. The paired patch SHA-256 is
+`1daa7be805b529212db90996332b3cb7ddc0b91be88ea465dea46eec25bb2a21`.
+For the six objects together, the enabled paired recorder adds the following
+section bytes over the enabled entry-only recorder:
+
+| Compiler optimization | Executable | Other read-only data | Unwind tables | Initialized data | NOBITS storage |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| `-O0` | +1,090 | +120 | +148 | 0 | +8 |
+| `-Os` | +594 | +106 | +52 | 0 | +8 |
+
+Executable sections include literal pools. The eight-byte boot-global call ID
+accounts for the NOBITS increase; it is already included in that column. Both
+compile-disabled comparisons have zero section-size deltas and no recorder
+symbols or references. This does not imply byte-identical object files or
+remove the separately enabled generic NuttX tracing infrastructure.
+
+The target layout witness gives the same storage sizes at both optimizations:
+
+| Measured item | Tracing compiled out | Entry-only recorder | Paired recorder |
+| --- | ---: | ---: | ---: |
+| `sizeof(mm_heap_s)` | 1,020 B | 1,032 B | 1,032 B |
+| Per-heap request-counter field | 0 | 8 B | 8 B |
+| Boot-global call ID | 0 | 0 | 8 B |
+| Request record, raw / ring-aligned | 0 | 32 / 32 B | 56 / 56 B |
+| Result record, raw / ring-aligned | 0 | 0 | 40 / 40 B |
+| Existing note-buffer reservation | 32,768 B | 32,768 B | 32,768 B |
+
+The existing per-heap counter causes 12 bytes of structure growth on this ABI,
+including padding. The paired recorder adds no further per-heap growth. Heap
+instances may live outside these six objects, so this layout difference is
+reported separately from their static sections. The ring is already included
+in object storage totals and does not grow with the new recorder.
+
+When both endpoints are admitted, one native call emits 96 bytes of request and
+result notes, 64 bytes more than the earlier 32-byte entry. The fixed ring therefore
+holds fewer calls under the same event mix. Nested allocator calls add their
+own pairs, and other heap, scheduler, and application records consume space
+too. Runtime filtering, loss, and recording boundaries can omit endpoints;
+96 bytes is not a promise that every observed call has a complete pair. This
+configuration has one note driver and no-overwrite recording. The existing
+fixed record copies establish bounded record storage, not a timing bound for
+all possible note-driver callbacks.
+
+After the native allocator witness above has built, reuse the prepared product
+source from a normal `cargo nxrs build --app std-demo --profile mps2-an521-mock`
+invocation. The example below assumes that product was built with
+`--out target/firmware/std-demo/mps2-an521-mock`. Run from the repository root
+with ARM GCC and a host C compiler on `PATH`, using a new output directory for
+each optimization:
+
+```sh
+request_firmware="$PWD/target/firmware/std-demo/mps2-an521-mock"
+request_output="$PWD/target/allocator-call-evidence"
+request_baseline=604975b086d0dad5ac3a973190ebcb283b1c875e
+git fetch --no-tags --depth=1 origin "$request_baseline"
+for optimization in O0 Os; do
+  python3 tools/memory-explorer/tests/measure_request_cost.py \
+    --nuttx-context "$request_firmware/nuttx" \
+    --context-receipt "$request_firmware/nuttx-patches.json" \
+    --config "$request_output/build/resolved.config" \
+    --baseline-ref "$request_baseline" --candidate-ref HEAD \
+    --optimization "$optimization" \
+    --output "$request_output/cost-$optimization"
+done
+```
+
+The command accepts a prepared context carrying either admitted recorder patch.
+The explicit fetch makes the pinned baseline available in a shallow checkout.
+The ARM `std-demo` CI job runs both comparisons after the native request gate
+and retains `heap-requests/cost-{O0,Os}` in its firmware artifact. A comparison
+failure preserves its commands and error receipt without replacing the native
+capture or import result.
+
+Object section totals are compile-output measurements. Final-link reachability,
+section merging, alignment, veneers, and effects in other translation units can
+change firmware costs; these totals are neither a linked-image delta nor an
+upper bound. GCC's function frames exclude a complete call-chain analysis,
+interrupt nesting and measured stack high-water. The fixed ring and record
+sizes establish a storage budget for this configuration; a matched runtime
+workload is still needed for instrumentation latency and target stack headroom.
+
 ### Linked QEMU lifecycle witness
 
 The native timing fixture also supports a stopped-checkpoint mode that supplies
