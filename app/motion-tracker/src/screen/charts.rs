@@ -80,11 +80,11 @@ impl History {
         self.motion.push_back(Motion {
             time: now,
             sensors: snapshot.imu.map(|reading| match reading {
-                Reading::Live(sample) | Reading::Received(sample) => Some(sample),
+                Reading::Live(sample) => Some(sample),
                 _ => None,
             }),
         });
-        let (Reading::Live(fix) | Reading::Received(fix)) = snapshot.gnss else {
+        let Reading::Live(fix) = snapshot.gnss else {
             self.last_fix = None;
             return;
         };
@@ -174,11 +174,8 @@ mod tests {
         let mut history = History::new(Zoom::default());
         let fix = |sequence, longitude_deg| {
             Reading::Live(gnss::GnssFix {
-                generation: 1,
-                source_epoch_ms: 0,
                 sequence,
                 timestamp_us: 0,
-                received_us: 0,
                 is_capture_time: false,
                 receiver_utc_ms: None,
                 latitude_deg: 0.0,
@@ -190,7 +187,6 @@ mod tests {
         };
         let mut snapshot = Snapshot {
             clock: None,
-            output_faults: 0,
             imu: [Reading::Waiting; 2],
             gnss: fix(1, 179.9999),
         };

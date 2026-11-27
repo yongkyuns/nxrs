@@ -20,11 +20,6 @@ impl View {
                 satellites: None,
                 ..quality
             })),
-            Reading::Received(fix) => Reading::Received(fix.quality.map(|quality| FixQuality {
-                satellites: None,
-                ..quality
-            })),
-            Reading::Unavailable => Reading::Unavailable,
             Reading::Waiting => Reading::Waiting,
             Reading::Stale => Reading::Stale,
             Reading::Fault => Reading::Fault,
@@ -37,13 +32,12 @@ impl View {
         if canvas.intersects_rows(top + 26, 29) {
             self.fix_metrics(canvas, top + 26);
         }
-        let (Reading::Live(report) | Reading::Received(report)) = &self.satellites else {
+        let Reading::Live(report) = &self.satellites else {
             let (label, color): (&[u8], _) = match self.satellites {
                 Reading::Waiting => (b"WAITING FOR SATELLITE REPORT", GOLD),
                 Reading::Stale => (b"SATELLITE REPORT STALE", GOLD),
                 Reading::Fault => (b"GNSS SENSOR FAULT", RED),
-                Reading::Unavailable => (b"SATELLITE REPORT UNAVAILABLE", GOLD),
-                Reading::Live(_) | Reading::Received(_) => unreachable!(),
+                Reading::Live(_) => unreachable!(),
             };
             canvas.text(12, top + 64, label, 1, color);
             return;
@@ -84,16 +78,13 @@ impl View {
     }
 
     fn fix_metrics(&self, canvas: &mut Raster<'_>, y: i32) {
-        let (Reading::Live(Some(fix)) | Reading::Received(Some(fix))) = self.fix else {
+        let Reading::Live(Some(fix)) = self.fix else {
             let (text, color): (&[u8], _) = match self.fix {
                 Reading::Waiting => (b"WAITING FOR FIX", GOLD),
                 Reading::Stale => (b"FIX STALE", GOLD),
                 Reading::Fault => (b"FIX UNAVAILABLE", RED),
-                Reading::Unavailable => (b"NO POSITION FIX", GOLD),
-                Reading::Live(None) | Reading::Received(None) => {
-                    (b"FIX QUALITY UNAVAILABLE", MUTED)
-                }
-                Reading::Live(Some(_)) | Reading::Received(Some(_)) => unreachable!(),
+                Reading::Live(None) => (b"FIX QUALITY UNAVAILABLE", MUTED),
+                Reading::Live(Some(_)) => unreachable!(),
             };
             canvas.text(12, y, text, 1, color);
             return;

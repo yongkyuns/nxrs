@@ -19,7 +19,6 @@ impl acquisition::Wake for Cancel {
 pub fn open<S: FnMut(Event) -> messaging::DeliveryResult<Event> + Send + 'static>(
     sink: S,
 ) -> Result<impl Session + Send + 'static, DeviceError> {
-    let generation = session::next_generation()?;
     let endpoint =
         runtime::acquire(SIM_SEED, SIM_SOURCES, Source::Gnss).map_err(|error| match error {
             runtime::AcquireError::Engine(Error::Busy) | runtime::AcquireError::ConflictingSpec => {
@@ -40,12 +39,8 @@ pub fn open<S: FnMut(Event) -> messaging::DeliveryResult<Event> + Send + 'static
                 return Err(DeviceError::InvalidData);
             };
             if !emit(Event::Fix(GnssFix {
-                generation,
                 sequence: event.key.sequence.saturating_add(1),
-                source_epoch_ms: event.key.time_us / 1_000,
                 timestamp_us: event.key.time_us,
-                // These are simulated-domain times, not the host's wall clock.
-                received_us: event.key.time_us,
                 is_capture_time: true,
                 receiver_utc_ms: None,
                 latitude_deg: f64::from(fix.latitude_e7) / 10_000_000.0,

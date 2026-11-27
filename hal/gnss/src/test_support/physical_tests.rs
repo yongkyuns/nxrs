@@ -75,34 +75,12 @@ fn instance(id: &'static str) -> &'static Instance<Source> {
 fn canonical_alias_busy_independent_instances_and_joined_reopen() {
     let _lock = SERIAL.lock().unwrap();
     let (a, b) = (instance("a"), instance("b"));
-    let (sender, receiver) = std::sync::mpsc::sync_channel(1);
-    let mut first = a
-        .open(move |event| {
-            if let crate::Event::Fix(fix) = event {
-                let _ = sender.try_send(fix);
-            }
-            Ok(())
-        })
-        .unwrap();
-    let initial = receiver.recv_timeout(Duration::from_secs(2)).unwrap();
-    assert_ne!(initial.generation, 0);
+    let mut first = a.open(|_| Ok(())).unwrap();
     assert!(matches!(a.open(|_| Ok(())), Err(DeviceError::Busy)));
     let mut second = b.open(|_| Ok(())).unwrap();
     first.join().unwrap();
     second.join().unwrap();
-    let (sender, receiver) = std::sync::mpsc::sync_channel(1);
-    let mut reopened = a
-        .open(move |event| {
-            if let crate::Event::Fix(fix) = event {
-                let _ = sender.try_send(fix);
-            }
-            Ok(())
-        })
-        .unwrap();
-    let replacement = receiver.recv_timeout(Duration::from_secs(2)).unwrap();
-    assert!(replacement.generation > initial.generation);
-    assert_eq!((replacement.sequence, replacement.source_epoch_ms), (1, 1));
-    reopened.join().unwrap();
+    a.open(|_| Ok(())).unwrap().join().unwrap();
 }
 #[test]
 fn setup_rollback_and_fault_are_scoped_to_one_device() {

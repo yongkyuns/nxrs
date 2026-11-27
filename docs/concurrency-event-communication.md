@@ -150,31 +150,12 @@ triple buffer per reader. Only the display subscribes to satellite reports.
 Publication runs in the existing acquisition tasks and bypasses the app inbox.
 Communications takes its reader when it starts, including for late pairing.
 
-A reader starts in `Waiting` when its fixed storage is created. Failure to
-make first progress expires to `Stale` using the same declared budget as
-later silence. `Live` requires known capture age within that budget;
-`Received` means the message arrived recently but its capture age is unknown.
-The provider supplies capture and reception timestamps in one declared clock
-domain. Readers add their local elapsed time to the known age at reception.
-IMU readings expire at 500 ms, GNSS fixes at 3 s and satellite reports after
-two receiver intervals, with a six-second minimum. Satellite reports carry
-receipt freshness only. A snapshot can combine sources updated at different
-instants, and later samples may replace unread ones.
-
-An explicit GNSS `NoFix` immediately publishes `Unavailable`, bypassing the
-app inbox just like fixes. `last_gnss()` retains the historical position and
-its original metadata separately. Silence after no-fix still expires to
-`Stale`; a later valid fix restores availability. Callback, open and joined
-failures retain the first terminal cause for the acquisition lifetime, even
-if the display misses a wake. Rejected GNSS frames and epochs accumulate in
-a saturating diagnostic counter without terminating acquisition.
-
-`ObservationService` requests stop on every session before joining. Failed
-cancellation or a failed join retains any session that is still running.
-`is_quiescent()` becomes true only after all admitted handles have been
-joined and retired. The owner keeps supervision active until then. Reaping
-successful completion after a stop request is clean; unexpected worker exit
-while acquisition is active remains a fault.
+A reader starts in `Waiting` and then sees complete samples with their
+original reception times. A snapshot can combine sources updated at different
+instants. Later samples may replace unread ones. IMU readings expire at 500 ms,
+GNSS fixes at 3 s and satellite reports after two receiver intervals, with a
+six-second minimum. Callback, open and joined failures all latch terminal
+state for the acquisition lifetime, even if the display misses a wake.
 
 The [owner qualification fixture](../tests/owner-qualification/README.md)
 compares the former mutex with fixed `triple_buffer` 9.0.0 readers. It checks
@@ -183,17 +164,12 @@ that independent readers can see different complete records. The product
 comparison below measures the application path on CoreS3.
 
 Ordered capture belongs to the Motion Tracker export. It uses a 512-record
-queue shared across sources, drains batches of up to 16, and retains the first
+pool shared across sources, drains batches of up to 16, and retains the first
 rejected record's source and sequence on overflow. A wake tells communications
 to inspect that retained work. A replacement communications worker registers its
 own wake target after the previous worker joins. Acquisition retains readiness
 and faults when the wake target is busy, and active export checks them on its
-existing poll. The first terminal source/cause lives outside the queue and closes
-admission even if the queue is full. A normal GNSS no-fix event invalidates the
-current position and clock mapping and becomes an explicit v4 availability
-record; it does not stop other acquisition. Each queued measurement retains its
-UTC offset at admission, and timed batches split at mapping changes. The
-capture generation never wraps into an earlier lifetime. The admission, overflow and wake gates for a
+existing poll. The admission, overflow and wake gates for a
 capture replacement are tracked in [#446](https://github.com/yongkyuns/nxrs/issues/446).
 
 #### CoreS3 product-path baseline

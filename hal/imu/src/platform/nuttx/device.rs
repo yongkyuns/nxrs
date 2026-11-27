@@ -1,13 +1,13 @@
 //! Resource opening, acquisition and lifetime of a normalized IMU.
 use super::device_state::{DeviceState, DeviceUseGuard};
 use super::{gpio_resource, signal::Signal};
-use crate::{AppliedConfig, Config, DeviceError, Event, Failure, ImuSample};
+use crate::{AppliedConfig, Config, DeviceError, Event, ImuSample};
 use acquisition::probe::Trace;
 use core::sync::atomic::{AtomicBool, Ordering};
 use peripheral::imu::{Buffering, Error, Imu};
 use std::{
     fs::File,
-    time::{Duration, Instant},
+    time::Duration,
 };
 
 pub(super) type Irq = gpio_resource::Interrupt<&'static DeviceState>;
@@ -94,64 +94,42 @@ impl<S: Imu> Device<S> {
         stop: &AtomicBool,
         wake: &File,
         emit: &mut dyn FnMut(Event) -> bool,
-    ) -> Result<(), Failure> {
+    ) -> Result<(), DeviceError> {
         let mut sequence = 0u64;
         let sample_interval_us = 1_000_000_000u32.div_ceil(self.applied.rate_millihz);
-        let delivery_period = Duration::from_micros(self.applied.delivery_interval_us.into());
-        // A FIFO's nominal empty-to-full span is an upper bound on deferring
-        // incoherent observations, not a promise of retained data. The driver
-        // reports any observed overflow, including a previously occupied FIFO.
-        let retry_budget = S::FIFO_CAPACITY_SAMPLES.map(|samples| {
-            Duration::from_micros(
-                u64::from(samples) * 1_000_000_000 / u64::from(self.applied.rate_millihz),
-            )
-        });
-        let mut retry_deadline = None;
+        // Three later delivery opportunities tolerate scheduling interference
+        // without indefinitely preserving a stream that cannot be read.
+        let mut snapshot_retries = 0;
         let result = (|| {
             while !stop.load(Ordering::Acquire) {
                 let Some(ready) = self.signal.wait(wake)? else {
                     break;
                 };
                 self.trace.wake(ready.periodic_deadline);
-                let read_started = Instant::now();
-                if retry_deadline.is_some_and(|deadline| read_started >= deadline) {
-                    return Err(DeviceError::Timeout);
-                }
                 let read_start_us = acquisition::monotonic_us();
-                let drained = self.trace.scope("drain", || {
-                    self.sensor
-                        .read_available(acquisition::monotonic_us, |sample| {
-                            sequence = sequence.saturating_add(1);
-                            emit(Event::Sample(ImuSample {
-                                sequence,
-                                timestamp_us: sample.capture_us.unwrap_or(read_start_us),
-                                received_us: acquisition::monotonic_us(),
-                                is_capture_time: sample.capture_us.is_some(),
-                                sample_interval_us,
-                                accel_mps2: sample.accel_mps2,
-                                gyro_rps: sample.gyro_rps,
-                            }))
-                        })
-                });
+                let drained = self.trace.scope("drain", || self.sensor.read_available(acquisition::monotonic_us, |sample| {
+                    sequence = sequence.saturating_add(1);
+                    emit(Event::Sample(ImuSample {
+                        sequence,
+                        timestamp_us: sample.capture_us.unwrap_or(read_start_us),
+                        is_capture_time: sample.capture_us.is_some(),
+                        sample_interval_us,
+                        accel_mps2: sample.accel_mps2,
+                        gyro_rps: sample.gyro_rps,
+                    }))
+                }));
                 self.trace.drain(matches!(&drained, Ok(Some(_))));
                 match drained {
                     Ok(Some(count)) => {
-                        retry_deadline = None;
-                        if self.signal.drained(count)?
-                            && !self.signal.retry(wake, delivery_period)?
-                        {
-                            break;
-                        }
+                        snapshot_retries = 0;
+                        self.signal.drained(count)?;
                     }
                     Ok(None) => break,
-                    Err(Error::WouldBlock) => {
-                        let deadline = *retry_deadline.get_or_insert_with(|| {
-                            read_started + retry_budget.unwrap_or(Duration::ZERO)
-                        });
-                        if Instant::now() >= deadline {
-                            return Err(DeviceError::Timeout);
-                        }
-                        if !self.signal.retry(wake, delivery_period)? {
+                    Err(Error::WouldBlock) if snapshot_retries < 3 => {
+                        snapshot_retries += 1;
+                        let period =
+                            Duration::from_micros(self.applied.delivery_interval_us.into());
+                        if !self.signal.retry(wake, period)? {
                             break;
                         }
                     }
@@ -160,14 +138,7 @@ impl<S: Imu> Device<S> {
             }
             Ok(())
         })();
-        let cleanup = self.cleanup();
-        match (result, cleanup) {
-            (Ok(()), Ok(())) => Ok(()),
-            (acquisition, cleanup) => Err(Failure {
-                acquisition: acquisition.err(),
-                cleanup: cleanup.err(),
-            }),
-        }
+        self.cleanup().and(result)
     }
 
     fn cleanup(&mut self) -> Result<(), DeviceError> {

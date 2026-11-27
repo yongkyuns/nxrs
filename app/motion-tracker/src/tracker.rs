@@ -11,8 +11,6 @@ pub struct Snapshot {
     pub imu: [Reading<imu::ImuSample>; 2],
     pub gnss: Reading<gnss::GnssFix>,
     pub(crate) clock: Option<crate::clock::ClockAnchor>,
-    /// Sticky optional-output failures: display=1, touch=2, USB=4, communications=8.
-    pub(crate) output_faults: u8,
 }
 
 impl From<navigation::observations::Snapshot<2>> for Snapshot {
@@ -21,7 +19,6 @@ impl From<navigation::observations::Snapshot<2>> for Snapshot {
             imu: snapshot.imu,
             gnss: snapshot.gnss.expect("the tracker configures GNSS"),
             clock: None,
-            output_faults: 0,
         }
     }
 }
@@ -30,8 +27,6 @@ pub fn reading_status<T>(reading: &Reading<T>) -> &'static str {
     match reading {
         Reading::Waiting => "waiting",
         Reading::Live(_) => "live",
-        Reading::Received(_) => "received",
-        Reading::Unavailable => "unavailable",
         Reading::Stale => "stale",
         Reading::Fault => "fault",
     }

@@ -58,21 +58,10 @@ struct TrackerView: View {
                                     Text(index == 0 ? "Onboard IMU" : "Module IMU").font(.headline)
                                     MotionGraph(samples: tracker.history.motion[index], quantity: mode)
                                     delivery(tracker.history.counts[index])
-                                    if let sample = tracker.history.motion[index].last, sample.provenance != .capture {
-                                        Text(sample.provenance == .received ? "Receipt time · capture age unknown" : "Timing provenance unknown")
-                                            .font(.caption).foregroundStyle(.secondary)
-                                    }
                                 }
                                 .padding(.vertical, 4)
                             }
                             LabeledContent("GNSS") { delivery(tracker.history.counts[2]) }
-                            if tracker.history.gnssUnavailable {
-                                Text("GNSS has no current fix.")
-                                    .font(.caption).foregroundStyle(.secondary)
-                            } else if let position = tracker.history.positions.last, position.provenance != .capture {
-                                Text(position.provenance == .received ? "GNSS receipt time · capture age unknown" : "GNSS timing provenance unknown")
-                                    .font(.caption).foregroundStyle(.secondary)
-                            }
                             if tracker.interruptions != 0 {
                                 LabeledContent("Reconnects", value: tracker.interruptions.formatted())
                             }
@@ -108,12 +97,6 @@ struct TrackerView: View {
                     }
                 }
                 if let reading = tracker.reading {
-                    if reading.outputFaults != 0 {
-                        Section("Device outputs") {
-                            Text("Faults observed this run: \(outputFaultNames(reading.outputFaults))")
-                                .foregroundStyle(.secondary)
-                        }
-                    }
                     if !tracker.history.hasData { Section("Motion") {
                         ForEach(reading.imu.indices, id: \.self) { index in
                             let imu = reading.imu[index]
@@ -124,34 +107,19 @@ struct TrackerView: View {
                                     Text(imu.state.rawValue.capitalized)
                                 }
                             }
-                            if imu.state == .received {
-                                Text("Capture age unknown").font(.caption).foregroundStyle(.secondary)
-                            } else if imu.state == .live && (reading.exportVersion ?? 0) < 4 {
-                                Text("Timing provenance unknown").font(.caption).foregroundStyle(.secondary)
-                            }
                         }
                     }
                     }
                     Section("Location") {
-                        if !tracker.history.gnssUnavailable,
-                           let lat = reading.gnss.latitude, let lon = reading.gnss.longitude {
+                        if let lat = reading.gnss.latitude, let lon = reading.gnss.longitude {
                             TrackerMap(coordinate: .init(latitude: lat, longitude: lon),
                                        positions: tracker.history.positions)
                                 .frame(height: 240)
                                 .clipShape(RoundedRectangle(cornerRadius: 12))
                                 .accessibilityLabel("Tracker location and recent route")
                         }
-                        LabeledContent("GNSS", value: tracker.history.gnssUnavailable ? "Unavailable" : reading.gnss.state.rawValue.capitalized)
-                        if !tracker.history.gnssUnavailable && reading.gnss.state == .received {
-                            Text("Capture age unknown").font(.caption).foregroundStyle(.secondary)
-                        } else if !tracker.history.gnssUnavailable && reading.gnss.state == .live && (reading.exportVersion ?? 0) < 4 {
-                            Text("Timing provenance unknown").font(.caption).foregroundStyle(.secondary)
-                        }
-                        if tracker.history.gnssUnavailable || reading.gnss.state == .unavailable {
-                            Text("No current fix").foregroundStyle(.secondary)
-                        }
-                        if !tracker.history.gnssUnavailable,
-                           let lat = reading.gnss.latitude, let lon = reading.gnss.longitude, let speed = reading.gnss.speed {
+                        LabeledContent("GNSS", value: reading.gnss.state.rawValue.capitalized)
+                        if let lat = reading.gnss.latitude, let lon = reading.gnss.longitude, let speed = reading.gnss.speed {
                             LabeledContent("Coordinates", value: String(format: "%.5f, %.5f", lat, lon))
                             LabeledContent("Ground speed", value: String(format: "%.1f km/h", speed * 3.6))
                         }
@@ -223,13 +191,6 @@ struct TrackerView: View {
         case .idle, .saved, .empty, .failed: true
         case .recording, .saving: false
         }
-    }
-
-    private func outputFaultNames(_ mask: UInt8) -> String {
-        let outputs: [(UInt8, String)] = [(1, "Display"), (2, "Touch"), (4, "USB"), (8, "Communications")]
-        var names = outputs.compactMap { mask & $0.0 == 0 ? nil : $0.1 }
-        if mask & 0xf0 != 0 { names.append("Other output") }
-        return names.joined(separator: ", ")
     }
 
     private func delivery(_ count: TrackerHistory.Count) -> some View {
@@ -319,7 +280,7 @@ private struct TrackerMap: UIViewRepresentable {
         var segment: [CLLocationCoordinate2D] = []
         var previous: UInt32?
         for point in positions {
-            if point.breakBefore || previous.map({ point.sequence &- $0 != 1 }) == true {
+            if let previous, point.sequence &- previous != 1 {
                 if segment.count > 1 { map.addOverlay(MKPolyline(coordinates: segment, count: segment.count)) }
                 segment.removeAll(keepingCapacity: true)
             }

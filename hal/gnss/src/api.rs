@@ -14,18 +14,9 @@ pub enum DeviceError {
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct GnssFix {
-    /// Boot-scoped acquisition generation; changes only after a new session opens.
-    pub generation: u32,
     pub sequence: u64,
-    /// Receiver solution epoch. Compare only within the same generation and
-    /// according to the provider's epoch domain; this is not host wall time.
-    pub source_epoch_ms: u64,
-    /// Microseconds in the provider's monotonic domain. Physical streams share
-    /// the device clock; unrelated mock/simulation timelines are not comparable.
+    /// Microseconds on the monotonic device clock shared with other streams.
     pub timestamp_us: u64,
-    /// Receipt time in the same monotonic domain as `timestamp_us`. The
-    /// difference bounds age at receipt only when `is_capture_time` is true.
-    pub received_us: u64,
     /// True when aligned to the solution epoch. Otherwise this is UART reception time.
     pub is_capture_time: bool,
     /// Unix milliseconds at the solution epoch, when validated by the receiver.
@@ -38,16 +29,6 @@ pub struct GnssFix {
     pub course_rad: Option<f32>,
     /// Receiver-provided accuracy and satellite data when available.
     pub quality: Option<FixQuality>,
-}
-
-/// A checked receiver report explicitly invalidating its current solution.
-/// This is normal operation (for example indoors), not a device failure.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct NoFix {
-    pub generation: u32,
-    /// Checked receiver epoch, or None for a legacy provider's epochless NoFix.
-    pub source_epoch_ms: Option<u64>,
-    pub received_us: u64,
 }
 
 /// Receiver estimates and satellite usage at the solution epoch.
@@ -145,9 +126,10 @@ impl SatelliteReport {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Event {
     Fix(GnssFix),
-    NoFix(NoFix),
+    /// The receiver has no current solution; acquisition continues normally.
+    NoFix,
     Satellites(SatelliteReport),
-    /// Recoverable rejected wire frame or receiver epoch; parsing continues.
+    /// Recoverable rejected wire frame; parsing continues at the next frame.
     InvalidFrame,
     Failed(DeviceError),
 }
@@ -158,10 +140,7 @@ pub enum Event {
 /// Drop requests cancellation without blocking; the worker retains resources.
 pub trait Session {
     fn request_stop(&mut self) -> Result<(), DeviceError>;
-    /// Join and retire acquisition. An error can leave a worker running when
-    /// cancellation failed; retain the handle and supervision in that case.
     fn join(&mut self) -> Result<(), DeviceError>;
-    /// Worker completion, independent of whether its handle has been joined.
     fn is_finished(&self) -> bool;
     /// Events rejected because the destination was full, saturated at u32::MAX.
     fn dropped(&self) -> u32;

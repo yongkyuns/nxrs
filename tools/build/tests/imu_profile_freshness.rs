@@ -112,7 +112,7 @@ fn main() {
 #![allow(dead_code, unused_imports)]
 extern crate self as imu;
 #[path = @API@] mod api;
-pub use api::{AppliedConfig, Config, DeviceError, Event, Failure, ImuSample, Session};
+pub use api::{AppliedConfig, Config, DeviceError, Event, ImuSample, Session};
 #[cfg(unix)] pub use api::Device;
 #[path = @SESSION@] mod session;
 #[cfg(unix)]

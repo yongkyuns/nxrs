@@ -12,7 +12,6 @@ use embedded_hal::{delay::DelayNs, i2c::I2c, spi::SpiDevice};
 
 const CONFIG_CHUNK: usize = 30;
 const FRAME_BYTES: u16 = 12;
-const FIFO_BYTES: u16 = 2048;
 const SENSOR_TIME_MASK: u32 = (1 << 24) - 1;
 const SENSOR_TICKS_PER_SECOND: u32 = 25_600;
 // One complete frame is enough to raise a FIFO watermark interrupt.
@@ -174,8 +173,6 @@ pub enum Error {
     Bus,
     InvalidData,
     Timeout,
-    /// The FIFO length and sensor clock could not be read in the same slot.
-    UnstableSnapshot,
     Overflow,
 }
 
@@ -333,35 +330,29 @@ impl<T: Registers, D: DelayNs> Device<T, D> {
     pub fn stop(&mut self) -> Result<(), Error> {
         let reference = self.reference_enabled;
         let reference_stopped = if reference {
-            let write = self.write_reg(0x54, 0x02);
-            // A failed write acknowledgement does not establish whether the
-            // sensor changed state. Still inspect the output and keep the error.
-            write.and(self.verify_stopped(0x54, 0x18))
+            self.write_reg(0x54, 0x02).and_then(|()| {
+                if self.io.read_reg(0x54)? & 0x18 != 0 {
+                    Err(Error::InvalidData)
+                } else {
+                    Ok(())
+                }
+            })
         } else {
             Ok(())
         };
         if reference_stopped.is_ok() {
             self.reference_enabled = false;
         }
-        // Each action independently reduces activity. Do not let an earlier
-        // bus failure prevent disabling the other outputs or sampling. `and`
-        // evaluates each operation and retains the first failure for the HAL,
-        // which quarantines ownership when shutdown cannot be established.
-        let mut result = reference_stopped;
-        result = result.and(self.write_reg(0x58, 0));
-        result = result.and(self.write_reg(0x53, 0x02));
-        result = result.and(self.write_reg(0x7d, 0));
-        result = result.and(self.verify_stopped(0x58, 0xff));
-        result = result.and(self.verify_stopped(0x53, 0x18));
-        result.and(self.verify_stopped(0x7d, 0x0f))
-    }
-
-    fn verify_stopped(&mut self, register: u8, mask: u8) -> Result<(), Error> {
-        if self.io.read_reg(register)? & mask != 0 {
-            Err(Error::InvalidData)
-        } else {
-            Ok(())
+        self.write_reg(0x58, 0)?;
+        self.write_reg(0x53, 0x02)?;
+        self.write_reg(0x7d, 0)?;
+        if self.io.read_reg(0x7d)? & 0x0f != 0 {
+            return Err(Error::Bus);
         }
+        if reference && self.io.read_reg(0x58)? != 0 {
+            return Err(Error::InvalidData);
+        }
+        reference_stopped
     }
 
     fn sensor_ticks(&mut self) -> Result<u32, Error> {
@@ -401,7 +392,7 @@ impl<T: Registers, D: DelayNs> Device<T, D> {
                 end_us,
             ));
         }
-        Err(Error::UnstableSnapshot)
+        Err(Error::Timeout)
     }
 
     /// Drain after an IRQ or ODR-derived wake. FIFO contents alone admit samples.
@@ -415,7 +406,7 @@ impl<T: Registers, D: DelayNs> Device<T, D> {
             self.timed_length(period_ticks, &mut now_us)?;
         // Headerless frames contain gyro XYZ followed by accel XYZ (12 bytes).
         // Equal ODR, no auxiliary data/tags/time, and no downsampling are required.
-        if count > usize::from(FIFO_BYTES) || count % usize::from(FRAME_BYTES) != 0 {
+        if count > 2048 || count % 12 != 0 {
             return Err(Error::InvalidData);
         }
         if count == 0 {
@@ -489,15 +480,10 @@ mod tests {
         fifo: Vec<u8>,
         cursor: usize,
         fail_data: bool,
-        fail_write: Option<u8>,
-        fail_read: Option<u8>,
         mismatch_read: Option<(u8, u8)>,
-        writes: Vec<u8>,
-        reads: Vec<u8>,
         startup_reads: usize,
         ready_after: usize,
         clock_after_length: Option<u32>,
-        snapshot_crossings: usize,
     }
     impl Bus {
         fn new() -> Self {
@@ -510,15 +496,10 @@ mod tests {
                 fifo: Vec::new(),
                 cursor: 0,
                 fail_data: false,
-                fail_write: None,
-                fail_read: None,
                 mismatch_read: None,
-                writes: Vec::new(),
-                reads: Vec::new(),
                 startup_reads: 0,
                 ready_after: 3,
                 clock_after_length: None,
-                snapshot_crossings: 0,
             }
         }
 
@@ -538,10 +519,6 @@ mod tests {
             match operations {
                 [Operation::Write(bytes)] => {
                     let reg = usize::from(bytes[0]);
-                    self.writes.push(bytes[0]);
-                    if self.fail_write == Some(bytes[0]) {
-                        return Err(ErrorKind::Other);
-                    }
                     if reg == 0x49 && bytes[1] & 0xc0 != 0 {
                         assert!(
                             self.startup_reads > self.ready_after,
@@ -552,56 +529,43 @@ mod tests {
                         self.registers[reg..reg + bytes.len() - 1].copy_from_slice(&bytes[1..]);
                     }
                 }
-                [Operation::Write(reg), Operation::Read(bytes)] => {
-                    self.reads.push(reg[0]);
-                    if self.fail_read == Some(reg[0]) {
-                        return Err(ErrorKind::Other);
+                [Operation::Write(reg), Operation::Read(bytes)] => match reg[0] {
+                    0x03 => {
+                        self.startup_reads += 1;
+                        bytes[0] = if self.startup_reads > self.ready_after {
+                            0xc0
+                        } else {
+                            0x80
+                        };
                     }
-                    match reg[0] {
-                        0x03 => {
-                            self.startup_reads += 1;
-                            bytes[0] = if self.startup_reads > self.ready_after {
-                                0xc0
-                            } else {
-                                0x80
-                            };
+                    0x24 => {
+                        bytes.copy_from_slice(
+                            &(self.fifo.len() as u16 - self.cursor as u16).to_le_bytes(),
+                        );
+                        if let Some(ticks) = self.clock_after_length.take() {
+                            self.set_sensor_ticks(ticks);
+                            self.fifo.extend_from_slice(&[0; 12]);
                         }
-                        0x24 => {
-                            bytes.copy_from_slice(
-                                &(self.fifo.len() as u16 - self.cursor as u16).to_le_bytes(),
-                            );
-                            if let Some(ticks) = self.clock_after_length.take() {
-                                self.set_sensor_ticks(ticks);
-                                self.fifo.extend_from_slice(&[0; 12]);
-                            }
-                            if self.snapshot_crossings > 0 {
-                                self.snapshot_crossings -= 1;
-                                self.registers[0x19] = self.registers[0x19].wrapping_add(1);
-                            }
+                    }
+                    0x26 => {
+                        if self.fail_data {
+                            return Err(ErrorKind::Other);
                         }
-                        0x26 => {
-                            if self.fail_data {
-                                return Err(ErrorKind::Other);
-                            }
-                            assert!(bytes.len() <= 60 && bytes.len() % 12 == 0);
-                            bytes.copy_from_slice(
-                                &self.fifo[self.cursor..self.cursor + bytes.len()],
-                            );
-                            self.cursor += bytes.len();
-                        }
-                        _ => {
-                            bytes.copy_from_slice(
-                                &self.registers
-                                    [usize::from(reg[0])..usize::from(reg[0]) + bytes.len()],
-                            );
-                            if let Some((mismatch_reg, mask)) = self.mismatch_read {
-                                if reg[0] == mismatch_reg && !bytes.is_empty() {
-                                    bytes[0] ^= mask;
-                                }
+                        assert!(bytes.len() <= 60 && bytes.len() % 12 == 0);
+                        bytes.copy_from_slice(&self.fifo[self.cursor..self.cursor + bytes.len()]);
+                        self.cursor += bytes.len();
+                    }
+                    _ => {
+                        bytes.copy_from_slice(
+                            &self.registers[usize::from(reg[0])..usize::from(reg[0]) + bytes.len()],
+                        );
+                        if let Some((mismatch_reg, mask)) = self.mismatch_read {
+                            if reg[0] == mismatch_reg && !bytes.is_empty() {
+                                bytes[0] ^= mask;
                             }
                         }
                     }
-                }
+                },
                 _ => return Err(ErrorKind::Other),
             }
             Ok(())
@@ -660,46 +624,6 @@ mod tests {
     }
 
     #[test]
-    fn stop_attempts_every_independent_disable_and_readback_after_a_bus_error() {
-        for register in [0x54, 0x58, 0x53, 0x7d] {
-            for write_failure in [false, true] {
-                let mut sensor = Bmi270::<_, Delay>::open(Bus::new(), 0x68, Delay::new()).unwrap();
-                sensor.enable_sensor_reference().unwrap();
-                sensor.io.bus.writes.clear();
-                sensor.io.bus.reads.clear();
-                if write_failure {
-                    sensor.io.bus.fail_write = Some(register);
-                } else {
-                    sensor.io.bus.fail_read = Some(register);
-                }
-                assert_eq!(sensor.stop(), Err(Error::Bus));
-                assert_eq!(sensor.io.bus.writes, [0x54, 0x58, 0x53, 0x7d]);
-                assert_eq!(sensor.io.bus.reads, [0x54, 0x58, 0x53, 0x7d]);
-                if !write_failure || register != 0x7d {
-                    assert_eq!(sensor.io.bus.registers[0x7d], 0);
-                }
-            }
-        }
-    }
-
-    #[test]
-    fn stop_verifies_outputs_and_retains_the_first_failure() {
-        for (register, mask) in [(0x54, 0x08), (0x58, 0x01), (0x53, 0x08), (0x7d, 0x02)] {
-            let mut sensor = Bmi270::<_, Delay>::open(Bus::new(), 0x68, Delay::new()).unwrap();
-            sensor.enable_sensor_reference().unwrap();
-            sensor.io.bus.mismatch_read = Some((register, mask));
-            assert_eq!(sensor.stop(), Err(Error::InvalidData));
-            assert_eq!(sensor.io.bus.registers[0x7d], 0);
-        }
-        let mut sensor = Bmi270::<_, Delay>::open(Bus::new(), 0x68, Delay::new()).unwrap();
-        sensor.enable_sensor_reference().unwrap();
-        sensor.io.bus.mismatch_read = Some((0x54, 0x08));
-        sensor.io.bus.fail_write = Some(0x7d);
-        assert_eq!(sensor.stop(), Err(Error::InvalidData));
-        assert!(sensor.reference_enabled);
-    }
-
-    #[test]
     fn configured_rate_and_ranges_are_read_back_and_used_for_conversion() {
         let (config, applied) = Bmi270::<Bus, Delay>::resolve(peripheral::imu::Config {
             min_rate_millihz: 30_000,
@@ -728,13 +652,10 @@ mod tests {
         }
         let mut sample = None;
         assert_eq!(
-            sensor.read_available(
-                || 1_000_000,
-                |value| {
-                    sample = Some(value);
-                    true
-                }
-            ),
+            sensor.read_available(|| 1_000_000, |value| {
+                sample = Some(value);
+                true
+            }),
             Ok(Some(1))
         );
         let sample = sample.unwrap();
@@ -770,13 +691,10 @@ mod tests {
             sensor.io.bus.fifo.extend_from_slice(&[0; 12]);
             let mut samples = Vec::new();
             assert_eq!(
-                sensor.drain(
-                    || 1_000_000 + u64::from(frame) * 10_000,
-                    |sample| {
-                        samples.push(sample);
-                        true
-                    }
-                ),
+                sensor.drain(|| 1_000_000 + u64::from(frame) * 10_000, |sample| {
+                    samples.push(sample);
+                    true
+                }),
                 Ok(Some(1))
             );
             assert_eq!(samples.len(), 1);
@@ -784,10 +702,7 @@ mod tests {
                 (samples[0].accel_mps2, samples[0].gyro_rps),
                 ([0.0; 3], [0.0; 3])
             );
-            assert_eq!(
-                sensor.drain(|| 1_000_000, |_| panic!("duplicate sample")),
-                Ok(Some(0))
-            );
+            assert_eq!(sensor.drain(|| 1_000_000, |_| panic!("duplicate sample")), Ok(Some(0)));
         }
     }
     #[test]
@@ -800,13 +715,10 @@ mod tests {
         }
         let mut samples = Vec::new();
         assert_eq!(
-            sensor.drain(
-                || 1_000_000,
-                |sample| {
-                    samples.push(sample);
-                    true
-                }
-            ),
+            sensor.drain(|| 1_000_000, |sample| {
+                samples.push(sample);
+                true
+            }),
             Ok(Some(7))
         );
         assert_eq!(samples.len(), 7);
@@ -823,10 +735,7 @@ mod tests {
             assert!((sample.accel_mps2[1] + 9.80665).abs() < 1e-5);
             assert!((sample.gyro_rps[2] - 17.453293).abs() < 1e-5);
         }
-        assert_eq!(
-            sensor.drain(|| 1_000_000, |_| panic!("replayed FIFO")),
-            Ok(Some(0))
-        );
+        assert_eq!(sensor.drain(|| 1_000_000, |_| panic!("replayed FIFO")), Ok(Some(0)));
     }
     #[test]
     fn sensor_time_retries_a_length_read_at_wrap_and_rejects_reused_slots() {
@@ -843,50 +752,17 @@ mod tests {
         sensor.io.bus.fifo.extend_from_slice(&[0; 12]);
         sensor.io.bus.clock_after_length = Some(0x10);
         let mut clock = [65_500, 65_550, 65_600, 65_680].into_iter();
-        assert_eq!(
-            sensor.drain(|| clock.next().unwrap(), &mut emit),
-            Ok(Some(2))
-        );
+        assert_eq!(sensor.drain(|| clock.next().unwrap(), &mut emit), Ok(Some(2)));
         sensor.io.bus.set_sensor_ticks(0x120);
         sensor.io.bus.fifo.extend_from_slice(&[0; 12]);
         let mut clock = [76_775, 76_825].into_iter();
-        assert_eq!(
-            sensor.drain(|| clock.next().unwrap(), &mut emit),
-            Ok(Some(1))
-        );
+        assert_eq!(sensor.drain(|| clock.next().unwrap(), &mut emit), Ok(Some(1)));
         assert_eq!(times, [45_000, 55_000, 65_000, 75_525]);
         sensor.io.bus.fifo.extend_from_slice(&[0; 12]);
         assert_eq!(
             sensor.drain(|| 1_000_000, |_| panic!("reused capture timestamp")),
             Err(Error::InvalidData)
         );
-    }
-    #[test]
-    fn exhausted_snapshot_attempts_leave_fifo_and_sample_phase_untouched() {
-        let mut sensor = Bmi270::<_, Delay>::open(Bus::new(), 0x68, Delay::new()).unwrap();
-        sensor.io.bus.fifo.extend_from_slice(&[0; 12]);
-        sensor.io.bus.snapshot_crossings = 3;
-        assert_eq!(
-            sensor.read_available(|| 1_000_000, |_| panic!("ambiguous sample offered")),
-            Err(peripheral::imu::Error::WouldBlock)
-        );
-        assert_eq!(sensor.io.bus.cursor, 0);
-        assert!(sensor.last_sample.is_none());
-        let mut samples = Vec::new();
-        assert_eq!(
-            sensor.read_available(
-                || 1_010_000,
-                |sample| {
-                    samples.push(sample);
-                    true
-                }
-            ),
-            Ok(Some(1))
-        );
-        assert_eq!(samples.len(), 1);
-        assert!(samples[0].capture_us.is_some());
-        assert_eq!(sensor.io.bus.cursor, 12);
-        assert_eq!(Bmi270::<Bus, Delay>::FIFO_CAPACITY_SAMPLES, Some(170));
     }
     #[test]
     fn overflow_partial_frames_io_and_closed_consumers_are_explicit() {

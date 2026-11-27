@@ -182,13 +182,6 @@ impl Identity {
     /// This provider implements pinned TLS client connections.
     pub const SUPPORTS_PINNED_CLIENT: bool = true;
 
-    /// A sticky entropy/callback failure has retired this identity. Its
-    /// connections must be dropped before dropping it and opening a new owner;
-    /// retrying operations on the same identity cannot recover it.
-    pub fn is_poisoned(&self) -> bool {
-        self.failed()
-    }
-
     pub(crate) fn generate(source: impl Entropy + 'static) -> Result<Self, Error> {
         let source: Box<dyn Entropy> = try_boxed(source)?;
         let callback = Callback {

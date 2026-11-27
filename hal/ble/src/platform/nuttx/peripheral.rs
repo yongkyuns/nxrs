@@ -1,4 +1,4 @@
-use crate::peripheral::{DeliveryProgress, Link, Listener, Service};
+use crate::peripheral::{Link, Listener, Service};
 use crate::{Error, Uuid};
 use std::collections::VecDeque;
 use std::io::{self, Read, Write};
@@ -7,14 +7,8 @@ use std::sync::{Mutex, MutexGuard};
 use std::thread::{self, Thread};
 use std::time::{Duration, Instant};
 
-#[cfg(not(test))]
 #[path = "ffi/peripheral.rs"]
 mod ffi;
-#[cfg(test)]
-#[path = "peripheral_tests.rs"]
-mod tests;
-#[cfg(test)]
-use tests::ffi;
 
 const CAPACITY: usize = 2048;
 const LEGACY_CHUNK: usize = 20;
@@ -43,7 +37,6 @@ static INPUT: Mutex<Input> = Mutex::new(Input {
 static OUTPUT: Mutex<Output> = Mutex::new(Output {
     queue: Queue::new(),
     offset: 0,
-    completed: 0,
     next: 0,
     sent: 0,
     replay_at: None,
@@ -90,9 +83,6 @@ struct Input {
 struct Output {
     queue: Queue,
     offset: u32,
-    // Transport consumption, independent of how much the producer enqueues or
-    // how often a notification is replayed. Legacy reads advance it as well.
-    completed: u32,
     next: usize,
     sent: usize,
     replay_at: Option<Instant>,
@@ -111,7 +101,6 @@ impl Output {
         }
         self.queue.bytes.drain(..count);
         self.offset = offset;
-        self.completed = self.completed.wrapping_add(count as u32);
         self.sent -= count;
         self.next = self.next.saturating_sub(count);
         if let Some(repair) = self.repair {
@@ -176,7 +165,6 @@ fn output(stamp: u32) -> io::Result<MutexGuard<'static, Output>> {
     validate(stamp)?;
     if output.queue.select(stamp) {
         output.offset = 0;
-        output.completed = 0;
         output.next = 0;
         output.sent = 0;
         output.replay_at = None;
@@ -252,9 +240,7 @@ unsafe extern "C" fn peripheral_read_rust(destination: *mut u8, count: u8) -> i3
     let bytes = unsafe {
         std::slice::from_raw_parts_mut(destination, usize::from(count).min(LEGACY_CHUNK))
     };
-    let count = pop(&mut data.queue.bytes, bytes);
-    data.completed = data.completed.wrapping_add(count as u32);
-    count as i32
+    pop(&mut data.queue.bytes, bytes) as i32
 }
 
 #[no_mangle]
@@ -406,15 +392,6 @@ impl Listener for Peripheral {
 
     fn take_ready(&self) -> bool {
         READY.swap(false, Ordering::AcqRel)
-    }
-
-    fn delivery_progress(&self) -> io::Result<Option<DeliveryProgress>> {
-        let output = output(self.accepted)?;
-        Ok(Some(DeliveryProgress {
-            generation: self.accepted,
-            completed: output.completed,
-            pending: !output.queue.bytes.is_empty(),
-        }))
     }
 
     fn idle_retry_at(&self) -> Option<Instant> {

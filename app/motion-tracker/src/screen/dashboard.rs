@@ -113,10 +113,8 @@ impl Dashboard {
             return None;
         }
         match snapshot.gnss {
-            Reading::Live(fix) | Reading::Received(fix) => {
-                Position::project(fix.latitude_deg, fix.longitude_deg, zoom)
-                    .map(|point| (point, fix.speed_mps))
-            }
+            Reading::Live(fix) => Position::project(fix.latitude_deg, fix.longitude_deg, zoom)
+                .map(|point| (point, fix.speed_mps)),
             _ => None,
         }
     }
@@ -794,7 +792,7 @@ impl<'a> Body<'a> {
                     }
                 }
             }
-            if let Reading::Live(sample) | Reading::Received(sample) = snapshot.imu[index] {
+            if let Reading::Live(sample) = snapshot.imu[index] {
                 for value in ui.metric.read(sample) {
                     limit = limit.max(value.abs());
                 }
@@ -950,9 +948,7 @@ impl<'a> Body<'a> {
                     }
                 }
                 match snapshot.imu[*index] {
-                    Reading::Live(sample) | Reading::Received(sample)
-                        if canvas.intersects_rows(footer, 7) =>
-                    {
+                    Reading::Live(sample) if canvas.intersects_rows(footer, 7) => {
                         for (axis, value) in ui.metric.read(sample).into_iter().enumerate() {
                             let mut label = Text::<20>::new();
                             let _ = write!(label, "{} {value:+.2}", char::from(b'X' + axis as u8));
@@ -965,20 +961,10 @@ impl<'a> Body<'a> {
                             );
                         }
                     }
-                    Reading::Live(_) | Reading::Received(_) => {}
+                    Reading::Live(_) => {}
                     reading => status(canvas, footer, reading, b"WAITING FOR IMU"),
                 }
-                canvas.text(
-                    12,
-                    footer + 12,
-                    if matches!(snapshot.imu[*index], Reading::Received(_)) {
-                        b"AGE UNKNOWN"
-                    } else {
-                        b"-12S"
-                    },
-                    1,
-                    MUTED,
-                );
+                canvas.text(12, footer + 12, b"-12S", 1, MUTED);
                 canvas.text(layout.width - 30, footer + 12, b"NOW", 1, MUTED);
             }
             Self::Route {
@@ -1043,17 +1029,7 @@ impl<'a> Body<'a> {
                     }
                 }
                 gnss_footer(canvas, layout.width, footer, snapshot.gnss);
-                canvas.text(
-                    12,
-                    footer + 12,
-                    if matches!(snapshot.gnss, Reading::Received(_)) {
-                        b"MEASUREMENT AGE UNKNOWN"
-                    } else {
-                        b"RECENT FIXES"
-                    },
-                    1,
-                    MUTED,
-                );
+                canvas.text(12, footer + 12, b"RECENT FIXES", 1, MUTED);
             }
         }
     }
@@ -1061,7 +1037,7 @@ impl<'a> Body<'a> {
 
 fn gnss_footer(canvas: &mut Canvas<'_>, width: i32, y: i32, reading: Reading<gnss::GnssFix>) {
     match reading {
-        Reading::Live(fix) | Reading::Received(fix) if canvas.intersects_rows(y, 7) => {
+        Reading::Live(fix) if canvas.intersects_rows(y, 7) => {
             let mut coordinates = Text::<40>::new();
             let _ = write!(
                 coordinates,
@@ -1079,7 +1055,7 @@ fn gnss_footer(canvas: &mut Canvas<'_>, width: i32, y: i32, reading: Reading<gns
                 MINT,
             );
         }
-        Reading::Live(_) | Reading::Received(_) => {}
+        Reading::Live(_) => {}
         reading => status(canvas, y, reading, b"WAITING FOR SATELLITES"),
     }
 }
@@ -1089,8 +1065,6 @@ fn status<T>(canvas: &mut Canvas<'_>, y: i32, reading: Reading<T>, waiting: &[u8
         Reading::Waiting => (waiting, GOLD),
         Reading::Stale => (b"READING STALE".as_slice(), GOLD),
         Reading::Fault => (b"SENSOR FAULT".as_slice(), RED),
-        Reading::Unavailable => (b"NO CURRENT SOLUTION".as_slice(), GOLD),
-        Reading::Received(_) => (b"MEASUREMENT AGE UNKNOWN".as_slice(), GOLD),
         Reading::Live(_) => unreachable!(),
     };
     canvas.text(12, y, text, 1, color);
@@ -1141,7 +1115,6 @@ mod tests {
         let now = screen.deadline();
         let mut snapshot = Snapshot {
             clock: None,
-            output_faults: 0,
             imu: [Reading::Waiting; 2],
             gnss: Reading::Waiting,
         };
@@ -1233,7 +1206,6 @@ mod tests {
         let now = screen.deadline();
         let snapshot = Snapshot {
             clock: None,
-            output_faults: 0,
             imu: [Reading::Waiting; 2],
             gnss: Reading::Waiting,
         };
@@ -1304,7 +1276,6 @@ mod tests {
         let mut sample = imu::ImuSample {
             sequence: 0,
             timestamp_us: 0,
-            received_us: 0,
             is_capture_time: false,
             sample_interval_us: 10_000,
             accel_mps2: [5.0, -3.0, 9.0],
@@ -1314,7 +1285,6 @@ mod tests {
             imu: [Reading::Live(sample), Reading::Waiting],
             gnss: Reading::Waiting,
             clock: None,
-            output_faults: 0,
         };
         screen
             .draw(link, &snapshot, start, || Reading::Waiting, |_| None)
@@ -1380,7 +1350,6 @@ mod tests {
         let now = Instant::now();
         let snapshot = Snapshot {
             clock: None,
-            output_faults: 0,
             imu: [Reading::Waiting; 2],
             gnss: Reading::Waiting,
         };
@@ -1424,7 +1393,6 @@ mod tests {
         assert_eq!(tap(&mut screen, LinkStatus::Idle, pair), Some(Action::Pair));
         screen
             .update_link(View {
-                cellular: None,
                 link: LinkStatus::Pairing,
                 key: Some([42; 32]),
             })
@@ -1464,7 +1432,6 @@ mod tests {
         );
         screen
             .update_link(View {
-                cellular: None,
                 link: LinkStatus::Connected,
                 key: None,
             })

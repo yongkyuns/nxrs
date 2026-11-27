@@ -35,27 +35,19 @@ class Sessions(unittest.TestCase):
                 private(root/'gateway-pin', pin)
                 context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
                 context.minimum_version = context.maximum_version = ssl.TLSVersion.TLSv1_3
-                # Pinned commissioning has no resumption. Suppress unrelated
-                # ticket writes during the first read so it observes the
-                # rejecting client's close, not a late ticket-write EPIPE.
-                context.num_tickets = 0
                 context.load_cert_chain(root/'expired.pem', root/'expired.key')
-                received, faults, peer_events = [], [], []
+                received, faults = [], []
                 with socket.socket() as server:
                     server.bind(('127.0.0.1', 0));server.listen();server.settimeout(5)
                     private(root/'gateway-address', f'127.0.0.1:{server.getsockname()[1]}')
                     def serve():
                         try:
-                            with server.accept()[0] as raw:
-                                peer_events.append('accepted')
-                                with context.wrap_socket(raw, server_side=True) as client:
-                                    peer_events.append('tls_ready')
-                                    client.settimeout(3)
-                                    received.append(client.recv(32))
-                                    if delayed: time.sleep(.2)
-                                    if not wrong_pin: client.sendall(bytes([42]))
+                            with server.accept()[0] as raw, context.wrap_socket(raw, server_side=True) as client:
+                                client.settimeout(3)
+                                received.append(client.recv(32))
+                                if delayed: time.sleep(.2)
+                                if not wrong_pin: client.sendall(bytes([42]))
                         except (ssl.SSLError, ConnectionError, OSError) as error:
-                            peer_events.append('io_aborted' if 'tls_ready' in peer_events else 'handshake_aborted')
                             if not wrong_pin and not delayed: faults.append(type(error).__name__)
                     thread = threading.Thread(target=serve);thread.start()
                     try:
@@ -67,17 +59,8 @@ class Sessions(unittest.TestCase):
                     self.assertEqual(result.returncode, 0, result.stderr)
                     self.assertFalse(faults, faults)
                     if wrong_pin:
+                        self.assertEqual(received, [b''])
                         self.assertIn('Err(Authentication)', result.stdout)
-                        # The client may reject the pin while OpenSSL is still
-                        # completing its handshake, or immediately afterward.
-                        # Require a real peer connection and zero credential
-                        # bytes in either case; an unrelated I/O failure after
-                        # handshake is not an accepted negative witness.
-                        if peer_events == ['accepted', 'handshake_aborted']:
-                            self.assertEqual(received, [])
-                        else:
-                            self.assertEqual(peer_events, ['accepted', 'tls_ready'])
-                            self.assertEqual(received, [b''])
                     elif delayed:
                         # The absolute 100ms budget also covers the handshake;
                         # a loaded/sanitized runner may expire before sending.

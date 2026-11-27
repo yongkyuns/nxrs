@@ -235,38 +235,6 @@ fixture, the hosted test explicitly skips; the reference runner requires its
 success marker. See `docs/client-camera-architecture.md` for admission/lifetime
 rules and the boundaries of device qualification.
 
-## Motion Tracker export and recordings
-
-The client requests export v4 (`NXRS` followed by byte `4`) when the dashboard
-advertises it. V4 preserves each sample's capture or receipt provenance,
-explicit GNSS no-fix events, and typed terminal source failures. Receipt-only
-samples have unknown capture age and must carry the no-UTC flag. Export versions
-1–3 still decode; their timing provenance is recorded as unknown. Older clients
-with a strict dashboard-state enum need an update for the new `received` and
-`unavailable` states, even when using an older binary export version.
-
-Recordings now use a version-2 `nxrs-motion-tracker` header. Measurement rows
-contain `timestamp_ms` and `timestamp_provenance` (`capture`, `received` or
-`unknown`), plus optional `utc_ms`. V4 UTC is capture-qualified; retained legacy
-UTC has unknown provenance. A `no_fix` row retains
-`generation`, `received_ms` and optional `source_epoch_ms` without ending IMU
-recording. A `source_failure` row retains the source and reason, followed by an
-incomplete `end` record after all accepted measurements. A terminal failure
-before the first sample still produces an archive containing that evidence.
-No-fix intervals also break the displayed route instead of drawing across them.
-
-The dashboard labels receipt-only data as having unknown capture age. Its
-optional `output_faults` mask records faults observed during the device run:
-display `1`, touch `2`, USB `4`, communications `8`; absent means zero. These
-sticky output diagnostics do not terminate capture and do not claim that the
-output is still unavailable.
-
-[Native replay](../../tests/nuttx-std/tracker-sim/README.md#replay-an-iphone-recording)
-supports historical v1 arrival schedules and complete, capture-qualified v2
-measurement histories. It rejects v2 receipt/unknown timing, no-fix events,
-source failures and incomplete histories because that fixture cannot preserve
-their meaning. Recording support is broader than native replay support.
-
 ## Motion Tracker simulator tests
 
 Run the tracker receive path in the iPhone Simulator from the repository root.
@@ -280,10 +248,8 @@ xcodebuild test -project clients/ios/NxrsMonitor.xcodeproj \
 
 The tests feed two minutes of authenticated-stream payloads through the app's
 real parser and graph history. They check counters, stale dashboard metadata,
-stream timeout, sequence gaps, queue overflow, no-fix route breaks, typed source
-failures, output diagnostics, and handling of missing and duplicate Bluetooth
-notifications. The Swift package tests also cover v4 framing, provenance and
-recording completion. Full-rate export requires an app and
+stream timeout, sequence gaps, queue overflow, and handling of missing and
+duplicate Bluetooth notifications. Full-rate export requires an app and
 firmware build that use the same notification service version. The
 [QEMU export test](../../tests/nuttx-std/tracker-sim/README.md#ble-telemetry-during-ppp-loss-and-reconnect)
 checks the tracker firmware, BLE protocol and cellular load. Physical iPhone

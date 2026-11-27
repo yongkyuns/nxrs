@@ -66,7 +66,6 @@ class ReplayTests(unittest.TestCase):
             staged = replay.stage(record, base)
             self.assertEqual(staged.counts, {"imu_primary": 520, "imu_secondary": 521, "gnss": 5})
             self.assertFalse(staged.complete)
-            self.assertEqual(staged.archive_version, 1)
             self.assertEqual(staged.duration_ms, 5_200)
             with (base / replay.SOURCES["imu_primary"]).open("rb") as first:
                 self.assertEqual(replay.ORIGIN.unpack(first.read(8)), (10_000,))
@@ -77,53 +76,6 @@ class ReplayTests(unittest.TestCase):
             record.write_bytes(record.read_bytes()[:-6])
             with self.assertRaisesRegex(ValueError, "incomplete record"):
                 replay.stage(record, base)
-
-    def test_v2_complete_capture_times_stage_without_relabeling_receipt(self):
-        with tempfile.TemporaryDirectory() as folder:
-            base = Path(folder)
-            path = base / "capture.ndjson"
-            records = [
-                {"type": "header", "format": "nxrs-motion-tracker", "version": 2},
-                {"type": "imu", "source": "imu_primary", "sequence": 7,
-                 "timestamp_ms": 1000, "timestamp_provenance": "capture",
-                 "accel_mps2": [1, 0, 9.8], "gyro_rps": [0, 0, 0]},
-                {"type": "gnss", "source": "gnss", "sequence": 8,
-                 "timestamp_ms": 1050, "timestamp_provenance": "capture",
-                 "lat_deg": 45, "lon_deg": -76, "speed_mps": 2},
-                {"type": "end", "reason": "stopped", "complete": True},
-            ]
-            path.write_text(''.join(json.dumps(row) + '\n' for row in records))
-            staged = replay.stage(path, base)
-            self.assertEqual((staged.archive_version, staged.origin_ms, staged.duration_ms, staged.complete),
-                             (2, 1000, 50, True))
-            self.assertEqual(staged.counts, {"imu_primary": 1, "imu_secondary": 0, "gnss": 1})
-            self.assertEqual(list(replay.fixes(base / replay.SOURCES['gnss'])), [(1050, 45, -76, 2, None)])
-
-    def test_v2_unsupported_evidence_is_rejected_instead_of_discarded(self):
-        sample = {"type": "imu", "source": "imu_primary", "sequence": 7,
-                  "timestamp_ms": 1000, "timestamp_provenance": "capture",
-                  "accel_mps2": [1, 0, 9.8], "gyro_rps": [0, 0, 0]}
-        cases = [
-            ([sample | {"timestamp_provenance": provenance}], True, "capture-qualified v2")
-            for provenance in ("received", "unknown")
-        ] + [
-            ([sample | {"timestamp_provenance": "invented"}], True, "invalid v2 timestamp provenance"),
-            ([sample | {"received_ms": 1000}], True, "ambiguous v2 timestamp fields"),
-            ([sample], False, "complete v2 recording"),
-            ([sample, {"type": "no_fix", "source": "gnss", "generation": 1,
-                       "received_ms": 1100}], True, "no_fix lifecycle"),
-            ([sample, {"type": "source_failure", "source": "gnss", "reason": "io"}], False, "source_failure history"),
-        ]
-        with tempfile.TemporaryDirectory() as folder:
-            base = Path(folder)
-            path = base / "capture.ndjson"
-            for samples, complete, message in cases:
-                with self.subTest(message=message, samples=samples):
-                    records = [{"type": "header", "format": "nxrs-motion-tracker", "version": 2},
-                               *samples, {"type": "end", "reason": "stopped", "complete": complete}]
-                    path.write_text(''.join(json.dumps(row) + '\n' for row in records))
-                    with self.assertRaisesRegex(ValueError, message):
-                        replay.stage(path, base)
 
     @unittest.skipUnless(os.environ.get("NXRS_TRACKER_REPLAY_IMAGE"), "requires the native tracker image")
     def test_replays_through_native_imu_and_gnss_drivers(self):
@@ -139,14 +91,14 @@ class ReplayTests(unittest.TestCase):
             samples = [json.loads(line[line.index(b'{"v":1,'):]) for line in lines
                        if b'{"v":1,' in line]
             states = [sample["gnss"]["state"] for sample in samples]
-            first_live = next(index for index, state in enumerate(states) if state in ("live", "received"))
+            first_live = states.index("live")
             stale = states.index("stale", first_live)
-            recovered = next(index for index in range(stale, len(states)) if states[index] in ("live", "received"))
-            self.assertTrue(all(imu["state"] in ("live", "received") for imu in samples[stale]["imu"]))
+            recovered = states.index("live", stale)
+            self.assertTrue(all(imu["state"] == "live" for imu in samples[stale]["imu"]))
             self.assertGreater(samples[recovered]["gnss"]["lon_deg"], samples[first_live]["gnss"]["lon_deg"])
             for index, expected in enumerate((1, -1)):
                 first_imu = next(sample["imu"][index] for sample in samples
-                                 if sample["imu"][index]["state"] in ("live", "received"))
+                                 if sample["imu"][index]["state"] == "live")
                 self.assertAlmostEqual(first_imu["accel_mps2"][0], expected, delta=0.003)
             self.assertAlmostEqual(samples[recovered]["imu"][1]["accel_mps2"][0], -3, delta=0.003)
 

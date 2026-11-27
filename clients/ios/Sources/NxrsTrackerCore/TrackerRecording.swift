@@ -10,7 +10,6 @@ public final class TrackerRecording: @unchecked Sendable {
     public enum End: String, Sendable {
         case stopped, disconnected, invalidStream = "invalid_stream"
         case writerOverrun = "writer_overrun", clockReset = "clock_reset"
-        case sourceFailure = "source_failure"
     }
 
     public enum WriteError: Error, Equatable, Sendable {
@@ -28,11 +27,7 @@ public final class TrackerRecording: @unchecked Sendable {
         var version: Int?
         var source: String?
         var sequence: UInt32?
-        var generation: UInt32?
-        var timestamp_ms: UInt64?
-        var timestamp_provenance: TrackerTimestampProvenance?
         var received_ms: UInt64?
-        var source_epoch_ms: UInt64?
         var utc_ms: Int64?
         var missed_before: UInt32?
         var accel_mps2: [Float]?
@@ -59,8 +54,8 @@ public final class TrackerRecording: @unchecked Sendable {
     private let completed: @Sendable (Result<Saved, Error>) -> Void
     private var handle: FileHandle?
     private var lastSequence: [UInt32?] = [nil, nil, nil]
-    private var lastTime: [[TrackerTimestampProvenance: UInt64]] = [[:], [:], [:]]
-    private var hasRecords = false
+    private var lastTime: [UInt64?] = [nil, nil, nil]
+    private var hasSamples = false
     private var interrupted = false
     private var hasLoss = false
 
@@ -78,7 +73,7 @@ public final class TrackerRecording: @unchecked Sendable {
                 try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
                 try Data().write(to: self.working, options: .withoutOverwriting)
                 self.handle = try FileHandle(forWritingTo: self.working)
-                try self.write([Row(type: "header", format: Self.format, version: 2)])
+                try self.write([Row(type: "header", format: Self.format, version: 1)])
             } catch {
                 self.fail(error)
             }
@@ -106,25 +101,17 @@ public final class TrackerRecording: @unchecked Sendable {
                 let index: Int
                 var row: Row
                 switch measurement {
-                case let .imu(source, sequence, time, acceleration, gyro, utc, provenance):
+                case let .imu(source, sequence, time, acceleration, gyro, utc):
                     guard (0..<2).contains(source) else { throw CocoaError(.fileWriteUnknown) }
                     index = source
-                    row = Row(type: "imu", source: Self.names[index], sequence: sequence,
-                              timestamp_ms: time, timestamp_provenance: provenance,
+                    row = Row(type: "imu", source: Self.names[index], sequence: sequence, received_ms: time,
                               utc_ms: utc, accel_mps2: acceleration, gyro_rps: gyro)
-                case let .fix(sequence, time, latitude, longitude, speed, utc, provenance):
+                case let .fix(sequence, time, latitude, longitude, speed, utc):
                     index = 2
-                    row = Row(type: "gnss", source: Self.names[index], sequence: sequence,
-                              timestamp_ms: time, timestamp_provenance: provenance,
+                    row = Row(type: "gnss", source: Self.names[index], sequence: sequence, received_ms: time,
                               utc_ms: utc, lat_deg: latitude, lon_deg: longitude, speed_mps: speed)
-                case let .noFix(generation, received, epoch):
-                    self.hasRecords = true
-                    rows.append(Row(type: "no_fix", source: Self.names[2], generation: generation,
-                                    received_ms: received, source_epoch_ms: epoch))
-                    continue
                 }
-                guard let time = row.timestamp_ms, let sequence = row.sequence,
-                      let provenance = row.timestamp_provenance else { continue }
+                guard let time = row.received_ms, let sequence = row.sequence else { continue }
                 if let previous = self.lastSequence[index] {
                     let step = sequence &- previous
                     guard step > 0, step < 0x8000_0000 else { continue }
@@ -133,39 +120,17 @@ public final class TrackerRecording: @unchecked Sendable {
                         row.missed_before = step - 1
                     }
                 }
-                // Receipt can follow capture by an unknown delay. Only compare
-                // timestamps representing the same point in the acquisition.
-                if let previous = self.lastTime[index][provenance], time < previous {
+                if let previous = self.lastTime[index], time < previous {
                     try self.write(rows)
                     self.end(.clockReset)
                     return
                 }
                 self.lastSequence[index] = sequence
-                self.lastTime[index][provenance] = time
-                self.hasRecords = true
+                self.lastTime[index] = time
+                self.hasSamples = true
                 rows.append(row)
             }
             try self.write(rows)
-        }
-    }
-
-    /// Seal admission before queuing the terminal evidence. Previously accepted
-    /// work drains first; a later user stop cannot turn this into a complete file.
-    public func sourceFailed(_ fault: TrackerSourceFault) {
-        lock.withLock {
-            guard accepting else { return }
-            accepting = false
-            queue.async {
-                guard self.handle != nil else { return }
-                do {
-                    self.hasRecords = true
-                    try self.write([Row(type: "source_failure", source: fault.source.name,
-                                        reason: fault.cause.name)])
-                    self.end(.sourceFailure)
-                } catch {
-                    self.fail(error)
-                }
-            }
         }
     }
 
@@ -221,7 +186,7 @@ public final class TrackerRecording: @unchecked Sendable {
     private func end(_ reason: End) {
         guard let handle else { return }
         lock.withLock { accepting = false }
-        guard hasRecords else {
+        guard hasSamples else {
             fail(WriteError.noSamples)
             return
         }

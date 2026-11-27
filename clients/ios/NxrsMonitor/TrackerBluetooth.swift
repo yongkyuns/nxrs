@@ -534,7 +534,6 @@ final class TrackerConnection: NSObject, @unchecked Sendable {
     func receiveAuthenticatedData(_ data: Data, at now: ContinuousClock.Instant) -> Bool {
         var newest: TrackerTelemetry?
         var measurements: [TrackerMeasurement] = []
-        var sourceFailure: TrackerSourceFault?
         let terminal: String?
         do {
             try frames.receive(data, snapshot: { newest = $0 }, measurement: { measurements.append($0) })
@@ -544,10 +543,6 @@ final class TrackerConnection: NSObject, @unchecked Sendable {
         } catch let TrackerFrames.FrameError.captureOverflowAt(source, sequence) {
             let name = ["Onboard IMU", "Module IMU", "GNSS"][Int(source) - 1]
             terminal = "Sensor export incomplete. First missing: \(name) #\(sequence)."
-        } catch let TrackerFrames.FrameError.sourceFailure(fault) {
-            sourceFailure = fault
-            let name = ["Onboard IMU", "Module IMU", "GNSS"][Int(fault.source.rawValue) - 1]
-            terminal = "Sensor export incomplete. \(name): \(fault.cause.name.replacingOccurrences(of: "_", with: " "))."
         } catch {
             terminal = "Invalid tracker telemetry"
         }
@@ -572,8 +567,7 @@ final class TrackerConnection: NSObject, @unchecked Sendable {
             }
         }
         if let terminal {
-            if let sourceFailure { recording?.sourceFailed(sourceFailure) }
-            stop(terminal, keepExport: true, recordingEnd: sourceFailure == nil ? .invalidStream : .sourceFailure)
+            stop(terminal, keepExport: true, recordingEnd: .invalidStream)
             return false
         }
         if let newest {
@@ -594,7 +588,12 @@ final class TrackerConnection: NSObject, @unchecked Sendable {
         guard notifying, !requestedExport, let tlsClient else { return }
         requestedExport = true
         lastExportData = now
-        let request = TrackerExportFrames.preferredRequest(for: telemetry)
+        let request: Data
+        if telemetry.imuScaleBits?.count == 2 {
+            request = TrackerExportFrames.timedRequest
+        } else {
+            request = telemetry.exportVersion == 2 ? TrackerExportFrames.compactRequest : TrackerExportFrames.request
+        }
         let token = generation
         tlsClient.send(content: request, completion: .contentProcessed { [weak self] error in
             guard let self, self.generation == token, error != nil else { return }

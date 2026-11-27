@@ -1,26 +1,22 @@
 //! Stream metadata around a normalized synchronous receiver.
 use crate::{
-    Constellation, DeviceError, Event, FixQuality, GnssFix, NoFix, SatelliteReport,
-    SatelliteSignal, SatelliteStatus,
+    Constellation, DeviceError, Event, FixQuality, GnssFix, SatelliteReport, SatelliteSignal,
+    SatelliteStatus,
 };
 use peripheral::gnss::{Receiver as Protocol, Report};
 
 pub(crate) struct Receiver<R> {
     pub(crate) source: R,
-    generation: u32,
     last_epoch: Option<u64>,
-    last_was_fix: bool,
     sequence: u64,
     last_timestamp: Option<u64>,
     pulse: crate::pps::Sync,
 }
 impl<R: Protocol> Receiver<R> {
-    pub(crate) fn new(source: R, generation: u32) -> Self {
+    pub(crate) fn new(source: R) -> Self {
         Self {
             source,
-            generation,
             last_epoch: None,
-            last_was_fix: false,
             sequence: 0,
             last_timestamp: None,
             pulse: crate::pps::Sync::default(),
@@ -38,21 +34,6 @@ impl<R: Protocol> Receiver<R> {
             .read_available(|event| {
                 let report = match event {
                     Ok(Report::Fix(report)) => report,
-                    Ok(Report::NoFix { epoch_ms }) => {
-                        match advance_epoch::<R>(&mut self.last_epoch, epoch_ms) {
-                            Ok(changed) if changed || self.last_was_fix => {
-                                self.last_was_fix = false;
-                                emit(Ok(Event::NoFix(NoFix {
-                                    generation: self.generation,
-                                    source_epoch_ms: Some(epoch_ms),
-                                    received_us: now_us,
-                                })));
-                            }
-                            Ok(_) => {}
-                            Err(error) => emit(Err(error)),
-                        }
-                        return;
-                    }
                     Ok(Report::Pulse(pulse)) => {
                         self.pulse.report(pulse, now_us);
                         return;
@@ -72,25 +53,13 @@ impl<R: Protocol> Receiver<R> {
                         ))));
                         return;
                     }
-                    Err(peripheral::gnss::Error::NoFix) => {
-                        // Legacy protocols can invalidate a solution without an
-                        // epoch. Do not invent an epoch or discard known no-fix.
-                        self.last_was_fix = false;
-                        emit(Ok(Event::NoFix(NoFix {
-                            generation: self.generation,
-                            source_epoch_ms: None,
-                            received_us: now_us,
-                        })));
-                        return;
-                    }
+                    Err(peripheral::gnss::Error::NoFix) => return emit(Ok(Event::NoFix)),
                     Err(error) => return emit(Err(map_error(error))),
                 };
-                match advance_epoch::<R>(&mut self.last_epoch, report.epoch_ms) {
-                    Ok(true) => {}
-                    Ok(false) => return,
-                    Err(error) => return emit(Err(error)),
+                if self.last_epoch == Some(report.epoch_ms) {
+                    return;
                 }
-                self.last_was_fix = true;
+                self.last_epoch = Some(report.epoch_ms);
                 self.sequence = self.sequence.saturating_add(1);
                 let capture = self
                     .pulse
@@ -99,11 +68,8 @@ impl<R: Protocol> Receiver<R> {
                 let timestamp_us = capture.unwrap_or(now_us);
                 self.last_timestamp = Some(timestamp_us);
                 emit(Ok(Event::Fix(GnssFix {
-                    generation: self.generation,
                     sequence: self.sequence,
-                    source_epoch_ms: report.epoch_ms,
                     timestamp_us,
-                    received_us: now_us,
                     is_capture_time: capture.is_some(),
                     receiver_utc_ms: report.receiver_utc_ms,
                     latitude_deg: report.latitude_deg,
@@ -127,36 +93,6 @@ impl<R: Protocol> Receiver<R> {
             })
             .map_err(map_error)
     }
-}
-
-/// Accept only unambiguously forward receiver time. A backwards epoch could be
-/// old UART data or a receiver reset: it is not evidence for a new generation.
-/// Reconfiguration after joined retirement explicitly starts that generation.
-fn advance_epoch<R: Protocol>(last: &mut Option<u64>, epoch: u64) -> Result<bool, DeviceError> {
-    if R::EPOCH_MODULUS_MS.is_some_and(|modulus| modulus < 2 || epoch >= modulus) {
-        return Err(DeviceError::InvalidData);
-    }
-    if let Some(previous) = *last {
-        if previous == epoch {
-            return Ok(false);
-        }
-        let forward = match R::EPOCH_MODULUS_MS {
-            Some(modulus) => {
-                let delta = if epoch > previous {
-                    epoch - previous
-                } else {
-                    modulus - (previous - epoch)
-                };
-                delta < modulus / 2
-            }
-            None => epoch > previous,
-        };
-        if !forward {
-            return Err(DeviceError::InvalidData);
-        }
-    }
-    *last = Some(epoch);
-    Ok(true)
 }
 
 fn constellation(value: peripheral::gnss::Constellation) -> Constellation {

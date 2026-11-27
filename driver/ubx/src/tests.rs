@@ -246,21 +246,12 @@ fn invalid_fix_values_and_bad_coordinates_are_rejected() {
         let mut payload = pvt(1);
         payload[offset] = value;
         let mut decoder = ubx::Decoder::default();
-        let mut epochs = Vec::new();
+        let mut reports = Vec::new();
         decoder.consume(&frame(1, 7, &payload), &mut |e| {
-            if let ubx::Event::NoFix(epoch) = e {
-                epochs.push(epoch)
+            if let ubx::Event::NavPvt(r) = e {
+                reports.push(r.copied())
             }
         });
-        assert_eq!(epochs, [1]);
-        // The legacy polling API still reports its original error contract.
-        let mut stream = Stream::default();
-        stream.input.extend(frame(1, 7, &payload));
-        let mut driver = Driver::new(stream);
-        let mut reports = Vec::new();
-        while !driver.io().input.is_empty() {
-            driver.poll(|report| reports.push(report)).unwrap();
-        }
         assert_eq!(reports, [Err(DriverError::NoFix)]);
     }
     for (offset, value) in [(24, 1_800_000_001i32), (28, 900_000_001), (64, 36_000_001)] {

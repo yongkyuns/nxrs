@@ -47,18 +47,7 @@ Each FIFO snapshot brackets the status and length reads with `SENSORTIME`
 reads. The driver accepts a snapshot within one output-data-rate slot and
 uses the sensor's sample phase and the host-clock bracket around the final
 counter read to date each frame. It validates consecutive sample slots across
-counter wrap and retries snapshots that straddle a slot boundary. Three failed
-snapshot attempts return `UnstableSnapshot`, mapped to the shared protocol's
-`WouldBlock`; no FIFO byte or sample phase is consumed. The HAL decides whether
-and when to retry using the declared 170-frame capacity of this 2,048-byte,
-12-byte-frame path. A startup readiness timeout remains `Timeout`, while bus,
-overflow and inconsistent sample slots remain distinct terminal errors.
-
-`stop()` attempts interrupt unmapping, output disable and sampling power-off
-independently, even when one bus operation fails. It reads back every affected
-output and power control and retains the first failure. The owning HAL keeps
-the device quarantined when cleanup cannot be established; a later successful
-disable does not hide an earlier failed acknowledgement.
+counter wrap and retries snapshots that straddle a slot boundary.
 The sequence follows the [Bosch BMI270 datasheet](https://www.bosch-sensortec.com/media/boschsensortec/downloads/datasheets/bst-bmi270-ds000.pdf).
 Host tests check reset/reselection, the full uploaded image, FIFO units and
 errors. Physical SPI timing and throughput remain unqualified.

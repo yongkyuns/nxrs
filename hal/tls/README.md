@@ -26,12 +26,6 @@ Only one SDK owner may exist. It cannot move between threads; native callbacks
 borrow it only during synchronous calls. Fresh reseeding is explicit and source
 failure is sticky, including automatic reseeding. Dropping retires the borrowed
 key context, PSA key, DRBG and source before another owner can start.
-`Identity::is_poisoned()` reports that sticky failure without another SDK call.
-An owner that recovers must retire **all** of its borrowing connections, drop
-the identity, and only then open fresh credentials with bounded retry backoff.
-It cannot clear the poison, reuse cached random output, retain an old pairing
-key, or relax peer authorization to keep a failed session alive. A new identity
-also requires the application's normal enrollment/pairing authorization.
 
 `Identity::configure` prepares immutable native trust state once. Supply one
 approved DER issuer, own leaf, exact peer leaf, signed CRL and `CertificatePolicy`.

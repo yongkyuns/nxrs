@@ -22,7 +22,6 @@ impl SyntheticImu {
         ImuSample {
             sequence: self.sequence,
             timestamp_us: now_us,
-            received_us: now_us,
             is_capture_time: false,
             sample_interval_us: INTERVAL_US,
             accel_mps2: [0.10, 0.0, 9.81],

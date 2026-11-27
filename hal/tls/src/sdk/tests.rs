@@ -146,10 +146,8 @@ fn failed_refresh_cannot_use_cached_drbg_or_restore_this_owner() {
     let source = Source::new();
     let fail = source.fail.clone();
     let identity = Identity::generate(source).unwrap();
-    assert!(!identity.is_poisoned());
     fail.store(true, Ordering::Release);
     assert_eq!(identity.refresh_entropy(), Err(Error::Entropy));
-    assert!(identity.is_poisoned());
     fail.store(false, Ordering::Release);
     let mut output = [0xa5; 2048];
     assert_eq!(
@@ -157,66 +155,6 @@ fn failed_refresh_cannot_use_cached_drbg_or_restore_this_owner() {
         Err(Error::Poisoned)
     );
     assert!(output.iter().all(|v| *v == 0));
-}
-
-#[cfg(feature = "pairing")]
-#[test]
-fn poisoned_owner_retires_every_borrower_before_fresh_credentials_recover() {
-    use std::io::{self, Read, Write};
-
-    struct Transport(Arc<AtomicUsize>);
-    impl Read for Transport {
-        fn read(&mut self, _: &mut [u8]) -> io::Result<usize> {
-            Err(io::ErrorKind::WouldBlock.into())
-        }
-    }
-    impl Write for Transport {
-        fn write(&mut self, _: &[u8]) -> io::Result<usize> {
-            Err(io::ErrorKind::WouldBlock.into())
-        }
-        fn flush(&mut self) -> io::Result<()> {
-            Ok(())
-        }
-    }
-    impl crate::Stream for Transport {
-        fn prepare(&mut self) -> io::Result<()> {
-            Ok(())
-        }
-        fn abort(&mut self) {
-            self.0.fetch_add(1, Ordering::AcqRel);
-        }
-    }
-
-    let _serial = serial();
-    let source = Source::new();
-    let fail = source.fail.clone();
-    let closed = source.closed.clone();
-    let identity = Identity::generate(source).unwrap();
-    let key = identity.pairing_key().unwrap();
-    let retired = Arc::new(AtomicUsize::new(0));
-    let mut radio = identity
-        .accept_pairing(Transport(retired.clone()), &key)
-        .unwrap();
-    let mut other = identity
-        .accept_pairing(Transport(retired.clone()), &key)
-        .unwrap();
-    fail.store(true, Ordering::Release);
-    assert_eq!(identity.refresh_entropy(), Err(Error::Entropy));
-    fail.store(false, Ordering::Release);
-    assert!(identity.is_poisoned());
-    assert_eq!(radio.poll(), Err(Error::Poisoned));
-    assert_eq!(other.poll(), Err(Error::Poisoned));
-    assert!(matches!(
-        Identity::generate(Source::new()),
-        Err(Error::Busy)
-    ));
-    drop((radio, other));
-    assert_eq!(retired.load(Ordering::Acquire), 2);
-    drop(identity);
-    assert!(closed.load(Ordering::Acquire));
-    let fresh = Identity::generate(Source::new()).unwrap();
-    assert!(!fresh.is_poisoned());
-    assert_ne!(key, fresh.pairing_key().unwrap());
 }
 
 #[test]

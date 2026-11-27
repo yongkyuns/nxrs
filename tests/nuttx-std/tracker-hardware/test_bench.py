@@ -45,8 +45,6 @@ class BenchResults(unittest.TestCase):
             "gnss": {"state": "live", "lat_deg": 0.25, "lon_deg": -1.25},
         }
         self.assertEqual(summary_time((json.dumps(frame) + "\n").encode()), 500)
-        frame["imu"][1] = "received"
-        self.assertEqual(summary_time((json.dumps(frame) + "\n").encode()), 500)
         frame["imu"][1] = "stale"
         self.assertIsNone(summary_time((json.dumps(frame) + "\n").encode()))
 
@@ -57,10 +55,6 @@ class BenchResults(unittest.TestCase):
             "gnss": {"state": "live", "lat_deg": 0.25, "lon_deg": -1.25},
         }
         self.assertEqual(reading((json.dumps(frame) + "\n").encode()), [[1, 500], None])
-        frame["imu"][0]["state"] = "received"
-        self.assertEqual(reading((json.dumps(frame) + "\n").encode()), [[1, 500], None])
-        frame["imu"][0] = {"state": "unavailable"}
-        self.assertEqual(reading((json.dumps(frame) + "\n").encode()), [None, None])
 
 
 if __name__ == "__main__":

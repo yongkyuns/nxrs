@@ -16,7 +16,6 @@ from bumble.gatt import GATT_CLIENT_CHARACTERISTIC_CONFIGURATION_DESCRIPTOR
 from dashboard import SecureStream, Stream, connect, pump, run, wait_until, connect_map_export, luminance
 import tile_fixture
 from sensors import check_fix, check_live
-from tracker_protocol import NoFix, preferred_version
 from upload import CELLULAR_INTERVAL_S, COLLECTOR, TcpStamp, collector, is_live, network
 
 sys.path.append(str(Path(__file__).resolve().parents[2] / 'host'))
@@ -355,11 +354,14 @@ class Scenario:
         link = guest.ble_link
         if version == 3:
             capabilities = await asyncio.wait_for(stream.sample(), 5)
-            version = preferred_version(capabilities)
+            assert capabilities['export_version'] == 2 and all(stream.scales)
             link.notification_rate = 5_500
+            assert all(reading['utc_ms'] is not None for reading in
+                       [*capabilities['imu'], capabilities['gnss']])
             offsets = {reading['utc_ms'] - reading['received_ms'] for reading in
-                       [*capabilities['imu'], capabilities['gnss']] if reading.get('utc_ms') is not None}
-            assert len(offsets) <= 1, 'known UTC mappings disagree'
+                       [*capabilities['imu'], capabilities['gnss']]}
+            assert len(offsets) == 1
+            clock_offset, = offsets
         stream.tls.write(b'NXRS' + bytes([version]))
         fixed_bytes = 0
         wire_bytes = 0
@@ -368,7 +370,7 @@ class Scenario:
         count = [0] * 3
         started = time.monotonic()
         dashboard = []
-        minutes = minimum // EXPORT_SAMPLES_PER_MINUTE if version >= 3 else 0
+        minutes = minimum // EXPORT_SAMPLES_PER_MINUTE if version == 3 else 0
         faults = iter(
             (minute * EXPORT_SAMPLES_PER_MINUTE + count, action)
             for minute in range(minutes)
@@ -394,14 +396,7 @@ class Scenario:
                     continue
                 record, encoded = record
                 wire_bytes += encoded
-                known_offsets = {measurement.utc_ms - measurement.timestamp_ms for measurement in record
-                                 if not isinstance(measurement, NoFix) and measurement.utc_ms is not None}
-                assert len(known_offsets) <= 1, 'known UTC mappings disagree within a batch'
-                for measurement in record:
-                    if isinstance(measurement, NoFix):
-                        stream.observe_no_fix(measurement)
-                        continue
-                    tag, seq, tick, utc, values = measurement
+                for tag, seq, tick, utc, values in record:
                     index = tag - 1
                     fixed_bytes += 29 if tag == 3 else 33
                     if tag == 3:
@@ -409,6 +404,8 @@ class Scenario:
                         assert abs(lat - 48.1173) < 1e-6 and abs(lon + 11.5166667) < 1e-6
                     else:
                         assert values[0] < 0 if tag == 1 else values[0] > 0
+                    if version == 3:
+                        assert utc == tick + clock_offset, (tag, seq, tick, utc, clock_offset)
                     if latest[index] is None:
                         first[index] = tick
                         assert previous is None or seq > previous[index][0], (tag, seq, previous)
@@ -447,13 +444,16 @@ class Scenario:
                 fault = next(faults, None)
         assert fault is None, f'export finished before scheduled fault at {fault}'
         assert not link.notifications_to_drop and stream.out_of_order > 0
-        if version >= 3:
+        if version == 3:
             link.notification_rate = 0
             assert link.paced_notifications > 100
             assert wire_bytes < 0.65 * fixed_bytes, (wire_bytes, fixed_bytes)
             usb_tick = guest.samples[-1]['imu'][0]['received_ms']
             assert usb_tick - latest[0][1] < 800, (usb_tick, latest[0][1])
-            print('PASS: the 4.8–5.5 kB/s BLE limit retained all samples and preserved known or unknown UTC per batch',
+            snapshot = guest.samples[-1]
+            for reading in [*snapshot['imu'], snapshot['gnss'], self.collector_samples[1]['gnss']]:
+                assert reading['utc_ms'] - reading['received_ms'] == clock_offset
+            print('PASS: the 4.8–5.5 kB/s BLE limit retained all samples, with one UTC mapping on BLE, USB and TLS',
                   flush=True)
             print(f'PASS: compact export used {wire_bytes} payload bytes versus {fixed_bytes} fixed bytes',
                   flush=True)

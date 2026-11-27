@@ -9,11 +9,7 @@ pub fn connect(_: &str) -> Result<impl Session, Error> {
         fn status(&self) -> Status {
             Status::Failed(Error::Unsupported)
         }
-        fn request_stop(&mut self) {}
-        fn is_finished(&self) -> bool {
-            true
-        }
-        fn join(&mut self) -> Result<(), Error> {
+        fn stop(&mut self) -> Result<(), Error> {
             Ok(())
         }
     }

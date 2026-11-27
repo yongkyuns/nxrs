@@ -229,10 +229,8 @@ During the 4.8 kB/s interval, it drops ten isolated notifications spaced by
 controller completions still arrive. This covers a replay loop that can stall
 export even with the link up. A receiver that discards data after a gap
 also has to recover during the legacy export reconnect.
-The test requires contiguous measurement sequences, queue recovery and an
-advancing cellular stream. V4 no-fix events are tracked separately from valid
-fix counters. Known UTC mappings must agree within a batch; unmapped samples
-remain unknown, and a later batch can carry a corrected mapping.
+The test requires contiguous sequences, queue recovery, an advancing cellular
+stream, and one UTC mapping for sensor records on BLE, USB and cellular TLS.
 A legacy export reconnect uses the same pairing key.
 
 The coexistence image also enables NuttX stack coloration, the stack monitor,
@@ -291,12 +289,7 @@ sequences throughout the transfers.
 ## Replay an iPhone recording
 
 Share an NDJSON file from **Motion Tracker → Recordings**, then build the
-native simulator and pass a supported file to its runner. It accepts historical
-version-1 archives and complete version-2 histories whose measurements all have
-`timestamp_provenance: "capture"`. Version-2 recordings containing receipt or
-unknown timing, no-fix events, source failures or an incomplete footer are
-rejected explicitly: the native fixture cannot preserve that evidence. The
-recording format supports more states than native replay currently does.
+native simulator and pass the file to its runner.
 
 ```sh
 cargo nxrs build --app motion-tracker --profile nuttx-sim-tracker \
@@ -310,24 +303,18 @@ python3 tests/nuttx-std/tracker-sim/native.py target/nuttx-sim-tracker/nuttx/nut
 The runner validates the archive and stages it in a temporary fixture mount.
 It starts playback when both BMI270 models are configured and the UART peer
 has acknowledged GNSS configuration. IMU FIFO frames and GNSS fixes follow
-the archived timeline at 1× speed, including FIFO batches and
+the shared tracker reception timeline at 1× speed, including FIFO batches and
 gaps. The console log contains the tracker’s normal USB reports. The runner
 checks that both modeled FIFOs drained their recorded counts and that the UART
 peer sent all fixes.
 
-Both archive versions use a `nxrs-motion-tracker` header and an explicit
-completion record. Version 1 supplies `received_ms`; playback labels this as
-a historical arrival schedule with unknown original capture timing. Version 2
-uses `timestamp_ms` plus explicit provenance. The accepted capture-qualified
-subset preserves its timestamps as the input schedule. Sample rows also retain
-original sequences and optional UTC. The native drivers assign new sequences
-and device timing during playback; playback does not qualify original hardware
-capture timing. IMU values are quantized to the profile’s BMI270 range.
+The archive begins with a version-1 `nxrs-motion-tracker` header and ends with
+an explicit completion record. Sample rows preserve original sequences and
+optional UTC. The native drivers assign new sequences and reception timestamps
+during playback. IMU values are quantized to the profile’s BMI270 range.
 The GNSS peer reconstructs position, speed and available UTC through UBX.
 Samples with repeated timestamps retain their source order and share a due time.
 
-For version 1, the fixture retains compatibility with finalized recordings
-marked incomplete and preserves their missing intervals. Version 2 requires a
-complete capture-qualified history. Empty archives and missing or contradictory
-footers are rejected in both versions.
+The fixture accepts finalized recordings marked incomplete and preserves their
+missing intervals. It rejects empty archives and requires a valid footer.
 NuttX scheduling and device-read timing still affect when tasks observe samples.

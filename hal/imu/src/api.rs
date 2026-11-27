@@ -12,36 +12,6 @@ pub enum DeviceError {
     InvalidData,
 }
 
-/// Independent terminal acquisition and cleanup evidence for a joined session.
-/// Cleanup can fail after acquisition has already failed; neither cause erases
-/// the other. This does not enumerate every individual cleanup operation.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Failure {
-    pub acquisition: Option<DeviceError>,
-    pub cleanup: Option<DeviceError>,
-}
-
-impl From<DeviceError> for Failure {
-    fn from(error: DeviceError) -> Self {
-        Self {
-            acquisition: Some(error),
-            cleanup: None,
-        }
-    }
-}
-
-impl Failure {
-    pub(crate) fn reported_error(self) -> DeviceError {
-        self.acquisition.or(self.cleanup).unwrap_or(DeviceError::Io)
-    }
-
-    pub(crate) fn joined_error(self) -> DeviceError {
-        // Preserve the existing join contract: uncertain cleanup takes
-        // precedence, while failure() keeps the acquisition cause as well.
-        self.cleanup.or(self.acquisition).unwrap_or(DeviceError::Io)
-    }
-}
-
 pub use peripheral::imu::{AppliedConfig, Config};
 
 pub trait Sealed {}
@@ -86,9 +56,6 @@ pub struct ImuSample {
     pub sequence: u64,
     /// Microseconds on the shared monotonic device clock.
     pub timestamp_us: u64,
-    /// Delivery time on the same monotonic clock, before calling the sink.
-    /// Capture age is available only when `is_capture_time` is true.
-    pub received_us: u64,
     /// True for an estimated capture time. Otherwise the timestamp is reception time.
     pub is_capture_time: bool,
     /// Nominal hardware sampling interval, independent of delivery batching.
@@ -110,17 +77,8 @@ pub enum Event {
 /// Drop requests cancellation without blocking; the worker retains resources.
 pub trait Session {
     fn request_stop(&mut self) -> Result<(), DeviceError>;
-    /// Request cancellation and join. If this fails while `is_finished()` is
-    /// false, retain the session and retry; the worker still owns its resources.
     fn join(&mut self) -> Result<(), DeviceError>;
     fn is_finished(&self) -> bool;
-    /// Terminal detail retained after `join`, independently of event delivery.
-    /// None means no retained detail (including a running/unjoined session or
-    /// a provider that only implements the legacy single-error contract, or a
-    /// worker panic whose failure phase is unknown).
-    fn failure(&self) -> Option<Failure> {
-        None
-    }
     /// Events rejected because the destination was full, saturated at u32::MAX.
     fn dropped(&self) -> u32;
 }

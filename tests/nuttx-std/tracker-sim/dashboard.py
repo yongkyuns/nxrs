@@ -33,7 +33,6 @@ import zxingcpp
 from run import listener
 import tile_fixture
 from sensors import NeoM9n, check_imus, check_live, check_stale
-from tracker_protocol import NoFix, decode_batch, preferred_version
 
 WIDTH, HEIGHT = 320, 240
 SERVICE = UUID('3CB1DE6E-A955-49B7-BE4F-C4572D3F3400')
@@ -43,6 +42,45 @@ EXPORT_SERVICE = UUID('3CB1DE6E-A955-49B7-BE4F-C4572D3F3420')
 EXPORT_RX = UUID('3CB1DE6E-A955-49B7-BE4F-C4572D3F3421')
 EXPORT_TX = UUID('3CB1DE6E-A955-49B7-BE4F-C4572D3F3422')
 TRACKER = Address('F0:F1:F2:F3:F4:01', Address.PUBLIC_DEVICE_ADDRESS)
+
+def decode_batch(payload, version, scales):
+    """Decode each batch into full timestamps, SI measurements, and optional UTC."""
+    timed = version == 3
+    utc_offset = struct.unpack_from('<q', payload)[0] if timed else None
+    previous = {}
+    records = []
+    pos = 8 if timed else 0
+    while pos < len(payload):
+        tag = payload[pos]
+        delta = version >= 2 and tag & 0x80
+        counts = timed and tag & 0x40
+        source = tag & (0x1f if timed else 0x7f)
+        assert source in (1, 2, 3) and (source != 3 or not counts)
+        header = 2 if delta else 13 if timed else 9
+        end = pos + header + (20 if source == 3 else 12 if counts else 24)
+        assert end <= len(payload), 'partial tracker record'
+        if delta:
+            seq, stamp = previous[source]
+            seq = (seq + 1) & 0xffffffff
+            stamp += payload[pos + 1]
+            if not timed:
+                stamp &= 0xffffffff
+        else:
+            seq, stamp = struct.unpack_from('<IQ' if timed else '<II', payload, pos + 1)
+        previous[source] = seq, stamp
+        utc = (stamp + utc_offset
+               if timed and utc_offset != -(1 << 63) and not tag & 0x20 else None)
+        offset = pos + header
+        if counts:
+            points = struct.unpack_from('<6h', payload, offset)
+            scale = scales[source - 1]
+            values = tuple(point * scale[axis // 3] for axis, point in enumerate(points))
+        else:
+            values = struct.unpack_from('<ddf' if source == 3 else '<6f', payload, offset)
+        records.append((source, seq, stamp, utc, values))
+        pos = end
+    return records
+
 
 def luminance(rgb):
     red = (rgb >> 11) * 255 // 31
@@ -365,8 +403,6 @@ class SecureStream:
         self.rx = rx
         self.tx = tx
         self.buffer = bytearray()
-        self.no_fix_count = 0
-        self.last_no_fix = None
         self.notifications = None
         self.notification_overflow = False
         self.offset = 0
@@ -498,9 +534,8 @@ class SecureStream:
             if self.buffer[:1] == b'\xa5' and len(self.buffer) >= 4:
                 size = 4 + int.from_bytes(self.buffer[2:4], 'little')
                 version = self.buffer[1]
-                assert version in (1, 2, 3, 4), 'unsupported tracker export version'
-                terminal = (version == 1 and size == 4) or (version >= 2 and size == 9) or (version == 4 and size == 6)
-                assert terminal or 33 <= size <= (604 if version >= 3 else 532), 'invalid tracker frame length'
+                assert size not in (4, 9), 'tracker reported sensor export buffer overflow'
+                assert version in (1, 2, 3) and 33 <= size <= (604 if version == 3 else 532)
                 if len(self.buffer) >= size:
                     batch = bytes(self.buffer[4:size])
                     del self.buffer[:size]
@@ -524,21 +559,13 @@ class SecureStream:
             self.max_batch_gap = max(self.max_batch_gap, now - self.last_batch_received)
         self.last_batch_received = now
         measurements, _ = record
-        for measurement in measurements:
-            if isinstance(measurement, NoFix):
-                self.observe_no_fix(measurement)
-                continue
-            source, seq, tick, _, _ = measurement
+        for source, seq, tick, _, _ in measurements:
             index = source - 1
             previous = self.sample_sequences[index]
             assert previous is None or seq == ((previous + 1) & 0xffffffff), (source, previous, seq)
             self.sample_counts[index] += 1
             self.sample_sequences[index] = seq
             self.sample_ticks[index] = (tick if previous is None else self.sample_ticks[index][0], tick)
-
-    def observe_no_fix(self, status):
-        self.no_fix_count += 1
-        self.last_no_fix = status
 
     def export_rates(self):
         return [(count - 1) * 1000 / ((end - start) & 0xffffffff)
@@ -599,7 +626,8 @@ async def connect_map_export(phone, key):
                 break
     await stream.handshake()
     capabilities = await stream.sample()
-    stream.tls.write(b'NXRS' + bytes([preferred_version(capabilities)]))
+    assert capabilities['export_version'] == 2 and all(stream.scales), capabilities
+    stream.tls.write(b'NXRS\x03')
     await stream.flush()
     return connection, stream
 
@@ -617,7 +645,7 @@ async def scenario(guest, panel, phone, args):
         if not guest.samples:
             return False
         snapshot = guest.samples[-1]
-        return all(source['state'] in ('live', 'received') for source in [*snapshot['imu'], snapshot['gnss']])
+        return all(source['state'] == 'live' for source in [*snapshot['imu'], snapshot['gnss']])
 
     await wait_until(all_live, 'live sensor readings')
     check_live(guest.samples[-1])

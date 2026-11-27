@@ -1,4 +1,3 @@
-use crate::teardown::{self, COMMAND};
 use crate::{Error, Session, Status};
 use frames::MTU;
 use ppproto::{
@@ -17,11 +16,13 @@ use std::time::{Duration, Instant};
 
 mod ffi;
 mod frames;
+const COMMAND: Duration = Duration::from_secs(2);
 const DIAL: Duration = Duration::from_secs(120);
 const NEGOTIATION: Duration = Duration::from_secs(30);
 const RETRY_REQUEST: Duration = Duration::from_secs(3);
 const ECHO_INTERVAL: Duration = Duration::from_secs(5);
 const ECHO_MISSES: u8 = 3;
+const GUARD: Duration = Duration::from_millis(1100);
 static OWNED: Mutex<Lease> = Mutex::new(Lease::Available);
 
 #[derive(Clone, Copy)]
@@ -131,17 +132,10 @@ impl Session for Link {
         *self.shared.status.lock().unwrap()
     }
 
-    fn request_stop(&mut self) {
+    fn stop(&mut self) -> Result<(), Error> {
         self.shared.stop.store(true, Ordering::Release);
         // Closing the writer wakes poll on the reader with POLLHUP.
         drop(self.stop.take());
-    }
-
-    fn is_finished(&self) -> bool {
-        self.worker.as_ref().is_none_or(JoinHandle::is_finished)
-    }
-
-    fn join(&mut self) -> Result<(), Error> {
         if let Some(worker) = self.worker.take() {
             self.stopped = Some(worker.join().unwrap_or_else(|_| {
                 *OWNED.lock().unwrap() = Lease::Faulted;
@@ -228,7 +222,17 @@ fn attempt(context: &str, shared: &Shared, stop: &File, online: &mut bool) -> Re
         modem.cancel = None;
         // SIM7080G uses guarded escape to leave online data mode on this
         // two-wire UART. Do not release the modem until AT mode is verified.
-        teardown::command_mode(&mut modem)?;
+        thread::sleep(GUARD);
+        modem
+            .write(b"+++", Instant::now() + COMMAND)
+            .map_err(|_| Error::RecoveryRequired)?;
+        thread::sleep(GUARD);
+        let _ = modem.response(Reply::Ok, Instant::now() + COMMAND);
+        if modem.command(b"ATH\r", Reply::Ok, COMMAND).is_err()
+            && modem.command(b"AT\r", Reply::Ok, COMMAND).is_err()
+        {
+            return Err(Error::RecoveryRequired);
+        }
     }
     result
 }
@@ -236,21 +240,6 @@ fn attempt(context: &str, shared: &Shared, stop: &File, online: &mut bool) -> Re
 struct Modem<'a> {
     uart: &'a mut File,
     cancel: Option<(&'a AtomicBool, &'a File)>,
-}
-
-impl teardown::Control for Modem<'_> {
-    fn now(&self) -> Instant {
-        Instant::now()
-    }
-    fn pause(&mut self, duration: Duration) {
-        thread::sleep(duration);
-    }
-    fn write(&mut self, bytes: &[u8], deadline: Instant) -> Result<(), Error> {
-        self.write(bytes, deadline)
-    }
-    fn ok(&mut self, deadline: Instant) -> Result<(), Error> {
-        self.response(Reply::Ok, deadline)
-    }
 }
 
 impl Modem<'_> {
@@ -284,11 +273,6 @@ impl Modem<'_> {
         if self.cancelled() {
             return Err(Error::LinkLost);
         }
-        // Readiness is only a wake hint. A delayed scheduling return must not
-        // admit another UART operation beyond the caller's absolute deadline.
-        if Instant::now() >= deadline {
-            return Err(Error::Timeout);
-        }
         Ok(())
     }
 
@@ -315,12 +299,6 @@ impl Modem<'_> {
         let mut line = [0; 192];
         let mut len = 0;
         loop {
-            if self.cancelled() {
-                return Err(Error::LinkLost);
-            }
-            if Instant::now() >= deadline {
-                return Err(Error::Timeout);
-            }
             let mut byte = [0];
             match self.uart.read(&mut byte) {
                 Ok(1) => (),
@@ -349,6 +327,9 @@ impl Modem<'_> {
                     len += 1;
                 }
                 _ => len = line.len() + 1,
+            }
+            if self.cancelled() || Instant::now() >= deadline {
+                return Err(Error::Timeout);
             }
         }
     }

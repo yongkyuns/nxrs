@@ -7,30 +7,8 @@ active acquisition. Receiver protocol operations remain in the UBX driver.
 fix API. `driver/peripheral::gnss::Receiver` defines bounded synchronous
 configuration, restoration and measurement operations. `driver/ubx` implements
 it. Services receive WGS84 coordinates, speed in m/s, and optional course in
-radians. On NuttX, `timestamp_us` and `received_us` use the same monotonic
-clock as IMU samples. `is_capture_time` identifies PPS-aligned fixes; their
-age at reception is `received_us - timestamp_us`. Other fixes use reception
-time and have unknown capture age. Mock and simulation use their own declared
-provider timeline. Comparing timestamps across providers requires a shared
-clock domain; a recent reception alone does not establish a recent measurement.
-
-Each admitted session receives a nonzero, boot-scoped `generation` that is
-never reused. `source_epoch_ms` retains receiver time independently of receipt
-and capture time. The HAL admits only forward epochs within a generation,
-suppresses duplicates, and accepts the UBX GPS-week rollover using its declared
-604,800,000 ms modulus. A step of half a week or more is ambiguous and rejected.
-A backwards epoch never implies a receiver reset. Restarting epoch ordering
-requires a newly configured session after the previous session has joined.
-These rules cannot identify replay that remains ordered within the forward
-window; fixes without capture timing keep that uncertainty visible.
-
-`Event::NoFix` invalidates the current solution immediately while preserving
-the last accepted position as history in navigation readers. A no-fix update
-can invalidate a fix from the same epoch; a repeated fix from that epoch
-cannot restore availability. A later valid epoch restores the solution.
-`NoFix` includes the generation, reception time and, when supplied by the
-protocol, receiver epoch. It is normal receiver progress, not a terminal
-device failure. Silence still expires the reader's freshness budget.
+radians. `timestamp_us` uses the same monotonic clock as IMU samples.
+`is_capture_time` identifies PPS-aligned fixes. Other fixes use reception time.
 
 `GnssFix::quality` reports satellites used, estimated horizontal and vertical
 accuracy in metres, speed accuracy in m/s, and optional position DOP (PDOP).
@@ -53,10 +31,8 @@ Services receive the selected device through `GnssService::start_on`.
 The reusable `driver/ubx` crate runs M9 protocol transactions over an injected
 byte stream. It uses `kinavis-ubx` for NAV-PVT decoding and configuration codecs.
 It checks the wire checksum and summarizes the variable-length NAV-SAT report
-one satellite at a time, using fixed storage. The HAL reports rejected frames
-and epochs as `InvalidFrame` without terminating acquisition; terminal
-transport and restoration failures remain sticky.
-[kinavis-ubx](https://github.com/KINAVIS/kinavis)
+one satellite at a time, using fixed storage. The HAL suppresses repeated fix
+epochs. [kinavis-ubx](https://github.com/KINAVIS/kinavis)
 
 Acquisition enables UART1 NAV-PVT every navigation epoch **in RAM only**. It
 spaces NAV-SAT reports at least three seconds apart according to the UART
@@ -81,9 +57,6 @@ and never waits for measurement queue capacity. Full rejections are counted by
 `dropped()`; terminal faults are retained in `join()` and retried with one pending
 event. `request_stop()` wakes the wait; explicitly `join()` before treating the
 resource as released. Drop requests cancellation without a hidden join.
-An error from cancellation or join does not establish quiescence. A running
-session retains its handle for another stop/join attempt, and a completed
-worker can be joined even if its cancellation source has failed.
 
 Product builds derive the catalogue's additive `ubx` Cargo feature from the
 profile. Direct Cargo qualification must enable it explicitly. Unbound builds
