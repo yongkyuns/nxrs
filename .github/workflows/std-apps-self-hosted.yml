@@ -434,6 +434,7 @@ jobs:
           path: |
             target/firmware/${{ matrix.app }}/*/*.log
             target/firmware/${{ matrix.app }}/*/*.json
+            target/firmware/${{ matrix.app }}/*/stack-handover-variants/
             target/firmware/${{ matrix.app }}/*/*.config
             target/firmware/${{ matrix.app }}/*/nuttx/nuttx
             target/firmware/${{ matrix.app }}/*/nuttx/nuttx.map
@@ -442,5 +443,4 @@ jobs:
             target/firmware/${{ matrix.app }}/*/memory-explorer/
             target/firmware/${{ matrix.app }}/*/memory-timing/
             target/firmware/${{ matrix.app }}/*/heap-replay/
-            target/firmware/${{ matrix.app }}/*/stack-handover-variants/
           if-no-files-found: warn
