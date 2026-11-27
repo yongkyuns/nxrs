@@ -8,7 +8,8 @@ trace-only-backtrace = true
 
 [scheduling]
 background = 90
-normal = 100
+# Acquisition workers use NuttX's default priority of 100.
+normal = 99
 
 [devices.onboard]
 compatible = "bosch,bmi270"

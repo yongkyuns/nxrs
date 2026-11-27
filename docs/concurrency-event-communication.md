@@ -174,8 +174,8 @@ isolating the timeout and checking hardware FIFO continuity.
 
 #### CoreS3 fixed-reader comparison
 
-With the same profile and priorities, the display retained an IMU reader slot
-through a 120 ms forced pause. Both IMUs kept publishing, with 15 and 12
+With the original profile priorities, the display retained an IMU reader
+slot through a 120 ms forced pause. Both IMUs kept publishing, with 15 and 12
 publications during the pause, and the longest callback was 2.41 ms. In a
 combined repeat with BLE acknowledgments held for 0.95 s, the IMUs published
 11 and 12 samples during the pause and the longest callback was 2.50 ms. Both
@@ -185,14 +185,23 @@ A 0.95 s acknowledgment hold alone raised queue depth to 148 records with
 contiguous received sequences. A 7 s hold filled the 512-record queue. The peer
 received all 1,099 admitted records followed by the first-loss marker.
 
-The BMI270 timeout also occurred with fixed readers. Target traces showed
-three consecutive FIFO length snapshots crossing sensor sampling boundaries,
-which is when the driver returns `Timeout`. Both IMUs stayed live in the
-25-second BLE-off and advertising-only controls. The connected runs establish
-the failure path. The cause of the extended register-read intervals and
-sustained acquisition remain open.
+The BMI270 timeout also occurred with fixed readers after three FIFO snapshots
+crossed sensor sampling boundaries. A CoreS3 trace separated the bus lock,
+controller interrupts and dispatch after the interrupt. In one 12.50 ms read,
+the controller phases took 0.52 ms and the acquisition worker waited another
+11.90 ms to resume. The bus lock took 8 µs. Dispatch dominated 106 of the
+first 112 retained slow reads, and `tracker-links` was the most frequent
+running task at completion.
 
-The matched build added 3,348 bytes of linked flash and 104 bytes to the boot
+The dual-IMU profile gives communications priority 99 and keeps acquisition
+at 100. In the matched control with the Mac BLE peer, the longest retained
+post-interrupt delay fell to 4.38 ms. Both IMUs maintained continuous 100 Hz
+timestamps in the control, forced display pause, 0.95 s acknowledgment hold,
+and both combined runs. During the 7 s acknowledgment hold, both IMUs kept
+sampling and the peer received all 1,103 admitted records before the expected
+overflow marker.
+
+The matched fixed-reader build added 3,348 bytes of linked flash and 104 bytes to the boot
 image. Publication setup used 3,720 bytes of heap versus 480 bytes. Static RAM
 and task stack reservations were identical.
 
