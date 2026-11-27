@@ -432,6 +432,27 @@ jobs:
           NXRS_HEAP_REQUEST_EVIDENCE="$request_output/capture" \
             cargo +1.90.0 test --locked -p nxrs-memory-explorer \
               --test requests_qemu -- --ignored --nocapture
+      - name: Measure allocator recorder object and record costs
+        if: matrix.app == 'std-demo'
+        shell: bash
+        run: |
+          set -euo pipefail
+          request_sources="$GITHUB_WORKSPACE/target/memory-timing-sources"
+          request_firmware="$GITHUB_WORKSPACE/target/firmware/std-demo/mps2-an521-mock"
+          request_output="$request_firmware/heap-requests"
+          request_baseline=604975b086d0dad5ac3a973190ebcb283b1c875e
+          # The checkout is shallow. Fetch the exact entry-only baseline without
+          # changing the tested checkout or relying on a moving branch.
+          git fetch --no-tags --depth=1 origin "$request_baseline"
+          for optimization in O0 Os; do
+            python3 tools/memory-explorer/tests/measure_request_cost.py \
+              --nuttx-context "$request_firmware/nuttx" \
+              --context-receipt "$request_firmware/nuttx-patches.json" \
+              --config "$request_output/build/resolved.config" \
+              --baseline-ref "$request_baseline" --candidate-ref "$GITHUB_SHA" \
+              --optimization "$optimization" \
+              --output "$request_output/cost-$optimization"
+          done
           # The allocator builder leaves its known production patch applied.
           # Restore only that patch after retaining and checking its evidence;
           # the next builder independently requires tracked-clean sources.

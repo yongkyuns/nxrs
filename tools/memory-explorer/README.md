@@ -611,6 +611,15 @@ sum are not application allocation counts or net heap growth. A returned address
 does not establish a lifetime, its later ownership, or committed chunk geometry.
 Use a separately admitted [heap journal](#replay-one-heap) for topology replay.
 
+The [recorder cost comparison](../../docs/nuttx-memory-qualification.md#allocator-recorder-cost)
+measures the affected native object code, static storage, record sizes, and
+compiler-reported function stack frames separately from viewer performance.
+On the measured 32-bit MPS2 ABI, an entry-only request occupies 32 bytes; the
+paired request and result occupy 56 and 40 bytes. Both use the existing bounded
+note ring, so complete pairs consume its available space faster. Nested calls
+have their own records. These sizes exclude other heap and scheduler notes,
+and elapsed allocator-call durations do not measure instrumentation overhead.
+
 ### Record several sensor cycles
 
 A memory snapshot describes one observed state. A timing recording can cover
