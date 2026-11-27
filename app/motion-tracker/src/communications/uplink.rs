@@ -211,12 +211,15 @@ impl Modem {
 
     pub fn stop(&mut self) -> io::Result<()> {
         self.signals.stopping.store(true, Ordering::Release);
-        let dial_result = self.task.take().map_or(Ok(()), |task| {
+        if let Some(task) = &self.task {
             task.thread().unpark();
+        }
+        // Modem teardown and the bounded TCP connect can now finish together.
+        let link_result = self.link.stop().map_err(io::Error::other);
+        let dial_result = self.task.take().map_or(Ok(()), |task| {
             task.join()
                 .map_err(|_| io::Error::other("tracker collector dial task panicked"))
         });
-        let link_result = self.link.stop().map_err(io::Error::other);
         dial_result.and(link_result)
     }
 }

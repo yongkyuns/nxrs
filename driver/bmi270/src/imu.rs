@@ -41,7 +41,12 @@ impl<T: Registers, D: DelayNs> imu::Imu for Device<T, D> {
         now_us: impl FnMut() -> u64,
         emit: impl FnMut(imu::Measurement) -> bool,
     ) -> Result<Option<usize>, imu::Error> {
-        self.drain(now_us, emit).map_err(Into::into)
+        self.drain(now_us, emit).map_err(|error| match error {
+            // drain's only timeout is an incoherent length/clock snapshot;
+            // it has not consumed FIFO bytes or changed the capture phase.
+            Error::Timeout => imu::Error::WouldBlock,
+            error => error.into(),
+        })
     }
 
     fn stop(&mut self) -> Result<(), imu::Error> {

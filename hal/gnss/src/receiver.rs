@@ -53,6 +53,7 @@ impl<R: Protocol> Receiver<R> {
                         ))));
                         return;
                     }
+                    Err(peripheral::gnss::Error::NoFix) => return emit(Ok(Event::NoFix)),
                     Err(error) => return emit(Err(map_error(error))),
                 };
                 if self.last_epoch == Some(report.epoch_ms) {

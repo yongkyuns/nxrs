@@ -97,6 +97,9 @@ impl<S: Imu> Device<S> {
     ) -> Result<(), DeviceError> {
         let mut sequence = 0u64;
         let sample_interval_us = 1_000_000_000u32.div_ceil(self.applied.rate_millihz);
+        // Three later delivery opportunities tolerate scheduling interference
+        // without indefinitely preserving a stream that cannot be read.
+        let mut snapshot_retries = 0;
         let result = (|| {
             while !stop.load(Ordering::Acquire) {
                 let Some(ready) = self.signal.wait(wake)? else {
@@ -116,10 +119,22 @@ impl<S: Imu> Device<S> {
                     }))
                 }));
                 self.trace.drain(matches!(&drained, Ok(Some(_))));
-                let Some(count) = drained? else {
-                    break;
-                };
-                self.signal.drained(count)?;
+                match drained {
+                    Ok(Some(count)) => {
+                        snapshot_retries = 0;
+                        self.signal.drained(count)?;
+                    }
+                    Ok(None) => break,
+                    Err(Error::WouldBlock) if snapshot_retries < 3 => {
+                        snapshot_retries += 1;
+                        let period =
+                            Duration::from_micros(self.applied.delivery_interval_us.into());
+                        if !self.signal.retry(wake, period)? {
+                            break;
+                        }
+                    }
+                    Err(error) => return Err(error.into()),
+                }
             }
             Ok(())
         })();

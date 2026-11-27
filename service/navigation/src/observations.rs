@@ -19,6 +19,7 @@ pub enum Reading<T> {
 enum Latest<T> {
     Waiting,
     Sample { value: T, received: Instant },
+    Stale,
     Fault,
 }
 
@@ -48,6 +49,12 @@ impl<T: Copy> Source<T> {
         first
     }
 
+    fn stale(&mut self) {
+        if !matches!(self.latest, Latest::Fault) {
+            self.latest = Latest::Stale;
+        }
+    }
+
     fn reading(&self, now: Instant) -> Reading<T> {
         match self.latest {
             Latest::Waiting => Reading::Waiting,
@@ -56,7 +63,7 @@ impl<T: Copy> Source<T> {
             {
                 Reading::Live(value)
             }
-            Latest::Sample { .. } => Reading::Stale,
+            Latest::Sample { .. } | Latest::Stale => Reading::Stale,
             Latest::Fault => Reading::Fault,
         }
     }
@@ -128,6 +135,11 @@ impl<const IMUS: usize> Observations<IMUS> {
                 self.imu_sample(index, sample, received)
             }
             Input::Gnss(gnss::Event::Fix(fix)) => self.gnss_fix(fix, received),
+            Input::Gnss(gnss::Event::NoFix) => {
+                if let Some(source) = &mut self.gnss {
+                    source.stale();
+                }
+            }
             Input::Gnss(gnss::Event::Satellites(_) | gnss::Event::InvalidFrame) => {}
             Input::Imu(index, imu::Event::Failed(error)) => {
                 return self
@@ -348,17 +360,40 @@ impl<const IMUS: usize> ObservationService<IMUS> {
     /// Join every session after cancellation has been requested.
     pub fn join(&mut self, mut report: impl FnMut(SensorFault)) {
         for (index, slot) in self.imu.iter_mut().enumerate() {
-            if let Some(error) = slot.take().and_then(|mut session| session.join().err()) {
-                report(SensorFault::Imu(index, error));
+            if let Some(session) = slot.as_mut() {
+                let result = session.join();
+                let finished = session.is_finished();
+                if finished && result.is_err() {
+                    // It may have completed just after a failed cancellation.
+                    let _ = session.join();
+                }
+                if let Err(error) = result {
+                    report(SensorFault::Imu(index, error));
+                }
+                if finished {
+                    *slot = None;
+                }
             }
         }
-        if let Some(error) = self
-            .gnss
-            .take()
-            .and_then(|mut session| session.join().err())
-        {
-            report(SensorFault::Gnss(error));
+        if let Some(session) = self.gnss.as_mut() {
+            let result = session.join();
+            let finished = session.is_finished();
+            if finished && result.is_err() {
+                let _ = session.join();
+            }
+            if let Err(error) = result {
+                report(SensorFault::Gnss(error));
+            }
+            if finished {
+                self.gnss = None;
+            }
         }
+    }
+
+    /// True only after all admitted sessions have finished and been joined.
+    /// A failed cancellation can leave a session retained for another attempt.
+    pub fn is_quiescent(&self) -> bool {
+        self.imu.iter().all(Option::is_none) && self.gnss.is_none()
     }
 }
 
@@ -379,6 +414,10 @@ fn sink<T: Copy, E>(
 mod tests {
     use super::*;
     use messaging::DeliveryError;
+    use std::sync::{
+        atomic::{AtomicBool, AtomicUsize, Ordering},
+        Arc,
+    };
 
     #[test]
     fn observation_callback_can_own_mutable_state() {
@@ -427,19 +466,20 @@ mod tests {
         assert_eq!(display.satellites(now), Reading::Fault);
     }
 
-    struct FinishedImu;
+    struct TestImu(Arc<AtomicBool>, Arc<AtomicUsize>);
 
-    impl imu::Session for FinishedImu {
+    impl imu::Session for TestImu {
         fn request_stop(&mut self) -> Result<(), imu::DeviceError> {
             Ok(())
         }
 
         fn join(&mut self) -> Result<(), imu::DeviceError> {
+            self.1.fetch_add(1, Ordering::Relaxed);
             Err(imu::DeviceError::Io)
         }
 
         fn is_finished(&self) -> bool {
-            true
+            self.0.load(Ordering::Acquire)
         }
 
         fn dropped(&self) -> u32 {
@@ -450,7 +490,10 @@ mod tests {
     #[test]
     fn reaping_recovers_a_terminal_fault_with_no_inbox_capacity() {
         let mut service = ObservationService::<1>::new(Duration::from_millis(500), None);
-        service.imu[0] = Some(Box::new(FinishedImu));
+        service.imu[0] = Some(Box::new(TestImu(
+            Arc::new(AtomicBool::new(true)),
+            Arc::new(AtomicUsize::new(0)),
+        )));
         let (sender, inbox) = messaging::bounded(1);
         let mut deliver = sink(sender, |event| Input::Imu(0, event), Some);
         let sample = imu::ImuSample {
@@ -471,6 +514,63 @@ mod tests {
         assert_eq!(faults, [SensorFault::Imu(0, imu::DeviceError::Io)]);
         assert!(service.observe(inbox.try_recv().unwrap()).is_none());
         assert_eq!(service.snapshot(Instant::now()).imu, [Reading::Fault]);
+    }
+
+    #[test]
+    fn failed_join_retains_an_unfinished_session_but_retires_a_finished_fault() {
+        let mut service = ObservationService::<1>::new(Duration::ZERO, None);
+        let finished = Arc::new(AtomicBool::new(false));
+        let joins = Arc::new(AtomicUsize::new(0));
+        service.imu[0] = Some(Box::new(TestImu(finished.clone(), joins.clone())));
+        service.join(|fault| assert_eq!(fault, SensorFault::Imu(0, imu::DeviceError::Io)));
+        assert!(!service.is_quiescent());
+        finished.store(true, Ordering::Release);
+        service.join(|fault| assert_eq!(fault, SensorFault::Imu(0, imu::DeviceError::Io)));
+        assert!(service.is_quiescent());
+        assert_eq!(
+            joins.load(Ordering::Relaxed),
+            3,
+            "finished error path must complete the join"
+        );
+    }
+
+    #[test]
+    fn no_fix_immediately_stales_both_readers_and_the_next_fix_recovers() {
+        let freshness = Duration::from_secs(3);
+        let mut values = Observations::<0>::new(Duration::ZERO, Some(freshness));
+        let (_, mut writer, [mut display, mut links]) =
+            fixed_readers::<0>(Duration::ZERO, freshness);
+        let now = Instant::now();
+        let fix = gnss::GnssFix {
+            sequence: 1,
+            timestamp_us: 0,
+            is_capture_time: false,
+            receiver_utc_ms: None,
+            latitude_deg: 45.0,
+            longitude_deg: -76.0,
+            speed_mps: 0.0,
+            course_rad: None,
+            quality: None,
+        };
+        let recovered = gnss::GnssFix { sequence: 2, ..fix };
+        for (event, expected) in [
+            (gnss::Event::NoFix, Reading::Stale),
+            (gnss::Event::Fix(fix), Reading::Live(fix)),
+            (gnss::Event::NoFix, Reading::Stale),
+            (gnss::Event::Fix(recovered), Reading::Live(recovered)),
+            (gnss::Event::Failed(gnss::DeviceError::Io), Reading::Fault),
+            (gnss::Event::NoFix, Reading::Fault),
+        ] {
+            let observation = Observation {
+                input: Input::Gnss(event),
+                received: now,
+            };
+            values.observe(&observation);
+            let _ = writer.record(&observation);
+            assert_eq!(values.snapshot(now).gnss, Some(expected));
+            assert_eq!(display.snapshot(now).gnss, Some(expected));
+            assert_eq!(links.snapshot(now).gnss, Some(expected));
+        }
     }
 
     #[test]

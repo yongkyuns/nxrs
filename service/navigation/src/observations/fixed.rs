@@ -40,6 +40,14 @@ impl<T: Copy + Send> Pair<T> {
             input.write(value);
         }
     }
+
+    fn stale(&mut self) {
+        let mut value = Source::new(self.1);
+        value.stale();
+        for input in &mut self.0 {
+            input.write(value);
+        }
+    }
 }
 
 enum SourceSlots {
@@ -79,6 +87,10 @@ impl<const IMUS: usize> Publisher<IMUS> {
                 gnss::Event::Fix(value) => {
                     fixes.publish(value, received);
                     return Ok(observation.measurement());
+                }
+                gnss::Event::NoFix => {
+                    fixes.stale();
+                    return Ok(None);
                 }
                 gnss::Event::Satellites(report) => {
                     let mut value = Source::new(Duration::from_millis(
