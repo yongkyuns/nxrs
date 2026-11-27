@@ -26,6 +26,19 @@
 #define MAX_DUMP_BYTES (256 * 1024)
 #define CHECKPOINTS 4
 
+/* NuttX timestamps a note before appending it to the RAM ring. Keep each
+ * fixture marker atomic against the SysTick IRQ so the single-core stream
+ * retains timestamp order. Leave interrupts enabled during the measured work.
+ */
+#define TIMING_NOTE(record) \
+  do \
+    { \
+      irqstate_t flags = up_irq_save(); \
+      record; \
+      up_irq_restore(flags); \
+    } \
+  while (0)
+
 /* Qualification state is fixed storage, read by GDB without target calls.
  * The host supplies a fresh run nonce and independently checks its target copy.
  */
@@ -155,19 +168,19 @@ static void *worker(void *arg)
           return NULL;
         }
 
-      sched_note_beginex(NOTE_TAG_ALWAYS, "timing/worker");
-      sched_note_beginex(NOTE_TAG_ALWAYS, "timing/busy");
+      TIMING_NOTE(sched_note_beginex(NOTE_TAG_ALWAYS, "timing/worker"));
+      TIMING_NOTE(sched_note_beginex(NOTE_TAG_ALWAYS, "timing/busy"));
       clock_t start = perf_gettime();
       while (perf_gettime() - start < frequency / 500)
         {
           /* Two milliseconds on the declared target clock; no CPU benchmark. */
         }
-      sched_note_endex(NOTE_TAG_ALWAYS, "timing/busy");
-      sched_note_beginex(NOTE_TAG_ALWAYS, "timing/sleep");
+      TIMING_NOTE(sched_note_endex(NOTE_TAG_ALWAYS, "timing/busy"));
+      TIMING_NOTE(sched_note_beginex(NOTE_TAG_ALWAYS, "timing/sleep"));
       usleep(3000);
-      sched_note_endex(NOTE_TAG_ALWAYS, "timing/sleep");
-      sched_note_counter(NOTE_TAG_ALWAYS, "round", round + 1);
-      sched_note_endex(NOTE_TAG_ALWAYS, "timing/worker");
+      TIMING_NOTE(sched_note_endex(NOTE_TAG_ALWAYS, "timing/sleep"));
+      TIMING_NOTE(sched_note_counter(NOTE_TAG_ALWAYS, "round", round + 1));
+      TIMING_NOTE(sched_note_endex(NOTE_TAG_ALWAYS, "timing/worker"));
       if (sem_post(&work->done) < 0)
         {
           work->error = errno;
@@ -244,7 +257,7 @@ int main(int argc, char *argv[])
       goto failed;
     }
 
-  sched_note_beginex(NOTE_TAG_ALWAYS, "timing/capture");
+  TIMING_NOTE(sched_note_beginex(NOTE_TAG_ALWAYS, "timing/capture"));
   memory_checkpoint(1);
   if (g_memory_checkpoints)
     {
@@ -271,12 +284,12 @@ int main(int argc, char *argv[])
   thread_started = true;
   for (int round = 0; round < ROUNDS; round++)
     {
-      sched_note_beginex(NOTE_TAG_ALWAYS, "timing/dispatch");
+      TIMING_NOTE(sched_note_beginex(NOTE_TAG_ALWAYS, "timing/dispatch"));
       if (sem_post(&work.request) < 0 || wait_sem(&work.done) < 0 || work.error)
         {
           goto failed;
         }
-      sched_note_endex(NOTE_TAG_ALWAYS, "timing/dispatch");
+      TIMING_NOTE(sched_note_endex(NOTE_TAG_ALWAYS, "timing/dispatch"));
       if (round == 0 && g_memory_checkpoints)
         {
           free(g_memory_checkpoint_blocks[1]);
@@ -298,7 +311,7 @@ int main(int argc, char *argv[])
         }
     }
   memory_checkpoint(4);
-  sched_note_endex(NOTE_TAG_ALWAYS, "timing/capture");
+  TIMING_NOTE(sched_note_endex(NOTE_TAG_ALWAYS, "timing/capture"));
   if (perf_gettime() >= (clock_t)frequency * 5)
     {
       printf("NXRS_TIMING_WITNESS FAIL reason=capture_exceeds_five_second_clock_window\n");
