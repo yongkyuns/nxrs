@@ -6,13 +6,13 @@ shows declared storage banks and load/runtime relationships. The address canvas
 preserves placement and gaps while you zoom, pan, search, and inspect individual
 extents. Source colors connect linked objects and recorded allocation call
 stacks to those extents. The timing view shows observed execution intervals,
-interrupt nesting, application scopes, and counters on an independent clock.
+interrupt nesting, application scopes, and counters on their recorded clock.
+Explicitly matched checkpoint markers link those times to captured memory.
 
 This is the offline foundation of [issue #442](https://github.com/yongkyuns/nxrs/issues/442).
 It shows static placement, discrete memory observations, and imported timing
-events. Continuous allocation-event replay into heap geometry, automatic
-memory/trace clock correlation, live transport, and physical-device capture
-qualification remain follow-up work in that issue.
+events. Continuous allocation-event replay into heap geometry, live transport,
+and physical-device capture qualification remain follow-up work in that issue.
 
 ## Open the viewer
 
@@ -73,6 +73,7 @@ memory evidence**. `--help` prints all command options without opening a window.
 | Hide optional ELF symbol labels | Clear **ELF symbols** |
 | Compare heap statistics at two observations | Choose **Compare with** below the memory observation controls |
 | Choose the allocation frame used for source coloring | Use **Color allocations by**, or click a recorded frame in the inspector |
+| Open a linked checkpoint on its execution timeline | Select **Show in timing** below the memory observation |
 
 Search dims nonmatching blocks without moving them. Byte geometry therefore
 stays meaningful during filtering. Small or zero-size symbol labels use ticks;
@@ -370,6 +371,8 @@ trace hash stays unknown; loading two files does not establish their identity.
 | Inspect counters | Enable **Counters** and hover a recorded sample |
 | Read the axis | Time relative to the first imported record; the inspector shows exact trace coordinates and source-clock timestamps when an explicit origin is available |
 | Assess observation coverage | Per-track union of recorded intervals; missing intervals remain unknown |
+| Place a time cursor | Click an event to use its exact start, or click blank time |
+| Open observed memory from a verified recording | Select a point in **Memory checkpoints**, then **Open captured memory** |
 
 CPU and task tracks show scheduled residency. IRQ and application scopes can
 overlap that residency, so their durations must not be added together as CPU
@@ -390,7 +393,7 @@ The NuttX converter instead retains incomplete interval observations as explicit
 instant markers with no duration, and records the incomplete count.
 
 `otherData.nxrs` carries explicit clock, source, original timestamp origin,
-optional ELF SHA-256, loss status, completeness, and warnings. Missing metadata
+optional ELF SHA-256 and recording ID, loss status, completeness, and warnings. Missing metadata
 is shown as unknown. `--clock`, `--source`, and loss options on the converter are
 producer assertions; use them only when supported by the actual capture. A
 backward timestamp across paired scheduler/IRQ observations on one CPU fails conversion. Known
@@ -398,11 +401,39 @@ loss resets pending interval pairs; loss without a located boundary disables
 duration reconstruction. No blank interval is interpreted as idle. Nanosecond
 coordinates do not promise nanosecond clock resolution.
 
-Memory checkpoints and timing traces retain independent axes. Matching ELF
-identity does not synchronize their clocks. In particular, the three manually
-ordered GDB observations above are never aligned to this timing axis. Continuous
-heap history and synchronized memory/timing cursor navigation require an explicit
-common target clock and event sequence in a future capture adapter.
+Ordinary memory checkpoints and timing traces retain independent axes. Matching
+ELF identity does not synchronize their clocks. In particular, the three manually
+ordered GDB observations above are never aligned to this timing axis. A capture
+adapter can establish a link through the explicit contract below.
+
+### Link memory checkpoints to timing
+
+Load an ELF, snapshots, and trace produced by the same qualified recording. The
+viewer validates their firmware, recording ID, clock, checkpoint markers, and
+exact source timestamps before enabling linked navigation. A mismatch fails
+loading with a correlation error; it never falls back to an estimated offset.
+
+The timing view then includes a **Memory checkpoints** strip. Click a point and
+select **Open captured memory** to inspect its heap and stack reservations. The
+memory view's **Show in timing** action returns to the matching marker. Clicking
+an arbitrary time places the shared cursor there: runtime memory appears only
+at an observed checkpoint. **Show memory evidence gap** opens the static layout
+with runtime blocks hidden. Neither the most recent snapshot nor a blend of
+nearby snapshots substitutes for an observation.
+
+The [single-run QEMU lifecycle witness](../../docs/nuttx-memory-qualification.md#linked-qemu-lifecycle-witness)
+qualifies this path with four real allocator observations and the existing native
+timing fixture. The firmware emits each marker inside a single-core critical
+section and pauses at a hardware breakpoint. The harness independently reads
+the final note in the native ring, compares raw heap/task metadata before and
+after export, then matches that note to the UART dump. A fresh recording nonce
+identifies this invocation. Debugger stops pause the admitted QEMU timer;
+durations describe that instrumented run, not uninterrupted performance.
+
+Production instrumentation still uses the existing `[build] diagnostics = true`
+setting. The stopped-checkpoint adapter is currently qualified only for this
+native MPS2 QEMU fixture. Enabling diagnostics on another firmware or board does
+not by itself establish the quiescence, clock, or marker evidence required here.
 
 The current viewer is qualified with bounded diagnostic captures. It loads the
 trace into host memory and scans events for filtering and per-track painting.
@@ -439,7 +470,7 @@ exact-number range.
 | `build` | `elf_sha256` as 64 hex digits, plus optional `label` |
 | `regions` | Named address windows: `id`, `name`, `start`, `size`, `kind`, `domain`, optional `physical` |
 | `physical_resources` | Optional named resource capacities: `id`, `name`, `size`; optional `banks` partition the resource by `name`, `offset`, and `size` |
-| `snapshots` | Ordered observations with `time_ns`, `label`, `spans`, optional `complete_regions` |
+| `snapshots` | Ordered observations with `time_ns`, `label`, `spans`, optional `complete_regions` and `correlation` |
 | `warnings` | Optional evidence limitations displayed by the viewer |
 | `capture` | Optional exporter-specific metadata retained in the input file; not permission to weaken validation |
 
@@ -455,6 +486,51 @@ Symbols stay separate from ownership spans because legal symbol aliases overlap.
 those regions. It does not assert that every byte in a larger board RAM window
 was observed. Missing arena coverage stays unknown unless a complete-coverage
 claim requires the importer to reject it.
+
+### Correlation metadata
+
+An optional additive field on each snapshot carries a checked recording claim:
+
+```json
+{
+  "correlation": {
+    "recording_id": "32c749812a07eafbe1f65ac4dcd4402e",
+    "clock": "qemu-an521-cmsdk-timer1-20mhz",
+    "checkpoint_id": 1
+  }
+}
+```
+
+This is a snapshot-field example, not a complete capture. The recording ID names
+one run and reset epoch; producers must not reuse it for another invocation. It
+contains 1–128 printable ASCII characters without whitespace. A checkpoint ID
+is a nonzero `u64`, strictly increasing with its source timestamp. For correlated
+observations, `time_ns` is the exact source-clock timestamp of the checkpoint
+marker. It is never a host timestamp or an approximate time sampled nearby.
+
+The trace must declare matching `recording_id`, `clock`, and `elf_sha256` in
+`otherData.nxrs`, plus an explicit `origin_ns`. Each loaded observation must match
+exactly one instant named `memory/checkpoint/<checkpoint_id>`, satisfying:
+
+```text
+snapshot.time_ns = trace.origin_ns + marker.start_ns
+```
+
+`marker.start_ns` is the imported integer-nanosecond coordinate; Trace Event JSON
+still encodes `ts` in microseconds. Missing markers, duplicate or noncanonical
+IDs, a counter/duration with a reserved marker name, overflow, or even a
+one-nanosecond disagreement fail validation. All snapshots loaded together must
+either be legacy independent observations or correlated points from the same
+recording and clock. Additional trace markers whose snapshots were not loaded
+are permitted. Known trace loss does not erase a separately verified checkpoint;
+the loss warning and unknown intervals remain visible.
+
+The claim travels with each snapshot and the existing trace metadata, preserving
+the current file-loading commands and legacy JSON. A separate manifest or a
+user-entered time offset would add another identity relationship without proving
+the marker-to-memory boundary. The capture adapter owns that proof; the host
+checks its consistency. Continuous allocator replay needs a complete mutation
+journal and remains a separate capability.
 
 ### Declare board storage
 

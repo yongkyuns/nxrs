@@ -100,6 +100,9 @@ pub struct CounterSample {
 
 #[derive(Clone, Debug, Default)]
 pub struct TimingMetadata {
+    /// Producer-assigned identity for one recording and target reset epoch.
+    /// This token never establishes memory alignment without checked markers.
+    pub recording_id: Option<String>,
     pub clock: Option<String>,
     pub source: Option<String>,
     /// Explicit source-clock origin of a normalized trace, if supplied.
@@ -495,6 +498,10 @@ fn parse_metadata(document: &Value) -> Result<(TimingMetadata, Vec<String>)> {
             return Err(timing_error("unsupported otherData.nxrs schema_version"));
         }
         metadata.clock = optional_str(object, "clock")?.map(str::to_owned);
+        metadata.recording_id = optional_str(object, "recording_id")?.map(str::to_owned);
+        if let Some(recording_id) = &metadata.recording_id {
+            crate::correlation::validate_recording_id(recording_id)?;
+        }
         metadata.source = optional_str(object, "source")?.map(str::to_owned);
         metadata.elf_sha256 = optional_str(object, "elf_sha256")?.map(str::to_owned);
         if metadata.elf_sha256.as_ref().is_some_and(|hash| {
@@ -552,7 +559,11 @@ fn parse_metadata(document: &Value) -> Result<(TimingMetadata, Vec<String>)> {
             "Capture has incomplete coverage. Unclosed intervals have no inferred duration.".into(),
         );
     }
-    warnings.push("Timing coordinates are not synchronized with memory snapshot labels. An ELF match alone does not establish a clock mapping.".into());
+    if metadata.recording_id.is_none() {
+        warnings.push("Timing coordinates are not synchronized with memory snapshot labels. An ELF match alone does not establish a clock mapping.".into());
+    } else {
+        warnings.push("Recording identity permits checkpoint verification, but does not itself synchronize memory. A link requires matching ELF, recording, clock, unique marker, and exact source timestamp; memory between checkpoints remains unknown.".into());
+    }
     warnings.push("Per-track coverage is an interval union. Scheduled residency can overlap IRQ and application tracks; these layers are not additive CPU time.".into());
     Ok((metadata, warnings))
 }

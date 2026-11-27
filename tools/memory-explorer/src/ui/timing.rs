@@ -5,6 +5,7 @@ use nxrs_memory_explorer::{CounterSample, TimingEvent, TimingEventKind, TimingRa
 pub(super) struct TimingView {
     viewport: Option<AddressWindow>,
     selected: Option<usize>,
+    cursor_ns: Option<u64>,
     selection: Option<AddressWindow>,
     measure_anchor: Option<u64>,
     measure_mode: bool,
@@ -12,7 +13,7 @@ pub(super) struct TimingView {
     show_counters: bool,
 }
 
-fn bounds(trace: &TimingTrace) -> AddressWindow {
+pub(super) fn bounds(trace: &TimingTrace) -> AddressWindow {
     let start = trace.bounds.start_ns;
     let end = trace.bounds.end_ns;
     if end > start {
@@ -57,6 +58,37 @@ fn event_color(event: &TimingEvent) -> Color32 {
 }
 
 impl TimingView {
+    pub(super) fn cursor(&self) -> Option<u64> {
+        self.cursor_ns
+    }
+
+    pub(super) fn seek_checkpoint(
+        &mut self,
+        link: &nxrs_memory_explorer::CheckpointLink,
+        trace: &TimingTrace,
+    ) {
+        self.seek_time(link.trace_time_ns, trace);
+        self.selected = Some(link.event_id);
+    }
+
+    pub(super) fn seek_time(&mut self, time_ns: u64, trace: &TimingTrace) {
+        let full = bounds(trace);
+        let time_ns = time_ns.clamp(trace.bounds.start_ns, trace.bounds.end_ns);
+        self.cursor_ns = Some(time_ns);
+        self.selected = None;
+        let viewport = self.viewport.unwrap_or(full);
+        if time_ns < viewport.start || time_ns > viewport.end {
+            let start = time_ns.saturating_sub(viewport.span() / 2);
+            self.viewport = Some(
+                AddressWindow {
+                    start,
+                    end: start.saturating_add(viewport.span()),
+                }
+                .fit_inside(full),
+            );
+        }
+    }
+
     pub(super) fn reset(&mut self, trace: &TimingTrace) {
         *self = Self {
             viewport: Some(bounds(trace)),
@@ -76,6 +108,7 @@ impl TimingView {
             .fit_inside(bounds(trace)),
         );
         self.selected = Some(event.id);
+        self.cursor_ns = Some(event.start_ns);
     }
 
     pub(super) fn show(&mut self, ctx: &egui::Context, trace: &TimingTrace) {
@@ -136,7 +169,7 @@ impl TimingView {
                     if !self.filter.is_empty() && ui.small_button("Clear filter").clicked() { self.filter.clear(); }
                     if self.selection.is_some() && ui.small_button("Clear measurement").clicked() { self.selection = None; }
                 });
-                ui.label(RichText::new("Scroll over time to zoom · drag to pan · Shift+drag to measure · double-click a span to fit · F to fit trace").small().color(MUTED));
+                ui.label(RichText::new("Click to place cursor · scroll to zoom · drag to pan · Shift+drag to measure · double-click a span to fit · F to fit trace").small().color(MUTED));
                 if !ctx.wants_keyboard_input() {
                     ctx.input(|input| {
                         if input.key_pressed(egui::Key::F) || input.key_pressed(egui::Key::Home) { viewport = full; }
@@ -443,6 +476,16 @@ impl TimingView {
                 }
             }
         }
+        if let Some(cursor) = self
+            .cursor_ns
+            .filter(|time| *time >= viewport.start && *time <= viewport.end)
+        {
+            let x = at(cursor);
+            painter.line_segment(
+                [Pos2::new(x, plot.top()), Pos2::new(x, plot.bottom())],
+                Stroke::new(1.0, ACCENT),
+            );
+        }
         // Keep the time scale visible while the user scrolls through tracks.
         // Paint it last so scrolled intervals cannot cover its labels.
         let ruler_top = rect.top().max(ui.clip_rect().top());
@@ -500,16 +543,30 @@ impl TimingView {
             });
             if response.clicked() {
                 self.selected = Some(event.id);
+                self.cursor_ns = Some(event.start_ns);
             }
             if response.double_clicked() {
                 self.focus(event, trace);
             }
         } else if let Some(sample) = sample_hit {
+            if response.clicked() {
+                self.cursor_ns = Some(sample.time_ns);
+                self.selected = None;
+            }
             response.on_hover_ui_at_pointer(|ui| {
                 ui.strong(format!("{} / {}", sample.name, sample.series));
                 ui.label(format!("{} ns: {}", sample.time_ns, sample.exact_value));
                 ui.label("Recorded sample; intermediate values are not inferred.");
             });
+        } else if response.clicked() {
+            if let Some(pointer) = response
+                .interact_pointer_pos()
+                .filter(|pointer| pointer.x >= plot.left() && pointer.x <= plot.right())
+            {
+                self.cursor_ns =
+                    Some(viewport.at_fraction(((pointer.x - plot.left()) / plot.width()) as f64));
+                self.selected = None;
+            }
         }
     }
 
@@ -564,7 +621,13 @@ impl TimingView {
                     ui.add_space(16.0);
                     ui.separator();
                     eyebrow(ui, "CLOCK AND COVERAGE");
+                    if let Some(cursor) = self.cursor_ns {
+                        field(ui, "CURSOR · TRACE COORDINATE", &format!("{cursor} ns"));
+                    }
                     field(ui, "CLOCK", trace.metadata.clock.as_deref().unwrap_or("Unknown"));
+                    if let Some(recording) = &trace.metadata.recording_id {
+                        field(ui, "RECORDING", recording);
+                    }
                     if let Some(origin) = trace.metadata.origin_ns { field(ui, "RECORDED ORIGIN", &format!("{origin} ns")); }
                     field(ui, "ELF SHA-256", trace.metadata.elf_sha256.as_deref().unwrap_or("Unknown; build identity is not established"));
                     ui.label(RichText::new("Nanosecond coordinates describe the file's timestamps, not a guarantee of nanosecond clock resolution. QEMU durations do not qualify physical MCU timing.").small().color(WARNING));
@@ -588,6 +651,7 @@ impl TimingView {
             .find(|event| event.kind == TimingEventKind::Interval && event.end_ns > event.start_ns)
             .ok_or("Timing smoke needs an observed interval")?;
         self.selected = Some(event.id);
+        self.cursor_ns = Some(event.start_ns);
         self.selection = Some(AddressWindow {
             start: event.start_ns,
             end: event.end_ns,
