@@ -36,11 +36,52 @@ def patch_paths(text):
     return sorted(result)
 
 
+def validate_apps_directory(nuttx, apps, configuration):
+    """Admit the literal APPDIR that pinned tools/Unix.mk will actually use.
+
+    Unix.mk resolves CONFIG_APPS_DIR from the NuttX working directory and
+    requires a readable Makefile. An unset/blank variable defaults to ../apps.
+    Do not evaluate make or shell expansions while checking source identity.
+    """
+    values = [line.partition("=")[2].strip() for line in configuration.splitlines()
+              if line.startswith("CONFIG_APPS_DIR=")]
+    if len(values) > 1:
+        raise RuntimeError("Ambiguous CONFIG_APPS_DIR in the native configuration")
+    value = values[0] if values else ""
+    if not value:
+        value = "../apps"
+    elif value.startswith('"'):
+        if "\\" in value:
+            raise RuntimeError("CONFIG_APPS_DIR must be a supported literal path")
+        try:
+            value = json.loads(value)
+        except ValueError as error:
+            raise RuntimeError("Malformed CONFIG_APPS_DIR string") from error
+    # These characters have nonliteral make/shell meaning in Unix.mk. Its
+    # realpath also splits whitespace, so paths requiring quoting are refused.
+    if not value or any(character.isspace() or character in "$`\\\"';|&<>(){}[]*?!#~"
+                        for character in value):
+        raise RuntimeError("CONFIG_APPS_DIR must be a supported literal path")
+    configured = (nuttx / value).resolve()
+    if configured != apps.resolve():
+        raise RuntimeError(f"The configured apps directory {configured} differs from --apps {apps.resolve()}")
+    makefile = configured / "Makefile"
+    if not makefile.is_file() or not os.access(makefile, os.R_OK):
+        raise RuntimeError("The configured apps directory has no readable Makefile")
+    return configured
+
+
 def run(args):
     nuttx, apps, output = [getattr(args, name).resolve() for name in ("nuttx", "apps", "output")]
     repo = Path(__file__).resolve().parents[3]
     if nuttx == (repo / "external/nuttx").resolve() or apps == (repo / "external/nuttx-apps").resolve():
         raise RuntimeError("Use disposable source clones, not the repository submodules")
+    config = nuttx / ".config"
+    if config.exists():
+        configuration = config.read_text()
+        if "CONFIG_ARCH_BOARD_MPS2_AN521=y" not in configuration.splitlines():
+            raise RuntimeError("The disposable tree is configured for another board")
+        validate_apps_directory(nuttx, apps, configuration)
     identities = {"nuttx": source_identity(nuttx, NUTTX_REVISION),
                   "apps": source_identity(apps, APPS_REVISION)}
     patch = repo / PATCH
@@ -88,11 +129,11 @@ def run(args):
                      "MM_REGIONS": "1", "MM_BACKTRACE": "8", "MM_BACKTRACE_DEFAULT": "y",
                      "MM_DEFAULT_ALIGNMENT": "8", "MM_NODE_GUARDSIZE": "0", "MM_FREE_DELAYCOUNT_MAX": "0"})
     with (output / "configure.log").open("w") as log:
-        config = nuttx / ".config"
         if not config.exists():
             execute(["bash", "tools/configure.sh", "-l", "-a", os.path.relpath(apps, nuttx), "mps2-an521:nsh"], log)
-        elif "CONFIG_ARCH_BOARD_MPS2_AN521=y" not in config.read_text().splitlines():
+        if "CONFIG_ARCH_BOARD_MPS2_AN521=y" not in config.read_text().splitlines():
             raise RuntimeError("The disposable tree is configured for another board")
+        validate_apps_directory(nuttx, apps, config.read_text())
         execute(["make", "-C", str(apps / "examples"), "APPDIR=" + str(apps),
                  "TOPDIR=" + str(nuttx), "preconfig"], log)
         lines = [line for line in config.read_text().splitlines() if not any(
@@ -101,6 +142,7 @@ def run(args):
                      for key, value in settings.items())
         config.write_text("\n".join(lines) + "\n")
         execute(["make", "olddefconfig"], log)
+        configured_apps = validate_apps_directory(nuttx, apps, config.read_text())
         checks = validate_configuration(config.read_text(), settings)
         shutil.copy2(config, output / "resolved.config")
     with (output / "build.log").open("w") as log:
@@ -126,6 +168,7 @@ def run(args):
     report = {"schema_version": 1, "workload": "native allocator request/result qualification",
         "nuttx_revision": NUTTX_REVISION, "apps_revision": APPS_REVISION,
         "source_identity_before_patch": identities, "configuration_checks": checks, "commands": commands,
+        "configured_apps_directory": str(configured_apps),
         "production_patch": {"path": PATCH, "sha256": sha256(patch), "changed_paths": paths,
                              "original_sources": original_hashes, "patched_sources": patched_hashes},
         "fixture_sha256": {path.name: sha256(path) for path in sorted(fixture.iterdir()) if path.is_file()},

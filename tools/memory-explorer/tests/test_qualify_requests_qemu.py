@@ -1,10 +1,12 @@
 """Independent native-outcome admission controls, using labeled synthetic rows."""
 
 from pathlib import Path
+import tempfile
 from types import SimpleNamespace
 import unittest
+from unittest import mock
 
-from build_requests_nuttx import patch_paths, run as build
+from build_requests_nuttx import patch_paths, run as build, validate_apps_directory
 from qualify_requests_qemu import CASES, controls, evidence
 
 
@@ -152,6 +154,56 @@ class RequestQualificationTests(unittest.TestCase):
 
 
 class RequestBuildTests(unittest.TestCase):
+    def test_configured_apps_accepts_equivalent_relative_and_absolute_paths(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            nuttx, apps = root / "nuttx", root / "apps"
+            nuttx.mkdir()
+            apps.mkdir()
+            (apps / "Makefile").write_text("# pinned apps fixture\n")
+            for configuration in ('CONFIG_APPS_DIR="../apps"\n',
+                                  'CONFIG_APPS_DIR="../apps/./"\n',
+                                  f'CONFIG_APPS_DIR="{apps.resolve().as_posix()}"\n',
+                                  'CONFIG_APPS_DIR=../apps\n',
+                                  'CONFIG_APPS_DIR=\n', ''):
+                with self.subTest(configuration=configuration):
+                    self.assertEqual(validate_apps_directory(nuttx, apps, configuration), apps.resolve())
+
+    def test_mismatched_configured_apps_is_rejected_before_any_source_mutation(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            nuttx, apps, other = (root / name for name in ("nuttx", "apps", "other-apps"))
+            for path in (nuttx, apps, other):
+                path.mkdir()
+            for path in (apps, other):
+                (path / "Makefile").write_text("# distinct source tree\n")
+            configuration = 'CONFIG_ARCH_BOARD_MPS2_AN521=y\nCONFIG_APPS_DIR="../other-apps"\n'
+            (nuttx / ".config").write_text(configuration)
+            args = SimpleNamespace(nuttx=nuttx, apps=apps, output=root / "unreached-output")
+            with mock.patch("build_requests_nuttx.source_identity") as identity, \
+                 mock.patch("build_requests_nuttx.subprocess.run") as execute, \
+                 mock.patch("build_requests_nuttx.shutil.copytree") as install:
+                with self.assertRaisesRegex(RuntimeError, "configured apps directory.*differs from --apps"):
+                    build(args)
+                identity.assert_not_called()
+                execute.assert_not_called()
+                install.assert_not_called()
+            self.assertEqual((nuttx / ".config").read_text(), configuration)
+            self.assertFalse(args.output.exists())
+            self.assertEqual(list(apps.iterdir()), [apps / "Makefile"])
+
+    def test_configured_apps_does_not_evaluate_expansions_or_admit_missing_makefile(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            nuttx, apps = root / "nuttx", root / "apps"
+            nuttx.mkdir()
+            apps.mkdir()
+            for value in ('"$(APPS)"', '"`pwd`/apps"', '"../apps;true"', '""', r'"..\/apps"'):
+                with self.subTest(value=value), self.assertRaisesRegex(RuntimeError, "literal path"):
+                    validate_apps_directory(nuttx, apps, f"CONFIG_APPS_DIR={value}\n")
+            with self.assertRaisesRegex(RuntimeError, "readable Makefile"):
+                validate_apps_directory(nuttx, apps, 'CONFIG_APPS_DIR="../apps"\n')
+
     def test_patch_inventory_requires_unique_same_target_paths(self):
         self.assertEqual(patch_paths("diff --git a/mm/a.c b/mm/a.c\n"), ["mm/a.c"])
         for source in ("diff --git a/mm/a.c b/mm/b.c\n", "diff --git a/../a b/../a\n",
