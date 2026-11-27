@@ -59,7 +59,7 @@ pub struct Capture {
     epoch: AtomicUsize,
     ready: AtomicBool,
     sensor_failed: AtomicBool,
-    owner: Mutex<Option<Thread>>,
+    owner: OnceLock<Mutex<Thread>>,
     samples: Mutex<Samples>,
     scales: [Option<[u32; 2]>; 2],
     clock: OnceLock<ClockAnchor>,
@@ -152,7 +152,14 @@ impl Capture {
         // return its telemetry to a later worker. Replace its wake destination
         // at that handoff, and retire the old handle outside the lock.
         let current = thread::current();
-        let retired = self.owner.lock().unwrap().replace(current);
+        let owner = self.owner.get_or_init(|| {
+            let owner = Mutex::new(current.clone());
+            // Some targets initialize the underlying mutex on first use.
+            // Do that on the communications worker before publishing it.
+            drop(owner.lock().unwrap());
+            owner
+        });
+        let retired = std::mem::replace(&mut *owner.lock().unwrap(), current);
         drop(retired);
     }
 
@@ -161,8 +168,8 @@ impl Capture {
         // and never clones or retires a Thread handle. Readiness and faults
         // remain retained if this wake is skipped. Active communications has
         // a bounded poll/deadline; starting work from idle has its own wake.
-        if let Ok(owner) = self.owner.try_lock() {
-            if let Some(owner) = owner.as_ref() {
+        if let Some(owner) = self.owner.get() {
+            if let Ok(owner) = owner.try_lock() {
                 owner.unpark();
             }
         }
@@ -477,7 +484,7 @@ mod tests {
                 let owner = attached.recv_timeout(Duration::from_secs(1)).unwrap();
                 assert_ne!(previous, Some(owner.id()));
                 assert_eq!(
-                    capture.owner.lock().unwrap().as_ref().unwrap().id(),
+                    capture.owner.get().unwrap().lock().unwrap().id(),
                     owner.id()
                 );
                 let result = {
@@ -498,12 +505,13 @@ mod tests {
     #[test]
     fn skipped_owner_wakes_retain_fault_and_batch_readiness_without_waiting() {
         let capture = Capture::default();
+        capture.register_owner();
         capture.enable().unwrap();
         thread::scope(|scope| {
             let (finished, complete) = mpsc::channel();
             let capture = &capture;
             let result = {
-                let _owner = capture.owner.lock().unwrap();
+                let _owner = capture.owner.get().unwrap().lock().unwrap();
                 scope.spawn(move || {
                     capture.sensor_failed();
                     for sequence in 0..BATCH {
