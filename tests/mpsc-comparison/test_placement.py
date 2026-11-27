@@ -19,11 +19,12 @@ class SymbolPlacementTests(unittest.TestCase):
     LEGACY_PARK = '_ZN3std6thread6Thread4park17h0123456789abcdefE'
 
     @staticmethod
-    def object(path, names):
+    def object(path, names, literals=False):
         # These stubs test ELF section selection and byte preservation only.
         # No host instructions are executed or used as target timing evidence.
-        source = ''.join(f'.section .text.{name},"ax"\n.globl {name}\n{name}:\n.byte 0x12,0x34\n'
-                         for name in names)
+        source = ''.join(f'.section .text.{name},"ax"\n.globl {name}\n{name}:\n.byte 0x12,0x34\n' +
+                         (f'.section .literal.{name},"a"\n.globl {name}_literal\n{name}_literal:\n.byte 0x56,0x78\n'
+                          if literals else '') for name in names)
         subprocess.run(['cc', '-c', '-x', 'assembler', '-', '-o', str(path)],
                        input=source, text=True, check=True, capture_output=True)
 
@@ -106,13 +107,13 @@ class SymbolPlacementTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             directory = Path(directory)
             obj = directory / 'helpers.o'
-            self.object(obj, names)
+            self.object(obj, names, literals=True)
             for name in ('esp32s3-sync.ld', 'esp32s3-mpsc.ld'):
                 with self.subTest(fragment=name):
                     fragment = (root / 'platform/nuttx/linker' / name).read_text()
                     script = directory / 'layout.ld'
                     script.write_text('SECTIONS { .iram 0x40370000 : {\n' + fragment +
-                                      '\n} .flash 0x42000000 : { *(.text .text.*) } }\n')
+                                      '\n} .flash 0x42000000 : { *(.text .text.* .literal .literal.*) } }\n')
                     image = directory / 'image.elf'
                     subprocess.run(['ld', '-T', str(script), str(obj), '-o', str(image)],
                                    check=True, capture_output=True)
@@ -120,10 +121,59 @@ class SymbolPlacementTests(unittest.TestCase):
                         elf = ELFFile(stream)
                         symbols = elf.get_section_by_name('.symtab')
                         for symbol in names[:2]:
-                            address = symbols.get_symbol_by_name(symbol)[0]['st_value']
-                            self.assertEqual(placement.memory_kind(address, 'esp32s3'), 'internal-code')
-                        address = symbols.get_symbol_by_name('ordinary_helper')[0]['st_value']
-                        self.assertEqual(placement.memory_kind(address, 'esp32s3'), 'flash')
+                            for suffix in ('', '_literal'):
+                                address = symbols.get_symbol_by_name(symbol + suffix)[0]['st_value']
+                                self.assertEqual(placement.memory_kind(address, 'esp32s3'), 'internal-code')
+                        for suffix in ('', '_literal'):
+                            address = symbols.get_symbol_by_name('ordinary_helper' + suffix)[0]['st_value']
+                            self.assertEqual(placement.memory_kind(address, 'esp32s3'), 'flash')
+
+    def test_esp_fixture_linker_fragments_match_legacy_and_v0_adapter_owners(self):
+        from elftools.elf.elffile import ELFFile
+        root = Path(__file__).resolve().parents[2]
+        # Legacy/current default compiler encodings from Rust 1.90/1.100
+        # representation probes, plus the actual current ESP std send symbol.
+        owners = (
+            '_ZN108_$LT$mpsc_comparison..transport..Native$LT$_$GT$$u20$as$u20$mpsc_comparison..transport..Channel$LT$_$GT$$GT$4send17h2568c8704be59c4dE',
+            '_ZN119_$LT$mpsc_comparison..transport..ordinary_std..Std$LT$_$GT$$u20$as$u20$mpsc_comparison..transport..Channel$LT$_$GT$$GT$4send17h16a493682d330723E',
+            '_ZN108_$LT$mpsc_comparison..transport..Native$LT$_$GT$$u20$as$u20$mpsc_comparison..transport..Channel$LT$_$GT$$GT$7receive17h2361fa80b364786dE',
+            '_ZN119_$LT$mpsc_comparison..transport..ordinary_std..Std$LT$_$GT$$u20$as$u20$mpsc_comparison..transport..Channel$LT$_$GT$$GT$7receive17h402670f7b454d1ccE',
+            '_RNvXNtCshjuDoziolKW_15mpsc_comparison9transportINtB2_6NativeKj4_EINtB2_7ChannelKBX_E4sendB4_',
+            '_RNvXs_NtNtCs4zQaGwrTtC4_15mpsc_comparison9transport12ordinary_stdINtB4_3StdKj10_EINtB6_7ChannelKB1c_E4sendB8_',
+            '_RNvXNtCshjuDoziolKW_15mpsc_comparison9transportINtB2_6NativeKj4_EINtB2_7ChannelKBX_E7receiveB4_',
+            '_RNvXNtNtCshjuDoziolKW_15mpsc_comparison9transport12ordinary_stdINtB2_3StdKj4_EINtB4_7ChannelKB1a_E7receiveB6_',
+        )
+        # Actual current compiler representations: drop<Std>, Option<Std>'s
+        # Clone method, and Std's own Clone method are not Channel hot entries.
+        unrelated = (
+            '_RINvNtCs8uuN1nrGffB_4core3mem4dropINtNtNtCshjuDoziolKW_15mpsc_comparison9transport12ordinary_std3StdKj4_EEBD_',
+            '_RNvXs4_NtCs8uuN1nrGffB_4core6optionINtB5_6OptionINtNtNtCshjuDoziolKW_15mpsc_comparison9transport12ordinary_std3StdKj4_EENtNtB7_5clone5Clone5cloneBR_',
+            '_RNvXs_NtNtCshjuDoziolKW_15mpsc_comparison9transport12ordinary_stdINtB4_3StdKj4_ENtNtCs8uuN1nrGffB_4core5clone5Clone5cloneB8_',
+            '_RNvXNtCshjuDoziolKW_15mpsc_comparison9transportINtB2_6NativeKj4_EINtB2_7ChannelKBX_E6createB4_',
+            '_RNvXNtNtCshjuDoziolKW_15mpsc_comparison9transport12ordinary_stdINtB2_3StdKj4_EINtB4_7ChannelKB1a_E6createB6_',
+        )
+        fragments = ('tests/nuttx-std/channels/mpsc-fixture-iram.ld',
+                     'platform/nuttx/linker/esp32s3-mpsc.ld')
+        with tempfile.TemporaryDirectory() as directory:
+            directory = Path(directory)
+            obj = directory / 'adapters.o'
+            self.object(obj, (*owners, *unrelated, 'ordinary_helper'), literals=True)
+            for name in fragments:
+                with self.subTest(fragment=name):
+                    script = directory / 'layout.ld'
+                    script.write_text('SECTIONS { .iram 0x40370000 : {\n' + (root / name).read_text() +
+                                      '\n} .flash 0x42000000 : { *(.text .text.* .literal .literal.*) } }\n')
+                    image = directory / 'image.elf'
+                    subprocess.run(['ld', '-T', str(script), str(obj), '-o', str(image)],
+                                   check=True, capture_output=True)
+                    with image.open('rb') as stream:
+                        elf = ELFFile(stream)
+                        symbols = elf.get_section_by_name('.symtab')
+                        for symbol in (*owners, *unrelated, 'ordinary_helper'):
+                            for suffix in ('', '_literal'):
+                                address = symbols.get_symbol_by_name(symbol + suffix)[0]['st_value']
+                                self.assertEqual(placement.memory_kind(address, 'esp32s3'),
+                                                 'internal-code' if symbol in owners else 'flash')
 
 
 class LinkedPlacementTests(unittest.TestCase):

@@ -100,6 +100,13 @@
  */
 *(.literal.*transport..ordinary_std* .text.*transport..ordinary_std*)
 *(.literal.*transport..Native* .text.*transport..Native*)
+/* Rust v0 Channel::send/receive owners use lengths and backreferences.
+ * Keep setup/retirement and other traits mentioning the adapter unchanged.
+ */
+*(.literal._RNvX*mpsc_comparison9transport12ordinary_stdINtB*_3Std*7Channel*4send* .text._RNvX*mpsc_comparison9transport12ordinary_stdINtB*_3Std*7Channel*4send*)
+*(.literal._RNvX*mpsc_comparison9transport12ordinary_stdINtB*_3Std*7Channel*7receive* .text._RNvX*mpsc_comparison9transport12ordinary_stdINtB*_3Std*7Channel*7receive*)
+*(.literal._RNvX*mpsc_comparison9transportINtB*_6Native*7Channel*4send* .text._RNvX*mpsc_comparison9transportINtB*_6Native*7Channel*4send*)
+*(.literal._RNvX*mpsc_comparison9transportINtB*_6Native*7Channel*7receive* .text._RNvX*mpsc_comparison9transportINtB*_6Native*7Channel*7receive*)
 *(.literal.*mpsc_comparison8arrivals4tick* .text.*mpsc_comparison8arrivals4tick*)
 *(.literal.*mpsc_comparison8arrivals5start* .text.*mpsc_comparison8arrivals5start*)
 *(.literal.*mpsc_comparison8arrivals7release* .text.*mpsc_comparison8arrivals7release*)
