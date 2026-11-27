@@ -23,6 +23,18 @@ impl From<navigation::observations::Snapshot<2>> for Snapshot {
     }
 }
 
+/// Adapt a natural one-IMU observation source without adding a subscription.
+/// The second protocol slot remains waiting; no source is discarded.
+impl From<navigation::observations::Snapshot<1>> for Snapshot {
+    fn from(snapshot: navigation::observations::Snapshot<1>) -> Self {
+        Self {
+            imu: [snapshot.imu[0], Reading::Waiting],
+            gnss: snapshot.gnss.unwrap_or(Reading::Waiting),
+            clock: None,
+        }
+    }
+}
+
 /// Stable textual state names used by telemetry peers and human-readable output.
 pub fn reading_status<T>(reading: &Reading<T>) -> &'static str {
     match reading {

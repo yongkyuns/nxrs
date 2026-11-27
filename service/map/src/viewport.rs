@@ -1,5 +1,5 @@
 //! North-up map projection, viewport, and display tile cache.
-use crate::{Key, Tile, Zoom, SIDE};
+use crate::{Key, Tile, Zoom};
 
 const VIEWPORT_TILES: usize = 4;
 
@@ -43,6 +43,30 @@ impl Position {
     pub fn is_valid(self) -> bool {
         self.key.is_valid() && (0.0..1.0).contains(&self.east) && (0.0..1.0).contains(&self.south)
     }
+
+    /// East/south displacement to another valid position at the same zoom, in
+    /// tile-width units. East/west displacement wraps across the antimeridian.
+    pub fn offset_to(self, other: Self) -> Option<[f64; 2]> {
+        if !self.is_valid() || !other.is_valid() || self.key.zoom != other.key.zoom {
+            return None;
+        }
+        let [x, y] = self.key.delta(other.key);
+        Some([
+            f64::from(x) + other.east - self.east,
+            f64::from(y) + other.south - self.south,
+        ])
+    }
+}
+
+/// Caller-selected preference among visible neighboring tiles. The tile under
+/// the center is always first; an unrelated direction uses the stable default
+/// order. This hint does not replace an already pending visible request.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Direction {
+    North,
+    South,
+    East,
+    West,
 }
 
 /// A one-tile-wide square centered on the fix. The tile keys are ordered
@@ -128,50 +152,30 @@ impl Key {
 #[derive(Default)]
 pub struct View {
     tiles: [Option<Tile>; VIEWPORT_TILES],
-    last: Option<Position>,
-    heading: Option<(usize, i32)>,
     pending: Option<Key>,
 }
 
 impl View {
-    /// Center a one-tile-wide view on a valid position and remember travel
-    /// direction for fetch ordering. Speed is in metres per second; negative
-    /// or nonfinite speed disables the direction hint without hiding the map.
+    /// Center a one-tile-wide view on a valid position. Every geometrically
+    /// intersecting tile is included, independently of the output pixel size.
+    /// The caller may prefer one visible neighbor before the other; motion,
+    /// speed thresholds and presentation policy remain with the caller.
     ///
-    /// `None` or an invalid position clears the current fix, heading and pending
-    /// request. Previously received tiles remain bounded in the cache for reuse.
-    pub fn select(&mut self, fix: Option<(Position, f32)>) -> Option<Viewport> {
-        let Some((position, speed)) = fix.filter(|(position, _)| position.is_valid()) else {
-            self.last = None;
-            self.heading = None;
+    /// `None` or an invalid position clears the pending request. Previously
+    /// received tiles remain bounded in the cache for reuse.
+    pub fn select(
+        &mut self,
+        position: Option<Position>,
+        preferred: Option<Direction>,
+    ) -> Option<Viewport> {
+        let Some(position) = position.filter(|position| position.is_valid()) else {
             self.pending = None;
             return None;
         };
-        if let Some(last) = self
-            .last
-            .replace(position)
-            .filter(|last| last.key.zoom == position.key.zoom)
-        {
-            let [x, y] = last.key.delta(position.key);
-            let delta = [
-                f64::from(x) + position.east - last.east,
-                f64::from(y) + position.south - last.south,
-            ];
-            let axis = usize::from(delta[1].abs() > delta[0].abs());
-            let travel = delta[axis];
-            if !speed.is_finite() || speed < 0.8 || travel.abs() >= 1.0 {
-                self.heading = None;
-            } else if travel.abs() >= 0.0005 {
-                self.heading = Some((axis, if travel > 0.0 { 1 } else { -1 }));
-            }
-        } else {
-            self.heading = None;
-        }
-        let offset = [position.east as f32 - 0.5, position.south as f32 - 0.5];
+        let offset = [(position.east - 0.5) as f32, (position.south - 0.5) as f32];
         let step = offset.map(|value| if value > 0.0 { 1 } else { -1 });
         let neighbor = |axis: usize| {
-            // A sliver that rounds to zero display pixels needs no download.
-            (offset[axis].abs() >= 0.5 / SIDE as f32)
+            (offset[axis] != 0.0)
                 .then(|| position.key.adjacent(axis, step[axis]))
                 .flatten()
         };
@@ -179,7 +183,12 @@ impl View {
         let vertical = neighbor(1);
         let diagonal = horizontal.zip(vertical).map(|(x, y)| Key { y: y.y, ..x });
         let mut keys = [Some(position.key), horizontal, vertical, diagonal];
-        if horizontal.is_none() || self.heading == Some((1, step[1])) {
+        let vertical_direction = if step[1] > 0 {
+            Direction::South
+        } else {
+            Direction::North
+        };
+        if horizontal.is_none() || (vertical.is_some() && preferred == Some(vertical_direction)) {
             keys.swap(1, 2);
         }
         Some(Viewport {
@@ -194,7 +203,7 @@ impl View {
     pub fn wanted(&mut self, viewport: Viewport) -> Option<Key> {
         let visible = viewport.keys();
         let missing = |key: &Key| self.tile(*key).is_none();
-        // Finish a still-visible reply even if the motion estimate changes.
+        // Finish a still-visible reply even if the caller's preference changes.
         // The tile under the marker goes first if it has not arrived yet.
         let missing = visible[0]
             .filter(missing)
@@ -260,24 +269,28 @@ mod tests {
         };
         let mut map = View::default();
 
-        let first = map.select(Some((point(west, 0.5), 0.0))).unwrap();
+        let first = map.select(Some(point(west, 0.5)), None).unwrap();
         assert_eq!(first.keys(), [Some(west), None, None, None]);
         assert_eq!(map.wanted(first), Some(west));
         map.accept(first, Tile::blank_for_test(west));
 
-        let parked = map.select(Some((point(west, 0.5), 0.1))).unwrap();
+        let parked = map.select(Some(point(west, 0.5)), None).unwrap();
         assert_eq!(map.wanted(parked), None);
-        let closing = map.select(Some((point(west, 0.90), 5.0))).unwrap();
+        let closing = map
+            .select(Some(point(west, 0.90)), Some(Direction::East))
+            .unwrap();
         assert_eq!(map.wanted(closing), Some(east));
         assert!((closing.origin(east)[0] - 0.6).abs() < 0.0001);
         map.accept(closing, Tile::blank_for_test(east));
 
-        let crossed = map.select(Some((point(east, 0.1), 5.0))).unwrap();
+        let crossed = map
+            .select(Some(point(east, 0.1)), Some(Direction::East))
+            .unwrap();
         assert_eq!(crossed.keys(), [Some(east), Some(west), None, None]);
         assert_eq!(map.wanted(crossed), None);
         assert!((crossed.origin(east)[0] - 0.4).abs() < 0.0001);
         assert_eq!(crossed.project(point(east, 0.1)), Some([0.5, 0.5]));
-        assert!(map.select(None).is_none());
+        assert!(map.select(None, None).is_none());
     }
 
     #[test]
@@ -289,7 +302,7 @@ mod tests {
             south: 0.25,
         };
         let mut map = View::default();
-        let viewport = map.select(Some((point, 0.0))).unwrap();
+        let viewport = map.select(Some(point), None).unwrap();
         assert_eq!(viewport.project(point), Some([0.5, 0.5]));
         let expected = [key, tile_key(21, 30), tile_key(20, 29), tile_key(21, 29)];
         assert_eq!(viewport.keys(), expected.map(Some));
@@ -313,11 +326,15 @@ mod tests {
             south,
         };
         let mut map = View::default();
-        let first = map.select(Some((point(old, 0.7), 0.0))).unwrap();
+        let first = map.select(Some(point(old, 0.7)), None).unwrap();
         map.accept(first, Tile::blank_for_test(old));
-        let closing = map.select(Some((point(old, 0.8), 3.0))).unwrap();
+        let closing = map
+            .select(Some(point(old, 0.8)), Some(Direction::South))
+            .unwrap();
         assert_eq!(map.wanted(closing), Some(new));
-        let crossed = map.select(Some((point(new, 0.05), 3.0))).unwrap();
+        let crossed = map
+            .select(Some(point(new, 0.05)), Some(Direction::South))
+            .unwrap();
         assert_eq!(map.wanted(crossed), Some(new));
         assert_eq!(crossed.keys(), [Some(new), Some(old), None, None]);
         assert!(map.tile(old).is_some());
@@ -358,7 +375,7 @@ mod tests {
             south: 0.5,
         };
         let mut view = View::default();
-        let viewport = view.select(Some((good, 1.0))).unwrap();
+        let viewport = view.select(Some(good), None).unwrap();
         let invalid = [
             Position {
                 east: f64::NAN,
@@ -383,13 +400,13 @@ mod tests {
             },
         ];
         for point in invalid {
-            assert!(view.select(Some((point, 1.0))).is_none());
+            assert!(view.select(Some(point), None).is_none());
             assert!(viewport.project(point).is_none());
-            assert!(view.last.is_none());
+            assert!(good.offset_to(point).is_none());
+            assert!(point.offset_to(good).is_none());
             assert!(view.pending.is_none());
-            assert!(view.heading.is_none());
         }
-        let recovered = view.select(Some((good, f32::NAN))).unwrap();
+        let recovered = view.select(Some(good), None).unwrap();
         assert_eq!(recovered.project(good), Some([0.5, 0.5]));
         assert_eq!(view.wanted(recovered), Some(good.key));
 
@@ -402,31 +419,21 @@ mod tests {
     }
 
     #[test]
-    fn changing_zoom_restarts_direction_hints_and_selects_new_tiles() {
+    fn changing_zoom_selects_new_tiles_and_rejects_old_projections() {
         let position = Position {
             key: tile_key(10, 20),
             east: 0.75,
             south: 0.75,
         };
         let mut view = View::default();
-        view.select(Some((position, 1.0))).unwrap();
-        view.select(Some((
-            Position {
-                south: 0.8,
-                ..position
-            },
-            1.0,
-        )))
-        .unwrap();
-        assert_eq!(view.heading, Some((1, 1)));
+        view.select(Some(position), Some(Direction::South)).unwrap();
         let zoom = Zoom::new(16).unwrap();
         let point = Position {
             key: Key::new(zoom, 21, 41).unwrap(),
             east: 0.5,
             south: 0.6,
         };
-        let viewport = view.select(Some((point, 1.0))).unwrap();
-        assert_eq!(view.heading, None);
+        let viewport = view.select(Some(point), None).unwrap();
         assert_eq!(view.wanted(viewport), Some(point.key));
         assert!(viewport.project(position).is_none());
     }

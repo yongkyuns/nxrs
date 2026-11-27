@@ -1,5 +1,6 @@
 use crate::{communications, screen, tracker, ReportOptions};
 use battery::Device as _;
+use communications::{CellularConfig, Collector, Communications, Pairing, Telemetry};
 use maps::Zoom;
 use messaging::bounded;
 use navigation::observations::{
@@ -9,10 +10,7 @@ use screen::{Action, Screen};
 use std::io::{self, Write};
 use std::sync::mpsc::{RecvTimeoutError, TrySendError};
 use std::time::{Duration, Instant};
-use telemetry::{
-    Capture, CapturePublisher, CellularConfig, Collector, Communications, Endpoint, Pairing,
-    Telemetry, View,
-};
+use telemetry::{BleView, Capture, CapturePublisher, Endpoint};
 use touch::Session as _;
 use tracker::{report_fault, Snapshot, FIX_FRESH, IMU_FRESH};
 
@@ -234,7 +232,7 @@ fn track(
                 )
             })
             .transpose()?;
-    let mut view = View::default();
+    let mut view = BleView::default();
     let mut required = Ok(());
     for result in [
         sensors.start_imu_with(

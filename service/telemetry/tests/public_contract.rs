@@ -1,6 +1,6 @@
 //! A separate consumer uses the public protocol without an application worker.
-use navigation::observations::{Measurement, Reading};
-use std::time::Duration;
+use navigation::observations::{publication, Observation, Reading};
+use std::time::{Duration, Instant};
 use telemetry::export::{Version, MAX_BYTES};
 use telemetry::{Capture, CaptureBudget, CaptureConfig, ClockAnchor, Snapshot};
 
@@ -27,7 +27,13 @@ fn imu_only_consumer_selects_its_budget_and_uses_the_existing_wire_contract() {
         accel_mps2: [1.0, 2.0, 3.0],
         gyro_rps: [4.0, 5.0, 6.0],
     };
-    publishers[0].record(Measurement::Imu(0, sample));
+    let now = Instant::now();
+    let (mut observations, [mut reader]) = publication::<1, 1>(Duration::from_secs(1), None);
+    let measurement = observations.imu[0]
+        .record(&Observation::imu(0, imu::Event::Sample(sample), now))
+        .unwrap()
+        .unwrap();
+    publishers[0].record(measurement);
     let mut bytes = [0; MAX_BYTES];
     let batch = capture
         .take(&mut bytes, true, Version::Fixed)
@@ -43,10 +49,9 @@ fn imu_only_consumer_selects_its_budget_and_uses_the_existing_wire_contract() {
     assert_eq!(&bytes[33..37], &[0, 0, 0xc0, 0x40]); // gyro z = 6.0
     capture.finish();
 
-    let mut snapshot = Snapshot::from(navigation::observations::Snapshot {
-        imu: [Reading::Live(sample), Reading::Waiting],
-        gnss: None,
-    });
+    let mut snapshot = Snapshot::from(reader.snapshot(now));
+    assert_eq!(snapshot.imu, [Reading::Live(sample), Reading::Waiting]);
+    assert_eq!(snapshot.gnss, Reading::Waiting);
     snapshot.clock = ClockAnchor::new(1_234, 1_000_000);
     let encoded = telemetry::wire::frame(&snapshot).unwrap();
     let json = std::str::from_utf8(encoded.bytes()).unwrap();
@@ -72,70 +77,4 @@ fn failed_budget_admission_returns_before_any_acquisition_endpoint_is_created() 
     .unwrap();
     assert_eq!(error.kind(), std::io::ErrorKind::InvalidInput);
     assert!(error.to_string().contains("664 slots"));
-}
-
-fn connection_config() -> telemetry::Config {
-    let service = ble::peripheral::Service {
-        uuid: ble::Uuid([1; 16]),
-        ingress: ble::Uuid([2; 16]),
-        egress: ble::Uuid([3; 16]),
-    };
-    telemetry::Config {
-        ble: telemetry::BleServices {
-            pairing: service,
-            telemetry: service,
-        },
-        pair_on_start: false,
-        cellular: None,
-        tile_relay: None,
-        names: telemetry::Names::default(),
-    }
-}
-
-#[test]
-fn invalid_report_intervals_preserve_the_callers_endpoint_without_starting_io() {
-    let (_publishers, [readings]) =
-        navigation::observations::publication::<2, 1>(Duration::from_secs(1), None);
-    let (capture, _capture_publishers) = Capture::new(CaptureConfig {
-        scales: [None; 2],
-        imu_rates_millihz: [None; 2],
-        gnss_rate_millihz: 0,
-        reserve_export: false,
-        budget: CaptureBudget {
-            max_requested_bytes: 0,
-            stall_ms: 0,
-            burst_records: 0,
-        },
-    })
-    .unwrap();
-    let mut pending = Some(telemetry::Telemetry {
-        readings,
-        capture,
-        interval: Duration::ZERO,
-    });
-    for interval in [Duration::ZERO, Duration::MAX] {
-        pending.as_mut().unwrap().interval = interval;
-        let error = telemetry::Communications::start(connection_config(), &mut pending, || {})
-            .err()
-            .unwrap();
-        assert_eq!(error.kind(), std::io::ErrorKind::InvalidInput);
-        assert!(pending.is_some());
-    }
-
-    pending.as_mut().unwrap().interval = Duration::from_millis(100);
-    for interval in [Duration::ZERO, Duration::MAX] {
-        let mut config = connection_config();
-        config.cellular = Some(telemetry::CellularConfig {
-            apn: "fixture".into(),
-            collector: Some(telemetry::Collector {
-                endpoint: telemetry::Endpoint::parse("127.0.0.1:1", &"01".repeat(32)).unwrap(),
-                interval,
-            }),
-        });
-        let error = telemetry::Communications::start(config, &mut pending, || {})
-            .err()
-            .unwrap();
-        assert_eq!(error.kind(), std::io::ErrorKind::InvalidInput);
-        assert!(pending.is_some());
-    }
 }

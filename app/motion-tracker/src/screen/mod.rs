@@ -2,6 +2,7 @@
 mod canvas;
 mod charts;
 mod dashboard;
+mod map;
 mod quality;
 
 pub(super) use dashboard::{Action, Screen};

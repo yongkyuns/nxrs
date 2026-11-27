@@ -34,7 +34,12 @@ nxrs-cellular = { path = "../../hal/cellular" }
 nxrs-ble = { path = "../../hal/ble", features = ["peripheral"] }
 nxrs-execution = { path = "../../hal/execution" }
 qrcodegen = "1.8"
-nxrs-telemetry-service = { path = "../../service/telemetry" }
+nxrs-telemetry-service = { path = "../../service/telemetry", features = ["ble", "collector-tls"] }
 nxrs-map-service = { path = "../../service/map" }
 nxrs-ui-service = { path = "../../service/ui" }
 nxrs-text = { path = "../../shared/text" }
+
+nxrs-tls = { path = "../../hal/tls", features = ["pairing"] }
+
+[dev-dependencies]
+nxrs-telemetry-service = { path = "../../service/telemetry", features = ["probe"] }

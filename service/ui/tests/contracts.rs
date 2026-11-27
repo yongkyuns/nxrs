@@ -214,7 +214,7 @@ fn projected_trace_gaps_do_not_connect_and_capacity_never_grows() {
         ]
     );
     let mut bands = [chart::Columns::default(); 5];
-    chart::damage(plot, 4, &points, &mut bands).unwrap();
+    chart::damage(plot, 4, 2, &points, &mut bands).unwrap();
     assert_eq!(bands[0], chart::Columns { left: 4, right: 6 });
     assert!(bands[1..4].iter().all(|b| *b == chart::Columns::default()));
     assert_eq!(
@@ -231,7 +231,54 @@ fn projected_trace_gaps_do_not_connect_and_capacity_never_grows() {
     );
     assert_eq!(points.capacity(), capacity);
     assert_eq!(
-        chart::damage(plot, 4, &points, &mut []),
+        chart::damage(plot, 4, 2, &points, &mut []),
+        Err(Error::InvalidRegion)
+    );
+}
+
+#[test]
+fn damage_covers_a_callers_larger_marker_across_strip_boundaries() {
+    let plot = Area {
+        x: 4,
+        y: 10,
+        w: 20,
+        h: 20,
+    };
+    let marker = Area {
+        x: 8,
+        y: 11,
+        w: 4,
+        h: 4,
+    };
+    let mut pixels = [0; 400];
+    Raster::new(
+        Rect {
+            x: 4,
+            y: 10,
+            size: Size {
+                width: 20,
+                height: 20,
+            },
+        },
+        &mut pixels,
+    )
+    .unwrap()
+    .fill(marker, 7);
+    let points = [Some(chart::Point { x: 8, y: [11] })];
+    let mut bands = [chart::Columns::default(); 10];
+    chart::damage(plot, 2, 4, &points, &mut bands).unwrap();
+    let mut painted = 0;
+    for (index, pixel) in pixels.into_iter().enumerate() {
+        if pixel != 0 {
+            let x = 4 + (index % 20) as u16;
+            let band = (index / 20) / 2;
+            assert!((bands[band].left..bands[band].right).contains(&x));
+            painted += 1;
+        }
+    }
+    assert_eq!(painted, 16);
+    assert_eq!(
+        chart::damage(plot, 2, 0, &points, &mut bands),
         Err(Error::InvalidRegion)
     );
 }

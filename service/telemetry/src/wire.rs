@@ -1,6 +1,6 @@
 //! Transport-independent snapshots.
-use super::Key;
 use crate::{reading_status, Reading, Snapshot};
+use maps::Key;
 use std::fmt::{self, Write};
 use std::io;
 use text::Text;

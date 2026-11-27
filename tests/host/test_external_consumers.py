@@ -115,6 +115,46 @@ class ExternalConsumerTests(unittest.TestCase):
                 self.assertIn("external consumer:", run.stdout)
         self.assertEqual((self.directory / "Cargo.lock").read_bytes(), self.lock)
 
+    def test_telemetry_consumer_without_transport_runtime(self):
+        fixture = FIXTURE.with_name("telemetry-consumer")
+        directory = self.directory / "telemetry-consumer"
+        shutil.copytree(fixture, directory)
+        manifest = tomllib.loads((fixture / "Cargo.toml").read_text())
+        pending = [ROOT / dependency["path"].removeprefix("deps/")
+                   for dependency in dependencies(manifest)
+                   if isinstance(dependency, dict) and "path" in dependency]
+        copy_dependency_closure(directory, pending)
+        environment = {**self.environment,
+                       "CARGO_TARGET_DIR": str(self.directory / "telemetry-target")}
+
+        def command(*arguments):
+            result = subprocess.run(["cargo", *arguments], cwd=directory,
+                                    env=environment, capture_output=True, text=True,
+                                    timeout=180)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            return result
+
+        command("generate-lockfile", "--offline")
+        lock = (directory / "Cargo.lock").read_bytes()
+        built = command("build", "--offline", "--locked", "--message-format=json")
+        records = [json.loads(line) for line in built.stdout.splitlines() if line]
+        compiled = {item["target"]["name"] for item in records
+                    if item.get("reason") == "compiler-artifact"}
+        self.assertIn("telemetry", compiled)
+        self.assertIn("navigation", compiled)
+        self.assertTrue(compiled.isdisjoint({"ble", "cellular", "tls", "execution",
+                                            "linux_gio", "nxrs_motion_tracker"}),
+                        f"unexpected runtime dependencies: {sorted(compiled)}")
+        binary = next(item["executable"] for item in records
+                      if item.get("reason") == "compiler-artifact"
+                      and item["target"]["name"] == "telemetry-consumer"
+                      and item.get("executable"))
+        run = subprocess.run([binary], cwd=directory, env=environment,
+                             capture_output=True, text=True, timeout=15)
+        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+        self.assertIn("one IMU and a caller-owned collector stream", run.stdout)
+        self.assertEqual((directory / "Cargo.lock").read_bytes(), lock)
+
     def test_isolated_hal_packages_do_not_require_sibling_sensor_catalogs(self):
         for capability in ("imu", "gnss", "camera"):
             with self.subTest(capability=capability):

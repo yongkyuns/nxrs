@@ -2280,6 +2280,7 @@ dependencies = [
  "nxrs-settings",
  "nxrs-telemetry-service",
  "nxrs-text",
+ "nxrs-tls",
  "nxrs-touch",
  "nxrs-ui-service",
  "nxrs-watchdog",
@@ -2556,8 +2557,6 @@ version = "0.1.0"
 dependencies = [
  "log",
  "nxrs-ble",
- "nxrs-cellular",
- "nxrs-execution",
  "nxrs-gnss",
  "nxrs-imu",
  "nxrs-map-service",

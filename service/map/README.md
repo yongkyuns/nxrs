@@ -1,9 +1,11 @@
-# Map service
+# NXM5 compact maps
 
-`nxrs-map-service` owns bounded raster tile decoding, geographic projection,
-visible tile selection, and the four-tile display cache. Its Rust crate name is
-`maps`. Motion Tracker composes it with its communications owner and renderer;
-another application can use the same APIs with its own transport and screen.
+`nxrs-map-service` owns bounded NXM5 raster tile decoding, geographic projection,
+visible tile selection, and a four-tile cache. Its Rust crate name is `maps`.
+The protocol uses 170-pixel indexed tiles at zoom levels 15–18; the view is a
+one-tile-wide, north-up square. Applications can use that contract with their
+own transport, screen dimensions and fetch preference. Motion Tracker supplies
+its travel-direction policy and renderer.
 
 The service is synchronous. It creates no thread, queue, socket, TLS identity,
 timer, or display surface. The caller owns those resources and determines when
@@ -18,15 +20,23 @@ use maps::{Position, View, Zoom};
 let mut view = View::default();
 let zoom = Zoom::new(18).unwrap();
 let position = Position::project(43.45, -79.68, zoom).unwrap();
-let viewport = view.select(Some((position, 0.0))).unwrap();
+let viewport = view.select(Some(position), None).unwrap();
 let requested = view.wanted(viewport);
 assert_eq!(requested, Some(position.key));
 ```
 
 `Position::project` accepts finite latitude/longitude within Web Mercator's
 latitude range and ±180 degrees longitude. East and west meet at the
-antimeridian. `Viewport::keys` returns at most four visible tiles with the tile
-under the fix first. A valid travel direction may prioritize the next neighbor.
+antimeridian. `Position::offset_to` returns wrapped east/south displacement in
+tile-width units for valid positions at the same zoom. `Viewport::keys` returns
+at most four intersecting tiles with the tile under the center first. Every
+geometric overlap is included, so scaling to a larger display cannot hide a
+neighbor that covers only a fraction of an encoded pixel.
+
+The optional `Direction` argument prioritizes a visible neighbor. With no hint,
+horizontal precedes vertical; the diagonal is last. The caller decides whether
+the preference follows motion, a user interaction or another policy. No speed,
+update cadence or travel threshold is embedded in the view.
 `View::wanted` preserves a still-visible in-flight request and drops obsolete
 cached tiles when another tile is needed. The app passes its selected key to the
 transport owner; request timing, retries, and BLE/IP choice remain there.
@@ -38,10 +48,9 @@ scanline with `tile.row(row, &mut palette_indexes)`. The RGB565 palette is expos
 on the tile; display clipping, pixel conversion, and layout belong to the caller.
 `row` rejects an out-of-range index without modifying the output array.
 
-`View::select(None)` clears the fix and request state while retaining the bounded
+`View::select(None, None)` clears the pending request while retaining the bounded
 cache for reuse. Invalid manually constructed positions have the same effect.
-Nonfinite or negative speed disables direction hints while retaining a valid
-position. Changing zoom starts a new direction estimate.
+The application owns any direction history and its reset policy.
 
 ## Preserve stream ownership
 
@@ -70,7 +79,7 @@ a fresh stream; byte synchronization is not guessed after an error.
 drains its declared bounded payload before admitting the next header. Allocation
 failure follows the same discard-and-drain path and emits a warning. The
 transport owner decides when to retry. Network connections and TLS identity
-remain with the communications service, so this crate introduces no independent
+remain with the app communications owner, so this crate introduces no independent
 network lifecycle.
 
 ## Storage and execution budget
@@ -90,4 +99,6 @@ the logger installed by the application.
 
 Tests cover fragmented responses, both row encodings, invalid keys and row
 lengths, obsolete-response draining, terminal errors, malformed public inputs,
-four-tile ordering, map seams, delayed tiles, and zoom transitions.
+four-tile ordering, map seams, delayed tiles, and zoom transitions. An independent
+consumer test decodes NXM5 responses, hands complete tiles to the view and renders
+their rows at 170-, 320- and 640-pixel output sizes through the public API.

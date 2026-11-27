@@ -4,6 +4,8 @@
     "nxrs-camera/replay",
     "nxrs-detection-service/wire",
     "nxrs-storage/recording",
+    "nxrs-telemetry-service/ble",
+    "nxrs-telemetry-service/collector-tls",
     "nxrs-composition/imu",
     "nxrs-composition/gnss"
   ],
@@ -39,7 +41,7 @@
         {"package": "nxrs-enrollment", "crate": "enrollment", "path": "service/enrollment", "summary": "Bounded commissioning records and gateway enrollment."},
         {"package": "nxrs-firmware-update", "crate": "firmware_update", "path": "service/firmware-update", "summary": "Bounded firmware upload over an authenticated byte stream."},
         {"package": "nxrs-navigation-services", "crate": "navigation", "path": "service/navigation", "summary": "Example-domain IMU, GNSS, fusion, and health services."},
-        {"package": "nxrs-telemetry-service", "crate": "telemetry", "path": "service/telemetry", "summary": "Bounded sensor capture, versioned telemetry and authenticated delivery under one communications owner."},
+        {"package": "nxrs-telemetry-service", "crate": "telemetry", "path": "service/telemetry", "summary": "Fixed navigation wire formats, bounded capture and publication, and synchronous collector and BLE operations."},
         {"package": "nxrs-map-service", "crate": "maps", "path": "service/map", "summary": "Bounded tile decoding, map projection, viewport selection and tile ownership."},
         {"package": "nxrs-ui-service", "crate": "ui", "path": "service/ui", "summary": "Synchronous strip rendering, bitmap text, gestures and bounded chart history."}
       ]

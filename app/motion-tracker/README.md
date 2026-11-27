@@ -15,23 +15,37 @@ python3 tests/native/motion_tracker.py
 
 The runtime composes acquisition, telemetry and the product dashboard. The
 application selects devices, BLE UUIDs, source rates, report intervals and
-permitted routes. Its `screen` module owns the pages, layout, colors, pairing
-actions and redraw deadlines.
+permitted routes. Its [communications module](src/communications.rs) owns the
+worker, modem startup, collector reconnects, shared TLS identity and phone/IP
+map routing. Its `screen` module owns the pages, layout, colors, pairing actions
+and redraw deadlines.
 
 | Reusable component | Responsibility | Execution |
 | --- | --- | --- |
-| [Telemetry](../../service/telemetry/README.md) | Capture/export, snapshot encoding, partial writes, BLE pairing, collector recovery and map transfer | The existing communications worker and its single wait point; one shared TLS identity |
+| [Telemetry](../../service/telemetry/README.md) | Fixed-schema snapshots, capture/export, bounded publication, optional paired BLE and collector TLS operations | Synchronous calls on the application's communications worker |
 | [Maps](../../service/map/README.md) | Tile protocol, Mercator projection, viewport selection and bounded cache | Synchronous calls by the communications and presentation owners |
 | [UI](../../service/ui/README.md) | Reusable strip buffer, bitmap text, gesture recognition, bounded history and chart damage | Synchronous calls on the application's event loop |
 | [Fixed text](../../shared/text/src/lib.rs) | Inline formatting for wire frames and display labels | No allocation or worker |
 
-These services have no dependency on Motion Tracker. The map and UI components
-can be used without telemetry; the telemetry wire encoders and publisher can be
-used without starting its worker. Motion Tracker retains its two-IMU/GNSS product
-wiring and uses the same versioned protocol as its existing clients. A different
-application can reuse that protocol and supply its own admitted traffic budget,
-Bluetooth UUIDs and endpoints. Arbitrary sensor counts require a deliberate
-protocol extension.
+These services have no dependency on Motion Tracker. Telemetry's default core
+includes wire encoders, capture, publication and `collector::Reports`; `ble` and
+`collector-tls` independently add transport operations. A one-IMU consumer can
+adapt its observation reader to the fixed two-slot wire format without creating
+a second source. Arbitrary sensor counts require a deliberate protocol extension.
+
+Motion Tracker retains its `Communications` and `Telemetry` lifecycle, fixed
+two-IMU reader, `Modem` and `Retry`, and `Tiles` routing workflow. Its worker owns
+one lazily initialized TLS identity through `OnceCell`, one logical wait point
+and a 23 KiB stack reservation. Blocking collector and map connection attempts
+run on the existing 4 KiB and 8 KiB dial workers. The cellular HAL owns PPP
+redial. No execution owner is added by the service boundaries.
+
+Failed communications spawn returns the exclusive telemetry endpoints to the
+caller. Worker exit or unwind closes capture admission; after joining,
+`take_telemetry` returns the endpoints for explicit reuse. Pairing commands are
+then harmless, map exchange returns `None`, and the retained BLE view reports
+`Unavailable`. Full product shutdown joins acquisition before retiring these
+endpoints.
 
 ## Dashboard
 
@@ -347,8 +361,18 @@ timestamp layouts. Version 1 uses full float records and an empty overflow
 payload. Version 2 also accepts delta headers and identifies the first
 missing source and sequence.
 
-BLE and cellular share the telemetry stream publisher. Each connection keeps
-one frame in progress and coalesces waiting snapshots to the latest value.
+BLE and cellular use the telemetry stream publisher. Each connection keeps
+one frame in progress and preserves its accepted bytes through partial writes.
+Motion Tracker schedules ordinary BLE summaries at the greater of its report
+interval and one second. A changed map request may be advertised immediately;
+an accepted advertisement also spends that summary interval. An offer declined
+by a busy transport does not spend the allowance. The BLE operation has no
+independent summary timer. Sensor faults can bring a slower report forward,
+while respecting the one-second minimum; a fault arriving earlier remains due
+when that allowance opens. Snapshot sampling runs only after queue admission.
+Collector cadence is owned by `collector::Reports`
+and survives replacement of its TLS stream.
+
 Sensor workers update shared latest readings through the observation service.
 The dashboard and communications worker read them on independent deadlines.
 During full-rate export, the sensor workers also admit ordered samples to the

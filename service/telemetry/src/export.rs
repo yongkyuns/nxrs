@@ -4,6 +4,8 @@
 //! communications owner copies complete batches before encoding or transport I/O.
 #[path = "export/policy.rs"]
 mod policy;
+#[cfg(feature = "probe")]
+pub mod probe;
 pub use policy::CaptureBudget;
 
 use crate::clock::ClockAnchor;
@@ -86,7 +88,7 @@ impl Notify for CaptureWake {
     }
 }
 
-/// The sole pool consumer moves with Telemetry through spawn and joined handoff.
+/// The sole pool consumer moves with its caller through spawn and joined handoff.
 pub struct Capture {
     owner: Option<pooled::Owner<CaptureWake>>,
     shared: Arc<CaptureShared>,
@@ -594,57 +596,10 @@ pub(crate) mod tests {
         )
     }
 
-    pub(crate) struct PausedRecord {
-        resume: Option<mpsc::Sender<()>>,
-        worker: Option<thread::JoinHandle<CapturePublisher>>,
-    }
-
-    impl PausedRecord {
-        pub(crate) fn release(mut self) -> CapturePublisher {
-            self.resume.take().unwrap().send(()).unwrap();
-            self.worker.take().unwrap().join().unwrap()
-        }
-    }
-
-    impl Drop for PausedRecord {
-        fn drop(&mut self) {
-            if let Some(resume) = self.resume.take() {
-                let _ = resume.send(());
-            }
-            if let Some(worker) = self.worker.take() {
-                let _ = worker.join();
-            }
-        }
-    }
-
-    pub(crate) fn pause_record(
-        mut publisher: CapturePublisher,
-        value: Measurement,
-    ) -> PausedRecord {
-        let (claimed, observed) = mpsc::channel();
-        let (resume, released) = mpsc::channel();
-        let epoch = publisher.publisher.as_ref().unwrap().captured_epoch();
-        let worker = thread::spawn(move || {
-            publisher
-                .publisher
-                .as_mut()
-                .unwrap()
-                .offer_with_hooks(epoch, Sample::from(value).record(), |stage| {
-                    if stage == Stage::AfterSlotClaim {
-                        claimed.send(()).unwrap();
-                        released.recv().unwrap();
-                    }
-                })
-                .unwrap();
-            publisher
-        });
-        let paused = PausedRecord {
-            resume: Some(resume),
-            worker: Some(worker),
-        };
-        observed.recv_timeout(Duration::from_secs(2)).unwrap();
-        paused
-    }
+    #[cfg(feature = "ble")]
+    mod paused;
+    #[cfg(feature = "ble")]
+    pub(crate) use paused::pause_record;
 
     #[derive(Debug, PartialEq)]
     pub(crate) struct Decoded {

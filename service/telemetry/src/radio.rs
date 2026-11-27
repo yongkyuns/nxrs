@@ -1,15 +1,58 @@
+//! Paired BLE telemetry sessions stepped by the caller's existing owner.
+//! This module has no worker, snapshot subscription or summary cadence. The
+//! caller opens one identity lease, chooses UUIDs and offers protocol snapshots.
 use super::{
     export::{Capture, Version, MAX_BYTES, REQUEST_LEN, REQUEST_PREFIX},
     publication::Publisher,
-    tiles::{Key, Receiver, Response},
-    wire, BleServices,
+    wire,
 };
 use crate::Snapshot;
 use ble::peripheral::{self, Link, Listener};
+use maps::wire::{Key, Receiver, Response};
 use std::io::{self, Read, Write};
 use std::time::{Duration, Instant};
 use text::Text;
 
+/// Legacy polling and notification-capable BLE byte-stream UUID triples.
+#[derive(Clone, Copy)]
+pub struct BleServices {
+    pub pairing: peripheral::Service,
+    pub telemetry: peripheral::Service,
+}
+
+/// BLE state only. It does not describe a collector, modem or map relay.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum BleStatus {
+    Idle,
+    Pairing,
+    Paired,
+    Connected,
+    Unavailable,
+}
+
+/// Pairing presentation state. The caller uses Idle before a session is opened
+/// and Unavailable when opening fails or its owner stops.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct BleView {
+    pub link: BleStatus,
+    pub key: Option<[u8; 32]>,
+}
+
+impl Default for BleView {
+    fn default() -> Self {
+        Self {
+            link: BleStatus::Idle,
+            key: None,
+        }
+    }
+}
+
+#[inline(never)]
+fn pairing_key_error(error: tls::Error) -> io::Error {
+    io::Error::other(format!("Pairing key: {error:?}"))
+}
+
+/// Open the selected BLE services. The caller's identity outlives the session.
 pub fn pair<'a>(
     identity: &'a tls::Identity,
     services: BleServices,
@@ -158,6 +201,12 @@ impl Export {
     }
 }
 
+/// Synchronous paired telemetry/export protocol over an injected BLE listener.
+/// `service` advances bounded transport/export work; `offer` supplies summaries.
+/// Keep the identity and capture owner alive until this value is dropped.
+/// The caller owns summary cadence, waiting and session expiry. Finish any
+/// active capture when cancelling or dropping the session; dropping this value
+/// releases its connection and listener without retaining the capture owner.
 pub struct Output<'a, L: Listener> {
     // Fields leave scope in declaration order. Retire TLS before its listener.
     connection: Option<tls::Connection<'a, Bearer<L::Transport>>>,
@@ -174,19 +223,17 @@ pub struct Output<'a, L: Listener> {
     live: bool,
     paired: bool,
     drained: bool,
-    next_frame: Instant,
     expires: Instant,
 }
 
 impl<'a, L: Listener> Output<'a, L> {
+    /// Use an existing listener without opening a modem or spawning a worker.
     pub fn start(
         listener: L,
         identity: &'a tls::Identity,
         product: &'static str,
     ) -> io::Result<Self> {
-        let key = identity
-            .pairing_key()
-            .map_err(|error| super::TlsOperation::PairingKey.error(error))?;
+        let key = identity.pairing_key().map_err(pairing_key_error)?;
         let now = Instant::now();
         Ok(Self {
             listener,
@@ -203,34 +250,56 @@ impl<'a, L: Listener> Output<'a, L> {
             live: false,
             paired: false,
             drained: false,
-            next_frame: now,
             expires: now + Duration::from_secs(3600),
         })
     }
-    pub fn key(&self) -> &[u8; 32] {
-        &self.key
+    /// Current BLE pairing/connection state for presentation. A disconnected
+    /// previously paired session remains Paired and can accept another peer.
+    pub fn view(&self) -> BleView {
+        if self.live {
+            BleView {
+                link: BleStatus::Connected,
+                key: None,
+            }
+        } else if self.paired {
+            BleView {
+                link: BleStatus::Paired,
+                key: None,
+            }
+        } else {
+            BleView {
+                link: BleStatus::Pairing,
+                key: Some(self.key),
+            }
+        }
     }
+    /// Whether the current peer has completed the TLS handshake.
     pub fn live(&self) -> bool {
         self.live
     }
-    pub fn paired(&self) -> bool {
-        self.paired
-    }
 
+    /// Show the existing pairing code again when no authenticated peer is live.
+    /// This neither replaces the identity nor extends the session lifetime.
     pub fn show_pairing_code(&mut self) {
         if !self.live {
             self.paired = false;
         }
     }
 
+    /// Whether the one-hour session lifetime has elapsed. The caller retires
+    /// this output and finishes capture before opening a replacement session.
     pub fn expired(&self, now: Instant) -> bool {
         now >= self.expires
     }
 
+    /// Whether an accepted transport needs polling, including TLS negotiation.
     pub fn active(&self) -> bool {
         self.connection.is_some()
     }
 
+    /// Combine protocol/idle retry deadlines with the caller's next active
+    /// transport poll, `active_at`. Readiness hints may require an earlier turn.
+    /// This excludes summary cadence; the caller combines that deadline too.
     pub fn next_service(&self, now: Instant, active_at: Instant) -> Instant {
         let mut wake = if self.active() {
             active_at
@@ -248,10 +317,25 @@ impl<'a, L: Listener> Output<'a, L> {
         wake.min(self.expires)
     }
 
+    /// Consume the listener's retained readiness hint. Capture publications
+    /// have their own hint; the caller checks both before its logical wait.
     pub fn take_ready(&self) -> bool {
         self.listener.take_ready()
     }
 
+    /// Advance bounded BLE, capture-export and optional phone-tile work.
+    /// `wanted` is the current phone tile request; None disables that exchange.
+    /// Completed tile responses return to the caller, which owns route selection.
+    ///
+    /// Pending export bytes take priority. Otherwise a queued summary uses the
+    /// turn before a new export batch or tile read. Leave service turns without
+    /// a queued summary so those exchanges can progress; offering a new summary
+    /// after every turn can starve them.
+    ///
+    /// A transport/protocol error is logged and retires the current connection,
+    /// queued frames and capture epoch. The listener remains available to accept
+    /// another peer, and [`Self::view`] reflects the disconnected state. The
+    /// caller continues capture retirement and decides when to end this session.
     pub fn service(
         &mut self,
         capture: &mut Capture,
@@ -362,17 +446,26 @@ impl<'a, L: Listener> Output<'a, L> {
         Ok(response)
     }
 
-    pub fn offer(&mut self, snapshot: &Snapshot, now: Instant, wanted: Option<Key>) {
-        let new_tile = wanted.is_some()
+    /// Whether the current phone request still needs a summary advertisement.
+    /// This is protocol state; the caller decides whether to send it immediately.
+    pub fn needs_tile_advertisement(&self, wanted: Option<Key>) -> bool {
+        wanted.is_some()
             && wanted != self.advertised_tile
-            && (!self.listener.notifying() || self.export.requested());
-        if self.live
-            && (self.drained || self.listener.notifying())
-            && self.publication.is_idle()
-            && (now >= self.next_frame || new_tile)
-        {
-            self.publication.offer(*snapshot);
-            self.next_frame = now + Duration::from_secs(1);
+            && (!self.listener.notifying() || self.export.requested())
+    }
+
+    /// Sample and queue one summary if the stream can accept it. The producer
+    /// is called only after admission. There is no hidden rate limit: the
+    /// caller advances its cadence only when this returns true.
+    /// Pending frame bytes are never replaced, including during export.
+    /// Choose a cadence that leaves service turns without queued summaries for
+    /// export and tile progress; see [`Self::service`] for their priority.
+    pub fn offer(&mut self, snapshot: impl FnOnce() -> Snapshot) -> bool {
+        if self.live && (self.drained || self.listener.notifying()) && self.publication.is_idle() {
+            self.publication.offer(snapshot());
+            true
+        } else {
+            false
         }
     }
 }

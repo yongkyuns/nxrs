@@ -67,17 +67,21 @@ pub fn project<const SERIES: usize>(
     Ok(())
 }
 
-/// Fill one damaged-column range per strip, including two-pixel markers at
-/// the start of each trace. Storage and coordinates are checked before use.
-/// Union these ranges with the last presented ranges to erase old traces.
+/// Fill damaged-column ranges for one-pixel lines and square markers at the
+/// start of each trace. Markers extend right/down from the point and are clipped
+/// to `plot`; supply the same nonzero `marker_size` used by the painter. Storage
+/// and coordinates are checked before use. Union these ranges with the last
+/// presented ranges to erase old traces.
 pub fn damage<const SERIES: usize>(
     plot: Area,
     strip_height: u16,
+    marker_size: u16,
     points: &[Option<Point<SERIES>>],
     bands: &mut [Columns],
 ) -> Result<(), Error> {
     let rect = rectangle(plot)?;
     if strip_height == 0
+        || marker_size == 0
         || bands.len() < usize::from(rect.size.height).div_ceil(usize::from(strip_height))
     {
         return Err(Error::InvalidRegion);
@@ -107,10 +111,10 @@ pub fn damage<const SERIES: usize>(
                     (
                         Columns {
                             left: point.x,
-                            right: point.x.saturating_add(2).min(right),
+                            right: point.x.saturating_add(marker_size).min(right),
                         },
                         y,
-                        y.saturating_add(1).min(bottom - 1),
+                        y.saturating_add(marker_size - 1).min(bottom - 1),
                     )
                 };
                 let first = usize::from((top - rect.y) / strip_height);

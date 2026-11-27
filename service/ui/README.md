@@ -41,6 +41,11 @@ to grow the vector when its capacity is exhausted. `None` separates traces.
 previously presented ranges with `Columns::include` before repainting, then
 commit the new damage only after presentation succeeds. The caller chooses
 series count, scale, plot dimensions, marker inset and workspace capacities.
+Damage assumes one-pixel lines and square markers extending right/down from
+each trace's first point, clipped to the plot. Pass the painter's nonzero marker
+side length so its pixels and damage bounds agree. Motion Tracker uses the same
+two-pixel marker constant in both calls; another renderer can choose a different
+marker size.
 
 ## Cost and portability
 
