@@ -59,6 +59,7 @@ pub struct Capture {
     epoch: AtomicUsize,
     ready: AtomicBool,
     sensor_failed: AtomicBool,
+    owner: OnceLock<Thread>,
     samples: Mutex<Samples>,
     scales: [Option<[u32; 2]>; 2],
     clock: OnceLock<ClockAnchor>,
@@ -69,7 +70,6 @@ struct Samples {
     queue: VecDeque<Sample>,
     first_missing: Option<(Source, u32)>,
     high_water: usize,
-    owner: Option<Thread>,
 }
 
 #[derive(Clone, Copy)]
@@ -148,7 +148,8 @@ impl Capture {
     }
 
     pub fn register_owner(&self) {
-        self.samples.lock().unwrap().owner = Some(thread::current());
+        // The communications task lives across individual export sessions.
+        assert!(self.owner.set(thread::current()).is_ok());
     }
 
     pub fn take_ready(&self) -> bool {
@@ -157,8 +158,7 @@ impl Capture {
 
     pub fn sensor_failed(&self) {
         self.sensor_failed.store(true, Ordering::Release);
-        let owner = self.samples.lock().unwrap().owner.clone();
-        if let Some(owner) = owner {
+        if let Some(owner) = self.owner.get() {
             owner.unpark();
         }
     }
@@ -168,17 +168,21 @@ impl Capture {
     }
 
     pub fn enable(&self) -> io::Result<()> {
-        let mut samples = self.samples.lock().unwrap();
-        samples.queue.clear();
-        samples
-            .queue
+        // An export reconnect may overlap an acquisition callback. Reserve
+        // before touching the queue lock, and retire the old queue outside it.
+        let mut queue = VecDeque::new();
+        queue
             .try_reserve_exact(QUEUE)
             .map_err(|_| io::ErrorKind::OutOfMemory)?;
-        samples.first_missing = None;
-        samples.high_water = 0;
-        self.ready.store(false, Ordering::Relaxed);
-        let epoch = self.epoch.load(Ordering::Relaxed).wrapping_add(1) | 1;
-        self.epoch.store(epoch, Ordering::Release);
+        {
+            let mut samples = self.samples.lock().unwrap();
+            std::mem::swap(&mut samples.queue, &mut queue);
+            samples.first_missing = None;
+            samples.high_water = 0;
+            self.ready.store(false, Ordering::Relaxed);
+            let epoch = self.epoch.load(Ordering::Relaxed).wrapping_add(1) | 1;
+            self.epoch.store(epoch, Ordering::Release);
+        }
         Ok(())
     }
 
@@ -215,7 +219,7 @@ impl Capture {
     fn enqueue(&self, epoch: usize, sample: Sample) {
         // This runs in the acquisition task. The consumer holds the lock
         // only for a bounded copy, with no encoding or transport I/O.
-        let owner = {
+        {
             let mut samples = self.samples.lock().unwrap();
             if self.epoch.load(Ordering::Relaxed) != epoch {
                 return;
@@ -232,9 +236,8 @@ impl Capture {
                 }
             }
             self.ready.store(true, Ordering::Release);
-            samples.owner.clone()
-        };
-        if let Some(owner) = owner {
+        }
+        if let Some(owner) = self.owner.get() {
             owner.unpark();
         }
     }
@@ -409,6 +412,25 @@ mod tests {
         );
         assert_eq!(bytes[4], 3);
         assert_eq!(&bytes[5..9], &1_u32.to_le_bytes());
+    }
+
+    #[test]
+    fn sensor_fault_is_retained_while_export_owns_the_queue() {
+        let capture = Capture::default();
+        let (finished, complete) = mpsc::channel();
+        thread::scope(|scope| {
+            let notified = {
+                let _queue = capture.samples.lock().unwrap();
+                scope.spawn(|| {
+                    capture.sensor_failed();
+                    finished.send(()).unwrap();
+                });
+                complete.recv_timeout(Duration::from_secs(1))
+            };
+            assert_eq!(notified, Ok(()));
+        });
+        assert!(capture.take_sensor_failed());
+        assert!(!capture.take_sensor_failed());
     }
 
     #[test]
