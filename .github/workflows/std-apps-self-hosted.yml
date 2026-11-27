@@ -47,7 +47,8 @@ on:
       - 'tools/apply-nuttx-patches.py'
       - '.github/workflows/std-apps-self-hosted.yml'
   pull_request:
-    branches: [main]
+    # Stacked diagnostics PRs need the same native timing and heap witnesses
+    # before their prerequisite lands; retain the path and actor restrictions.
     paths:
       - '.github/scripts/install-ubuntu-packages.sh'
       - 'app/**'

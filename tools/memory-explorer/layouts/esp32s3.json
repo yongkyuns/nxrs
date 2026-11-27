@@ -1,0 +1,211 @@
+{
+  "schema_version": 1,
+  "qualification": {
+    "name": "ESP32-S3 internal storage and external address windows",
+    "nuttx_revision": "2b5c0de5e933281c209f954a63b99cf10c132346",
+    "esp_hal_revision": "b90b1837cb5ad24747deb4c895246037cc206ce5",
+    "scope": "Fixed on-chip storage and CPU alias relationship from pinned vendor definitions. Runtime cache reservations, MPU access, external MMU translations and physical device identity are not observed.",
+    "sources": [
+      "https://github.com/apache/nuttx/blob/2b5c0de5e933281c209f954a63b99cf10c132346/boards/xtensa/esp32s3/common/scripts/flat_memory.ld",
+      "https://github.com/apache/nuttx/blob/2b5c0de5e933281c209f954a63b99cf10c132346/arch/xtensa/src/esp32s3/Kconfig",
+      "https://github.com/apache/nuttx/blob/2b5c0de5e933281c209f954a63b99cf10c132346/arch/xtensa/src/esp32s3/Make.defs",
+      "https://github.com/espressif/esp-hal-3rdparty/blob/b90b1837cb5ad24747deb4c895246037cc206ce5/components/soc/esp32s3/include/soc/soc.h",
+      "https://github.com/espressif/esp-hal-3rdparty/blob/b90b1837cb5ad24747deb4c895246037cc206ce5/components/heap/port/esp32s3/memory_layout.c"
+    ]
+  },
+  "warnings": [
+    "ESP32-S3 internal SRAM has 32 KiB of instruction/cache storage, 416 KiB shared by instruction and data addresses, and 64 KiB of data/cache storage. The overlapping IRAM and DRAM windows map one 512 KiB resource and are counted once.",
+    "Full SRAM capacity includes cache, ROM/bootloader, and other reservations. It is not the available heap; only captured allocator free chunks establish free bytes.",
+    "The 32 MiB external data and instruction windows are address apertures, not installed flash or PSRAM capacity. Flash and PSRAM can share the data aperture; no linear physical mapping or duplicate storage is inferred.",
+    "Configured flash and PSRAM capacities are added only from matching effective build configuration. They remain unmapped and unobserved: runtime probing, MMU page tables, image headers and partition offsets are not supplied by this descriptor.",
+    "RTC fast RAM has one shared instruction/data address window and is counted once. RTC slow RAM can reserve space for the ULP; ownership and deep-sleep retention are not observed.",
+    "CoreS3 and ESP32-S3 DevKit use this common SoC layout. CoreS3 BSP registration comes from the retained NXRS patch listed in upstream/memory-layouts/sources.json. Neither a board name nor an ELF alone attests a connected physical device."
+  ],
+  "physical_resources": [
+    {
+      "id": "esp32s3-internal-sram",
+      "name": "ESP32-S3 internal SRAM (including cache reservations)",
+      "size": 524288,
+      "banks": [
+        {
+          "name": "Instruction / cache storage",
+          "offset": 0,
+          "size": 32768
+        },
+        {
+          "name": "Shared instruction and data storage",
+          "offset": 32768,
+          "size": 425984
+        },
+        {
+          "name": "Data / cache storage",
+          "offset": 458752,
+          "size": 65536
+        }
+      ]
+    },
+    {
+      "id": "esp32s3-rtc-slow",
+      "name": "RTC slow RAM",
+      "size": 8192,
+      "banks": [
+        {
+          "name": "RTC slow RAM",
+          "offset": 0,
+          "size": 8192
+        }
+      ]
+    },
+    {
+      "id": "esp32s3-rtc-fast",
+      "name": "RTC fast RAM",
+      "size": 8192,
+      "banks": [
+        {
+          "name": "RTC fast RAM",
+          "offset": 0,
+          "size": 8192
+        }
+      ]
+    }
+  ],
+  "regions": [
+    {
+      "id": "esp32s3-external-data",
+      "name": "External data MMU window (flash / PSRAM; backing unknown)",
+      "start": 1006632960,
+      "size": 33554432,
+      "kind": "unknown",
+      "domain": "cpu_virtual"
+    },
+    {
+      "id": "esp32s3-dram",
+      "name": "Internal SRAM data window",
+      "start": 1070104576,
+      "size": 491520,
+      "kind": "ram",
+      "domain": "cpu_virtual",
+      "physical": {
+        "id": "esp32s3-internal-sram",
+        "offset": 32768
+      }
+    },
+    {
+      "id": "esp32s3-iram",
+      "name": "Internal SRAM instruction alias",
+      "start": 1077346304,
+      "size": 458752,
+      "kind": "ram",
+      "domain": "cpu_virtual",
+      "physical": {
+        "id": "esp32s3-internal-sram",
+        "offset": 0
+      }
+    },
+    {
+      "id": "esp32s3-external-instructions",
+      "name": "External instruction MMU window (backing unknown)",
+      "start": 1107296256,
+      "size": 33554432,
+      "kind": "unknown",
+      "domain": "cpu_virtual"
+    },
+    {
+      "id": "esp32s3-rtc-slow",
+      "name": "RTC slow RAM / ULP storage",
+      "start": 1342177280,
+      "size": 8192,
+      "kind": "ram",
+      "domain": "cpu_virtual",
+      "physical": {
+        "id": "esp32s3-rtc-slow",
+        "offset": 0
+      }
+    },
+    {
+      "id": "esp32s3-rtc-fast",
+      "name": "RTC fast RAM (shared instruction and data window)",
+      "start": 1611653120,
+      "size": 8192,
+      "kind": "ram",
+      "domain": "cpu_virtual",
+      "physical": {
+        "id": "esp32s3-rtc-fast",
+        "offset": 0
+      }
+    },
+    {
+      "id": "load-esp32s3-dram",
+      "name": "Linked load: Internal SRAM data window",
+      "start": 1070104576,
+      "size": 491520,
+      "kind": "ram",
+      "domain": "linked_load",
+      "physical": {
+        "id": "esp32s3-internal-sram",
+        "offset": 32768
+      }
+    },
+    {
+      "id": "load-esp32s3-iram",
+      "name": "Linked load: Internal SRAM instruction alias",
+      "start": 1077346304,
+      "size": 458752,
+      "kind": "ram",
+      "domain": "linked_load",
+      "physical": {
+        "id": "esp32s3-internal-sram",
+        "offset": 0
+      }
+    },
+    {
+      "id": "load-esp32s3-rtc-slow",
+      "name": "Linked load: RTC slow RAM / ULP storage",
+      "start": 1342177280,
+      "size": 8192,
+      "kind": "ram",
+      "domain": "linked_load",
+      "physical": {
+        "id": "esp32s3-rtc-slow",
+        "offset": 0
+      }
+    },
+    {
+      "id": "load-esp32s3-rtc-fast",
+      "name": "Linked load: RTC fast RAM (shared instruction and data window)",
+      "start": 1611653120,
+      "size": 8192,
+      "kind": "ram",
+      "domain": "linked_load",
+      "physical": {
+        "id": "esp32s3-rtc-fast",
+        "offset": 0
+      }
+    }
+  ],
+  "configured_resources": [
+    {
+      "id": "configured-psram",
+      "name": "Configured PSRAM capacity (mapping unobserved)",
+      "enabled_by": "CONFIG_ESP32S3_SPIRAM",
+      "size_key": "CONFIG_ESP32S3_SPIRAM_SIZE",
+      "allowed_sizes": [
+        2097152,
+        4194304,
+        8388608,
+        16777216,
+        33554432
+      ]
+    },
+    {
+      "id": "configured-flash",
+      "name": "Configured flash capacity (mapping unobserved)",
+      "size_choices": {
+        "CONFIG_ESP32S3_FLASH_4M": 4194304,
+        "CONFIG_ESP32S3_FLASH_8M": 8388608,
+        "CONFIG_ESP32S3_FLASH_16M": 16777216,
+        "CONFIG_ESP32S3_FLASH_32M": 33554432
+      }
+    }
+  ]
+}

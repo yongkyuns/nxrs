@@ -39,6 +39,17 @@
     } \
   while (0)
 
+/* This declaration calls the copied production note ABI translator. The labels
+ * explicitly identify a fixture: no IMU, UART or sensor interrupt is exercised.
+ */
+void acquisition_trace_event(uint8_t edge, const uint8_t *label, size_t length);
+
+static void bridge_note(uint8_t edge, const char *label)
+{
+  size_t length = strlen(label);
+  TIMING_NOTE(acquisition_trace_event(edge, (const uint8_t *)label, length));
+}
+
 /* Qualification state is fixed storage, read by GDB without target calls.
  * The host supplies a fresh run nonce and independently checks its target copy.
  */
@@ -168,7 +179,9 @@ static void *worker(void *arg)
           return NULL;
         }
 
+      bridge_note('I', "imu/qemu-fixture/wake");
       TIMING_NOTE(sched_note_beginex(NOTE_TAG_ALWAYS, "timing/worker"));
+      bridge_note('B', "imu/qemu-fixture/drain");
       TIMING_NOTE(sched_note_beginex(NOTE_TAG_ALWAYS, "timing/busy"));
       clock_t start = perf_gettime();
       while (perf_gettime() - start < frequency / 500)
@@ -176,6 +189,7 @@ static void *worker(void *arg)
           /* Two milliseconds on the declared target clock; no CPU benchmark. */
         }
       TIMING_NOTE(sched_note_endex(NOTE_TAG_ALWAYS, "timing/busy"));
+      bridge_note('E', "imu/qemu-fixture/drain");
       TIMING_NOTE(sched_note_beginex(NOTE_TAG_ALWAYS, "timing/sleep"));
       usleep(3000);
       TIMING_NOTE(sched_note_endex(NOTE_TAG_ALWAYS, "timing/sleep"));
@@ -252,11 +266,19 @@ int main(int argc, char *argv[])
       pthread_attr_setstacksize(&attributes, 8192) != 0 ||
       ioctl(ram, NOTERAM_CLEAR, 0ul) < 0 ||
       ioctl(ram, NOTERAM_GETMODE, (unsigned long)&mode) < 0 ||
-      mode != NOTERAM_MODE_OVERWRITE_DISABLE || enable_notes(control, true) < 0)
+      mode != NOTERAM_MODE_OVERWRITE_DISABLE)
     {
       goto failed;
     }
 
+  /* This call is after the clear, so a broken disabled filter cannot have its
+   * erroneous record erased before the independent host inspects the dump.
+   */
+  bridge_note('I', "bridge/disabled-before-start");
+  if (enable_notes(control, true) < 0)
+    {
+      goto failed;
+    }
   TIMING_NOTE(sched_note_beginex(NOTE_TAG_ALWAYS, "timing/capture"));
   memory_checkpoint(1);
   if (g_memory_checkpoints)
@@ -323,6 +345,7 @@ int main(int argc, char *argv[])
       goto failed;
     }
 
+  bridge_note('I', "bridge/disabled-after-stop");
   printf("NXRS_NOTE_BEGIN schema=1 source=nuttx-noteram-ascii "
 #ifdef CONFIG_EXAMPLES_MEMORY_TIMING_CMSDK_CLOCK
          "clock=qemu-an521-cmsdk-timer1-20mhz clock_bits=32 clock_epoch=fixture-invocation "
@@ -360,6 +383,7 @@ int main(int argc, char *argv[])
       goto failed;
     }
 
+  printf("NXRS_ACQUISITION_BRIDGE rounds=%d disabled_probes=2\n", ROUNDS);
   printf("NXRS_TIMING_WITNESS PASS rounds=%d dump_bytes=%zu\n", ROUNDS, dumped);
   result = 0;
 

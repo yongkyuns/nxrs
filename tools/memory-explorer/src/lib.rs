@@ -7,13 +7,18 @@
 mod correlation;
 mod demo;
 mod import;
+mod layout;
 mod model;
 mod replay;
+mod session;
 mod timing;
 
 pub use correlation::{correlate_checkpoints, CheckpointCorrelation, CheckpointLink};
 pub use demo::demo;
-pub use import::{load, load_inputs, parse_gnu_map, MapContribution};
+pub use import::{
+    load, load_inputs, load_inputs_discovered, load_prepared_inputs, parse_gnu_map, MapContribution,
+};
+pub use layout::{discover_build_context, BuildContext, SUPPORTED_LAYOUT_BOARDS};
 pub use model::*;
 pub use replay::{
     load_heap_journal, parse_heap_journal, HeapCheckpoint, HeapChunk, HeapChunkState,
@@ -21,7 +26,9 @@ pub use replay::{
     HeapUnknownReason, KnownHeapState, ReplayCoverage, ReplayCoverageKind, ReplayCursor,
     ReplayHeap, ReplayPoint, ReplayProvenance, UnknownHeapState,
 };
+pub use session::{load_session, SessionInputs};
 pub use timing::{
     load_timing, parse_timing, timing_demo, CounterSample, TimingEvent, TimingEventKind,
-    TimingMetadata, TimingRange, TimingStats, TimingTrace, TimingTrack, TimingTrackStats,
+    TimingMetadata, TimingRange, TimingSourceStats, TimingStats, TimingTrace, TimingTrack,
+    TimingTrackStats,
 };

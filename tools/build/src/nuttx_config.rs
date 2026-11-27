@@ -256,14 +256,16 @@ fn diagnostic_clock_requires_single_core(profile: &Profile) -> bool {
     diagnostics_enabled(profile) && profile.data["target"] == "xtensa-esp32s3-nuttx"
 }
 
-fn diagnostics(profile: &Profile) -> Result<Vec<(&'static str, &'static str)>> {
-    if !diagnostics_enabled(profile) {
+fn diagnostics(profile: &Profile) -> Result<Vec<(&'static str, String)>> {
+    let Some(options) = profile.diagnostics()? else {
         return Ok(vec![]);
-    }
+    };
     if profile.data.pointer("/build/protected-runtime") == Some(&json!(true)) {
         return Err("build.diagnostics requires flat NuttX".into());
     }
-    let mut settings = vec![
+    let mut settings: Vec<(&'static str, String)> = vec![
+        ("DEBUG_SYMBOLS", "y"),
+        ("DEBUG_LINK_MAP", "y"),
         ("MM_ALLOC_REQUEST_TRACE", "y"),
         ("SCHED_INSTRUMENTATION", "y"),
         ("SCHED_INSTRUMENTATION_FILTER", "y"),
@@ -271,10 +273,11 @@ fn diagnostics(profile: &Profile) -> Result<Vec<(&'static str, &'static str)>> {
         ("SCHED_INSTRUMENTATION_SWITCH", "y"),
         ("SCHED_INSTRUMENTATION_IRQHANDLER", "y"),
         ("SCHED_INSTRUMENTATION_HEAP", "y"),
+        ("SCHED_INSTRUMENTATION_DUMP", "y"),
         ("DRIVERS_NOTE", "y"),
         ("DRIVERS_NOTERAM", "y"),
         ("DRIVERS_NOTECTL", "y"),
-        ("DRIVERS_NOTERAM_BUFSIZE", "8192"),
+        ("DRIVERS_NOTERAM_DEFAULT_NOOVERWRITE", "y"),
         ("DRIVERS_NOTE_TASKNAME_BUFSIZE", "1024"),
         ("SYSTEM_TRACE", "y"),
         ("SYSTEM_TRACE_STACKSIZE", "4096"),
@@ -282,11 +285,18 @@ fn diagnostics(profile: &Profile) -> Result<Vec<(&'static str, &'static str)>> {
         ("FS_PROCFS", "y"),
         ("FS_PROCFS_EXCLUDE_MEMINFO", "n"),
         ("FS_PROCFS_EXCLUDE_PROCESS", "n"),
-    ];
+    ].into_iter().map(|(key, value)| (key, value.to_owned())).collect();
+    settings.push(("DRIVERS_NOTERAM_BUFSIZE", options.trace_bytes.to_string()));
+    if let Some(depth) = options.heap_backtrace_depth {
+        settings.push(("MM_BACKTRACE", depth.to_string()));
+        if depth > 0 {
+            settings.push(("MM_BACKTRACE_DEFAULT", "y".into()));
+        }
+    }
     if profile.data["target"] == "xtensa-esp32s3-nuttx" {
         settings.extend([
-            ("ARCH_PERF_EVENTS", "y"),
-            ("PERF_OVERFLOW_CORRECTION", "y"),
+            ("ARCH_PERF_EVENTS", "y".into()),
+            ("PERF_OVERFLOW_CORRECTION", "y".into()),
         ]);
     }
     Ok(settings)
@@ -326,7 +336,7 @@ fn check_ownership(
         check(&key, &value, "builder")?;
     }
     for (key, value) in diagnostic_settings {
-        check(key, value, "build.diagnostics")?;
+        check(key, &value, "build.diagnostics")?;
     }
     if diagnostic_clock_requires_single_core(profile) {
         check("SMP", "n", "ESP32-S3 diagnostic clock")?;
@@ -481,8 +491,8 @@ impl Configuration {
             requirements.push("# CONFIG_SMP is not set".into());
         }
         for (key, value) in diagnostic_settings {
-            requirements.push(line(key, value));
-            values.insert(key.into(), value.into());
+            requirements.push(line(key, &value));
+            values.insert(key.into(), value);
         }
         if protected {
             let mode = protected_config();
@@ -899,6 +909,29 @@ mod tests {
         assert_eq!(standard(&profile, false)["NSH_DISABLEBG"], "n");
         profile.data["init"] = json!({});
         assert!(!standard(&profile, false).contains_key("NSH_DISABLEBG"));
+    }
+
+    #[test]
+    fn diagnostic_recording_is_bounded_and_preserves_requested_allocation_depth() {
+        let profile = Profile::from_data(json!({"build": {"diagnostics": true}}), vec![]);
+        let settings: BTreeMap<_, _> = diagnostics(&profile).unwrap().into_iter().collect();
+        assert_eq!(settings["DRIVERS_NOTERAM_BUFSIZE"], "32768");
+        assert_eq!(settings["DRIVERS_NOTERAM_DEFAULT_NOOVERWRITE"], "y");
+        assert_eq!(settings["SCHED_INSTRUMENTATION_DUMP"], "y");
+        assert_eq!(settings["DEBUG_SYMBOLS"], "y");
+        assert_eq!(settings["DEBUG_LINK_MAP"], "y");
+        assert!(!settings.contains_key("MM_BACKTRACE"));
+        // Native watchdog hooks do not honor the master trace filter on the
+        // pinned source. Do not silently enable recording after trace stop.
+        assert!(!settings.contains_key("SCHED_INSTRUMENTATION_WDOG"));
+        let profile = Profile::from_data(json!({"build": {
+            "diagnostics": true, "diagnostics-trace-bytes": 65536,
+            "diagnostics-heap-backtrace-depth": 4
+        }}), vec![]);
+        let settings: BTreeMap<_, _> = diagnostics(&profile).unwrap().into_iter().collect();
+        assert_eq!(settings["DRIVERS_NOTERAM_BUFSIZE"], "65536");
+        assert_eq!(settings["MM_BACKTRACE"], "4");
+        assert_eq!(settings["MM_BACKTRACE_DEFAULT"], "y");
     }
 
     #[test]

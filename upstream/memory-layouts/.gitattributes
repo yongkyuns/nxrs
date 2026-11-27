@@ -1,0 +1,2 @@
+# Retained upstream checksums require the original bytes on every host.
+sources/** -text

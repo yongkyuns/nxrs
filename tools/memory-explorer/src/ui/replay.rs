@@ -23,6 +23,7 @@ impl MemoryExplorer {
         let heap_region = replay.journal.heap.region.clone();
         let heap_start = replay.journal.heap.start;
         let heap_size = replay.journal.heap.size;
+        self.history.install_replay(&replay);
         self.replay = Some(replay);
         self.replay_enabled = true;
         self.select_replay_cursor(ReplayCursor::Point(0));
@@ -285,10 +286,15 @@ impl MemoryExplorer {
         let mut seek = None;
         let mut open_memory = false;
         let mut open_timing = false;
-        egui::TopBottomPanel::bottom("heap-replay-timeline")
-            .exact_height(224.0)
-            .frame(egui::Frame::new().fill(PANEL).inner_margin(egui::Margin::symmetric(20, 10)))
+        // Keep the cursor controls visible while details scroll within the
+        // resized panel. Stacked plot/metadata content must not enlarge it and
+        // consume the memory canvas or board overview above.
+        let max_height = (ctx.available_rect().height() * 0.5).max(140.0);
+        egui::TopBottomPanel::bottom(self.widget_id("heap-replay-timeline"))
+            .resizable(true).default_height(224.0).height_range(140.0..=max_height)
+            .frame(egui::Frame::new().fill(PANEL).inner_margin(egui::Margin::symmetric(20, 8)))
             .show(ctx, |ui| {
+                ui.spacing_mut().item_spacing.y = 4.0;
                 ui.horizontal(|ui| {
                     eyebrow(ui, "HEAP REPLAY");
                     badge(ui, label, color);
@@ -306,48 +312,6 @@ impl MemoryExplorer {
                         }
                     });
                 });
-                if !recording_label.is_empty() {
-                    ui.label(RichText::new(&recording_label).small().color(MUTED));
-                }
-                let (rect, response) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 57.0), Sense::click_and_drag());
-                let plot = rect.shrink2(Vec2::new(5.0, 0.0));
-                let y = plot.top() + 13.0;
-                let at = |time| plot.left() + bounds.fraction(time) as f32 * plot.width();
-                let painter = ui.painter();
-                let band = Rect::from_min_max(Pos2::new(plot.left(), y), Pos2::new(plot.right(), y + 13.0));
-                painter.rect_filled(band, 2, SURFACE);
-                for segment in &coverage {
-                    let segment_color = match segment.kind {
-                        ReplayCoverageKind::Reconstructed => ACCENT,
-                        ReplayCoverageKind::Mutation => WARNING,
-                        ReplayCoverageKind::Unknown(_) => LOST,
-                    };
-                    let range = Rect::from_min_max(
-                        Pos2::new(at(segment.range.start_ns), y), Pos2::new(at(segment.range.end_ns), y + 13.0),
-                    ).intersect(band);
-                    if range.is_positive() { painter.rect_filled(range, 0, segment_color.gamma_multiply(0.45)); }
-                }
-                for point in &points {
-                    let x = at(point.time_ns);
-                    let point_color = if point.evidence == HeapEvidence::ObservedCheckpoint { Color32::WHITE } else { ACCENT };
-                    painter.line_segment([Pos2::new(x, y - 3.0), Pos2::new(x, y + 16.0)], Stroke::new(1.0, point_color));
-                    if selected_point == Some(point.id) {
-                        painter.circle_stroke(Pos2::new(x, y + 6.5), 8.0, Stroke::new(1.5, Color32::WHITE));
-                    }
-                }
-                if let Some(time) = self.time_ns.filter(|time| *time >= bounds.start && *time <= bounds.end) {
-                    let x = at(time);
-                    painter.line_segment([Pos2::new(x, y - 8.0), Pos2::new(x, y + 20.0)], Stroke::new(2.0, color));
-                }
-                painter.text(Pos2::new(plot.left(), y + 24.0), Align2::LEFT_TOP,
-                    format!("{} ns", bounds.start), FontId::monospace(10.0), MUTED);
-                painter.text(Pos2::new(plot.right(), y + 24.0), Align2::RIGHT_TOP,
-                    format!("{} ns", bounds.end), FontId::monospace(10.0), MUTED);
-                if let Some(pointer) = response.interact_pointer_pos().filter(|_| response.clicked() || response.dragged()) {
-                    // The axis selects a clock coordinate, never silently chooses
-                    // one of multiple commits in the same tick.
-                    seek = Some(ReplayCursor::Time(bounds.at_fraction(((pointer.x - plot.left()) / plot.width()) as f64)));
-                }
                 ui.horizontal(|ui| {
                     let selected = match self.replay_cursor {
                         Some(ReplayCursor::Point(id)) => points.get(id).map(|point| format!("#{} · {}", point.sequence, abbreviated(&point.label, 36))),
@@ -371,19 +335,74 @@ impl MemoryExplorer {
                         }
                     }
                 });
-                ui.label(RichText::new(detail).small().color(color));
-                if self.view == ViewMode::Timing && !self.replay_time_is_covered() {
-                    ui.label(RichText::new("Selected source time is outside this trace; its timing cursor is cleared.").small().color(WARNING));
-                }
-                ui.horizontal_wrapped(|ui| {
-                    ui.label(RichText::new("■ Reconstructed").small().color(ACCENT));
-                    ui.label(RichText::new("■ Mutation: unknown").small().color(WARNING));
-                    ui.label(RichText::new("■ Missing evidence").small().color(LOST));
-                    ui.label(RichText::new("│ Observed checkpoint").small().color(Color32::WHITE));
-                    ui.label(RichText::new(format!("Clock: {clock}")).small().color(MUTED));
-                });
-                let note = warnings.first().map(String::as_str).unwrap_or("Sequence preserves order within a tick. Coverage depends on a qualified complete collector; stacks and allocation lifetimes remain unknown.");
-                ui.label(RichText::new(note).small().color(MUTED));
+                let chart_height = (ui.available_height() - 80.0).clamp(60.0, 240.0);
+                egui::ScrollArea::vertical()
+                    .id_salt("heap-replay-history-scroll")
+                    .auto_shrink([false, false])
+                    .show(ui, |ui| {
+                        if let Some(time) = self.replay_usage_chart(ui, chart_height) {
+                            seek = Some(ReplayCursor::Time(time));
+                        }
+                        egui::CollapsingHeader::new("Capture details")
+                            .id_salt("heap-replay-details")
+                            .show(ui, |ui| {
+                                if !recording_label.is_empty() {
+                                    ui.label(RichText::new(&recording_label).small().color(MUTED));
+                                }
+                                let (rect, response) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 57.0), Sense::click_and_drag());
+                                let plot = rect.shrink2(Vec2::new(5.0, 0.0));
+                                let y = plot.top() + 13.0;
+                                let at = |time| plot.left() + bounds.fraction(time) as f32 * plot.width();
+                                let painter = ui.painter();
+                                let band = Rect::from_min_max(Pos2::new(plot.left(), y), Pos2::new(plot.right(), y + 13.0));
+                                painter.rect_filled(band, 2, SURFACE);
+                                for segment in &coverage {
+                                    let segment_color = match segment.kind {
+                                        ReplayCoverageKind::Reconstructed => ACCENT,
+                                        ReplayCoverageKind::Mutation => WARNING,
+                                        ReplayCoverageKind::Unknown(_) => LOST,
+                                    };
+                                    let range = Rect::from_min_max(
+                                        Pos2::new(at(segment.range.start_ns), y), Pos2::new(at(segment.range.end_ns), y + 13.0),
+                                    ).intersect(band);
+                                    if range.is_positive() { painter.rect_filled(range, 0, segment_color.gamma_multiply(0.45)); }
+                                }
+                                for point in &points {
+                                    let x = at(point.time_ns);
+                                    let point_color = if point.evidence == HeapEvidence::ObservedCheckpoint { Color32::WHITE } else { ACCENT };
+                                    painter.line_segment([Pos2::new(x, y - 3.0), Pos2::new(x, y + 16.0)], Stroke::new(1.0, point_color));
+                                    if selected_point == Some(point.id) {
+                                        painter.circle_stroke(Pos2::new(x, y + 6.5), 8.0, Stroke::new(1.5, Color32::WHITE));
+                                    }
+                                }
+                                if let Some(time) = self.time_ns.filter(|time| *time >= bounds.start && *time <= bounds.end) {
+                                    let x = at(time);
+                                    painter.line_segment([Pos2::new(x, y - 8.0), Pos2::new(x, y + 20.0)], Stroke::new(2.0, color));
+                                }
+                                painter.text(Pos2::new(plot.left(), y + 24.0), Align2::LEFT_TOP,
+                                    format!("{} ns", bounds.start), FontId::monospace(10.0), MUTED);
+                                painter.text(Pos2::new(plot.right(), y + 24.0), Align2::RIGHT_TOP,
+                                    format!("{} ns", bounds.end), FontId::monospace(10.0), MUTED);
+                                if let Some(pointer) = response.interact_pointer_pos().filter(|_| response.clicked() || response.dragged()) {
+                                    // The axis selects a clock coordinate, never silently chooses
+                                    // one of multiple commits in the same tick.
+                                    seek = Some(ReplayCursor::Time(bounds.at_fraction(((pointer.x - plot.left()) / plot.width()) as f64)));
+                                }
+                                ui.label(RichText::new(detail).small().color(color));
+                                if self.view == ViewMode::Timing && !self.replay_time_is_covered() {
+                                    ui.label(RichText::new("Selected source time is outside this trace; its timing cursor is cleared.").small().color(WARNING));
+                                }
+                                ui.horizontal_wrapped(|ui| {
+                                    ui.label(RichText::new("■ Reconstructed").small().color(ACCENT));
+                                    ui.label(RichText::new("■ Mutation: unknown").small().color(WARNING));
+                                    ui.label(RichText::new("■ Missing evidence").small().color(LOST));
+                                    ui.label(RichText::new("│ Observed checkpoint").small().color(Color32::WHITE));
+                                    ui.label(RichText::new(format!("Clock: {clock}")).small().color(MUTED));
+                                });
+                                let note = warnings.first().map(String::as_str).unwrap_or("Sequence preserves order within a tick. Coverage depends on a qualified complete collector; stacks and allocation lifetimes remain unknown.");
+                                ui.label(RichText::new(note).small().color(MUTED));
+                            });
+                    });
             });
         if let Some(cursor) = seek {
             self.select_replay_cursor(cursor);
@@ -604,5 +623,180 @@ mod tests {
         app.open_replay_timing();
         assert_eq!(app.view, ViewMode::Timing);
         assert_eq!(app.timing.cursor(), Some(4));
+    }
+
+    fn render_replay(
+        app: &mut MemoryExplorer,
+        ctx: &egui::Context,
+        events: Vec<egui::Event>,
+    ) -> egui::FullOutput {
+        ctx.run(
+            egui::RawInput {
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1440.0, 940.0))),
+                events,
+                ..Default::default()
+            },
+            |ctx| {
+                // Reserve the real workspace tab bar's height as well as the
+                // viewer's own header, so this exercises its available space.
+                egui::TopBottomPanel::top("test-recording-tabs")
+                    .exact_height(40.0)
+                    .show(ctx, |_| {});
+                app.show(ctx);
+            },
+        )
+    }
+
+    fn visible_text(output: &egui::FullOutput, text: &str, area: Rect) -> Pos2 {
+        output
+            .shapes
+            .iter()
+            .find_map(|clipped| match &clipped.shape {
+                egui::epaint::Shape::Text(shape) if shape.galley.text() == text => {
+                    let bounds = Rect::from_min_size(shape.pos, shape.galley.size());
+                    (clipped.clip_rect.contains_rect(bounds) && area.contains_rect(bounds))
+                        .then_some(bounds.center())
+                }
+                _ => None,
+            })
+            .unwrap_or_else(|| {
+                let positions: Vec<_> = output
+                    .shapes
+                    .iter()
+                    .filter_map(|clipped| match &clipped.shape {
+                        egui::epaint::Shape::Text(shape) if shape.galley.text() == text => {
+                            Some((shape.pos, shape.galley.size(), clipped.clip_rect))
+                        }
+                        _ => None,
+                    })
+                    .collect();
+                panic!("{text:?} is not fully visible inside {area:?}: {positions:?}")
+            })
+    }
+
+    fn click_replay(app: &mut MemoryExplorer, ctx: &egui::Context, at: Pos2) {
+        for pressed in [true, false] {
+            render_replay(
+                app,
+                ctx,
+                vec![
+                    egui::Event::PointerMoved(at),
+                    egui::Event::PointerButton {
+                        pos: at,
+                        button: egui::PointerButton::Primary,
+                        pressed,
+                        modifiers: egui::Modifiers::NONE,
+                    },
+                ],
+            );
+        }
+    }
+
+    #[test]
+    fn compact_replay_keeps_heap_visible_and_expanded_details_do_not_grow_panel() {
+        let mut app = app();
+        app.view = ViewMode::Memory;
+        let heap = &app.replay.as_ref().unwrap().journal.heap;
+        app.viewport = AddressWindow {
+            start: heap.start,
+            end: heap.start + heap.size,
+        };
+        let ctx = egui::Context::default();
+        configure_style(&ctx);
+        ctx.style_mut(|style| style.animation_time = 0.0);
+        render_replay(&mut app, &ctx, vec![]);
+        let output = render_replay(&mut app, &ctx, vec![]);
+        let panel_id = app.widget_id("heap-replay-timeline");
+        let panel = egui::containers::panel::PanelState::load(&ctx, panel_id)
+            .unwrap()
+            .rect;
+        assert!(panel.height() <= 228.0, "Replay consumed {panel:?}");
+        let main = Rect::from_min_max(Pos2::ZERO, Pos2::new(1440.0, panel.top()));
+        visible_text(&output, "HEAP / POOLS", main);
+        visible_text(&output, "Source ns", panel);
+        click_replay(&mut app, &ctx, visible_text(&output, "Next  ›", panel));
+        assert_eq!(app.replay_cursor, Some(ReplayCursor::Point(1)));
+        assert_eq!(app.time_ns, Some(4));
+        let output = render_replay(&mut app, &ctx, vec![]);
+        let allocation_color = app
+            .spans()
+            .iter()
+            .find(|span| span.runtime && span.span.kind == SpanKind::Allocation)
+            .unwrap()
+            .color();
+        assert!(
+            output.shapes.iter().any(|clipped| {
+                matches!(&clipped.shape, egui::epaint::Shape::Rect(shape)
+                if shape.fill == allocation_color && shape.rect.width() > 20.0
+                && shape.rect.height() > 5.0 && main.contains_rect(shape.rect)
+                && clipped.clip_rect.contains_rect(shape.rect))
+            }),
+            "The actual allocated heap block must be visible above replay controls"
+        );
+        click_replay(
+            &mut app,
+            &ctx,
+            visible_text(&output, "Capture details", panel),
+        );
+        let expanded = render_replay(&mut app, &ctx, vec![]);
+        assert_eq!(
+            egui::containers::panel::PanelState::load(&ctx, panel_id)
+                .unwrap()
+                .rect,
+            panel,
+            "Expanded metadata must scroll within the resized panel"
+        );
+        visible_text(&expanded, "Source ns", panel);
+        visible_text(&expanded, "Next  ›", panel);
+        let resize_start = Pos2::new(panel.center().x, panel.top());
+        let resize_end = resize_start + Vec2::new(0.0, 44.0);
+        for events in [
+            vec![
+                egui::Event::PointerMoved(resize_start),
+                egui::Event::PointerButton {
+                    pos: resize_start,
+                    button: egui::PointerButton::Primary,
+                    pressed: true,
+                    modifiers: egui::Modifiers::NONE,
+                },
+            ],
+            vec![egui::Event::PointerMoved(resize_end)],
+            vec![egui::Event::PointerMoved(resize_end)],
+            vec![egui::Event::PointerButton {
+                pos: resize_end,
+                button: egui::PointerButton::Primary,
+                pressed: false,
+                modifiers: egui::Modifiers::NONE,
+            }],
+        ] {
+            render_replay(&mut app, &ctx, events);
+        }
+        render_replay(&mut app, &ctx, vec![]);
+        let panel = egui::containers::panel::PanelState::load(&ctx, panel_id)
+            .unwrap()
+            .rect;
+        assert!(
+            (panel.height() - 180.0).abs() <= 1.0,
+            "Expanded details prevented resizing the panel: {panel:?}"
+        );
+        let pointer = Pos2::new(panel.center().x, panel.bottom() - 25.0);
+        render_replay(
+            &mut app,
+            &ctx,
+            vec![
+                egui::Event::PointerMoved(pointer),
+                egui::Event::MouseWheel {
+                    unit: egui::MouseWheelUnit::Point,
+                    delta: Vec2::new(0.0, -1000.0),
+                    modifiers: egui::Modifiers::NONE,
+                },
+            ],
+        );
+        let scrolled = render_replay(&mut app, &ctx, vec![]);
+        visible_text(&scrolled, "Clock: test-clock", panel);
+        visible_text(&scrolled, "■ Mutation: unknown", panel);
+        visible_text(&scrolled, "Source ns", panel);
+        click_replay(&mut app, &ctx, visible_text(&scrolled, "Next  ›", panel));
+        assert_eq!(app.replay_cursor, Some(ReplayCursor::Point(2)));
     }
 }
