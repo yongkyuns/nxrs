@@ -51,6 +51,7 @@ HEAP_USAGE = re.compile(
 WATCHDOG = re.compile(r"I\|(-?\d+)\|wdog: (start|cancel|enter|leave)-(\S+) (\S+)")
 LOSS = re.compile(r"^\s*(?:LOST_EVENTS\s+count=(\d+)|\[LOST\s+(\d+)\s+EVENTS\])\s*$")
 BEGIN, END = "NXRS_NOTE_BEGIN ", "NXRS_NOTE_END "
+CAPTURE_CATEGORIES = frozenset(("switch", "irq", "app", "heap", "syscall"))
 
 
 def _frame(line, prefix):
@@ -213,6 +214,41 @@ class _HeapCalls:
                   {**args, "result_address": result, "outcome": outcome,
                    "failed": outcome == "failed", "result_cpu": cpu,
                    "accounting": "elapsed native allocator call; includes blocking and preemption, not CPU cost"}, stamp)
+
+
+def _capture_window(begin, end, complete, loss_detected):
+    """Validate a timed producer's window independently of its first/last note.
+
+    The native command reads the start after enabling its recorder and the end
+    before disabling it. Notes outside that interval are retained in the raw
+    dump but do not establish observations inside the requested analysis window.
+    Dump completion and interval-edge censoring are deliberately separate.
+    """
+    if not begin.get("recording_id") or not begin.get("clock"):
+        raise ValueError("Timed capture requires a recording identity and source clock")
+    if begin.get("cpus") != "1" or "capture_mode" in begin:
+        raise ValueError("Timed capture requires an uninterrupted single-core recording")
+    start = _unsigned(begin.get("capture_start_ns", ""), "capture start")
+    finish = _unsigned(begin.get("capture_end_ns", ""), "capture end")
+    requested = _unsigned(begin.get("requested_duration_ns", ""), "requested duration")
+    if finish <= start or not 0 < requested <= 30_000_000_000:
+        raise ValueError("Timed capture requires an increasing window and a duration up to 30 seconds")
+    stop_reason = begin.get("stop_reason")
+    if stop_reason not in ("duration", "interrupted"):
+        raise ValueError("Unsupported timed capture stop reason")
+    if stop_reason == "duration" and finish - start < requested:
+        raise ValueError("Timed capture ended before its requested source-clock duration")
+    categories = [] if begin.get("categories") == "none" else begin.get("categories", "").split(",")
+    if len(categories) != len(set(categories)) or any(value not in CAPTURE_CATEGORIES for value in categories):
+        raise ValueError("Timed capture categories must be unique supported recorder categories")
+    capacity = _unsigned(begin.get("buffer_bytes", ""), "capture buffer bytes")
+    if not 0 < capacity <= MAX_BYTES:
+        raise ValueError("Timed capture buffer exceeds the host admission bound")
+    if any(fields.get("mode") not in ("0", "2") for fields in (begin, end)):
+        raise ValueError("Timed capture requires the non-overwrite recorder mode")
+    return {"start_ns": start, "end_ns": finish, "requested_duration_ns": requested,
+            "stop_reason": stop_reason, "categories": categories,
+            "complete": bool(complete and loss_detected is False)}
 
 
 def _us(nanoseconds):
@@ -378,12 +414,13 @@ def convert(lines, *, clock=None, source=None, elf_sha256=None, notes_lost=None,
     framed = bool(begin_indices or end_indices)
     framing = None
     recording_id = None
+    capture_window = None
     if framed:
         if len(begin_indices) != 1 or len(end_indices) != 1 or begin_indices[0] >= end_indices[0]:
             raise ValueError("Expected exactly one ordered NXRS_NOTE_BEGIN/NXRS_NOTE_END pair")
         begin = _frame(lines[begin_indices[0]], BEGIN)
         end = _frame(lines[end_indices[0]], END)
-        if begin.get("schema") not in ("1", "2") or begin.get("schema") != end.get("schema"):
+        if begin.get("schema") not in ("1", "2", "3") or begin.get("schema") != end.get("schema"):
             raise ValueError("Unsupported or conflicting capture frame schema")
         recording_id = begin.get("recording_id")
         if recording_id != end.get("recording_id"):
@@ -417,6 +454,8 @@ def convert(lines, *, clock=None, source=None, elf_sha256=None, notes_lost=None,
         if complete is True and not declared_complete:
             raise ValueError("Supplied completeness conflicts with the capture frame")
         complete = declared_complete if complete is None else complete and declared_complete
+        if begin["schema"] == "3":
+            capture_window = _capture_window(begin, end, complete, loss_detected)
         framing = {"begin": begin, "end": end}
         clock_fields = {key: begin[key] for key in ("clock_bits", "frequency_hz", "clock_epoch") if key in begin}
         if "clock_bits" in clock_fields and not 1 <= _unsigned(clock_fields["clock_bits"], "clock_bits") <= 64:
@@ -440,9 +479,12 @@ def convert(lines, *, clock=None, source=None, elf_sha256=None, notes_lost=None,
     tracks, events = {}, []
     running, interrupts, markers, wakes, timers = {}, {}, {}, {}, {}
     ambiguous_wakes = set()
-    origin = earliest = previous = None
+    origin = capture_window["start_ns"] if capture_window is not None else None
+    earliest = None
+    previous = origin
     previous_cpu_edge, previous_marker_edge, previous_timer_edge = {}, {}, {}
     incomplete = recognized = ignored = loss_boundaries = explicit_loss_count = 0
+    context_notes = 0
     legacy_switches = 0
     native_counts, timer_counts = {}, {}
     saw_heap_requests = saw_heap_usage = False
@@ -527,9 +569,15 @@ def convert(lines, *, clock=None, source=None, elf_sha256=None, notes_lost=None,
         stamp = int(fields["seconds"]) * 1_000_000_000 + int(fields["fraction"].ljust(9, "0"))
         if stamp > U64_MAX:
             raise ValueError("NuttX timestamp overflows u64 nanoseconds")
+        if capture_window is not None:
+            if cpu != 0:
+                raise ValueError("Timed capture contains observations from another CPU")
+            if not capture_window["start_ns"] <= stamp < capture_window["end_ns"]:
+                context_notes += 1
+                continue
         if origin is None:
-            origin = earliest = stamp
-        earliest = min(earliest, stamp)
+            origin = stamp
+        earliest = stamp if earliest is None else min(earliest, stamp)
         previous = stamp
         recognized += 1
         kind, payload = fields["kind"], fields["payload"]
@@ -762,7 +810,7 @@ def convert(lines, *, clock=None, source=None, elf_sha256=None, notes_lost=None,
         else:
             event(5, cpu, f"CPU {cpu} other notes", kind, "note", stamp, {"cpu": cpu, "payload": payload})
 
-    if origin is None or not recognized:
+    if origin is None or (not recognized and capture_window is None):
         raise ValueError("The capture has no timestamped NuttX notes")
     reset_pending("capture ended before the corresponding end/switch; duration unknown")
     if global_loss:
@@ -775,6 +823,12 @@ def convert(lines, *, clock=None, source=None, elf_sha256=None, notes_lost=None,
         if not global_loss:
             lost_records = explicit_loss_count
         warnings.append(f"{loss_boundaries} explicit loss boundary/boundaries reset pending intervals.")
+    if capture_window is not None:
+        if loss_detected is not False or loss_boundaries:
+            capture_window["complete"] = False
+        warnings.append("The timed capture window includes quiet leading and trailing time. Rates describe the enabled recorder categories and retained observations, not uninstrumented work.")
+        if context_notes:
+            warnings.append(f"{context_notes} native note(s) outside the measured half-open window were excluded before interval reconstruction; the raw dump retains them.")
     if incomplete:
         warnings.append(f"{incomplete} incomplete interval observation(s) retained as markers with no duration.")
         complete = False
@@ -799,7 +853,7 @@ def convert(lines, *, clock=None, source=None, elf_sha256=None, notes_lost=None,
     if loss_detected is None:
         warnings.append("Record-loss status is unknown; a missing interval does not prove idle time.")
     warnings.append("CPU and per-task tracks show the same scheduled residency; IRQ and app scopes overlap them and must not be added as CPU time.")
-    if earliest < origin:
+    if earliest is not None and earliest < origin:
         shift = _us(origin - earliest)
         for item in events:
             item["ts"] += shift
@@ -830,7 +884,10 @@ def convert(lines, *, clock=None, source=None, elf_sha256=None, notes_lost=None,
     nxrs["observed_note_count"] = recognized
     nxrs["ignored_line_count"] = ignored
     nxrs["observed_start_ns"] = earliest
-    nxrs["observed_end_ns"] = max(origin + int(item["ts"] * 1000) + int(item.get("dur", 0) * 1000) for item in events)
+    nxrs["observed_end_ns"] = max((origin + int(item["ts"] * 1000) + int(item.get("dur", 0) * 1000) for item in events), default=None)
+    if capture_window is not None:
+        nxrs["capture_window"] = capture_window
+        nxrs["context_note_count"] = context_notes
     if loss_boundaries:
         nxrs["located_lost_records"] = explicit_loss_count
     if framing is not None:

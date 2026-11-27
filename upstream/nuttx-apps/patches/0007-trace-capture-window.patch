@@ -1,0 +1,783 @@
+From: NXRS maintainers
+Subject: [PATCH] trace: add bounded, measured capture windows
+
+Extend the existing built-in native command, leaving ordinary tracing intact.
+Record native perf-clock bounds inside the enabled interval, retain category
+filters, bound recorder output, and report loss separately from dump completion.
+A single-core owner is required; raw device clients must remain inactive.
+
+diff --git a/system/trace/CMakeLists.txt b/system/trace/CMakeLists.txt
+--- a/system/trace/CMakeLists.txt
++++ b/system/trace/CMakeLists.txt
+@@ -26,6 +26,10 @@
+     list(APPEND CSRCS trace_dump.c)
+   endif()
+ 
++  if(CONFIG_SYSTEM_TRACE_CAPTURE)
++    list(APPEND CSRCS trace_capture.c)
++  endif()
++
+   nuttx_add_application(
+     MODULE
+     ${CONFIG_SYSTEM_TRACE}
+diff --git a/system/trace/Kconfig b/system/trace/Kconfig
+--- a/system/trace/Kconfig
++++ b/system/trace/Kconfig
+@@ -11,6 +11,19 @@
+ 		Enable support for the trace command.
+ 
+ if SYSTEM_TRACE
++
++config SYSTEM_TRACE_CAPTURE
++	bool "Bounded trace capture windows"
++	default n
++	depends on SYSTEM_TRACE = y && BUILD_FLAT
++	depends on DRIVERS_NOTERAM && SCHED_INSTRUMENTATION_FILTER
++	---help---
++		Enable trace capture <seconds> <recording-id>, with measured native
++		clock bounds and bounded no-overwrite dump framing. Other raw note
++		device/control clients must remain inactive. Trace invocations are
++		serialized with a robust mutex that recovers command ownership after
++		task exit. SMP, watchdog instrumentation, and configurations without
++		robust pthread mutex support refuse capture at runtime.
+ 
+ config SYSTEM_TRACE_PROGNAME
+ 	string "Trace program name"
+diff --git a/system/trace/Makefile b/system/trace/Makefile
+--- a/system/trace/Makefile
++++ b/system/trace/Makefile
+@@ -33,6 +33,10 @@
+   CSRCS = trace_dump.c
+ endif
+ 
++ifeq ($(CONFIG_SYSTEM_TRACE_CAPTURE),y)
++  CSRCS += trace_capture.c
++endif
++
+ MAINSRC = trace.c
+ 
+ include $(APPDIR)/Application.mk
+diff --git a/system/trace/trace.c b/system/trace/trace.c
+--- a/system/trace/trace.c
++++ b/system/trace/trace.c
+@@ -46,6 +46,7 @@
+  * Private Functions
+  ****************************************************************************/
+ 
++
+ /****************************************************************************
+  * Name: notectl_enable
+  ****************************************************************************/
+@@ -807,6 +808,10 @@
+   fprintf(stderr,
+           "\nUsage: trace [-n][<name>] <subcommand>...\n"
+           "Subcommand:\n"
++#ifdef CONFIG_SYSTEM_TRACE_CAPTURE
++          " capture <1..30 seconds> <recording-id> :"
++                                " Capture a measured window\n"
++#endif
+           " start   [-c][<duration>]            :"
+                                 " Start task tracing\n"
+           " stop                                :"
+@@ -852,6 +857,23 @@
+   int exitcode = EXIT_FAILURE;
+   int i;
+   char name[NAME_MAX];
++#ifdef CONFIG_SYSTEM_TRACE_CAPTURE
++  int lockret;
++#endif
++
++  /* Serialize every trace command against a bounded capture. Raw device
++   * clients are outside this command-level ownership contract.
++   */
++
++#ifdef CONFIG_SYSTEM_TRACE_CAPTURE
++  lockret = trace_capture_lock();
++  if (lockret < 0)
++    {
++      fprintf(stderr, "trace: cannot acquire command ownership: %d\n",
++              -lockret);
++      return EXIT_FAILURE;
++    }
++#endif
+ 
+   /* Open note control device */
+ 
+@@ -877,12 +899,25 @@
+   i = 1;
+   if (strcmp(argv[i], "-n") == 0)
+     {
++      if (i + 1 >= argc)
++        {
++          show_usage();
++          goto errout_with_close;
++        }
++
+       strlcpy(name, argv[++i], NAME_MAX);
+       i++;
+     }
+ 
+   while (i < argc)
+     {
++#ifdef CONFIG_SYSTEM_TRACE_CAPTURE
++      if (strcmp(argv[i], "capture") == 0)
++        {
++          i = trace_capture(name, i + 1, argc, argv, notectlfd);
++        }
++      else
++#endif
+       if (strcmp(argv[i], "start") == 0)
+         {
+           i = trace_cmd_start(name, i + 1, argc, argv, notectlfd);
+@@ -953,5 +988,12 @@
+   close(notectlfd);
+ 
+ errout:
++#ifdef CONFIG_SYSTEM_TRACE_CAPTURE
++  if (trace_capture_unlock() < 0)
++    {
++      fprintf(stderr, "trace: cannot release command ownership\n");
++      exitcode = EXIT_FAILURE;
++    }
++#endif
+   return exitcode;
+ }
+diff --git a/system/trace/trace.h b/system/trace/trace.h
+--- a/system/trace/trace.h
++++ b/system/trace/trace.h
+@@ -46,6 +46,13 @@
+ /****************************************************************************
+  * Public Function Prototypes
+  ****************************************************************************/
++
++#ifdef CONFIG_SYSTEM_TRACE_CAPTURE
++int trace_capture_lock(void);
++int trace_capture_unlock(void);
++int trace_capture(FAR const char *name, int index, int argc,
++                  FAR char **argv, int control);
++#endif
+ 
+ #ifdef CONFIG_DRIVERS_NOTERAM
+ 
+diff --git a/system/trace/trace_capture.c b/system/trace/trace_capture.c
+new file mode 100644
+--- /dev/null
++++ b/system/trace/trace_capture.c
+@@ -0,0 +1,617 @@
++/****************************************************************************
++ * apps/system/trace/trace_capture.c
++ *
++ * SPDX-License-Identifier: Apache-2.0
++ *
++ * Bounded capture through the existing native trace owner.  Other users of
++ * the raw note/control devices must remain inactive for this command's whole
++ * lifetime.  The command lock serializes trace invocations, not raw clients.
++ ****************************************************************************/
++
++#include <nuttx/config.h>
++
++#include <errno.h>
++#include <fcntl.h>
++#include <inttypes.h>
++#include <limits.h>
++#include <signal.h>
++#include <stdbool.h>
++#include <stdint.h>
++#include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
++#include <sys/ioctl.h>
++#include <time.h>
++#include <unistd.h>
++
++#include <nuttx/clock.h>
++#include <nuttx/note/notectl_driver.h>
++#include <nuttx/note/noteram_driver.h>
++#include <nuttx/sched_note.h>
++
++#include "trace.h"
++
++#if !defined(CONFIG_SMP) && !defined(CONFIG_SCHED_INSTRUMENTATION_WDOG) && \
++    !defined(CONFIG_DISABLE_PTHREAD) && !defined(CONFIG_PTHREAD_MUTEX_UNSAFE)
++
++#include <pthread.h>
++#include <nuttx/irq.h>
++
++#define CAPTURE_NSEC 1000000000ull
++#define CAPTURE_MODE_FLAGS (NOTE_FILTER_MODE_FLAG_ENABLE | \
++  NOTE_FILTER_MODE_FLAG_SWITCH | NOTE_FILTER_MODE_FLAG_SYSCALL | \
++  NOTE_FILTER_MODE_FLAG_IRQ | NOTE_FILTER_MODE_FLAG_DUMP | \
++  NOTE_FILTER_MODE_FLAG_SYSCALL_ARGS)
++
++struct capture_filters_s
++{
++  unsigned int flags;
++#ifdef CONFIG_SCHED_INSTRUMENTATION_IRQHANDLER
++  struct note_filter_named_irq_s irq;
++#endif
++#ifdef CONFIG_SCHED_INSTRUMENTATION_DUMP
++  struct note_filter_named_tag_s tag;
++#endif
++#ifdef CONFIG_SCHED_INSTRUMENTATION_SYSCALL
++  struct note_filter_named_syscall_s syscall;
++#endif
++};
++
++static volatile sig_atomic_t g_capture_interrupted;
++static pthread_mutex_t g_trace_lock;
++static bool g_trace_lock_initialized;
++
++static int capture_lock_initialize(void)
++{
++  pthread_mutexattr_t attributes;
++  int ret;
++
++  ret = pthread_mutexattr_init(&attributes);
++  if (ret != 0)
++    {
++      return ret;
++    }
++
++  ret = pthread_mutexattr_setrobust(&attributes, PTHREAD_MUTEX_ROBUST);
++  if (ret == 0)
++    {
++      ret = pthread_mutex_init(&g_trace_lock, &attributes);
++    }
++
++  pthread_mutexattr_destroy(&attributes);
++  g_trace_lock_initialized = ret == 0;
++  return ret;
++}
++
++int trace_capture_lock(void)
++{
++  irqstate_t flags;
++  int ret;
++
++  /* Single-core initialization and recovery cannot race task exit or another
++   * command. These native attribute/try-lock operations neither wait nor
++   * allocate; the critical section contains no I/O or captured work.
++   */
++
++  flags = enter_critical_section();
++  if (!g_trace_lock_initialized)
++    {
++      ret = capture_lock_initialize();
++      if (ret != 0)
++        {
++          goto out;
++        }
++    }
++
++  ret = pthread_mutex_trylock(&g_trace_lock);
++  if (ret == EOWNERDEAD)
++    {
++      /* Pinned NuttX returns EOWNERDEAD without acquiring the mutex. Exit
++       * removes it from the dead owner's TLS list and leaves NXSEM_MRESET,
++       * which its try-lock fast path does not accept as NXSEM_NO_MHOLDER.
++       * All callers only try-lock, so this private guard has no waiters.
++       * Destroy and initialize it again inside this critical section, then
++       * try once. This also avoids a blocking lock's pending-signal path.
++       * Recorder state is still checked by the selected command; owner
++       * death does not imply trace was stopped.
++       */
++
++      ret = pthread_mutex_destroy(&g_trace_lock);
++      if (ret == 0)
++        {
++          g_trace_lock_initialized = false;
++          ret = capture_lock_initialize();
++          if (ret == 0)
++            {
++              ret = pthread_mutex_trylock(&g_trace_lock);
++            }
++        }
++    }
++
++out:
++  leave_critical_section(flags);
++  return ret == 0 ? OK : -ret;
++}
++
++int trace_capture_unlock(void)
++{
++  int ret = pthread_mutex_unlock(&g_trace_lock);
++  return ret == 0 ? OK : -ret;
++}
++
++#ifndef CONFIG_DISABLE_SIGNALS
++static void capture_interrupt(int signo)
++{
++  (void)signo;
++  g_capture_interrupted = 1;
++}
++#endif
++
++static int capture_mode(int fd, FAR struct note_filter_named_mode_s *mode)
++{
++  memset(mode, 0, sizeof(*mode));
++  strlcpy(mode->name, "ram", sizeof(mode->name));
++  mode->mode.flag = UINT_MAX;
++  if (ioctl(fd, NOTECTL_GETMODE, (unsigned long)mode) < 0 ||
++      (mode->mode.flag & ~CAPTURE_MODE_FLAGS) != 0)
++    {
++      return ERROR;
++    }
++
++  return OK;
++}
++
++static int capture_filters(int fd, FAR struct capture_filters_s *filters)
++{
++  struct note_filter_named_mode_s mode;
++  memset(filters, 0, sizeof(*filters));
++  if (capture_mode(fd, &mode) < 0)
++    {
++      return ERROR;
++    }
++
++  filters->flags = mode.mode.flag;
++#ifdef CONFIG_SCHED_INSTRUMENTATION_IRQHANDLER
++  strlcpy(filters->irq.name, "ram", sizeof(filters->irq.name));
++  if (ioctl(fd, NOTECTL_GETIRQFILTER,
++            (unsigned long)&filters->irq) < 0)
++    {
++      return ERROR;
++    }
++#endif
++#ifdef CONFIG_SCHED_INSTRUMENTATION_DUMP
++  strlcpy(filters->tag.name, "ram", sizeof(filters->tag.name));
++  sched_note_filter_tag(&filters->tag, NULL);
++#endif
++#ifdef CONFIG_SCHED_INSTRUMENTATION_SYSCALL
++  strlcpy(filters->syscall.name, "ram", sizeof(filters->syscall.name));
++  if (ioctl(fd, NOTECTL_GETSYSCALLFILTER,
++            (unsigned long)&filters->syscall) < 0)
++    {
++      return ERROR;
++    }
++#endif
++  return OK;
++}
++
++static int capture_ns(FAR const struct timespec *ts, FAR uint64_t *ns)
++{
++  if (ts->tv_sec < 0 || ts->tv_nsec < 0 ||
++      (uint64_t)ts->tv_nsec >= CAPTURE_NSEC ||
++      (uint64_t)ts->tv_sec > (UINT64_MAX - ts->tv_nsec) / CAPTURE_NSEC)
++    {
++      return ERROR;
++    }
++
++  *ns = (uint64_t)ts->tv_sec * CAPTURE_NSEC + ts->tv_nsec;
++  return OK;
++}
++
++static int capture_clock(unsigned long frequency, FAR uint64_t *ns)
++{
++  struct timespec ts;
++  clock_t ticks = perf_gettime();
++  if (perf_getfreq() != frequency)
++    {
++      return ERROR;
++    }
++
++  /* Use precisely the conversion used by noteram_dump_header(). */
++
++  perf_convert(ticks, &ts);
++  return capture_ns(&ts, ns);
++}
++
++static int capture_monotonic(FAR uint64_t *ns)
++{
++  struct timespec ts;
++  return clock_gettime(CLOCK_MONOTONIC, &ts) < 0 ? ERROR :
++         capture_ns(&ts, ns);
++}
++
++#if defined(CONFIG_SCHED_INSTRUMENTATION_IRQHANDLER) || \
++    defined(CONFIG_SCHED_INSTRUMENTATION_DUMP) || \
++    defined(CONFIG_SCHED_INSTRUMENTATION_SYSCALL)
++static void capture_mask(FAR const char *name, FAR const void *mask,
++                         size_t length)
++{
++  FAR const uint8_t *bytes = mask;
++  printf(" %s=", name);
++  for (size_t i = 0; i < length; i++)
++    {
++      printf("%02x", bytes[i]);
++    }
++}
++#endif
++
++static void capture_inventory(FAR const struct capture_filters_s *filters)
++{
++  FAR const char *separator = "";
++  printf(" categories=");
++#define CAPTURE_CATEGORY(enabled, name) \
++  do \
++    { \
++      if (enabled) \
++        { \
++          printf("%s%s", separator, name); \
++          separator = ","; \
++        } \
++    } \
++  while (0)
++#ifdef CONFIG_SCHED_INSTRUMENTATION_SWITCH
++  CAPTURE_CATEGORY(filters->flags & NOTE_FILTER_MODE_FLAG_SWITCH, "switch");
++#endif
++#ifdef CONFIG_SCHED_INSTRUMENTATION_IRQHANDLER
++  CAPTURE_CATEGORY(filters->flags & NOTE_FILTER_MODE_FLAG_IRQ, "irq");
++#endif
++#ifdef CONFIG_SCHED_INSTRUMENTATION_DUMP
++  CAPTURE_CATEGORY(filters->flags & NOTE_FILTER_MODE_FLAG_DUMP, "app");
++#endif
++#ifdef CONFIG_SCHED_INSTRUMENTATION_HEAP
++  CAPTURE_CATEGORY(true, "heap");
++#endif
++#ifdef CONFIG_SCHED_INSTRUMENTATION_SYSCALL
++  CAPTURE_CATEGORY(filters->flags & NOTE_FILTER_MODE_FLAG_SYSCALL, "syscall");
++#endif
++  if (*separator == '\0')
++    {
++      printf("none");
++    }
++#undef CAPTURE_CATEGORY
++  printf(" filter_flags=%u", filters->flags);
++#ifdef CONFIG_SCHED_INSTRUMENTATION_IRQHANDLER
++  capture_mask("irq_mask", &filters->irq.irq_mask,
++               sizeof(filters->irq.irq_mask));
++#endif
++#ifdef CONFIG_SCHED_INSTRUMENTATION_DUMP
++  capture_mask("tag_mask", &filters->tag.tag_mask,
++               sizeof(filters->tag.tag_mask));
++#endif
++#ifdef CONFIG_SCHED_INSTRUMENTATION_SYSCALL
++  capture_mask("syscall_mask", &filters->syscall.syscall_mask,
++               sizeof(filters->syscall.syscall_mask));
++#endif
++}
++
++int trace_capture(FAR const char *name, int index, int argc,
++                  FAR char **argv, int control)
++{
++  struct note_filter_named_mode_s saved;
++  struct note_filter_named_mode_s active;
++  struct capture_filters_s before;
++  struct capture_filters_s after;
++  const struct timespec pause = {0, 20000000};
++  FAR const char *reason = "invalid arguments";
++  FAR const char *stop_reason = "duration";
++  FAR const char *identifier;
++  FAR char *endptr;
++  unsigned long seconds;
++  unsigned long frequency;
++  unsigned int original_mode = 0;
++  unsigned int mode = 0;
++  unsigned int end_mode = UINT_MAX;
++  uint64_t start;
++  uint64_t end;
++  uint64_t previous;
++  uint64_t wall_start;
++  uint64_t wall_now;
++  uint64_t requested;
++  uint64_t dumped = 0;
++  const uint64_t limit = (uint64_t)CONFIG_DRIVERS_NOTERAM_BUFSIZE * 16 + 4096;
++  char buffer[1024];
++  ssize_t received = -1;
++  int ram = -1;
++  int result = ERROR;
++  bool restore = false;
++  bool complete = false;
++#ifndef CONFIG_DISABLE_SIGNALS
++  struct sigaction action;
++  struct sigaction old_int;
++  struct sigaction old_term;
++  bool int_changed = false;
++  bool term_changed = false;
++#endif
++
++  if (name[0] != '\0' || argc - index != 2)
++    {
++      goto done;
++    }
++
++  errno = 0;
++  seconds = strtoul(argv[index], &endptr, 10);
++  identifier = argv[index + 1];
++  if (errno != 0 || argv[index][0] < '0' || argv[index][0] > '9' ||
++      endptr == argv[index] || *endptr != '\0' || seconds < 1 ||
++      seconds > 30 || strlen(identifier) < 1 || strlen(identifier) > 128)
++    {
++      goto done;
++    }
++
++  for (FAR const unsigned char *p = (FAR const unsigned char *)identifier;
++       *p != '\0'; p++)
++    {
++      if (*p < '!' || *p > '~')
++        {
++          goto done;
++        }
++    }
++
++  reason = "recorder must exist and be stopped";
++  if (capture_mode(control, &saved) < 0 ||
++      (saved.mode.flag & NOTE_FILTER_MODE_FLAG_ENABLE) != 0 ||
++      capture_filters(control, &before) < 0 ||
++      before.flags != saved.mode.flag)
++    {
++      goto done;
++    }
++
++  frequency = perf_getfreq();
++  reason = "invalid or unavailable note clock";
++  if (frequency == 0 || frequency == ULONG_MAX ||
++      capture_clock(frequency, &previous) < 0 ||
++      capture_monotonic(&wall_start) < 0)
++    {
++      goto done;
++    }
++
++  requested = seconds * CAPTURE_NSEC;
++  reason = "cannot prepare no-overwrite RAM recorder";
++  ram = open("/dev/note/ram", O_RDONLY);
++  if (ram < 0 ||
++      ioctl(ram, NOTERAM_GETMODE, (unsigned long)&original_mode) < 0 ||
++      original_mode > NOTERAM_MODE_OVERWRITE_OVERFLOW)
++    {
++      goto done;
++    }
++
++  /* Overflow is a stopped recorder state, not an overwrite preference. */
++
++  if (original_mode == NOTERAM_MODE_OVERWRITE_OVERFLOW)
++    {
++      original_mode = NOTERAM_MODE_OVERWRITE_DISABLE;
++    }
++
++  restore = true;
++  mode = NOTERAM_MODE_OVERWRITE_DISABLE;
++  if (ioctl(ram, NOTERAM_SETMODE, (unsigned long)&mode) < 0 ||
++      ioctl(ram, NOTERAM_CLEAR, 0ul) < 0 ||
++      ioctl(ram, NOTERAM_GETMODE, (unsigned long)&mode) < 0 ||
++      mode != NOTERAM_MODE_OVERWRITE_DISABLE)
++    {
++      goto done;
++    }
++
++  g_capture_interrupted = 0;
++#ifndef CONFIG_DISABLE_SIGNALS
++  memset(&action, 0, sizeof(action));
++  action.sa_handler = capture_interrupt;
++  sigemptyset(&action.sa_mask);
++  reason = "cannot install capture cancellation";
++  if (sigaction(SIGINT, &action, &old_int) < 0)
++    {
++      goto done;
++    }
++
++  int_changed = true;
++  if (sigaction(SIGTERM, &action, &old_term) < 0)
++    {
++      goto done;
++    }
++
++  term_changed = true;
++#endif
++
++  active = saved;
++  active.mode.flag |= NOTE_FILTER_MODE_FLAG_ENABLE;
++  reason = "cannot enable the requested note filters";
++  if (ioctl(control, NOTECTL_SETMODE, (unsigned long)&active) < 0 ||
++      capture_filters(control, &after) < 0)
++    {
++      goto done;
++    }
++
++  before.flags = active.mode.flag;
++  if (memcmp(&before, &after, sizeof(before)) != 0)
++    {
++      goto done;
++    }
++
++  reason = "note clock stopped, rolled back, or changed frequency";
++  if (capture_clock(frequency, &start) < 0 || start < previous)
++    {
++      goto done;
++    }
++
++  previous = start;
++  for (;;)
++    {
++      if (capture_clock(frequency, &end) < 0 || end < previous)
++        {
++          goto done;
++        }
++
++      previous = end;
++      if (end - start >= requested || g_capture_interrupted)
++        {
++          break;
++        }
++
++      if (capture_monotonic(&wall_now) < 0 || wall_now < wall_start ||
++          wall_now - wall_start > requested * 2 + 2 * CAPTURE_NSEC)
++        {
++          goto done;
++        }
++
++      if (nanosleep(&pause, NULL) < 0)
++        {
++          if (errno != EINTR)
++            {
++              reason = "capture wait failed";
++              goto done;
++            }
++
++          g_capture_interrupted = 1;
++        }
++    }
++
++  if (end <= start)
++    {
++      goto done;
++    }
++
++  if (g_capture_interrupted)
++    {
++      stop_reason = "interrupted";
++    }
++
++  /* Bounds lie inside the enabled interval. Notes outside are context only. */
++
++  reason = "recorder/filter state changed during capture";
++  if (capture_filters(control, &after) < 0 ||
++      memcmp(&before, &after, sizeof(before)) != 0 ||
++      ioctl(control, NOTECTL_SETMODE, (unsigned long)&saved) < 0 ||
++      capture_mode(control, &active) < 0 ||
++      active.mode.flag != saved.mode.flag ||
++      ioctl(ram, NOTERAM_GETMODE, (unsigned long)&mode) < 0 ||
++      (mode != NOTERAM_MODE_OVERWRITE_DISABLE &&
++       mode != NOTERAM_MODE_OVERWRITE_OVERFLOW))
++    {
++      goto done;
++    }
++
++  printf("NXRS_NOTE_BEGIN schema=3 source=nuttx-noteram-ascii "
++         "clock=nuttx-perf recording_id=%s cpus=1 mode=%u notes_lost=%u "
++         "capture_start_ns=%" PRIu64 " capture_end_ns=%" PRIu64
++         " requested_duration_ns=%" PRIu64 " stop_reason=%s "
++         "buffer_bytes=%u frequency_hz=%lu",
++         identifier, mode, mode == NOTERAM_MODE_OVERWRITE_OVERFLOW,
++         start, end, requested, stop_reason,
++         (unsigned int)CONFIG_DRIVERS_NOTERAM_BUFSIZE, frequency);
++  capture_inventory(&before);
++  printf("\n");
++
++  while (dumped < limit)
++    {
++      received = read(ram, buffer, sizeof(buffer));
++      if (received <= 0 || (size_t)received > sizeof(buffer))
++        {
++          break;
++        }
++
++      if ((uint64_t)received > limit - dumped ||
++          fwrite(buffer, 1, (size_t)received, stdout) != (size_t)received)
++        {
++          received = -1;
++          break;
++        }
++
++      dumped += received;
++    }
++
++  complete = fflush(stdout) == 0;
++  complete = ioctl(ram, NOTERAM_GETMODE,
++                   (unsigned long)&end_mode) == 0 && complete;
++  complete = received == 0 && dumped < limit && !ferror(stdout) && complete &&
++             end_mode == mode;
++  if (perf_getfreq() != frequency)
++    {
++      reason = "note clock changed while converting the native dump";
++      goto done;
++    }
++
++  printf("\nNXRS_NOTE_END schema=3 mode=%u notes_lost=%u complete=%u "
++         "recording_id=%s\n", end_mode,
++         end_mode == NOTERAM_MODE_OVERWRITE_OVERFLOW, complete, identifier);
++  if (complete && mode == NOTERAM_MODE_OVERWRITE_DISABLE &&
++      !g_capture_interrupted && fflush(stdout) == 0)
++    {
++      result = argc;
++    }
++
++  reason = complete ? "recording lost notes or was interrupted" :
++                      "RAM dump or output incomplete";
++
++done:
++  if (restore)
++    {
++      if (ioctl(control, NOTECTL_SETMODE, (unsigned long)&saved) < 0 ||
++          ioctl(ram, NOTERAM_SETMODE, (unsigned long)&original_mode) < 0)
++        {
++          result = ERROR;
++          reason = "cannot restore stopped recorder configuration";
++        }
++    }
++
++#ifndef CONFIG_DISABLE_SIGNALS
++  if (term_changed)
++    {
++      sigaction(SIGTERM, &old_term, NULL);
++    }
++
++  if (int_changed)
++    {
++      sigaction(SIGINT, &old_int, NULL);
++    }
++#endif
++  if (ram >= 0)
++    {
++      close(ram);
++    }
++
++  if (result < 0)
++    {
++      fprintf(stderr, "trace capture: %s\n", reason);
++    }
++
++  return result;
++}
++
++#else
++
++/* Unsupported capture configurations keep ordinary trace commands unchanged. */
++
++int trace_capture_lock(void)
++{
++  return OK;
++}
++
++int trace_capture_unlock(void)
++{
++  return OK;
++}
++
++int trace_capture(FAR const char *name, int index, int argc,
++                  FAR char **argv, int control)
++{
++  (void)name;
++  (void)index;
++  (void)argc;
++  (void)argv;
++  (void)control;
++  fprintf(stderr, "trace capture: requires single-core execution and "
++          "SCHED_INSTRUMENTATION_WDOG=n with robust pthread mutex support\n");
++  errno = ENOTSUP;
++  return ERROR;
++}
++
++#endif

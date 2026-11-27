@@ -33,7 +33,10 @@ select the existing `probe` implementation for consumed IMU/GNSS providers. Thes
 providers record canonical device names with wake, drain, bus-transfer, or
 read/parse/deliver work in task context. They add no recorder thread or heap
 allocation per marker. A shared IRQ handler still does not establish which
-attached sensor caused the interrupt.
+attached sensor caused the interrupt. GNSS also records one
+`gnss/<device>/fix_received` instant for each decoded fix report before consumer
+delivery; this measures reports independently of read batches and does not
+assert consumer acceptance or a valid navigation solution.
 
 ESP32-S3 diagnostics currently require effective `CONFIG_SMP=n`. Its hardware
 performance counter belongs to each CPU, while the pinned overflow correction
@@ -92,6 +95,67 @@ paired outcomes. In the viewer, **Failed calls** selects explicit failures;
 [allocator call outcomes](../tools/memory-explorer/README.md#inspect-allocator-call-outcomes)
 for the recording-identity requirement and nested-call accounting.
 Separate heap events retain native operation observations and used-byte samples.
+
+### Capture a measured window
+
+Use `trace capture` when a short workload misses slow periodic activity such as
+1 Hz GNSS updates. The diagnostic profile enables `SYSTEM_TRACE_CAPTURE` in the
+existing native trace command. The command owns one bounded no-overwrite
+recording and dumps it after stopping; it introduces no recorder worker, queue,
+or continuous export loop. Memory snapshots remain separate observations.
+
+Start the application in the background, keep the console log, and select the
+events needed for the investigation:
+
+```text
+trace mode -o +w +i +d
+trace capture 2 gnss-check-001
+```
+
+Use a fresh recording identifier for each run. The duration is an integer from
+1 through 30 seconds; `trace capture 10 gnss-check-002` requests more cycles.
+For lower-volume sensor scopes, use `trace mode -o -w -i +d`. The latter disables
+switch and IRQ recording, so it cannot establish their timing or CPU usage.
+Compiled heap and lifecycle observations can still consume buffer space.
+
+The command reads its start after enabling the named `ram` recorder and its
+end before disabling it. Both use `perf_gettime` and `perf_convert`, the same
+clock path as native note timestamps. Short sleeps yield the trace task while
+the application runs; elapsed source-clock time determines completion. Requested
+sleep lengths are not measurement oracles. The frame retains requested duration,
+actual bounds, stop reason, recording identity, effective filters, buffer capacity,
+overflow, and dump completion. Quiet time at both edges remains part of the
+viewer denominator. The converter excludes raw context notes outside the
+measured interval before reconstructing pairs.
+
+Capture refuses an already enabled recorder, an invalid or changing clock,
+unsupported SMP, native watchdog instrumentation that bypasses the runtime
+filter, or a build without robust pthread mutex support. Trace invocations are
+serialized without waiting on a busy command; other raw note/control clients
+must remain inactive throughout capture and dump. The command does not reset
+the shared clock or acquire a second sensor. Normal interruption and error
+paths disable recording and restore its prior disabled filter configuration
+and overwrite preference. A forced task kill can leave recording enabled.
+The command lock is recoverable after owner termination; use `trace stop`
+before starting a fresh capture after a forced kill.
+Keep other console writers quiet during the framed dump; interleaved or truncated
+rows fail conversion instead of becoming misleading observations.
+
+The default ring remains 32 KiB. A requested ten seconds is not a guarantee
+that ten seconds of events fit. When it fills, the command preserves the retained
+prefix, reports overflow, and returns failure. The raw dump can still be imported
+as partial evidence, but normalized rates are unavailable. Choose a shorter
+recording, fewer event categories, or a larger `diagnostics-trace-bytes` budget
+within the target's available RAM, then repeat with a new recording identifier.
+Reading this native ring does not reclaim its retained capacity; this command
+does not provide continuous lossless streaming.
+
+The [viewer guide](../tools/memory-explorer/README.md#record-several-sensor-cycles)
+defines complete-call counts, semantic instants, full call duration, and clipped
+overlap. Rates use the actual measured interval and require explicit no-loss
+coverage. A boundary-censored call remains unknown even when all records in
+the window were retained. These measurements describe instrumented execution;
+physical clock accuracy and recorder overhead need board-specific evidence.
 Use a matched ordinary image to measure production throughput.
 
 The converter also accepts native watchdog events when a qualified producer
@@ -470,6 +534,99 @@ allocation work and any preemption. A matched instrumented/ordinary physical
 workload is still required to measure instrumentation overhead and stack
 headroom. This witness establishes allocator-call outcomes, not continuous
 product-heap topology or application allocation lifetimes.
+
+### Multi-second capture witness
+
+The [timed fixture](../tests/nuttx-std/timed-capture/timed_main.c) runs the
+production `trace capture` builtin while an independent worker performs
+simulated 1 Hz and 2 Hz operations. Each operation computes a checksum over
+256 bytes, records a begin/end scope, and emits a separate `fix_received`
+instant. These labels exercise the acquisition trace bridge; they do not
+represent input from a physical GNSS receiver.
+
+The fixture records an independent clock bracket around every marker and
+prints those brackets and checksums after capture stops and the worker joins.
+The qualifier decodes retained binary noteram records independently, compares
+them with the command's ASCII dump, and requires one marker per corresponding
+operation edge. The Rust gate compares imported timestamps, complete-call
+durations, occurrence counts and rates with those native records. Quiet time
+before and after the operations must remain in the measured denominator.
+
+The three cases request two seconds, ten seconds, and a deliberately
+overflowing two seconds. Complete cases require 2/4 and 10/20 operations from
+the two sources respectively. The overflow case must fill the ring, preserve
+its prefix, return a failing capture status, and make normalized rates
+unavailable. A separate control kills a legacy `trace start` owner, observes
+that recording is still enabled, then requires an actual `trace stop` command
+to recover ownership and disable it before the measured capture.
+
+This image uses the same dedicated 20 MHz QEMU timer described above, a 32 KiB
+native note ring and a 4 KiB trace-task stack. Its additional 8 KiB worker stack
+and bounded operation ledger belong only to the qualification fixture. The
+production command uses the existing trace task and recorder. The fixture
+resets its dedicated clock before each invocation; the production capture
+command never resets it. There are no debugger stops during these windows.
+
+The accepted QEMU 10.0.13 run used ELF SHA-256
+`6b83934c93d277a6c06886a01a5bb44f59b2106f2eb89df0dd456f2cd9da2612`:
+
+| Case | Actual window | 1 Hz / 2 Hz operations performed | Retained native bytes | Coverage |
+| --- | ---: | ---: | ---: | --- |
+| Requested 2 seconds | 2.025478500 s | 2 / 4 | 1,248 | Complete |
+| Requested 10 seconds | 10.016933900 s | 10 / 20 | 6,240 | Complete |
+| Overflow control | 2.021147900 s | 2 / 4 | 32,672 | Partial; rates unavailable |
+
+Both complete cases retained every operation's begin, end and fix marker.
+The ten-second recording normalized the two sources to 0.9983094727/s and
+1.9966189454/s; its converted JSON was 11,029 bytes. These sizes describe this
+sparse application-only workload. Enabling scheduler, IRQ or heap observations
+can consume the same buffer much faster. In the overflow case the worker still
+performed all six operations, but only six of their eighteen markers survived.
+
+The killed-owner gate also exposed a native mutex reset-state mismatch in the
+first command guard. Read-only GDB observations confirmed that consistency
+repair left a reset semaphore that native try-lock rejected. The final command
+recreates its private guard without waiting, inside the existing single-core
+critical section; the unchanged native killed-owner scenario then passed.
+
+After retaining earlier timing, replay, and allocator-call images, reuse their disposable
+pinned source trees or create fresh ones as above. The builder checks the configured
+Apps directory before mutation, applies the exact production Apps patch,
+disables earlier qualification fixtures, performs a clean native build, and
+restores the tracked Apps sources. It binds
+the retained ELF and configuration to the patch, installed fixture, copied
+bridge/clock source, and build helpers by hash.
+
+If these trees were used for the allocator-call witness, first finish its
+qualification and Rust gate, then restore its applied production patch. Fresh
+pristine trees do not need this step:
+
+```sh
+request_patch="$PWD/upstream/nuttx/patches/0148-trace-heap-allocation-requests.patch"
+git -C "$PWD/target/memory-timing-sources/nuttx" apply --reverse --check "$request_patch"
+git -C "$PWD/target/memory-timing-sources/nuttx" apply --reverse "$request_patch"
+```
+
+```sh
+timed_sources="$PWD/target/memory-timing-sources"
+timed_output="$PWD/target/timed-capture"
+python3 tools/memory-explorer/tests/build_timed_capture_nuttx.py \
+  --nuttx "$timed_sources/nuttx" --apps "$timed_sources/apps" \
+  --output "$timed_output/build"
+python3 tools/memory-explorer/tests/qualify_timed_capture_qemu.py \
+  --qemu "$(command -v qemu-system-arm)" \
+  --build "$timed_output/build" --output "$timed_output/capture" --timeout 60
+NXRS_TIMED_CAPTURE_BUILD="$timed_output/build" \
+NXRS_TIMED_CAPTURE_EVIDENCE="$timed_output/capture" \
+  cargo +1.90.0 test --locked -p nxrs-memory-explorer \
+    --test timed_capture_qemu -- --ignored --nocapture
+```
+
+The ARM `std-demo` CI job runs these cases after the allocator-call witness and
+retains `timed-capture/{build,capture}` in its firmware artifact. This qualifies
+the native command, conversion and viewer model for the declared emulated
+clock and workload. Physical GNSS behavior, board clock accuracy and production
+instrumentation overhead require their own measurements.
 
 ### Linked QEMU lifecycle witness
 

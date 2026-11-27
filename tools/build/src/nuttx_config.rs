@@ -280,6 +280,7 @@ fn diagnostics(profile: &Profile) -> Result<Vec<(&'static str, String)>> {
         ("DRIVERS_NOTERAM_DEFAULT_NOOVERWRITE", "y"),
         ("DRIVERS_NOTE_TASKNAME_BUFSIZE", "1024"),
         ("SYSTEM_TRACE", "y"),
+        ("SYSTEM_TRACE_CAPTURE", "y"),
         ("SYSTEM_TRACE_STACKSIZE", "4096"),
         ("STACK_COLORATION", "y"),
         ("FS_PROCFS", "y"),
@@ -918,6 +919,7 @@ mod tests {
         assert_eq!(settings["DRIVERS_NOTERAM_BUFSIZE"], "32768");
         assert_eq!(settings["DRIVERS_NOTERAM_DEFAULT_NOOVERWRITE"], "y");
         assert_eq!(settings["SCHED_INSTRUMENTATION_DUMP"], "y");
+        assert_eq!(settings["SYSTEM_TRACE_CAPTURE"], "y");
         assert_eq!(settings["DEBUG_SYMBOLS"], "y");
         assert_eq!(settings["DEBUG_LINK_MAP"], "y");
         assert!(!settings.contains_key("MM_BACKTRACE"));

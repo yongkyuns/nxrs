@@ -11,6 +11,7 @@ hashes in a build ledger. Preserve that ledger with firmware.
 `external/nuttx` is pinned to NuttX 13.1.0
 (`2b5c0de5e933281c209f954a63b99cf10c132346`).
 The authoritative ordered lists for NuttX and NuttX Apps are in
+[`upstream/build-patches.json`](../upstream/build-patches.json), consumed by
 [`tools/apply-nuttx-patches.py`](../tools/apply-nuttx-patches.py).
 Patch headers retain their original source and rationale; build ledgers retain
 the exact applied bytes. IDs intentionally have gaps: accepted upstream changes
@@ -57,8 +58,14 @@ startup readiness and physical qualification remain required under #35.
 Host controls execute pinned driver/libc source with injected registers/reads; they
 do not qualify hardware randomness or target timing.
 
-NuttX Apps retains three patches: the original ESP NimBLE transport, NSH
-`dmesg` reset options, and correct DHCP pad-option parsing. The tracked empty
+The same manifest lists the retained NuttX Apps patches. Patch `0007` adds
+`trace capture <seconds> <recording-id>` to the existing trace utility. It
+records the enabled event scopes in a bounded, non-overwriting RAM window and
+retains measured start/end timestamps for normalization, including quiet time.
+An overflow preserves the admitted prefix and marks coverage incomplete; it
+cannot establish a full-window event rate. See
+[measured capture windows](nuttx-memory-qualification.md#capture-a-measured-window)
+for ownership, clock, cancellation and qualification limits. The tracked empty
 fork `build.log` is not part of a patch.
 
 ### Pico integration and limits

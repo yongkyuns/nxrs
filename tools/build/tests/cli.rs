@@ -1086,6 +1086,11 @@ fn diagnostic_profile_validates_target_and_owns_native_settings() {
         .collect();
     let error = failure(frontend(&root.0, &root.0, &buffer_conflict));
     assert!(error.contains("build.diagnostics requirement"), "{error}");
+    let capture_conflict: Vec<_> = args.into_iter()
+        .chain(["--kconfig-set", "SYSTEM_TRACE_CAPTURE=n"])
+        .collect();
+    let error = failure(frontend(&root.0, &root.0, &capture_conflict));
+    assert!(error.contains("build.diagnostics requirement"), "{error}");
     for (setting, reason) in [
         ("diagnostics-trace-bytes = 3", "diagnostics-trace-bytes"),
         ("diagnostics-trace-bytes = 4097", "diagnostics-trace-bytes"),

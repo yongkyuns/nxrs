@@ -1,6 +1,7 @@
 use super::*;
 use nxrs_memory_explorer::{
-    CounterSample, TimingEvent, TimingEventKind, TimingRange, TimingSourceStats, TimingTrace,
+    CounterSample, TimingEvent, TimingEventKind, TimingOccurrences, TimingRange,
+    TimingRateDenominator, TimingSourceStats, TimingTrace,
 };
 
 #[derive(Default, PartialEq, Eq)]
@@ -191,6 +192,50 @@ fn elapsed_u128(ns: u128) -> String {
     u64::try_from(ns)
         .map(elapsed)
         .unwrap_or_else(|_| format!("{ns} ns"))
+}
+
+fn occurrence_rates(counts: &TimingOccurrences, denominator: TimingRateDenominator) -> String {
+    match denominator {
+        TimingRateDenominator::Observed { duration_ns } => format!(
+            "{} complete interval starts · {:.3}/s   |   {} instants · {:.3}/s   |   denominator {} ({} ns)",
+            counts.interval_starts,
+            denominator.per_second(counts.interval_starts).unwrap(),
+            counts.instants,
+            denominator.per_second(counts.instants).unwrap(),
+            elapsed(duration_ns),
+            duration_ns,
+        ),
+        TimingRateDenominator::Unavailable(reason) => format!(
+            "{} complete interval starts · {} instants · rates unavailable: {}",
+            counts.interval_starts, counts.instants, reason.description()
+        ),
+    }
+}
+
+fn full_duration_summary(counts: &TimingOccurrences) -> String {
+    match (counts.mean_duration_ns(), counts.longest_duration_ns) {
+        (Some(mean), Some(maximum)) => format!(
+            "Full durations for {} starts with both endpoints: mean {:.3} ns · max {} ({} ns)",
+            counts.complete_intervals, mean, elapsed(maximum), maximum,
+        ),
+        _ => "Full duration mean/max unavailable: no observed interval starts with both endpoints in this cohort".into(),
+    }
+}
+
+fn source_occurrences(counts: &TimingOccurrences, denominator: TimingRateDenominator) -> String {
+    match (
+        denominator.per_second(counts.interval_starts),
+        denominator.per_second(counts.instants),
+    ) {
+        (Some(starts), Some(instants)) => format!(
+            "{} complete starts · {starts:.3}/s · {} instants · {instants:.3}/s · {} unknown markers excluded",
+            counts.interval_starts, counts.instants, counts.excluded_markers,
+        ),
+        _ => format!(
+            "{} complete starts · {} instants · {} unknown markers excluded · rates unavailable",
+            counts.interval_starts, counts.instants, counts.excluded_markers,
+        ),
+    }
 }
 
 fn request_outcome(event: &TimingEvent) -> &'static str {
@@ -454,22 +499,26 @@ impl TimingView {
             .unwrap_or_else(|| self.viewport.unwrap_or_else(|| bounds(trace)));
         self.refresh_analysis(trace, range(selected));
         let analysis = self.analysis.as_ref().unwrap();
-        ui.label(RichText::new("Grouped by track, operation and recorded code source; sorted by inclusive duration, then requested bytes. Nested durations overlap. These totals are not CPU utilization.").small().color(MUTED));
-        ui.label(RichText::new("Allocator calls include internal backing calls. Requested call bytes are inputs, not net heap growth or application allocation counts.").small().color(MUTED));
+        ui.label(RichText::new("Grouped by track, operation and recorded code source; sorted by clipped inclusive duration, then requested bytes. Occurrence counts use starts and instants in the selected half-open window. Named batch scopes are scopes, not device samples or fixes.").small().color(MUTED));
+        ui.label(RichText::new("Allocator summaries include intersecting calls and internal backing calls. Requested call bytes are inputs, not net heap growth or application allocation counts.").small().color(MUTED));
         if analysis.sources.is_empty() {
             ui.label("No sources match this time window and filter.");
         }
         let mut chosen = None;
         let mut filter = None;
-        egui::ScrollArea::vertical().id_salt("timing-source-list").auto_shrink([false, false]).show_rows(ui, 100.0, analysis.sources.len(), |ui, rows| {
+        egui::ScrollArea::vertical().id_salt("timing-source-list").auto_shrink([false, false]).show_rows(ui, 145.0, analysis.sources.len(), |ui, rows| {
             for row in rows {
                 let source = &analysis.sources[row];
                 egui::Frame::new().fill(SURFACE).corner_radius(6).inner_margin(8).show(ui, |ui| {
                     ui.set_min_width(ui.available_width());
                     ui.horizontal(|ui| {
                         if ui.selectable_label(false, RichText::new(abbreviated(&source.name, 48)).strong()).on_hover_text(&source.name).clicked() { chosen = Some(source.representative_event); }
-                        ui.label(RichText::new(format!("{} events · {} inclusive · {} max overlap", source.interval_count + source.instant_count, elapsed_u128(source.inclusive_ns), elapsed(source.longest_overlap_ns))).small().color(ACCENT));
                     });
+                    let occurrences = source_occurrences(&source.occurrences, analysis.stats.rate_denominator);
+                    ui.add(egui::Label::new(RichText::new(&occurrences).small().color(ACCENT)).truncate()).on_hover_text(occurrences);
+                    let duration = full_duration_summary(&source.occurrences);
+                    ui.add(egui::Label::new(RichText::new(&duration).small()).truncate()).on_hover_text(duration);
+                    ui.label(RichText::new(format!("Clipped overlap: {} inclusive · {} max · {} intersecting intervals", elapsed_u128(source.inclusive_ns), elapsed(source.longest_overlap_ns), source.interval_count)).small().color(MUTED));
                     ui.label(RichText::new(format!("{} · {}", trace.tracks[source.track].name, source.category)).small().color(MUTED));
                     ui.horizontal(|ui| {
                         let label = source.source.as_deref().unwrap_or_else(|| unrecorded_source(&source.category));
@@ -480,7 +529,7 @@ impl TimingView {
                         }
                     });
                     if source.request_count > 0 {
-                        ui.label(RichText::new(format!("{} requested call B · {} calls · {} failures · {} outcomes unknown", source.requested_bytes, source.request_count, source.failed_requests, source.unknown_outcomes)).small().color(if source.failed_requests > 0 { WARNING } else { MUTED }));
+                        ui.label(RichText::new(format!("{} requested call B · {} intersecting calls · {} failures · {} outcomes unknown", source.requested_bytes, source.request_count, source.failed_requests, source.unknown_outcomes)).small().color(if source.failed_requests > 0 { WARNING } else { MUTED }));
                     } else if source.unpaired_results > 0 {
                         ui.label(RichText::new(format!("{} result endpoints without paired requests", source.unpaired_results)).small().color(WARNING));
                     } else { ui.add_space(13.0); }
@@ -522,7 +571,12 @@ impl TimingView {
                 if let Some(source) = &trace.metadata.source {
                     ui.label(RichText::new(source).small().color(MUTED));
                 }
-                ui.label(RichText::new(format!("Axis shows elapsed time from the first record at {} ns; the inspector retains trace-file coordinates.", trace.bounds.start_ns)).small().color(MUTED));
+                if let Some(window) = &trace.metadata.capture_window {
+                    ui.label(RichText::new(format!("Capture: requested {} · actual {} · stopped by {} · enabled categories: {}", elapsed(window.requested_duration_ns), elapsed(window.duration_ns()), window.stop_reason.as_str(), if window.categories.is_empty() { "none".into() } else { window.categories.join(", ") })).small().color(MUTED));
+                    ui.label(RichText::new("Axis covers the recorded capture window, including silence. Blank time is not inferred idle.").small().color(MUTED));
+                } else {
+                    ui.label(RichText::new(format!("Axis shows elapsed time from the first record at {} ns; acquisition duration is unknown.", trace.bounds.start_ns)).small().color(MUTED));
+                }
                 ui.horizontal_wrapped(|ui| {
                     if trace.metadata.loss_detected == Some(true) || trace.metadata.lost_records.is_some_and(|count| count > 0) {
                         badge(ui, "RECORD LOSS REPORTED", WARNING);
@@ -531,10 +585,14 @@ impl TimingView {
                     } else {
                         badge(ui, "LOSS STATUS UNKNOWN", WARNING);
                     }
-                    if trace.metadata.complete != Some(true) || trace.metadata.incomplete_intervals > 0 {
+                    if let Some(window) = &trace.metadata.capture_window {
+                        badge(ui, if window.complete { "CAPTURE WINDOW RETAINED" } else { "INCOMPLETE WINDOW COVERAGE" }, if window.complete { ACCENT } else { WARNING });
+                        if trace.metadata.incomplete_intervals > 0 {
+                            badge(ui, "CENSORED INTERVAL EDGES", WARNING);
+                        }
+                    } else if trace.metadata.complete != Some(true) || trace.metadata.incomplete_intervals > 0 {
                         badge(ui, "PARTIAL OR UNVERIFIED COVERAGE", WARNING);
                     }
-                    ui.label(RichText::new("Observed intervals only; blank time is not inferred idle.").small().color(MUTED));
                 });
                 let coverage = self.source_coverage.as_ref().unwrap();
                 ui.horizontal_wrapped(|ui| {
@@ -542,7 +600,7 @@ impl TimingView {
                     if ui.small_button(format!("Heap events sourced {}/{}", coverage.heap_sources, coverage.heap)).on_hover_text("Observed heap events with caller code locations. Shared allocator wrappers do not establish application ownership.").clicked() { self.filter = "cat:heap".into(); self.mode = TimingMode::Sources; }
                     if coverage.heap > 0 && ui.small_button(format!("Failed calls ({})", coverage.failed_calls)).on_hover_text("Show allocator calls with a recorded failure outcome. Incomplete calls and unpaired result endpoints stay unknown.").clicked() { self.filter = "outcome:failed".into(); self.mode = TimingMode::Events; }
                     if ui.small_button(format!("{} application observations", coverage.app)).clicked() { self.filter = "cat:app".into(); self.mode = TimingMode::Events; }
-                    if ui.small_button(format!("{} timer callbacks", coverage.timers)).clicked() { self.filter = "cat:timer".into(); self.mode = TimingMode::Sources; }
+                    if ui.small_button(format!("{} timer observations", coverage.timers)).on_hover_text("Retained timer records include censored edge markers. Complete starts and semantic instants are counted separately in the summary.").clicked() { self.filter = "cat:timer".into(); self.mode = TimingMode::Sources; }
                 });
                 if !trace.warnings.is_empty() {
                     egui::CollapsingHeader::new(format!("Capture diagnostics ({})", trace.warnings.len())).show(ui, |ui| {
@@ -556,7 +614,7 @@ impl TimingView {
                 ui.columns(3, |columns| {
                     for (column, (label, value, detail)) in columns.iter_mut().zip([
                         ("VISIBLE WINDOW", elapsed(viewport.span()), format!("{} .. {} ns", viewport.start, viewport.end)),
-                        (if self.selection.is_some() { "MEASURED SELECTION" } else { "OBSERVED INTERVALS" }, if self.selection.is_some() { elapsed(measured.span()) } else { stats.interval_count.to_string() }, if self.selection.is_some() { format!("{} ns; endpoint subtraction", measured.span()) } else { "Matching the visible window".into() }),
+                        (if self.selection.is_some() { "MEASURED SELECTION" } else { "INTERSECTING INTERVALS" }, if self.selection.is_some() { elapsed(measured.span()) } else { stats.interval_count.to_string() }, if self.selection.is_some() { format!("{} ns; endpoint subtraction", measured.span()) } else { "Overlap count; separate from starts".into() }),
                         ("TRACE RECORDS", format!("{} / {}", trace.events.len(), trace.counters.len()), "Intervals + instants / counter samples".into()),
                     ]) {
                         egui::Frame::new().fill(SURFACE).corner_radius(7).inner_margin(11).show(column, |ui| {
@@ -567,6 +625,9 @@ impl TimingView {
                         });
                     }
                 });
+                ui.add_space(8.0);
+                ui.label(RichText::new(occurrence_rates(&stats.occurrences, stats.rate_denominator)).small().color(if matches!(stats.rate_denominator, TimingRateDenominator::Observed { .. }) { ACCENT } else { MUTED }));
+                ui.label(RichText::new(format!("Counts use [{}, {}) ns · {} unknown/censored markers excluded · Source summary shows full durations separately from overlap.", measured.start, measured.end, stats.occurrences.excluded_markers)).small().color(MUTED));
                 ui.add_space(12.0);
                 ui.horizontal_wrapped(|ui| {
                     ui.add(egui::TextEdit::singleline(&mut self.filter).hint_text("Find source, address, outcome:failed…").desired_width(280.0));
@@ -1007,14 +1068,20 @@ impl TimingView {
                     eyebrow(ui, "TIMING INSPECTOR");
                     ui.add_space(14.0);
                     if let Some(event) = self.selected.and_then(|id| trace.events.iter().find(|event| event.id == id)) {
-                        badge(ui, if event.kind == TimingEventKind::Instant { "INSTANT" } else { "OBSERVED INTERVAL" }, event_color(event));
+                        badge(ui, if !event.is_observed_occurrence() { "UNKNOWN / CENSORED MARKER" } else if event.kind == TimingEventKind::Instant { "INSTANT" } else { "OBSERVED INTERVAL" }, event_color(event));
                         ui.add_space(10.0);
                         ui.heading(&event.name);
                         ui.add_space(14.0);
                         if event.is_heap_call() && event.kind == TimingEventKind::Instant {
                             field(ui, "CALL DURATION", "Unknown; only an endpoint was captured");
                         } else {
-                            field(ui, "DURATION", &format!("{}  ({} ns)", elapsed(event.duration_ns()), event.duration_ns()));
+                            field(ui, "DURATION", &if !event.is_observed_occurrence() {
+                                "Unknown; marker excluded from occurrence and duration summaries".into()
+                            } else if event.kind == TimingEventKind::Instant {
+                                "Instant observation; no interval duration".into()
+                            } else {
+                                format!("{}  ({} ns)", elapsed(event.duration_ns()), event.duration_ns())
+                            });
                         }
                         field(ui, "START · TRACE COORDINATE", &format!("{} ns", event.start_ns));
                         field(ui, "END · TRACE COORDINATE", &format!("{} ns", event.end_ns));
@@ -1117,6 +1184,10 @@ impl TimingView {
                         ui.label(&trace.tracks[track.track].name);
                         ui.label(RichText::new(format!("{} · {} intervals", elapsed(track.covered_ns), track.interval_count)).small().color(ACCENT));
                     }
+                    ui.add_space(10.0);
+                    eyebrow(ui, "OBSERVED START COHORT");
+                    ui.label(RichText::new(full_duration_summary(&stats.occurrences)).small());
+                    ui.label(RichText::new("Full durations belong to complete intervals starting in the selected half-open window, even when they extend past its end. Earlier starts contribute only clipped coverage. These measures are not CPU utilization.").small().color(MUTED));
                     ui.add_space(16.0);
                     ui.separator();
                     eyebrow(ui, "CLOCK AND COVERAGE");
@@ -1128,6 +1199,16 @@ impl TimingView {
                         field(ui, "RECORDING", recording);
                     }
                     if let Some(origin) = trace.metadata.origin_ns { field(ui, "RECORDED ORIGIN", &format!("{origin} ns")); }
+                    if let Some(window) = &trace.metadata.capture_window {
+                        field(ui, "CAPTURE · SOURCE CLOCK", &format!("[{}, {}) ns", window.start_ns, window.end_ns));
+                        field(ui, "REQUESTED DURATION", &format!("{} ({} ns)", elapsed(window.requested_duration_ns), window.requested_duration_ns));
+                        field(ui, "ACTUAL DURATION", &format!("{} ({} ns)", elapsed(window.duration_ns()), window.duration_ns()));
+                        field(ui, "STOP REASON", window.stop_reason.as_str());
+                        field(ui, "NATIVE ENABLED CATEGORIES", &if window.categories.is_empty() { "None".into() } else { window.categories.join(", ") });
+                        ui.label(RichText::new("Enabled categories describe acquisition configuration. They do not establish a device owner or turn named batch scopes into individual samples.").small().color(MUTED));
+                    } else {
+                        field(ui, "ACQUISITION WINDOW", "Unknown; first/last events do not establish capture duration");
+                    }
                     field(ui, "ELF SHA-256", trace.metadata.elf_sha256.as_deref().unwrap_or("Unknown; build identity is not established"));
                     ui.label(RichText::new("Nanosecond coordinates describe the file's timestamps, not a guarantee of nanosecond clock resolution. QEMU durations do not qualify physical MCU timing.").small().color(WARNING));
                     if trace.metadata.incomplete_intervals > 0 {
@@ -1173,8 +1254,20 @@ impl TimingView {
                 trace.events.iter().find(|event| {
                     event.kind == TimingEventKind::Interval && event.end_ns > event.start_ns
                 })
-            })
-            .ok_or("Timing smoke needs an observed interval")?;
+            });
+        let Some(event) = event else {
+            if trace.capture_range() != Some(trace.bounds) {
+                return Err(
+                    "Timing smoke needs an observed interval or an explicit capture window".into(),
+                );
+            }
+            self.viewport = Some(full);
+            self.selection = None;
+            self.selected = trace.events.first().map(|event| event.id);
+            self.cursor_ns = Some(full.start);
+            self.refresh_analysis(trace, range(full));
+            return Ok(());
+        };
         self.selected = Some(event.id);
         self.cursor_ns = Some(event.start_ns);
         if self.mode == TimingMode::Sources && event.is_callback() {
@@ -1207,6 +1300,249 @@ impl TimingView {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn timed_fixture(events: serde_json::Value) -> serde_json::Value {
+        serde_json::json!({
+            "otherData": {"nxrs": {
+                "schema_version":1, "recording_id":"rendered-window", "clock":"fixture-clock",
+                "origin_ns":100, "loss_detected":false, "complete":true,
+                "capture_window": {
+                    "start_ns":100,"end_ns":3_000_000_100_u64,"requested_duration_ns":2_000_000_000_u64,
+                    "stop_reason":"duration","complete":true,"categories":["app"]
+                }
+            }},
+            "traceEvents":events
+        })
+    }
+
+    fn rendered_text(view: &mut TimingView, trace: &TimingTrace, size: Vec2) -> String {
+        fn text(shape: &egui::epaint::Shape, result: &mut String) {
+            match shape {
+                egui::epaint::Shape::Text(text) => {
+                    result.push_str(&text.galley.job.text);
+                    result.push('\n');
+                }
+                egui::epaint::Shape::Vec(shapes) => {
+                    for shape in shapes {
+                        text(shape, result);
+                    }
+                }
+                _ => {}
+            }
+        }
+        let context = egui::Context::default();
+        let input = egui::RawInput {
+            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, size)),
+            ..Default::default()
+        };
+        let _ = context.run(input.clone(), |context| {
+            view.show(context, trace, egui::Id::new("capture-window-render"));
+        });
+        let output = context.run(input, |context| {
+            view.show(context, trace, egui::Id::new("capture-window-render"));
+        });
+        let mut result = String::new();
+        for shape in &output.shapes {
+            text(&shape.shape, &mut result);
+        }
+        result
+    }
+
+    #[test]
+    fn silent_capture_renders_actual_window_and_known_zero_without_invented_intervals() {
+        let trace =
+            nxrs_memory_explorer::parse_timing(&timed_fixture(serde_json::json!([])).to_string())
+                .unwrap();
+        let mut view = TimingView::default();
+        view.reset(&trace);
+        view.smoke(&trace).unwrap();
+        assert_eq!(
+            view.viewport,
+            Some(AddressWindow {
+                start: 0,
+                end: 3_000_000_000
+            })
+        );
+        assert_eq!(view.selected, None);
+        for size in [Vec2::new(1000.0, 700.0), Vec2::new(1440.0, 940.0)] {
+            let rendered = rendered_text(&mut view, &trace, size);
+            assert!(
+                rendered.contains("requested 2.000000 s · actual 3.000000 s"),
+                "{rendered}"
+            );
+            assert!(
+                rendered.contains("0 complete interval starts · 0.000/s"),
+                "{rendered}"
+            );
+            assert!(
+                rendered.contains("denominator 3.000000 s (3000000000 ns)"),
+                "{rendered}"
+            );
+            assert!(rendered.contains("including silence"), "{rendered}");
+        }
+    }
+
+    #[test]
+    fn unknown_window_coverage_renders_unavailable_rates_and_censored_marker_reason() {
+        let mut document = timed_fixture(serde_json::json!([
+            {"ph":"i","pid":1,"name":"Unclosed work","cat":"app,unknown,capture","ts":1_000_000,
+             "args":{"duration_unknown":true,"reason":"capture ended"}}
+        ]));
+        document["otherData"]["nxrs"]["complete"] = serde_json::json!(false);
+        document["otherData"]["nxrs"]["capture_window"]["complete"] = serde_json::json!(false);
+        document["otherData"]["nxrs"]["incomplete_intervals"] = serde_json::json!(1);
+        let trace = nxrs_memory_explorer::parse_timing(&document.to_string()).unwrap();
+        let mut view = TimingView::default();
+        view.reset(&trace);
+        view.selected = Some(trace.events[0].id);
+        let rendered = rendered_text(&mut view, &trace, Vec2::new(1440.0, 1000.0));
+        assert!(
+            rendered.contains("rates unavailable: Capture-window coverage is incomplete"),
+            "{rendered}"
+        );
+        assert!(
+            rendered.contains("1 unknown/censored markers excluded"),
+            "{rendered}"
+        );
+        assert!(rendered.contains("UNKNOWN / CENSORED MARKER"), "{rendered}");
+        assert!(
+            rendered.contains("Unknown; marker excluded from occurrence and duration summaries"),
+            "{rendered}"
+        );
+    }
+
+    #[test]
+    fn source_summary_retains_scope_identity_and_full_duration_beyond_selection() {
+        let trace = nxrs_memory_explorer::parse_timing(
+            &timed_fixture(serde_json::json!([
+                {"ph":"X","pid":1,"name":"gnss/batch","cat":"app","ts":500_000,"dur":2_000_000}
+            ]))
+            .to_string(),
+        )
+        .unwrap();
+        let mut view = TimingView::default();
+        view.reset(&trace);
+        view.mode = TimingMode::Sources;
+        view.selection = Some(AddressWindow {
+            start: 0,
+            end: 1_000_000_000,
+        });
+        let rendered = rendered_text(&mut view, &trace, Vec2::new(1600.0, 1100.0));
+        assert!(rendered.contains("gnss/batch"), "{rendered}");
+        assert!(
+            rendered.contains("1 complete starts · 1.000/s"),
+            "{rendered}"
+        );
+        assert!(rendered.contains("mean 2000000000.000 ns"), "{rendered}");
+        assert!(
+            rendered.contains("Clipped overlap: 500.000 ms"),
+            "{rendered}"
+        );
+        assert!(!rendered.contains("fixes/s"));
+    }
+
+    #[test]
+    fn timed_allocator_summaries_preserve_outcomes_without_counting_incomplete_endpoints() {
+        let mut document = timed_fixture(serde_json::json!([
+            {"ph":"X","pid":1,"ts":250_000,"dur":1_500_000,"name":"malloc","cat":"heap,request",
+             "args":{"request_observed":true,"requested_bytes":64,"outcome":"failed","failure_reason":"allocator returned NULL"}},
+            {"ph":"X","pid":1,"ts":1_000_000,"dur":0,"name":"malloc","cat":"heap,request",
+             "args":{"request_observed":true,"requested_bytes":128,"outcome":"succeeded"}},
+            {"ph":"i","pid":1,"ts":500_000,"name":"unfinished malloc","cat":"heap,request",
+             "args":{"request_observed":true,"requested_bytes":32,"incomplete_reason":"missing result"}},
+            {"ph":"i","pid":1,"ts":750_000,"name":"unpaired result","cat":"heap,result",
+             "args":{"request_observed":false,"requested_bytes":999,"observed_outcome":"failed"}},
+            {"ph":"i","pid":1,"ts":800_000,"name":"legacy request","cat":"heap,request",
+             "args":{"requested_bytes":8}},
+            {"ph":"X","pid":1,"ts":900_000,"dur":100_000,"name":"incomplete interval","cat":"heap,request",
+             "args":{"request_observed":true,"requested_bytes":16,"end_args":{"incomplete_reason":"untrusted endpoint"}}},
+            {"ph":"i","pid":1,"ts":1_000_000,"name":"gnss/fix_received","cat":"app"}
+        ]));
+        document["otherData"]["nxrs"]["capture_window"]["categories"] =
+            serde_json::json!(["app", "heap"]);
+        document["otherData"]["nxrs"]["complete"] = serde_json::json!(false);
+        document["otherData"]["nxrs"]["incomplete_intervals"] = serde_json::json!(4);
+        let trace = nxrs_memory_explorer::parse_timing(&document.to_string()).unwrap();
+        let first = TimingRange {
+            start_ns: 0,
+            end_ns: 1_000_000_000,
+        };
+        let second = TimingRange {
+            start_ns: first.end_ns,
+            end_ns: 2_000_000_000,
+        };
+        let stats = trace.stats(first, "");
+        assert_eq!(stats.occurrences.interval_starts, 1);
+        assert_eq!(stats.occurrences.instants, 0);
+        assert_eq!(stats.occurrences.excluded_markers, 4);
+        assert_eq!(stats.occurrences.mean_duration_ns(), Some(1_500_000_000.0));
+        assert_eq!(stats.rate_denominator.per_second(1), Some(1.0));
+        assert_eq!(
+            trace
+                .stats(first, "outcome:failed")
+                .occurrences
+                .interval_starts,
+            1
+        );
+        let later = trace.stats(second, "");
+        assert_eq!(later.occurrences.interval_starts, 1);
+        assert_eq!(later.occurrences.instants, 1);
+        assert_eq!(later.occurrences.excluded_markers, 0);
+        assert_eq!(later.occurrences.mean_duration_ns(), Some(0.0));
+
+        let sources = trace.source_stats(first, "", 0);
+        let calls = sources
+            .iter()
+            .find(|source| source.name == "malloc")
+            .unwrap();
+        // The existing allocator table retains intersecting observations;
+        // the new half-open start cohort is a separately labelled measure.
+        assert_eq!(calls.request_count, 2);
+        assert_eq!(calls.requested_bytes, 192);
+        assert_eq!(calls.failed_requests, 1);
+        assert_eq!(calls.unknown_outcomes, 0);
+        assert_eq!(calls.inclusive_ns, 750_000_000);
+        assert_eq!(calls.occurrences.interval_starts, 1);
+        let orphan = sources
+            .iter()
+            .find(|source| source.name == "unpaired result")
+            .unwrap();
+        assert_eq!(orphan.unpaired_results, 1);
+        assert_eq!(orphan.request_count, 0);
+        assert_eq!(orphan.requested_bytes, 0);
+        assert_eq!(orphan.occurrences.excluded_markers, 1);
+        let unfinished = sources
+            .iter()
+            .find(|source| source.name == "unfinished malloc")
+            .unwrap();
+        assert_eq!(unfinished.request_count, 1);
+        assert_eq!(unfinished.requested_bytes, 32);
+        assert_eq!(unfinished.unknown_outcomes, 1);
+        assert_eq!(unfinished.occurrences.instants, 0);
+
+        let mut view = TimingView::default();
+        view.reset(&trace);
+        view.mode = TimingMode::Sources;
+        view.selection = Some(AddressWindow {
+            start: first.start_ns,
+            end: first.end_ns,
+        });
+        view.selected = Some(orphan.representative_event);
+        let rendered = rendered_text(&mut view, &trace, Vec2::new(1600.0, 1100.0));
+        for expected in [
+            "1 complete interval starts · 1.000/s",
+            "4 unknown/censored markers excluded",
+            "2 intersecting calls",
+            "UNKNOWN / CENSORED MARKER",
+            "Unknown; only an endpoint was captured",
+            "result without paired request",
+        ] {
+            assert!(
+                rendered.contains(expected),
+                "Missing {expected:?}: {rendered}"
+            );
+        }
+    }
 
     #[test]
     fn timing_navigation_keeps_adjacent_high_timestamps_distinct() {

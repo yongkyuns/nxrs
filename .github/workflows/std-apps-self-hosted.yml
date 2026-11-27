@@ -43,6 +43,7 @@ on:
       - 'external/nuttx'
       - 'external/nuttx-apps'
       - 'upstream/nuttx-apps/patches/**'
+      - 'upstream/build-patches.json'
       - 'upstream/esp-hal-3rdparty/patches/**'
       - 'tools/apply-nuttx-patches.py'
       - '.github/workflows/std-apps-self-hosted.yml'
@@ -89,6 +90,7 @@ on:
       - 'external/nuttx'
       - 'external/nuttx-apps'
       - 'upstream/nuttx-apps/patches/**'
+      - 'upstream/build-patches.json'
       - 'upstream/esp-hal-3rdparty/patches/**'
       - 'tools/apply-nuttx-patches.py'
       - '.github/workflows/std-apps-self-hosted.yml'
@@ -430,6 +432,32 @@ jobs:
           NXRS_HEAP_REQUEST_EVIDENCE="$request_output/capture" \
             cargo +1.90.0 test --locked -p nxrs-memory-explorer \
               --test requests_qemu -- --ignored --nocapture
+          # The allocator builder leaves its known production patch applied.
+          # Restore only that patch after retaining and checking its evidence;
+          # the next builder independently requires tracked-clean sources.
+          request_patch="$GITHUB_WORKSPACE/upstream/nuttx/patches/0148-trace-heap-allocation-requests.patch"
+          git -C "$request_sources/nuttx" apply --reverse --check "$request_patch"
+          git -C "$request_sources/nuttx" apply --reverse "$request_patch"
+      - name: Qualify measured capture windows and normalized event rates
+        if: matrix.app == 'std-demo'
+        shell: bash
+        run: |
+          set -euo pipefail
+          timed_sources="$GITHUB_WORKSPACE/target/memory-timing-sources"
+          timed_output="$GITHUB_WORKSPACE/target/firmware/std-demo/mps2-an521-mock/timed-capture"
+          # Earlier fixtures have retained their images and evidence. Rebuild
+          # the disposable trees with the exact production trace command patch.
+          python3 tools/memory-explorer/tests/build_timed_capture_nuttx.py \
+            --nuttx "$timed_sources/nuttx" --apps "$timed_sources/apps" \
+            --output "$timed_output/build"
+          python3 tools/memory-explorer/tests/qualify_timed_capture_qemu.py \
+            --qemu "$(command -v qemu-system-arm)" \
+            --build "$timed_output/build" \
+            --output "$timed_output/capture" --timeout 60
+          NXRS_TIMED_CAPTURE_BUILD="$timed_output/build" \
+          NXRS_TIMED_CAPTURE_EVIDENCE="$timed_output/capture" \
+            cargo +1.90.0 test --locked -p nxrs-memory-explorer \
+              --test timed_capture_qemu -- --ignored --nocapture
       - name: Retain firmware qualification
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -447,4 +475,5 @@ jobs:
             target/firmware/${{ matrix.app }}/*/memory-timing/
             target/firmware/${{ matrix.app }}/*/heap-replay/
             target/firmware/${{ matrix.app }}/*/heap-requests/
+            target/firmware/${{ matrix.app }}/*/timed-capture/
           if-no-files-found: warn
