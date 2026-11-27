@@ -258,7 +258,7 @@ ceiling for this pool is 22 KiB, including pool control storage. Its separate
 clock/wake state, allocator overhead, transport buffers and task stacks have
 their own costs. A headless run without `--ble` reserves no export pool; a run
 with a display reserves one so **Pair** can start export later. The
-[capture policy](src/communications/export/policy.rs) rejects resolved IMU rates
+[capture policy](../../service/telemetry/src/export/policy.rs) rejects resolved IMU rates
 that cannot fit a two-second stall plus 64 burst records. At two 100 Hz IMUs
 and the current 2 Hz GNSS profile rate, that requires 468 of the 512 slots.
 GNSS rate is an explicit profile assumption because its portable device API

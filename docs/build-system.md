@@ -344,6 +344,16 @@ panic reports unless immediate abort is also selected. When backtraces are
 enabled, trace-only reports show raw addresses. The effective settings are
 recorded in the build provenance.
 
+The profile's `[build] size-optimized = true` setting selects fat cross-crate
+Rust LTO and disables Rust debug metadata. For profiles that leave this setting
+unset, `--size-optimized` selects the same policy. With size optimization off,
+the frontend selects `lto = false` and Rust debug metadata level 1. This is separate from the
+standard library's size-optimization feature and the panic policy above.
+The CoreS3 product profiles and ESP32-S3 tracker coexistence fixture select
+size optimization; the `mps2-an521-mock` runtime fixture does not. Compare
+baseline and candidate images with the same effective LTO and debug settings,
+and use the product's optimized settings when reporting production footprint.
+
 The ESP32-S3 RAM controls and CoreS3 sensor build check linked flash, unpadded
 image size, and static RAM in CI. Heap use and worker stacks are measured at
 runtime.
