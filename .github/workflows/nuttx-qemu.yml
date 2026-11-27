@@ -164,8 +164,24 @@ jobs:
             target/nuttx-qemu/harness-source.tar
             target/tracker-upload-build.log
             target/tracker-upload-sim/*upload*.log
+            target/tracker-upload-sim/*.failure.json
+            target/tracker-upload-sim/nuttx/nuttx
+            target/tracker-upload-sim/nuttx/nuttx.merged.bin
+            target/tracker-upload-sim/nuttx/nuttx.map
+            target/tracker-upload-sim/resolved.config
+            target/tracker-upload-sim/resolved-profile.json
+            target/tracker-upload-sim/binaries.sha256
             target/tracker-upload-sim/abi-report.json
             target/tracker-upload-sim/provenance.txt
             target/tracker-coexist-build.log
             target/tracker-coexist-sim/*tiles*.log
             target/tracker-coexist-sim/coexist.log
+            target/tracker-coexist-sim/*.failure.json
+            target/tracker-coexist-sim/nuttx/nuttx
+            target/tracker-coexist-sim/nuttx/nuttx.merged.bin
+            target/tracker-coexist-sim/nuttx/nuttx.map
+            target/tracker-coexist-sim/resolved.config
+            target/tracker-coexist-sim/resolved-profile.json
+            target/tracker-coexist-sim/binaries.sha256
+            target/tracker-coexist-sim/abi-report.json
+            target/tracker-coexist-sim/provenance.txt

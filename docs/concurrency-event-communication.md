@@ -149,6 +149,31 @@ rejected record's source and sequence on overflow. A wake tells communications
 to inspect that retained work. The admission, overflow and wake gates for a
 capture replacement are tracked in [#446](https://github.com/yongkyuns/nxrs/issues/446).
 
+The production capture's wake destination can be replaced after the previous
+communications worker has joined. Registration installs the new thread handle
+under a dedicated owner mutex and retires the old handle after unlocking.
+Acquisition retains fault/readiness flags before trying that mutex for a wake;
+it neither waits for this owner lock nor clones or retires a thread handle.
+Active communications has a bounded poll or service deadline, while starting
+work from idle has its own control wake. Queue allocation and retirement stay
+outside the payload mutex, and fault publication does not need that mutex.
+This repairs joined-owner reuse without changing the ordered payload transport
+or making the complete acquisition callback nonblocking.
+
+The separate pooled-capture work in [#452](https://github.com/yongkyuns/nxrs/pull/452)
+remains a fixture-only candidate. Its shared lifecycle gate and scalar-storage
+host checks do not replace this product's mutex-protected 512-record queue or
+qualify the production wake, batch deadline and transport path.
+
+The entry/display task now reserves 16 KiB, adding 1,536 B of requested stack
+without changing the other worker budgets. The [coexistence fixture](../tests/nuttx-std/tracker-sim/README.md)
+records 3,448 of 15,864 usable bytes free (21.7%) during export at `3e841457`.
+The same CI run's separate map startup failed before the first frame with
+repeated Xtensa debug-cause `0x8` messages. New failure-register retention
+prepares its diagnosis; it does not establish a fix or a passing map run.
+Neither this task reservation nor that later export run changes the identities
+of the earlier product measurements below.
+
 #### CoreS3 product-path baseline
 
 A physical CoreS3 and M135 ran the `m5stack-cores3-dual-imu` product profile
@@ -180,6 +205,10 @@ isolating the timeout and checking hardware FIFO continuity.
 
 #### CoreS3 fixed-reader comparison
 
+The seven-mailbox implementation merged in
+[#451](https://github.com/yongkyuns/nxrs/pull/451) was measured before this
+PI-enabled mutex integration. Keep its physical results tied to that image.
+
 With the original profile priorities, the display retained an IMU reader
 slot through a 120 ms forced pause. Both IMUs kept publishing, with 15 and 12
 publications during the pause, and the longest callback was 2.41 ms. In a
@@ -200,12 +229,20 @@ first 112 retained slow reads, and `tracker-links` was the most frequent
 running task at completion.
 
 The dual-IMU profile gives communications priority 99 and keeps acquisition
-at 100. In the matched control with the Mac BLE peer, the longest retained
+at 100. The physical control in [#461](https://github.com/yongkyuns/nxrs/pull/461),
+head `c50d939a` based on `5511a6c`, used the seven-mailbox fixed-reader image
+before this PI integration. With the Mac BLE peer, the longest retained
 post-interrupt delay fell to 4.38 ms. Both IMUs maintained continuous 100 Hz
 timestamps in the control, forced display pause, 0.95 s acknowledgment hold,
 and both combined runs. During the 7 s acknowledgment hold, both IMUs kept
 sampling and the peer received all 1,103 admitted records before the expected
 overflow marker.
+
+The dual-IMU profile also runs NuttX LPWORK at 99 because it dispatches BLE
+callbacks. The physical comparison in [#467](https://github.com/yongkyuns/nxrs/pull/467)
+recorded 71 I²C transfers of at least 1.8 ms across the matched Mac control and
+combined-load runs, down from 257 with LPWORK at 100. These remain measurements
+of that fixed-reader product configuration.
 
 The matched fixed-reader build added 3,348 bytes of linked flash and 104 bytes to the boot
 image. Publication setup used 3,720 bytes of heap versus 480 bytes. Static RAM
@@ -287,6 +324,14 @@ they do not make a finite important queue incapable of overflowing.
 Source rates, burst bounds, capacities, permitted retry storage and overflow
 visibility are part of the resource contract. HAL acquisition must not block
 indefinitely on the consumer and become unable to drain hardware or cancel.
+
+Assign task priorities using service deadlines and dependencies. A sensor
+drain should preempt bulk export and rendering when the device buffer requires
+it. Include the driver work that makes the acquisition task runnable. For
+example, GNSS UART service follows receive-buffer headroom at the configured
+baud rate. The fix cadence only describes when fixes are published. Verify
+effective priorities and measure worker wake latency and sample loss with slow
+or stalled consumers.
 
 Lifecycle meanings are separate:
 
