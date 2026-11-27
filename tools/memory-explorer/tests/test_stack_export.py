@@ -5,6 +5,7 @@ from pathlib import Path
 from types import SimpleNamespace
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -321,15 +322,25 @@ class StackMacroTests(unittest.TestCase):
         self.assertEqual(values, {})
         self.assertIn("admission limit", error)
 
-    @unittest.skipUnless(shutil.which("cc") and shutil.which("readelf"), "Host C compiler/readelf not installed")
-    def test_real_host_dwarf_macros_not_external_build_configuration(self):
+    def test_real_elf_dwarf_macros_not_external_build_configuration(self):
+        if not shutil.which("readelf"):
+            self.skipTest("ELF readelf not installed")
+        if compiler := shutil.which("clang"):
+            # A host executable is PE on Windows and Mach-O on macOS. Emit an
+            # ELF object explicitly, without a host linker, SDK, or runtime.
+            command = [compiler, "--target=arm-none-eabi", "-g", "-gdwarf-4", "-fdebug-macro"]
+        elif sys.platform.startswith("linux") and (compiler := shutil.which("cc")):
+            command = [compiler, "-g3"]
+        else:
+            self.skipTest("Clang ELF cross compiler or Linux host C compiler not installed")
         with tempfile.TemporaryDirectory() as directory:
             source = Path(directory) / "stack-evidence.c"
-            image = Path(directory) / "stack-evidence.elf"
+            image = Path(directory) / "stack-evidence.o"
             source.write_text("\n".join(f"#define {name} {value}" for name, value in ARM_MACROS.items()) +
                               "\nint main(void) { return 0; }\n")
-            subprocess.run(["cc", "-g3", str(source), "-o", str(image)], check=True,
+            subprocess.run([*command, "-c", str(source), "-o", str(image)], check=True,
                            stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=15)
+            self.assertEqual(image.read_bytes()[:4], b"\x7fELF", "Macro fixture must use the target ELF format")
             values, ambiguous, error = exporter.read_stack_macros(image)
         self.assertIsNone(error)
         self.assertEqual(values, ARM_MACROS)
