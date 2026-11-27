@@ -1,0 +1,95 @@
+diff --git a/arch/arm/src/armv8-m/arm_initialstate.c b/arch/arm/src/armv8-m/arm_initialstate.c
+--- a/arch/arm/src/armv8-m/arm_initialstate.c
++++ b/arch/arm/src/armv8-m/arm_initialstate.c
+@@ -195,45 +195,59 @@
+ {
+   uint32_t stacklim = up_get_intstackbase(this_cpu());
+   uint32_t stack = stacklim + INTSTACK_SIZE;
+-  uint32_t temp = 0;
++  uint32_t primask;
++  uint32_t control;
++  uint32_t temp;
++
++  /* The timer may already be running.  Preserve the caller's interrupt mask
++   * while moving the thread stack away from MSP.  Install the separate IRQ
++   * stack before selecting PSP so that even an NMI cannot use overlapping
++   * hardware and handler frames.  Do not let a context switch run while MSP
++   * temporarily names the IRQ stack in thread mode.
++   */
+ 
+   __asm__ __volatile__
+     (
+-      "mrs %1, CONTROL\n"
+-      "tst %1, #2\n"
++      "mrs %[primask], primask\n"
++      "cpsid i\n"
++      "mrs %[control], CONTROL\n"
++      "tst %[control], #2\n"
+       "bne 1f\n"
+ 
+-      /* Initialize PSP */
+-
+-      "mrs %1, msp\n"
+-      "msr psp, %1\n"
+-#ifdef CONFIG_ARMV8M_STACKCHECK_HARDWARE
+-      "mrs %1, msplim\n"
+-      "msr psplim, %1\n"
++      /* Preserve an already selected PSP and its limit. */
++
++      "mrs %[temp], msp\n"
++      "msr psp, %[temp]\n"
++#ifdef CONFIG_ARMV8M_STACKCHECK_HARDWARE
++      "mrs %[temp], msplim\n"
++      "msr psplim, %[temp]\n"
++#endif
++
++      /* A limit for the old MSP may not admit the IRQ stack.  Remove it
++       * before changing MSP, then install the IRQ limit before selecting
++       * PSP.  At every instruction boundary an NMI has a valid stack.
++       */
++
++      "1:\n"
++#ifdef CONFIG_ARMV8M_STACKCHECK_HARDWARE
++      "mov %[temp], #0\n"
++      "msr msplim, %[temp]\n"
++#endif
++      "msr msp, %[stack]\n"
++#ifdef CONFIG_ARMV8M_STACKCHECK_HARDWARE
++      "msr msplim, %[stacklim]\n"
+ #endif
+       "isb sy\n"
+-
+-      /* Select PSP */
+-
+-      "mrs %1, CONTROL\n"
+-      "orr %1, #2\n"
+-      "msr CONTROL, %1\n"
++      "orr %[control], %[control], #2\n"
++      "msr CONTROL, %[control]\n"
+       "isb sy\n"
+-
+-      /* Initialize MSP */
+-
+-      "1:\n"
+-      "msr msp, %0\n"
+-#ifdef CONFIG_ARMV8M_STACKCHECK_HARDWARE
+-      "msr msplim, %2\n"
+-#endif
+-      "isb sy\n"
+-      :
+-#ifdef CONFIG_ARMV8M_STACKCHECK_HARDWARE
+-      : "r" (stack), "r" (temp), "r" (stacklim)
+-#else
+-      : "r" (stack), "r" (temp)
+-#endif
+-      : "memory");
++      "msr primask, %[primask]\n"
++      : [primask] "=&r" (primask), [control] "=&r" (control),
++        [temp] "=&r" (temp)
++      : [stack] "r" (stack)
++#ifdef CONFIG_ARMV8M_STACKCHECK_HARDWARE
++      , [stacklim] "r" (stacklim)
++#endif
++      : "cc", "memory");
+ }
+ #endif
