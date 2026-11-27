@@ -1,0 +1,17 @@
+{
+  "schema": "nxrs-frozen-qemu-diagnostic-inputs-v1",
+  "artifact_id": 15173309907,
+  "run_id": 45940991761,
+  "published_head": "eeccf1425279aeaa196abb8cd9808016c7bdca09",
+  "compiled_revision": "dbb72cdc651e6fe461238264f6fcd535ae1140bb",
+  "archive_sha256": "3b312a847ee89ea871564d2bfb22da33b8a5ce665426bbf8d2447f2682355913",
+  "files": {
+    "tracker-coexist-sim/abi-report.json": "74c3a12a2deb4020d63fbe781ef9d2549615582d6aa989f6ad366084f61c5834",
+    "tracker-coexist-sim/nuttx/.config": "b6b59f17a38c5c133daa65e3655238f95b9f99bbfb0555bb01e45dfd5c4fe414",
+    "tracker-coexist-sim/nuttx/nuttx": "2b9d2fd07244fc25b7ad82d918f0784d1147bf67dc74dae56ba05a1b921cd82e",
+    "tracker-coexist-sim/nuttx/nuttx.map": "53332da6a773cc777ce3e0893d9a97d63a5385b76c276accae19bab220975a57",
+    "tracker-coexist-sim/provenance.txt": "66adf4386999991e39c024191c9316f323586a8fbbce17ff19a7d639df48f0e8",
+    "tracker-coexist-sim/nuttx/nuttx.merged.bin": "a64f84a6256850ca423cfaf7b00d869c4c0e500c26c2c0d37abc302920861fe2",
+    "tracker-coexist-sim/resolved-profile.json": "82d5eec798ffa960cd46451172369a4a6a7bfb61383424f7b8ee912ac7199a0c"
+  }
+}

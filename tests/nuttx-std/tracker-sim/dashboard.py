@@ -6,6 +6,7 @@ from collections import deque
 from dataclasses import replace
 import json
 import math
+import os
 from pathlib import Path
 import re
 import ssl
@@ -31,6 +32,7 @@ from PIL import Image
 import zxingcpp
 
 from run import listener
+import qmp_failure
 import tile_fixture
 from sensors import NeoM9n, check_imus, check_live, check_stale
 
@@ -879,12 +881,14 @@ async def run(args, log, exercise=scenario, attach_controller=None):
                     task.result()
                 assert test in done, 'guest console or UART terminated during the test'
                 print(f'PASS: full tracker in {time.monotonic() - start:.2f} host seconds')
-            except TrackerStartupError as error:
-                if attach_controller is not None:
+            except Exception as error:
+                if isinstance(error, TrackerStartupError) and attach_controller is not None:
                     try:
                         error.add_note(await asyncio.wait_for(controller_wire.describe_rings(), 1))
                     except (OSError, AssertionError, ValueError, struct.error):
                         error.add_note('Could not read RAM UART ring offsets')
+                if destination := os.environ.get('NXRS_TRACKER_QMP_FAILURE'):
+                    await qmp_failure.retain(path / 'qmp', args.image, destination, error)
                 raise
             finally:
                 for task in tasks:
