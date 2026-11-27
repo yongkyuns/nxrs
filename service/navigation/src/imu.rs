@@ -7,6 +7,7 @@ use std::sync::{
 use std::thread::{self, JoinHandle};
 
 use crate::fusion::{ImuInput, Submit};
+use crate::{control, ControlCompletion, ControlRequest, RequestError, RequestId};
 use imu::{DeviceError, ImuSample, Session};
 use messaging::{bounded, Inbox, Sender};
 
@@ -55,6 +56,7 @@ pub struct ImuStatus {
 }
 enum Event {
     Device(imu::Event),
+    Control(control::Ticket),
     Pause(SyncSender<()>),
     Resume(SyncSender<()>),
     Status(SyncSender<ImuStatus>),
@@ -62,6 +64,7 @@ enum Event {
 }
 pub struct ImuHandle {
     control: Sender<Event>,
+    replies: control::Client<ImuStatus>,
     join: Option<JoinHandle<io::Result<ImuStats>>>,
     stopping: Arc<AtomicBool>,
 }
@@ -77,12 +80,30 @@ impl ImuService {
         self
     }
     /// Acquire the caller's logical device while keeping service policy portable.
+    /// Reserves the same retained completion slot as `start_on_with_wake`, with
+    /// no notification callback. Blocking compatibility requests are separate.
     pub fn start_on(self, selected: &'static impl imu::Device) -> io::Result<ImuHandle> {
+        self.start_on_with_wake(selected, || {})
+    }
+
+    /// Start with one retained completion slot and the caller's existing wake path.
+    ///
+    /// `wake` normally runs on the service worker after publishing a completion
+    /// and on control-channel retirement. Failed worker startup can invoke it
+    /// during cleanup on the starting caller. It must only signal the caller,
+    /// return promptly, and never run its handler or wait for notification capacity.
+    /// A rejected/coalesced wake is safe when the caller reconciles retained work
+    /// between dispatches and before its one blocking wait.
+    pub fn start_on_with_wake(
+        self,
+        selected: &'static impl imu::Device,
+        wake: impl FnMut() + Send + 'static,
+    ) -> io::Result<ImuHandle> {
         let (control, inbox) = bounded(INBOX_CAPACITY);
         // This endpoint only admits messages; acquisition invokes it in task context.
         let sink = crate::inbox_sink(control.clone(), |event| Some(Event::Device(event)));
         let device = selected.open_default(sink).map_err(hal_error)?;
-        Self::start_device(self, device, control, inbox)
+        Self::start_device(self, device, control, inbox, wake)
     }
 
     #[cfg(test)]
@@ -92,7 +113,7 @@ impl ImuService {
     ) -> io::Result<(ImuHandle, TestInput)> {
         let (control, inbox) = bounded(INBOX_CAPACITY);
         let inject = TestInput(control.clone());
-        let handle = Self::start_device(self, device, control, inbox)?;
+        let handle = Self::start_device(self, device, control, inbox, || {})?;
         Ok((handle, inject))
     }
 }
@@ -112,26 +133,50 @@ impl ImuService {
         device: D,
         control: Sender<Event>,
         inbox: Inbox<Event>,
+        wake: impl FnMut() + Send + 'static,
     ) -> io::Result<ImuHandle> {
         let stopping = Arc::new(AtomicBool::new(false));
         let stop = stopping.clone();
+        let (replies, output) = control::channel(wake);
         let join = thread::Builder::new()
             .name("imu-service".into())
-            .spawn(move || run(self, device, inbox, &stop))?;
+            .spawn(move || run(self, device, inbox, &stop, output))?;
         Ok(ImuHandle {
             control,
+            replies,
             join: Some(join),
             stopping,
         })
     }
 }
 impl ImuHandle {
+    /// Admit one command without waiting for inbox space or service completion.
+    ///
+    /// A successful admission occupies this handle's retained request slot until
+    /// `try_completion` consumes its result. Caller deadline expiry does not
+    /// cancel the operation or free that slot. No channel is created per request.
+    /// This one-outstanding limit applies to this API; the blocking compatibility
+    /// methods admit their own separate requests.
+    pub fn try_request(&mut self, request: ControlRequest) -> Result<RequestId, RequestError> {
+        self.replies
+            .try_request(&self.control, request, Event::Control)
+    }
+
+    /// Consume a retained completion without waiting. Reconcile this between
+    /// dispatches, including after unrelated or stale wakes.
+    pub fn try_completion(&mut self) -> Option<ControlCompletion<ImuStatus>> {
+        self.replies.try_completion()
+    }
+
+    /// Blocking convenience for bootstrap/CLI callers, never an owner handler.
     pub fn pause(&self) -> io::Result<()> {
         self.request(Event::Pause)
     }
+    /// Blocking convenience for bootstrap/CLI callers, never an owner handler.
     pub fn resume(&self) -> io::Result<()> {
         self.request(Event::Resume)
     }
+    /// Blocking convenience for bootstrap/CLI callers, never an owner handler.
     pub fn status(&self) -> io::Result<ImuStatus> {
         let (reply, response) = sync_channel(1);
         self.send(Event::Status(reply))?;
@@ -139,6 +184,7 @@ impl ImuHandle {
             .recv()
             .map_err(|_| io::Error::new(io::ErrorKind::BrokenPipe, "imu status reply closed"))
     }
+    /// Blocking joined teardown after the caller has resolved progress dependencies.
     pub fn stop(mut self) -> io::Result<ImuStats> {
         self.request_stop();
         self.join
@@ -185,6 +231,7 @@ fn run<D: Session>(
     mut device: D,
     inbox: Inbox<Event>,
     stopping: &AtomicBool,
+    mut replies: control::Replies<ImuStatus, impl FnMut()>,
 ) -> io::Result<ImuStats> {
     let mut stats = ImuStats::default();
     let mut sampling = true;
@@ -194,18 +241,34 @@ fn run<D: Session>(
             break;
         };
         match event {
+            Event::Control(ticket) => {
+                match ticket.request {
+                    ControlRequest::Pause => sampling = false,
+                    ControlRequest::Resume => sampling = true,
+                    ControlRequest::Status => {}
+                }
+                let mut snapshot = stats;
+                snapshot.dropped = snapshot.dropped.saturating_add(u64::from(device.dropped()));
+                replies.complete(
+                    ticket,
+                    ImuStatus {
+                        sampling,
+                        stats: snapshot,
+                    },
+                );
+            }
             Event::Pause(reply) => {
                 sampling = false;
-                let _ = reply.send(());
+                let _ = reply.try_send(());
             }
             Event::Resume(reply) => {
                 sampling = true;
-                let _ = reply.send(());
+                let _ = reply.try_send(());
             }
             Event::Status(reply) => {
                 let mut snapshot = stats;
                 snapshot.dropped = snapshot.dropped.saturating_add(u64::from(device.dropped()));
-                let _ = reply.send(ImuStatus {
+                let _ = reply.try_send(ImuStatus {
                     sampling,
                     stats: snapshot,
                 });
@@ -230,6 +293,9 @@ fn run<D: Session>(
             Event::Shutdown => break,
         }
     }
+    // Retire control before potentially blocking provider cleanup. Pending
+    // requests fail visibly; the caller still joins teardown explicitly.
+    drop(replies);
     // Teardown is outside normal event dispatch. The source never waits for queue capacity.
     let stop = device.request_stop();
     let joined = device.join();
@@ -266,6 +332,64 @@ mod tests {
             0
         }
     }
+
+    #[test]
+    fn owner_handles_retained_requests_after_delay_and_a_full_wake_inbox() {
+        let (_fusion, inputs) = crate::FusionService::new();
+        let (control, inbox) = bounded(1);
+        let stopping = Arc::new(AtomicBool::new(false));
+        let stop = stopping.clone();
+        let (begin, started) = sync_channel(1);
+        let (joined, retired) = sync_channel(1);
+        let (wake, notifications) = sync_channel(1);
+        let (published, observed) = sync_channel(4);
+        wake.try_send(()).unwrap();
+        let (replies, output) = control::channel(move || {
+            let _ = wake.try_send(());
+            let _ = published.try_send(());
+        });
+        let join = thread::spawn(move || {
+            started.recv().unwrap();
+            run(
+                ImuService::new(inputs.imu),
+                Source {
+                    stopped: false,
+                    joined,
+                },
+                inbox,
+                &stop,
+                output,
+            )
+        });
+        let mut handle = ImuHandle {
+            control,
+            replies,
+            stopping,
+            join: Some(join),
+        };
+        let id = handle.try_request(ControlRequest::Pause).unwrap();
+        assert!(handle.try_completion().is_none());
+        assert_eq!(
+            handle.try_request(ControlRequest::Status),
+            Err(RequestError::Busy)
+        );
+        // Unrelated work can run while the owner has not even started dispatch.
+        notifications.try_recv().unwrap();
+        // Leave the first completion's notification unread. The second reply
+        // must remain available even when its wake cannot enter that full inbox.
+        begin.send(()).unwrap();
+        observed.recv_timeout(Duration::from_secs(1)).unwrap();
+        let completion = handle.try_completion().unwrap();
+        assert_eq!(completion.id, id);
+        assert!(!completion.result.unwrap().sampling);
+        let resumed = handle.try_request(ControlRequest::Resume).unwrap();
+        observed.recv_timeout(Duration::from_secs(1)).unwrap();
+        let completion = handle.try_completion().unwrap();
+        assert_eq!(completion.id, resumed);
+        assert!(completion.result.unwrap().sampling);
+        handle.stop().unwrap();
+        retired.recv_timeout(Duration::from_secs(1)).unwrap();
+    }
     #[test]
     fn dropping_handle_requests_stop_even_when_measurements_fill_the_inbox() {
         let (_, inputs) = crate::FusionService::new();
@@ -283,6 +407,7 @@ mod tests {
         let stop = stopping.clone();
         let (begin, started) = sync_channel(1);
         let (joined, retired) = sync_channel(1);
+        let (replies, output) = control::channel(|| {});
         let join = thread::spawn(move || {
             started.recv().unwrap();
             run(
@@ -293,10 +418,12 @@ mod tests {
                 },
                 inbox,
                 &stop,
+                output,
             )
         });
         let handle = ImuHandle {
             control,
+            replies,
             stopping,
             join: Some(join),
         };

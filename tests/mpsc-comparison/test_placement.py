@@ -239,6 +239,46 @@ class LinkedPlacementTests(unittest.TestCase):
         self.assertEqual(result['indirect_calls'][0]['instruction'], 'blx r3')
         self.assertFalse(result['matched_placement_qualified'])
 
+    def test_current_setup_and_abort_boundaries_are_exact(self):
+        # These three names come from the retained Pico ELF. Its actual
+        # current_or_unnamed branches reach TLS setup or print then abort.
+        # Similar names are not evidence that a different call is cold.
+        known = (
+            'std::sys::thread_local::guard::key::key_based::enable',
+            '<std::sys::stdio::unix::Stderr as core::io::write::Write>::write_fmt',
+            'core::ptr::drop_glue::<core::result::Result<(), core::io::error::Error>>',
+        )
+        unknown = (
+            'application::' + known[0],
+            known[0] + '_other',
+            '<std::sys::stdio::unix::Stdout as core::io::write::Write>::write_fmt',
+            '<std::sys::stdio::unix::Stderr as application::Write>::write_fmt',
+            '<application::Stderr as core::io::write::Write>::write_fmt',
+            '<std::sys::stdio::unix::Stderr as core::io::write::Write>::write_all',
+            'core::ptr::drop_glue::<core::result::Result<usize, core::io::error::Error>>',
+            'core::ptr::drop_glue::<core::result::Result<(), application::Error>>',
+            'core::ptr::drop_glue::<std::thread::thread::Thread>',
+        )
+        for name in (*known, *unknown):
+            with self.subTest(name=name):
+                assembly = f'''
+20000100 <mpsc_comparison::engine::worker>:
+20000100: f000 f802  bl 20000200 <boundary_veneer>
+20000200 <boundary_veneer>:
+20000200: f8df f000  ldr.w pc, [pc]
+20000204: 10001001   .word 0x10001001
+10001000 <{name}>:
+10001000: 4770       bx lr
+'''
+                result = placement.inspect_disassembly(assembly, 'pico2w', 'std')
+                self.assertEqual(result['direct_paths_in_sram'], name in known)
+                self.assertEqual(result['excluded_cold'], [name] if name in known else [])
+                self.assertEqual([row['name'] for row in result['flash_boundaries']],
+                                 [] if name in known else [name])
+                self.assertFalse(result['indirect_calls_qualified'])
+                self.assertFalse(result['matched_placement_qualified'])
+                self.assertFalse(result['physical_timing_qualified'])
+
     def test_xtensa_direct_indirect_and_unknown_targets(self):
         assembly = """
 40370100 <mpsc_comparison::engine::worker>:

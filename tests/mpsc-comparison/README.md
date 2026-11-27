@@ -94,6 +94,14 @@ including backreferences, before matching qualified paths. Unsupported
 demangling fails before changing that object; `hot-placement.json` retains the
 selected demangled names. The linked audit recognizes both spellings of its
 explicit Rust roots and preserves the existing setup/retirement boundaries.
+NuttX endpoint setup explicitly initializes the controller's Rust `Thread`
+before the heap baseline and warmup, for both transports. Spawned workers have
+their thread state before entering the workload. The controller's initial
+queue fill can use only fast paths, so it cannot establish that precondition:
+its timed terminal send may be the first send that blocks. The audit's exact
+current TLS-guard and stderr/error-result aliases retain only that established
+setup boundary and the inspected print-then-abort paths; they do not exclude
+other I/O or thread-handle drops.
 Early memory routines stay in flash on both Pico kernels. For NuttX, the
 placement step redirects compiler-generated memory calls only in the reset
 object and verifies the reset call targets in the final ELF. S3 uses the shared

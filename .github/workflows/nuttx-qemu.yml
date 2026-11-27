@@ -147,6 +147,7 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: nuttx-esp32s3-qemu-qualification
+          include-hidden-files: true
           path: |
             target/nuttx-qemu/nuttx/nuttx
             target/nuttx-qemu/nuttx/nuttx.merged.bin
@@ -168,5 +169,12 @@ jobs:
             target/tracker-upload-sim/abi-report.json
             target/tracker-upload-sim/provenance.txt
             target/tracker-coexist-build.log
+            target/tracker-coexist-sim/nuttx/nuttx
+            target/tracker-coexist-sim/nuttx/nuttx.map
+            target/tracker-coexist-sim/nuttx/nuttx.merged.bin
+            target/tracker-coexist-sim/nuttx/.config
+            target/tracker-coexist-sim/abi-report.json
+            target/tracker-coexist-sim/resolved-profile.json
+            target/tracker-coexist-sim/provenance.txt
             target/tracker-coexist-sim/*tiles*.log
             target/tracker-coexist-sim/coexist.log

@@ -405,6 +405,99 @@ fn stop_during_native_wait_is_nonblocking_and_waits_for_quiescence_before_join()
 }
 
 #[test]
+fn terminal_notification_releases_lock_but_retains_sink_and_lease_until_finish() {
+    struct Retained(Arc<AtomicBool>);
+    impl Drop for Retained {
+        fn drop(&mut self) {
+            self.0.store(true, Ordering::Release);
+        }
+    }
+
+    for rejected in [None, Some(DeliveryError::Full), Some(DeliveryError::Closed)] {
+        let sink_released = Arc::new(AtomicBool::new(false));
+        let lease_released = Arc::new(AtomicBool::new(false));
+        let sink_lifetime = Retained(sink_released.clone());
+        let (tx, rx) = mpsc::sync_channel(4);
+        let mut deliver = sink(tx);
+        let (entered, notification_in_flight) = mpsc::sync_channel(1);
+        let (release, gate) = mpsc::sync_channel(1);
+        let (closed, native_closed) = mpsc::sync_channel(1);
+        let mut native = Fake::new(vec![]);
+        native.close_calls = Some(closed);
+        let mut device = Worker::start(
+            native,
+            move |event| {
+                let _keep_alive = &sink_lifetime;
+                if event.kind != EventKind::Status(ProviderStatus::Stopped) {
+                    return deliver(event);
+                }
+                let result = match rejected {
+                    Some(error) => Err(Rejected {
+                        value: event,
+                        error,
+                    }),
+                    None => deliver(event),
+                };
+                // The owner may run as soon as admission wakes it, before this
+                // last callback returns. Hold that boundary deterministically.
+                entered.send(()).unwrap();
+                gate.recv_timeout(WAIT).unwrap();
+                result
+            },
+            Retained(lease_released.clone()),
+        )
+        .unwrap();
+        assert_eq!(
+            rx.recv_timeout(WAIT).unwrap().kind,
+            EventKind::Status(ProviderStatus::Ready)
+        );
+        device.request_stop().unwrap();
+        notification_in_flight.recv_timeout(WAIT).unwrap();
+        native_closed.recv_timeout(WAIT).unwrap();
+        if rejected.is_none() {
+            assert_eq!(
+                rx.recv_timeout(WAIT).unwrap().kind,
+                EventKind::Status(ProviderStatus::Stopped)
+            );
+        } else {
+            assert!(matches!(rx.try_recv(), Err(mpsc::TryRecvError::Empty)));
+        }
+        // Reconciliation works even if the final event was rejected. The
+        // snapshot establishes native stop, not delivery callback retirement.
+        assert_eq!(device.status(), ProviderStatus::Stopped);
+        assert!(!sink_released.load(Ordering::Acquire));
+        assert!(!lease_released.load(Ordering::Acquire));
+        {
+            let pending = device
+                .shared
+                .pending
+                .try_lock()
+                .expect("external notification must not hold the provider mutex");
+            assert!(!pending.busy);
+            assert!(pending.request.is_none());
+        }
+
+        let (joining, join_started) = mpsc::sync_channel(1);
+        let (finished, joined) = mpsc::sync_channel(1);
+        let teardown = thread::spawn(move || {
+            joining.send(()).unwrap();
+            let result = device.finish();
+            assert!(sink_released.load(Ordering::Acquire));
+            assert!(lease_released.load(Ordering::Acquire));
+            finished.send(result).unwrap();
+        });
+        join_started.recv_timeout(WAIT).unwrap();
+        assert!(matches!(
+            joined.recv_timeout(Duration::from_millis(10)),
+            Err(mpsc::RecvTimeoutError::Timeout)
+        ));
+        release.send(()).unwrap();
+        assert_eq!(joined.recv_timeout(WAIT).unwrap(), Ok(()));
+        teardown.join().unwrap();
+    }
+}
+
+#[test]
 fn a_full_event_queue_cannot_block_stop_or_overrun_the_buffer() {
     let (mut device, rx) = fixture(Fake::new(vec![field(1, 0, &[]); 4]), 1);
     submit(&mut device);

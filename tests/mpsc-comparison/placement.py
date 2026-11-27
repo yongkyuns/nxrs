@@ -132,6 +132,14 @@ typed_cold=re.compile(
  r'|^<?alloc::collections::vec_deque::VecDeque<.*>>?::grow$'
  r'|^<?alloc::(?:sync|rcs::arc)::Arc<.*>>?::drop_slow$')
 def cold(n):
+ # Exact current spellings of existing TLS-setup and abort-diagnostic bounds.
+ # NuttX configure initializes the controller's Thread before warmup; spawned
+ # workers already have one. Do not exclude other I/O, Drop or TLS operations.
+ if n in (
+  'std::sys::thread_local::guard::key::key_based::enable',
+  '<std::sys::stdio::unix::Stderr as core::io::write::Write>::write_fmt',
+  'core::ptr::drop_glue::<core::result::Result<(), core::io::error::Error>>',
+ ):return True
  if ' as ' not in n and typed_cold.search(n):return True
  if any(x in n for x in ['panicking::','unwrap_failed','__assert','zassert_fail','k_panic','::fatal','mpsc_comparison::line','core::fmt::',' as core::fmt::','engine::enter','mp_get_schedule','_Unwind','std::thread::Thread::new','std::thread::current::init_current','std::thread::current::id::get_or_init','LazyKey::lazy_init','::configure','mp_tid','std::time::Instant','Thread::park_timeout','ThreadId::new','MutexGuard<u64>','pthread_mutex_lock','pthread_mutex_unlock','pthread_mutex_destroy','pthread_setspecific','Mutex::init','Mutex::lock::fail','__rust_alloc_zeroed','__rust_no_alloc_shim','handle_alloc_error','up_schedule_sigaction','z_do_kernel_oops','std::process::abort','thread_local::guard::key::enable','thread_local::os::LocalPointer::set','std::io::Write::write_fmt','drop_in_place<core::result::Result<(),std::io::error::Error>>']):return True
  if any(x in n for x in ['mpmc::list::','mpmc::zero::','VecDeque<T,A>::grow','__rust_dealloc']):return True

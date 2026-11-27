@@ -8,6 +8,7 @@
 //! to show that a service does not require a thread.
 #![forbid(unsafe_code)]
 
+mod control;
 mod fusion;
 mod gnss;
 mod health;
@@ -54,6 +55,7 @@ fn inbox_sink<T: Copy, E>(
 #[cfg(test)]
 mod transcript_tests;
 
+pub use control::{ControlCompletion, ControlFailure, ControlRequest, RequestError, RequestId};
 pub use fusion::{FusionConfig, FusionHandle, FusionInputs, FusionService, FusionStats, NavState};
 pub use gnss::{GnssHandle, GnssProcessor, GnssService, GnssStats, GnssStatus};
 pub use health::{HealthService, HealthSnapshot};
