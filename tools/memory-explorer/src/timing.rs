@@ -440,6 +440,35 @@ pub struct TimingStats {
     pub rate_denominator: TimingRateDenominator,
 }
 
+/// Gaps between consecutive matching semantic instants from one source group.
+/// Window edges are not observations and contribute no inferred gaps.
+#[derive(Clone, Debug, Default)]
+pub struct TimingInstantSpacing {
+    pub gap_count: usize,
+    pub min_ns: u64,
+    /// Exact endpoints of the earliest longest gap, in trace coordinates.
+    pub max_gap: TimingRange,
+    pub sum_ns: u128,
+}
+
+impl TimingInstantSpacing {
+    fn observe(&mut self, gap: TimingRange) {
+        let duration = gap.span_ns();
+        if self.gap_count == 0 || duration < self.min_ns {
+            self.min_ns = duration;
+        }
+        if self.gap_count == 0 || duration > self.max_gap.span_ns() {
+            self.max_gap = gap;
+        }
+        self.gap_count += 1;
+        self.sum_ns += u128::from(duration);
+    }
+
+    pub fn mean_ns(&self) -> Option<f64> {
+        (self.gap_count > 0).then(|| self.sum_ns as f64 / self.gap_count as f64)
+    }
+}
+
 /// Matching observations grouped by track, operation and recorded code source.
 /// Overlap durations are clipped to the query window and summed inclusively;
 /// occurrence durations retain each complete interval's full elapsed duration.
@@ -463,6 +492,9 @@ pub struct TimingSourceStats {
     /// requested bytes, request count, or correlated success/failure.
     pub unpaired_results: usize,
     pub occurrences: TimingOccurrences,
+    /// At least two admitted instants in a complete, known no-loss window.
+    /// Intervals, counters, censored endpoints and quiet window edges are excluded.
+    pub instant_spacing: Option<TimingInstantSpacing>,
 }
 
 impl TimingTrace {
@@ -532,8 +564,11 @@ impl TimingTrace {
         filter: &str,
         minimum_ns: u64,
     ) -> Vec<TimingSourceStats> {
-        let mut groups: BTreeMap<(usize, &str, &str, Option<&str>), TimingSourceStats> =
-            BTreeMap::new();
+        let mut groups = BTreeMap::new();
+        let spacing_observed = matches!(
+            self.rate_denominator(range),
+            TimingRateDenominator::Observed { .. }
+        );
         for event in self.query(range, filter) {
             if event.kind == TimingEventKind::Interval && event.duration_ns() < minimum_ns {
                 continue;
@@ -544,15 +579,34 @@ impl TimingTrace {
                 event.category.as_str(),
                 event.source_name(),
             );
-            let group = groups.entry(key).or_insert_with(|| TimingSourceStats {
-                track: event.track,
-                name: event.name.clone(),
-                category: event.category.clone(),
-                source: event.source_name().map(str::to_owned),
-                representative_event: event.id,
-                ..Default::default()
+            let (group, previous_instant) = groups.entry(key).or_insert_with(|| {
+                (
+                    TimingSourceStats {
+                        track: event.track,
+                        name: event.name.clone(),
+                        category: event.category.clone(),
+                        source: event.source_name().map(str::to_owned),
+                        representative_event: event.id,
+                        ..Default::default()
+                    },
+                    None,
+                )
             });
+            let prior_instants = group.occurrences.instants;
             group.occurrences.observe(event, range);
+            // Reuse the occurrence admission rules, including the half-open
+            // window and exclusion of incomplete allocator endpoints.
+            if spacing_observed && group.occurrences.instants > prior_instants {
+                if let Some(start_ns) = previous_instant.replace(event.start_ns) {
+                    group
+                        .instant_spacing
+                        .get_or_insert_with(TimingInstantSpacing::default)
+                        .observe(TimingRange {
+                            start_ns,
+                            end_ns: event.start_ns,
+                        });
+                }
+            }
             if event.kind == TimingEventKind::Instant {
                 group.instant_count += 1;
             } else {
@@ -582,7 +636,7 @@ impl TimingTrace {
                 group.unpaired_results += 1;
             }
         }
-        let mut groups: Vec<_> = groups.into_values().collect();
+        let mut groups: Vec<_> = groups.into_values().map(|(group, _)| group).collect();
         groups.sort_by(|left, right| {
             right
                 .inclusive_ns

@@ -698,6 +698,37 @@ coverage independently of the older `complete` flag, which also includes
 incomplete interval boundaries. Neither field asserts physical-board clock
 accuracy or instrumentation overhead.
 
+### Inspect update spacing
+
+In **Source summary**, semantic instants such as `gnss/primary/fix_received`
+show the number of observed gaps and their minimum, mean, and maximum duration.
+Hover the summary for exact nanoseconds and the two timestamps bounding the
+earliest longest gap. Each gap joins consecutive matching instants from the
+same track, operation, category, and recorded code source in the selected
+half-open window. Interval durations and counter samples do not enter this
+summary.
+
+Average reports/s alone can hide uneven delivery. These two illustrative
+four-second windows both contain four reports at 1 report/s:
+
+| Report timestamps | Minimum gap | Mean gap | Maximum gap |
+| --- | ---: | ---: | ---: |
+| 0.2, 1.2, 2.2, 3.2 s | 1.0 s | 1.0 s | 1.0 s |
+| 0.2, 0.3, 1.2, 3.2 s | 0.1 s | 1.0 s | 2.0 s |
+
+Four reports provide three gaps. Quiet time at the window edges still belongs
+to the reports/s denominator, but adds no inter-report gap. Equal timestamps
+produce a zero gap; they are not deduplicated. Fewer than two admitted instants,
+unknown or lost records, incomplete coverage, or a missing measured window
+makes spacing unavailable. Unrelated boundary-censored intervals do not erase
+an otherwise fully retained window.
+
+This is spacing between the matching recorded observations. It does not infer
+the receiver's configured period, a number of missed updates, or a physical
+dropout. The calculation reuses the existing source-analysis pass and keeps a
+fixed-size accumulator per source group; it adds no firmware instrumentation,
+per-event gap buffer, or host dependency.
+
 ### Link memory checkpoints to timing
 
 Load an ELF, snapshots, and trace produced by the same qualified recording. The

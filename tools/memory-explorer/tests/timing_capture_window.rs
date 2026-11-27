@@ -1,5 +1,5 @@
 use nxrs_memory_explorer::{
-    parse_timing, TimingRange, TimingRateDenominator, TimingRateUnavailable,
+    parse_timing, TimingInstantSpacing, TimingRange, TimingRateDenominator, TimingRateUnavailable,
 };
 use serde_json::{json, Value};
 
@@ -278,5 +278,281 @@ fn observations_cannot_extend_the_window_and_right_edge_instants_are_excluded() 
     assert_eq!(
         trace.stats(trace.bounds, "").occurrences.complete_intervals,
         1
+    );
+}
+
+fn assert_spacing(
+    observed: &Option<TimingInstantSpacing>,
+    gaps: usize,
+    minimum: u64,
+    maximum: TimingRange,
+    sum: u128,
+) {
+    let spacing = observed
+        .as_ref()
+        .expect("admitted consecutive instant gaps");
+    assert_eq!(spacing.gap_count, gaps);
+    assert_eq!(spacing.min_ns, minimum);
+    assert_eq!(spacing.max_gap, maximum);
+    assert_eq!(spacing.sum_ns, sum);
+    assert_eq!(spacing.mean_ns(), Some(sum as f64 / gaps as f64));
+}
+
+#[test]
+fn instant_spacing_preserves_uneven_gaps_without_counting_silence_or_other_evidence() {
+    let mut input = document(json!([
+        {"ph":"i","pid":1,"name":"fix","cat":"app","ts":100_000},
+        {"ph":"i","pid":1,"name":"fix","cat":"app","ts":200_000,
+         "args":{"duration_unknown":true}},
+        {"ph":"X","pid":1,"name":"fix","cat":"app","ts":250_000,"dur":10_000},
+        {"ph":"i","pid":1,"name":"fix","cat":"app","ts":400_000},
+        {"ph":"C","pid":1,"name":"fix","cat":"app","ts":500_000,"args":{"value":7}},
+        {"ph":"i","pid":1,"name":"fix","cat":"app","ts":800_000,
+         "args":{"reason":"missing beginning"}},
+        {"ph":"i","pid":1,"name":"fix","cat":"app","ts":1_400_000},
+        {"ph":"i","pid":1,"name":"fix","cat":"app","ts":1_900_000},
+        {"ph":"i","pid":2,"name":"malloc","cat":"heap,request","ts":200_000,
+         "args":{"request_observed":true,"requested_bytes":32}},
+        {"ph":"i","pid":2,"name":"malloc","cat":"heap,request","ts":600_000,
+         "args":{"request_observed":true,"requested_bytes":64}},
+        {"ph":"i","pid":3,"name":"unpaired result","cat":"heap,result","ts":300_000,
+         "args":{"request_observed":false,"observed_outcome":"failed"}},
+        {"ph":"i","pid":3,"name":"unpaired result","cat":"heap,result","ts":700_000,
+         "args":{"request_observed":false,"observed_outcome":"failed"}}
+    ]));
+    input["otherData"]["nxrs"]["complete"] = json!(false);
+    input["otherData"]["nxrs"]["incomplete_intervals"] = json!(6);
+    input["otherData"]["nxrs"]["capture_window"]["categories"] = json!(["app", "heap"]);
+    let trace = parse_timing(&input.to_string()).unwrap();
+    let sources = trace.source_stats(trace.bounds, "fix", 0);
+    assert_eq!(sources.len(), 1);
+    assert_eq!(sources[0].occurrences.instants, 4);
+    assert_eq!(sources[0].occurrences.excluded_markers, 2);
+    assert_eq!(sources[0].occurrences.interval_starts, 1);
+    assert_spacing(
+        &sources[0].instant_spacing,
+        3,
+        300_000_000,
+        range(400_000_000, 1_400_000_000),
+        1_800_000_000,
+    );
+    assert_eq!(
+        trace
+            .stats(trace.bounds, "fix")
+            .rate_denominator
+            .per_second(4),
+        Some(4.0 / 3.0)
+    );
+    assert!(trace
+        .source_stats(trace.bounds, "cat:heap", 0)
+        .iter()
+        .all(|source| source.instant_spacing.is_none()));
+}
+
+#[test]
+fn regular_instant_streams_keep_tracks_names_categories_and_recorded_sources_separate() {
+    let streams = [
+        (
+            1,
+            "fix",
+            "app",
+            "left",
+            &[250_000, 1_250_000, 2_250_000][..],
+            SECOND,
+        ),
+        (
+            2,
+            "fix",
+            "app",
+            "left",
+            &[100_000, 600_000, 1_100_000, 1_600_000, 2_100_000, 2_600_000][..],
+            SECOND / 2,
+        ),
+        (
+            1,
+            "other event",
+            "app",
+            "left",
+            &[200_000, 900_000][..],
+            700_000_000,
+        ),
+        (
+            1,
+            "fix",
+            "app",
+            "right",
+            &[300_000, 2_300_000][..],
+            2 * SECOND,
+        ),
+        (
+            1,
+            "fix",
+            "app,other",
+            "left",
+            &[400_000, 800_000][..],
+            400_000_000,
+        ),
+    ];
+    let mut events = Vec::new();
+    for (thread, name, category, source, stamps, _) in streams {
+        events.extend(stamps.iter().map(|stamp| {
+            json!({
+                "ph":"i", "pid":1, "tid":thread, "name":name, "cat":category, "ts":stamp,
+                "args":{"source_label":source}
+            })
+        }));
+    }
+    let trace = parse_timing(&document(json!(events)).to_string()).unwrap();
+    let groups = trace.source_stats(trace.bounds, "", 0);
+    assert_eq!(groups.len(), streams.len());
+    for (_, name, category, source, stamps, gap) in streams {
+        let group = groups
+            .iter()
+            .find(|group| {
+                group.name == name
+                    && group.category == category
+                    && group.source.as_deref() == Some(source)
+                    && group.occurrences.instants == stamps.len()
+            })
+            .expect("each independent instant source retains its own group");
+        assert_spacing(
+            &group.instant_spacing,
+            stamps.len() - 1,
+            gap,
+            range(stamps[0] * 1000, stamps[1] * 1000),
+            u128::from((stamps.last().unwrap() - stamps[0]) * 1000),
+        );
+    }
+    let right = trace.source_stats(trace.bounds, "right", 0);
+    assert_eq!(right.len(), 1);
+    assert_eq!(right[0].occurrences.instants, 2);
+}
+
+#[test]
+fn instant_spacing_keeps_both_endpoints_inside_half_open_selections_and_ignores_duration_filters() {
+    let trace = parse_timing(
+        &document(json!([
+            {"ph":"i","pid":1,"name":"tick","cat":"app","ts":0},
+            {"ph":"i","pid":1,"name":"tick","cat":"app","ts":500_000},
+            {"ph":"i","pid":1,"name":"tick","cat":"app","ts":1_000_000},
+            {"ph":"X","pid":1,"name":"tick","cat":"app","ts":1_100_000,"dur":100_000},
+            {"ph":"i","pid":1,"name":"tick","cat":"app","ts":1_500_000},
+            {"ph":"i","pid":1,"name":"tick","cat":"app","ts":2_000_000},
+            {"ph":"i","pid":1,"name":"tick","cat":"app","ts":2_500_000}
+        ]))
+        .to_string(),
+    )
+    .unwrap();
+    for minimum in [0, 10 * SECOND] {
+        let selected = trace.source_stats(range(SECOND, 2 * SECOND), "tick", minimum);
+        assert_eq!(selected.len(), 1);
+        assert_eq!(selected[0].occurrences.instants, 2);
+        assert_spacing(
+            &selected[0].instant_spacing,
+            1,
+            SECOND / 2,
+            range(SECOND, SECOND + SECOND / 2),
+            u128::from(SECOND / 2),
+        );
+    }
+    let single = trace.source_stats(range(0, 100_000_000), "tick", 0);
+    assert_eq!(single.len(), 1);
+    assert!(single[0].instant_spacing.is_none());
+    assert!(trace
+        .source_stats(range(100_000_000, 200_000_000), "tick", 0)
+        .is_empty());
+    let empty = parse_timing(&document(json!([])).to_string()).unwrap();
+    assert!(empty.source_stats(empty.bounds, "", 0).is_empty());
+    for selection in [range(SECOND, SECOND), range(0, 4 * SECOND)] {
+        assert!(trace
+            .source_stats(selection, "tick", 0)
+            .iter()
+            .all(|group| group.instant_spacing.is_none()));
+    }
+}
+
+#[test]
+fn missing_or_lost_capture_coverage_withholds_spacing_even_with_multiple_instants() {
+    let input = document(json!([
+        {"ph":"i","pid":1,"name":"tick","cat":"app","ts":250_000},
+        {"ph":"i","pid":1,"name":"tick","cat":"app","ts":1_250_000}
+    ]));
+    for (detected, complete, lost) in [
+        (None, true, None::<u64>),
+        (Some(false), false, Some(0)),
+        (Some(true), false, None),
+        (None, false, Some(2)),
+    ] {
+        let mut altered = input.clone();
+        altered["otherData"]["nxrs"]["loss_detected"] = json!(detected);
+        altered["otherData"]["nxrs"]["lost_records"] = json!(lost);
+        altered["otherData"]["nxrs"]["capture_window"]["complete"] = json!(complete);
+        let trace = parse_timing(&altered.to_string()).unwrap();
+        let sources = trace.source_stats(range(0, 3 * SECOND), "tick", 0);
+        assert_eq!(sources[0].occurrences.instants, 2);
+        assert!(sources[0].instant_spacing.is_none());
+    }
+    let mut legacy = input.clone();
+    legacy["otherData"]["nxrs"]
+        .as_object_mut()
+        .unwrap()
+        .remove("capture_window");
+    let trace = parse_timing(&legacy.to_string()).unwrap();
+    assert!(trace.source_stats(range(0, 3 * SECOND), "tick", 0)[0]
+        .instant_spacing
+        .is_none());
+
+    let mut explicit_zero_loss = input;
+    explicit_zero_loss["otherData"]["nxrs"]["loss_detected"] = Value::Null;
+    explicit_zero_loss["otherData"]["nxrs"]["lost_records"] = json!(0);
+    let trace = parse_timing(&explicit_zero_loss.to_string()).unwrap();
+    assert_spacing(
+        &trace.source_stats(trace.bounds, "tick", 0)[0].instant_spacing,
+        1,
+        SECOND,
+        range(250_000_000, 1_250_000_000),
+        u128::from(SECOND),
+    );
+}
+
+#[test]
+fn duplicate_instants_keep_zero_gaps_and_large_coordinates_keep_individual_nanoseconds() {
+    let duplicates = parse_timing(
+        &document(json!([
+            {"ph":"i","pid":1,"name":"tick","cat":"app","ts":500_000},
+            {"ph":"i","pid":1,"name":"tick","cat":"app","ts":500_000},
+            {"ph":"i","pid":1,"name":"tick","cat":"app","ts":500_000}
+        ]))
+        .to_string(),
+    )
+    .unwrap();
+    let sources = duplicates.source_stats(duplicates.bounds, "tick", 0);
+    assert_eq!(sources[0].occurrences.instants, 3);
+    assert_spacing(
+        &sources[0].instant_spacing,
+        2,
+        0,
+        range(500_000_000, 500_000_000),
+        0,
+    );
+
+    let base = (1u64 << 53) + 1;
+    let mut envelope = document(json!([]));
+    envelope["otherData"]["nxrs"]["capture_window"]["end_ns"] = json!(ORIGIN + base + 100);
+    let exact = format!(
+        r#"{{"otherData":{},"traceEvents":[
+        {{"ph":"i","pid":1,"name":"tick","cat":"app","ts":9007199254740.993}},
+        {{"ph":"i","pid":1,"name":"tick","cat":"app","ts":9007199254740.996}},
+        {{"ph":"i","pid":1,"name":"tick","cat":"app","ts":9007199254741.003}}
+    ]}}"#,
+        envelope["otherData"]
+    );
+    let trace = parse_timing(&exact).unwrap();
+    assert_spacing(
+        &trace.source_stats(range(base, base + 100), "tick", 0)[0].instant_spacing,
+        2,
+        3,
+        range(base + 3, base + 10),
+        10,
     );
 }

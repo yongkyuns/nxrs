@@ -478,11 +478,15 @@ fn finite_windows_preserve_silence_slow_occurrences_and_overflow_evidence() {
             let fix_name = format!("gnss/simulated_{source}hz/fix_received");
             let scope_name = format!("gnss/simulated_{source}hz/read_parse_deliver");
             let fixes = trace.stats(trace.bounds, &fix_name);
+            let fix_sources = trace.source_stats(trace.bounds, &fix_name, 0);
             if overflow {
                 assert!(fixes
                     .rate_denominator
                     .per_second(fixes.occurrences.instants)
                     .is_none());
+                assert!(fix_sources
+                    .iter()
+                    .all(|group| group.instant_spacing.is_none()));
                 continue;
             }
             let count = (seconds * source) as usize;
@@ -497,10 +501,45 @@ fn finite_windows_preserve_silence_slow_occurrences_and_overflow_evidence() {
                 .collect();
             let native: Vec<_> = raw.iter().filter(|note| note.label == fix_name).collect();
             assert_eq!(imported.len(), native.len());
-            for (event, note) in imported.iter().zip(native) {
+            for (event, note) in imported.iter().zip(&native) {
                 assert_eq!(event.kind, TimingEventKind::Instant);
                 assert_eq!(event.start_ns + start, note.time_ns);
             }
+            // Expected gaps come from independently decoded native bytes,
+            // already matched one-to-one against the fixture's operation
+            // brackets above. Quiet capture edges are not additional gaps.
+            assert_eq!(fix_sources.len(), 1);
+            let spacing = fix_sources[0].instant_spacing.as_ref().unwrap();
+            let minimum = native
+                .windows(2)
+                .map(|pair| pair[1].time_ns - pair[0].time_ns)
+                .min()
+                .unwrap();
+            let maximum = native
+                .windows(2)
+                .map(|pair| pair[1].time_ns - pair[0].time_ns)
+                .max()
+                .unwrap();
+            let maximum_pair = native
+                .windows(2)
+                .find(|pair| pair[1].time_ns - pair[0].time_ns == maximum)
+                .unwrap();
+            let total_gaps = native.last().unwrap().time_ns - native[0].time_ns;
+            assert_eq!(spacing.gap_count, count - 1);
+            assert_eq!(spacing.min_ns, minimum);
+            assert_eq!(spacing.sum_ns, u128::from(total_gaps));
+            assert_eq!(
+                spacing.max_gap,
+                TimingRange {
+                    start_ns: maximum_pair[0].time_ns - start,
+                    end_ns: maximum_pair[1].time_ns - start,
+                }
+            );
+            assert_eq!(
+                spacing.mean_ns(),
+                Some(total_gaps as f64 / (count - 1) as f64)
+            );
+            assert!(spacing.sum_ns < u128::from(duration));
             let scopes: Vec<_> = trace
                 .events
                 .iter()
@@ -557,5 +596,5 @@ fn finite_windows_preserve_silence_slow_occurrences_and_overflow_evidence() {
             operations.len()
         );
     }
-    println!("Production timed capture gate passed: sparse 2 s/10 s windows, native bytes/checksums, slow occurrence rates, elapsed costs, overflow suppression and killed-owner recovery.");
+    println!("Production timed capture gate passed: sparse 2 s/10 s windows, native bytes/checksums, slow occurrence rates and exact instant gaps, elapsed costs, overflow suppression and killed-owner recovery.");
 }

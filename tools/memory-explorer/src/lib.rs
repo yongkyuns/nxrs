@@ -29,7 +29,7 @@ pub use replay::{
 pub use session::{load_session, SessionInputs};
 pub use timing::{
     load_timing, parse_timing, timing_demo, CaptureStopReason, CaptureWindow, CounterSample,
-    TimingEvent, TimingEventKind, TimingMetadata, TimingOccurrences, TimingRange,
-    TimingRateDenominator, TimingRateUnavailable, TimingSourceStats, TimingStats, TimingTrace,
-    TimingTrack, TimingTrackStats,
+    TimingEvent, TimingEventKind, TimingInstantSpacing, TimingMetadata, TimingOccurrences,
+    TimingRange, TimingRateDenominator, TimingRateUnavailable, TimingSourceStats, TimingStats,
+    TimingTrace, TimingTrack, TimingTrackStats,
 };
