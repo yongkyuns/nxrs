@@ -10,8 +10,9 @@ interrupt nesting, application scopes, and counters on their recorded clock.
 Explicitly matched checkpoint markers link those times to captured memory.
 
 This is the offline foundation of [issue #442](https://github.com/yongkyuns/nxrs/issues/442).
-It shows static placement, discrete memory observations, and imported timing
-events. Continuous allocation-event replay into heap geometry, live transport,
+It shows static placement, discrete memory observations, imported timing events,
+and a separately validated heap topology journal. The first replay collector is
+an isolated QEMU qualification fixture. Production recording, live transport,
 and physical-device capture qualification remain follow-up work in that issue.
 
 ## Open the viewer
@@ -74,6 +75,8 @@ memory evidence**. `--help` prints all command options without opening a window.
 | Compare heap statistics at two observations | Choose **Compare with** below the memory observation controls |
 | Choose the allocation frame used for source coloring | Use **Color allocations by**, or click a recorded frame in the inspector |
 | Open a linked checkpoint on its execution timeline | Select **Show in timing** below the memory observation |
+| Reconstruct one admitted heap | Load `--heap-journal`, then select **Heap replay** |
+| Distinguish commits sharing one clock tick | Select an exact sequence in the heap replay controls |
 
 Search dims nonmatching blocks without moving them. Byte geometry therefore
 stays meaningful during filtering. Small or zero-size symbol labels use ticks;
@@ -450,6 +453,69 @@ production clock override. See the
 [qualification evidence and commands](../../docs/nuttx-memory-qualification.md#qemu-timing-witness)
 for its exact target, clock, rejected-clock controls, and scope.
 
+## Replay one heap
+
+A heap journal records committed allocator geometry and the intervals during
+which that geometry was being changed. Open it beside its exact ELF and layout:
+
+```sh
+cargo run --locked -p nxrs-memory-explorer --features gui -- \
+  --elf /path/to/nuttx \
+  --layout tools/memory-explorer/layouts/mps2-an521-qemu.json \
+  --heap-journal /path/to/heap-journal.json \
+  --view memory
+```
+
+The journal's heap must fit a declared CPU-address region. The existing canvas
+and physical-backing mappings preserve its actual address and size. Static ELF
+placement remains visible in a separate layer. A fixture arena backed by `.bss`
+therefore appears as both a static reservation and runtime chunks; these views
+describe the same storage and are not added together.
+
+Select **Heap replay** to inspect only that heap, or **Point snapshots** to return
+to independent complete observations. Replay never fabricates a whole-memory
+snapshot. Other heaps, pool slots, and task stacks remain unknown in replay mode,
+even when their last snapshot has a nearby timestamp. The existing
+`MemoryModel::snapshot_at` query still requires an exact observation time.
+
+The replay controls distinguish an observed checkpoint, reconstructed committed
+state, an allocator mutation in progress, and unavailable evidence. Every commit
+has a sequence number independent of the clock. **Previous**, **Next**, and the
+sequence selector preserve intermediate states even when several commits share
+one clock tick. A time-only selection cannot disambiguate such states. The
+inspector shows the selected sequence and evidence instead of treating a reused
+address as the same application allocation.
+
+During an admitted mutation window, geometry is unknown. A missing, duplicate,
+reordered, or contradictory transaction also invalidates knowledge. Only a
+complete recovery checkpoint can restore it. An absent closing receipt does not
+allow the last known layout to continue indefinitely. Free chunks retain their
+raw allocator extents, including metadata and alignment constraints; their size
+does not guarantee that an equally sized allocation request will succeed.
+
+If a trace is loaded too, its ELF, recording identity, clock, and source origin
+must match the journal before the timing cursor can navigate heap state. A
+matching ELF alone is insufficient. Debugger-observed mutation windows describe
+the instrumented recording; they do not establish production allocation latency.
+
+### Why a separate topology journal
+
+The default NuttX request notes are useful for counters and request timing, but
+are not a complete record of committed chunk geometry. On the qualified revision,
+realloc shrink can alter boundaries without a heap note, aligned allocation has
+an intermediate backing allocation, and free is noted before coalescing. Heap
+extension also changes guard geometry. The replay engine therefore consumes
+complete, ordered chunk replacements rather than interpreting request notes as
+addressed history. The collector must independently establish that every admitted
+mutation reached its journal.
+
+The initial collector observes a fixture-owned heap under QEMU. It adds no
+production allocator patch, task, polling loop, or global allocation wrapper.
+`[build] diagnostics = true` remains the product diagnostic entry point; it does
+not silently enable this qualification collector or claim continuous production
+heap coverage. See the [qualification guide](../../docs/nuttx-memory-qualification.md)
+for its admitted source, configuration, hook coverage, and target evidence.
+
 ## File format
 
 Version 1 uses UTF-8 JSON for offline observations and an optional separate
@@ -531,6 +597,58 @@ user-entered time offset would add another identity relationship without proving
 the marker-to-memory boundary. The capture adapter owns that proof; the host
 checks its consistency. Continuous allocator replay needs a complete mutation
 journal and remains a separate capability.
+
+### Heap journal version 1
+
+`--heap-journal` consumes a separate JSON envelope. All addresses, extents,
+sequences, and source-clock nanoseconds are unsigned integer JSON numbers.
+The parser rejects unknown topology fields, including unqualified allocation
+generation or source fields. It admits one heap instance per file.
+
+| Field | Contract |
+| --- | --- |
+| `schema_version` | `1` for this journal envelope |
+| `build` | Exact final ELF SHA-256 and a display label |
+| `provenance` | `nuttx_revision`, effective `config_sha256`, and a `collector` token; metadata alone does not certify collection |
+| `recording_id`, `clock` | One recording/reset identity and one source-clock identity |
+| `heap` | Stable `id`, string `epoch`, declared CPU `region`, `start`, and `size` |
+| `initial` | Complete `chunks` at `time_ns`, establishing `sequence: 0` |
+| `records` | Ordered transactions, complete checkpoints, and explicit loss reports |
+| `closing` | Final `heap_epoch`, `sequence`, and covered `time_ns`; `null` means unclosed |
+
+Each chunk is `{ "start": ..., "size": ..., "state": ... }`, with state
+`allocated`, `free`, or `reserved`. The list must tile its declared range in
+address order. Guard chunks and allocator overhead stay in their raw extents.
+An allocator control structure before the first guard belongs to its backing
+reservation, outside the journal's chunk region.
+
+A `transaction` record carries `sequence`, `heap_epoch`, `start_ns`, `commit_ns`,
+the affected `start` and `size`, exact `expected` old chunks, `replacement`
+chunks, and an optional `label`. Both lists must tile the affected range; the
+old list must match current boundaries and states. Replacement is atomic.
+Unchanged geometry still consumes a sequence when the collector observed an
+allocator release. Dropping a cancelling allocation/free pair therefore creates
+a detectable sequence gap even when endpoint geometry is identical.
+
+A `checkpoint` carries `heap_epoch`, `sequence`, `time_ns`, complete `chunks`,
+and an optional `label`. It can restore knowledge after loss, but cannot make
+the missing interval known. A `loss` record carries `heap_epoch`, `time_ns`,
+and `reason`. Detection time does not locate the first lost mutation, so the
+unknown interval begins after the preceding proven state boundary.
+
+The library exposes `HeapReplay::heap_state_at(heap_id, cursor)`. Use
+`ReplayCursor::Time(source_ns)` for a source-clock coordinate,
+`ReplayCursor::Sequence(sequence)` for committed order, or
+`ReplayCursor::Point(point_id)` to distinguish observations sharing a sequence.
+`HeapState::Known` returns the chunk geometry, evidence kind, boundary, and
+coverage. Its `spans()` method returns only that heap's arena and chunks.
+`HeapState::Unknown` explains the missing evidence. A syntax/header error rejects
+the file; a damaged transaction invalidates the affected suffix until recovery.
+
+The reader limits input to 32 MiB, 4,096 records, 16,384 chunks in a state, and
+one million retained chunk records across states. These are host import bounds,
+not a target recorder allocation budget. The QEMU fixture separately limits
+itself to 256 allocator transactions.
 
 ### Declare board storage
 

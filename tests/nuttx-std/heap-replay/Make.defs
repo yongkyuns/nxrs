@@ -1,0 +1,3 @@
+ifneq ($(CONFIG_EXAMPLES_HEAP_REPLAY),)
+CONFIGURED_APPS += $(APPDIR)/examples/heap_replay
+endif

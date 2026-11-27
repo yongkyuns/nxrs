@@ -8,16 +8,18 @@ use std::sync::{Arc, Mutex};
 const HELP: &str = "NXRS Memory Explorer\n\n\
 Usage: nxrs-memory-explorer [--elf FINAL_ELF] [--map FINAL_MAP]\n\
                             [--snapshot CAPTURE.json]... [--layout LAYOUT.json]\n\
-                            [--trace TRACE.json] [--view overview|memory|timing]\n\
+                            [--trace TRACE.json] [--heap-journal JOURNAL.json]\n\
+                            [--view overview|memory|timing]\n\
        nxrs-memory-explorer --demo\n\n\
 An empty invocation opens the file-loading screen. --demo opens synthetic data.\n\
-Snapshots describe captured points only; the viewer does not infer intervening events.\n\n\
+Snapshots describe captured points only. Heap replay requires a separate validated journal.\n\n\
 Options:\n\
   --elf PATH          Exact final ELF used by the captured firmware\n\
   --map PATH          Linker map from the same build\n\
   --snapshot PATH     Snapshot JSON; may be repeated\n\
   --layout PATH       Declared region and physical-backing layout JSON\n\
   --trace PATH        Chrome Trace Event JSON (also opens without an ELF)\n\
+  --heap-journal PATH Heap topology journal for one explicitly identified heap\n\
   --view NAME         Initial view: overview, memory, or timing\n\
   --demo              Inspect an explicitly synthetic demonstration\n\
   --smoke-test        Exercise navigation, render a screenshot, and exit\n\
@@ -43,6 +45,7 @@ impl Arguments {
                 "--map" => parsed.inputs.map = required_value(&mut args, &arg)?,
                 "--layout" => parsed.inputs.layout = required_value(&mut args, &arg)?,
                 "--trace" => parsed.inputs.trace = required_value(&mut args, &arg)?,
+                "--heap-journal" => parsed.inputs.heap_journal = required_value(&mut args, &arg)?,
                 "--view" => {
                     parsed.view = Some(ui::ViewMode::parse(&required_value(&mut args, &arg)?)?)
                 }

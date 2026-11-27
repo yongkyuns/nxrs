@@ -44,14 +44,14 @@ impl MemoryExplorer {
             ui.heading("Board memory and linked placement");
             ui.label(RichText::new("Backing resources preserve physical capacity. Address windows and load copies describe how those bytes are used.").color(MUTED));
             ui.add_space(16.0);
-            let time = self.time_ns.unwrap_or(u64::MAX);
-            let occupied = model.physical_occupied_bytes(time);
+            let runtime = self.runtime_spans();
+            let occupied = model.physical_occupied_bytes_with_runtime(&runtime);
             let capacity: u128 = model.physical_resources.iter().map(|resource| resource.size as u128).sum();
             let occupied_total: u128 = occupied.values().map(|bytes| *bytes as u128).sum();
             ui.columns(3, |columns| {
                 for (column, (label, value, detail)) in columns.iter_mut().zip([
                     ("DECLARED BACKING CAPACITY", if model.physical_resources.is_empty() { "Unknown".into() } else { total_bytes(capacity) }, format!("{} distinct resources; aliases counted once", model.physical_resources.len())),
-                    ("MAPPED OCCUPIED STORAGE", if model.physical_resources.is_empty() { "Unknown".into() } else { total_bytes(occupied_total) }, "Union of linked placement and observed reservations".into()),
+                    ("MAPPED OCCUPIED STORAGE", if model.physical_resources.is_empty() { "Unknown".into() } else { total_bytes(occupied_total) }, "Union of linked placement and selected memory evidence".into()),
                     ("LOAD / RUNTIME RELATIONSHIPS", model.load_mappings.len().to_string(), "ELF file-backed bytes mapped to linked addresses".into()),
                 ]) {
                     egui::Frame::new().fill(SURFACE).corner_radius(7).inner_margin(12).show(column, |ui| {
@@ -67,7 +67,7 @@ impl MemoryExplorer {
                 for (kind, label) in [
                     (SpanKind::Code, "Code"), (SpanKind::ReadOnly, "Read-only"), (SpanKind::Data, "Data / initializer"),
                     (SpanKind::Bss, "BSS"), (SpanKind::Allocation, "Allocated"), (SpanKind::Stack, "Stack overlay"),
-                    (SpanKind::Free, "Observed free"), (SpanKind::Reserved, "Reserved"), (SpanKind::Unknown, "Unobserved"),
+                    (SpanKind::Free, "Known free"), (SpanKind::Reserved, "Reserved"), (SpanKind::Unknown, "Unobserved"),
                 ] {
                     let (rect, _) = ui.allocate_exact_size(Vec2::splat(9.0), Sense::hover());
                     ui.painter().rect_filled(rect, 2, role_color(kind));
@@ -76,8 +76,8 @@ impl MemoryExplorer {
             });
             ui.add_space(10.0);
             egui::ScrollArea::vertical().id_salt("board-overview-scroll").show(ui, |ui| {
-                let mut physical = model.physical_occupied_intervals(time);
-                physical.extend(model.physical_intervals(time).into_iter().filter(|entry| entry.span.kind == SpanKind::Free));
+                let mut physical = model.physical_occupied_intervals_with_runtime(&runtime);
+                physical.extend(model.physical_intervals_with_runtime(&runtime).into_iter().filter(|entry| entry.span.kind == SpanKind::Free));
                 physical.sort_by_key(|entry| (paint_priority(entry.span.kind), std::cmp::Reverse(entry.span.size)));
                 if model.physical_resources.is_empty() {
                     egui::Frame::new().fill(PANEL).stroke(Stroke::new(1.0, LINE)).corner_radius(8).inner_margin(18).show(ui, |ui| {
@@ -286,6 +286,9 @@ impl MemoryExplorer {
     }
 
     pub(super) fn comparison_controls(&mut self, ui: &mut egui::Ui) {
+        if self.replay_active() {
+            return;
+        }
         let Some(model) = &self.model else {
             return;
         };

@@ -62,6 +62,11 @@ impl TimingView {
         self.cursor_ns
     }
 
+    pub(super) fn clear_cursor(&mut self) {
+        self.cursor_ns = None;
+        self.selected = None;
+    }
+
     pub(super) fn seek_checkpoint(
         &mut self,
         link: &nxrs_memory_explorer::CheckpointLink,

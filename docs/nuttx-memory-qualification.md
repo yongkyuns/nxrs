@@ -445,6 +445,126 @@ for this second invocation and retains `memory-timing/lifecycle/` beside the
 ordinary timing capture. No production build switch, NuttX patch, or extra
 firmware worker is introduced by the viewer's correlation support.
 
+### Isolated heap topology replay witness
+
+The [heap replay fixture](../tests/nuttx-std/heap-replay/replay_main.c) qualifies
+ordered, committed chunk geometry for one fixed NuttX heap. It complements the
+point observations above and leaves other heaps and task stacks unobserved.
+The host contract and egui controls are documented in the
+[memory explorer guide](../tools/memory-explorer/README.md#replay-one-heap).
+
+The admitted configuration uses pinned NuttX
+`2b5c0de5e933281c209f954a63b99cf10c132346`, one Cortex-M33 CPU in MPS2-AN521
+QEMU, the flat default allocator, one region, and a single fixture owner. Pools,
+SMP, interrupt-context mutation, heap extension, and heap lifecycle changes
+during collection are outside this admission. The 20 MHz CMSDK clock resets
+with each fixture invocation; the capture must stay below five source seconds.
+
+The fixture uses a 64 KiB static arena. Link wrappers observe every admitted
+`mm_lock` acquisition and `mm_unlock` release, including failed/no-op phases and
+the temporary backing allocation inside `mm_memalign`. Each begin/commit probe
+checks task context and native mutex ownership. Read-only GDB observations retain
+raw header bytes under interrupt exclusion. Separate application safe points use
+an independent raw walker after the public allocation operation returns.
+
+Admission checks the actual final ELF branch destinations, including calls to
+geometry helpers. It rejects direct lock calls that bypass the wrappers and
+unexpected callers of the admitted helpers. Source/configuration hashes, a
+strict target probe counter, transaction counters, and an independent UART
+footer close the recording. The observer disables the probe breakpoint while
+single-stepping past its entry; duplicate stops are rejected rather than
+deduplicated by timestamp. No target function is called by the debugger.
+
+The retained QEMU 10.0.13 / GDB 16.3 run uses ELF SHA-256
+`aa44326577792359b3f89edcd2bf2dbd4a46337405658779ffda102a86fde0a6`, effective
+configuration SHA-256
+`70bdfda4e2c5b9c56be7d653c5c3b7b9dbc54aaeb146c7e88ae6d8de06b9b95e`, and recording
+`ed2ec40d65493e4cd543ffd4f8549c45`.
+
+| Observation | Measured result |
+| --- | ---: |
+| Committed allocator phases | 29 |
+| Independent application safe points | 24 |
+| Strictly ordered target probe stops | 84 |
+| Source-clock coverage | 1,125,800–155,305,750 ns |
+| Host capture elapsed time | 1.855069 s |
+| Static fixture arena | 65,536 B |
+| Allocator control prefix | 1,024 B |
+| Journal chunk region, including both 48-byte guards | 64,512 B |
+| Named linked fixture/clock storage | 65,636 B |
+| Named linked fixture code | 2,996 B |
+| Configured fixture task stack reservation | 8,192 B |
+| Raw observations / journal / derived timing JSON | 181,211 / 53,210 / 21,697 B |
+
+The code/storage counts sum named linked fixture symbols; they are not a
+whole-firmware size delta and exclude linker padding. The stack number is a
+reservation, not a measured high-water result. Host elapsed time and source
+intervals describe this instrumented run. Debugger stops and wrapper execution
+perturb it, so these numbers do not establish production allocation latency or
+physical-MCU throughput.
+
+The workload demonstrates splitting, an interior free hole, coalescing, realloc
+shrink and in-place growth, realloc move and failure, aligned allocation's
+intermediate state, pointer reuse, and delayed reclamation. Its final raw chunk
+geometry matches the initial geometry. Deferred releases remain allocated until
+the next actual reclamation. PID/backtrace fields written after unlock are not
+used to invent application allocation identities or source ownership.
+
+The retained `journal-loss-control.json` deliberately removes the real cancelling
+allocation/free sequences 23 and 24 and their safe-point records from a copy of
+the complete journal. Its equal endpoint geometry cannot hide the sequence gap.
+The selected heap is unknown at source time **132,833,150 ns** and becomes known
+again only at the full recovery checkpoint at **136,256,200 ns**, sequence 25.
+This is an injected host-side negative control, not measured target data loss.
+
+#### Build, capture, and inspect replay
+
+Use the disposable pinned source trees from the timing instructions above.
+Complete and retain the timing/checkpoint captures before reconfiguring those
+trees for this separate native fixture:
+
+```sh
+python3 tools/memory-explorer/tests/build_replay_nuttx.py \
+  --nuttx target/memory-timing-sources/nuttx \
+  --apps target/memory-timing-sources/apps \
+  --output target/heap-replay/build
+python3 tools/memory-explorer/tests/qualify_replay_qemu.py \
+  --qemu "$(command -v qemu-system-arm)" \
+  --gdb "$(command -v gdb-multiarch)" \
+  --build target/heap-replay/build/build.json \
+  --output target/heap-replay/capture
+NXRS_HEAP_REPLAY_BUILD="$PWD/target/heap-replay/build" \
+NXRS_HEAP_REPLAY_EVIDENCE="$PWD/target/heap-replay/capture" \
+  cargo test --locked -p nxrs-memory-explorer \
+    --test replay_qemu -- --ignored --nocapture
+cargo run --locked -p nxrs-memory-explorer --features gui -- \
+  --elf target/heap-replay/build/nuttx \
+  --map target/heap-replay/build/nuttx.map \
+  --layout tools/memory-explorer/layouts/mps2-an521-qemu.json \
+  --heap-journal target/heap-replay/capture/journal.json \
+  --trace target/heap-replay/capture/timing.json --view memory
+```
+
+The derived timing file uses the same exact clock coordinates as the journal.
+It shows instrumented mutation windows and committed/safe observations; it does
+not add scheduler measurements. **Show in timing** links a covered heap coordinate
+to that trace. A source time outside the imported trace clears its timing cursor
+and disables the link. Select the loss-control journal to inspect missing
+evidence and checkpoint recovery with the same physical address mapping.
+
+The ARM std-demo workflow runs the collector and an independent Rust gate that
+decodes retained raw headers and compares the imported geometry. Cross-platform
+host tests exercise invalid replacements, sequence loss/order, equal-clock-tick
+ambiguity, identity/configuration mismatches, physical aliases, and recovery.
+The native viewer workflow also renders an explicitly synthetic heap journal.
+
+This fixture adds no production allocator patch or worker. Continuous product
+recording still requires a bounded recorder with qualified mutation coverage,
+ordering, resource costs, loss detection, and recovery. Keep the product entry
+point as `[build] diagnostics = true`; the existing request notes alone do not
+supply that additional topology evidence. Track production qualification under
+[#442](https://github.com/yongkyuns/nxrs/issues/442).
+
 ## Flat-build pthread key patchset
 
 The pinned NuttX submodule and fork are not modified. At build time,
