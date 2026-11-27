@@ -282,6 +282,14 @@ Source rates, burst bounds, capacities, permitted retry storage and overflow
 visibility are part of the resource contract. HAL acquisition must not block
 indefinitely on the consumer and become unable to drain hardware or cancel.
 
+Assign task priorities using service deadlines and dependencies. A sensor
+drain should preempt bulk export and rendering when the device buffer requires
+it. Include the driver work that makes the acquisition task runnable. For
+example, GNSS UART service follows receive-buffer headroom at the configured
+baud rate. The fix cadence only describes when fixes are published. Verify
+effective priorities and measure worker wake latency and sample loss with slow
+or stalled consumers.
+
 Lifecycle meanings are separate:
 
 | Milestone | Meaning |
