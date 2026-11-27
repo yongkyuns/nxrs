@@ -201,6 +201,10 @@ and both combined runs. During the 7 s acknowledgment hold, both IMUs kept
 sampling and the peer received all 1,103 admitted records before the expected
 overflow marker.
 
+The dual-IMU profile also runs NuttX LPWORK at 99 because it dispatches BLE
+callbacks. The matched Mac control and combined-load runs recorded 71 I²C
+transfers of at least 1.8 ms, down from 257 with LPWORK at 100.
+
 The matched fixed-reader build added 3,348 bytes of linked flash and 104 bytes to the boot
 image. Publication setup used 3,720 bytes of heap versus 480 bytes. Static RAM
 and task stack reservations were identical.
