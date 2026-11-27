@@ -46,6 +46,15 @@ impl Schedule {
         self.next += 1;
         Some(decision)
     }
+
+    /// Absolute next decision deadline, including the terminal stop deadline.
+    pub(super) fn next_deadline(&self) -> Duration {
+        self.phases
+            .get(self.next)
+            .map_or(self.duration, |(deadline, _)| {
+                (*deadline).min(self.duration)
+            })
+    }
 }
 
 #[cfg(test)]
