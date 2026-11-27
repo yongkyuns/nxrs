@@ -1,0 +1,8 @@
+config EXAMPLES_HEAP_REPLAY
+	bool "Isolated heap replay qualification fixture"
+	default n
+	depends on ARCH_BOARD_MPS2_AN521 && MM_DEFAULT_MANAGER && BUILD_FLAT && !SMP
+	---help---
+		Qualification only. A private fixed arena and explicit link wrappers
+		expose committed allocator topology to a read-only stopped observer.
+		No production allocator implementation is modified.

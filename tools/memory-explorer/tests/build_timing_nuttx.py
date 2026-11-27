@@ -63,8 +63,13 @@ def run(args):
     nuttx, apps, output = [getattr(args, name).resolve() for name in ("nuttx", "apps", "output")]
     identities = {"nuttx": source_identity(nuttx, NUTTX_REVISION), "apps": source_identity(apps, APPS_REVISION)}
     output.mkdir(parents=True, exist_ok=False)
-    fixture = Path(__file__).resolve().parents[3] / "tests" / "nuttx-std" / "memory-timing"
-    shutil.copytree(fixture, apps / "examples" / "memory_timing", dirs_exist_ok=True)
+    repository = Path(__file__).resolve().parents[3]
+    fixture = repository / "tests" / "nuttx-std" / "memory-timing"
+    installed_fixture = apps / "examples" / "memory_timing"
+    shutil.copytree(fixture, installed_fixture, dirs_exist_ok=True)
+    # Exercise the exact production ABI translator, not a fixture substitute.
+    bridge = repository / "shared/acquisition/src/platform/nuttx/ffi/trace.c"
+    shutil.copy2(bridge, installed_fixture / "acquisition_trace.c")
     settings = {name: "y" for name in (
         "DEBUG_SYMBOLS", "DEBUG_LINK_MAP", "SCHED_INSTRUMENTATION", "SCHED_INSTRUMENTATION_FILTER",
         "SCHED_INSTRUMENTATION_SWITCH", "SCHED_INSTRUMENTATION_IRQHANDLER", "SCHED_INSTRUMENTATION_DUMP",
@@ -119,6 +124,11 @@ def run(args):
                                  "epoch": "reset at fixture invocation", "irq_enabled": False,
                                  "scope": "explicit QEMU qualification only"} if args.qemu_timer_clock else None,
               "compiler": subprocess.check_output(["arm-none-eabi-gcc", "--version"], text=True).splitlines()[0],
+              "acquisition_trace_bridge": {
+                  "source": bridge.relative_to(repository).as_posix(),
+                  "sha256": hashlib.sha256(bridge.read_bytes()).hexdigest(),
+                  "installed_sha256": hashlib.sha256((installed_fixture / "acquisition_trace.c").read_bytes()).hexdigest(),
+              },
               "fixture_sha256": {path.name: hashlib.sha256(path.read_bytes()).hexdigest()
                                  for path in sorted(fixture.iterdir()) if path.is_file()},
               "elf_sha256": hashlib.sha256((output / "nuttx").read_bytes()).hexdigest(),

@@ -1,0 +1,256 @@
+{
+  "schema_version": 1,
+  "description": "Verbatim upstream reference files for offline BSP memory geometry review. Original file licenses apply; these files are not compiled or executed.",
+  "pins": {
+    "nuttx": {
+      "repository": "apache/nuttx",
+      "revision": "2b5c0de5e933281c209f954a63b99cf10c132346"
+    },
+    "esp-hal-3rdparty": {
+      "repository": "espressif/esp-hal-3rdparty",
+      "revision": "b90b1837cb5ad24747deb4c895246037cc206ce5",
+      "selected_by": "arch/xtensa/src/esp32s3/Make.defs"
+    },
+    "qemu": {
+      "repository": "qemu/qemu",
+      "revision": "98f88efe8f07067667b8d9b1a5ce9551d34036c1",
+      "tag": "v10.0.13"
+    },
+    "nxrs-bsp": {
+      "repository": "yongkyuns/nxrs",
+      "revision": "c62d7e8e42f69ef1f2820f511c407e5096e00ab0"
+    }
+  },
+  "sources": [
+    {
+      "repository": "espressif/esp-hal-3rdparty",
+      "revision": "b90b1837cb5ad24747deb4c895246037cc206ce5",
+      "path": "LICENSE",
+      "url": "https://raw.githubusercontent.com/espressif/esp-hal-3rdparty/b90b1837cb5ad24747deb4c895246037cc206ce5/LICENSE",
+      "local": "sources/esp-hal-3rdparty/LICENSE",
+      "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+      "bytes": 11358
+    },
+    {
+      "repository": "espressif/esp-hal-3rdparty",
+      "revision": "b90b1837cb5ad24747deb4c895246037cc206ce5",
+      "path": "components/heap/port/esp32s3/memory_layout.c",
+      "url": "https://raw.githubusercontent.com/espressif/esp-hal-3rdparty/b90b1837cb5ad24747deb4c895246037cc206ce5/components/heap/port/esp32s3/memory_layout.c",
+      "local": "sources/esp-hal-3rdparty/components/heap/port/esp32s3/memory_layout.c",
+      "sha256": "f9d2491644f6df8e38f3ad9b1e51560641a5f44a3582955733e7b73883af1b58",
+      "bytes": 9419
+    },
+    {
+      "repository": "espressif/esp-hal-3rdparty",
+      "revision": "b90b1837cb5ad24747deb4c895246037cc206ce5",
+      "path": "components/soc/esp32s3/include/soc/soc.h",
+      "url": "https://raw.githubusercontent.com/espressif/esp-hal-3rdparty/b90b1837cb5ad24747deb4c895246037cc206ce5/components/soc/esp32s3/include/soc/soc.h",
+      "local": "sources/esp-hal-3rdparty/components/soc/esp32s3/include/soc/soc.h",
+      "sha256": "7c5d0a1870cd659d78e2e551352ddfeab6973d6e20ee7dbc8abf9b0eaf53eadc",
+      "bytes": 10817
+    },
+    {
+      "repository": "apache/nuttx",
+      "revision": "2b5c0de5e933281c209f954a63b99cf10c132346",
+      "path": "NOTICE",
+      "url": "https://raw.githubusercontent.com/apache/nuttx/2b5c0de5e933281c209f954a63b99cf10c132346/NOTICE",
+      "local": "sources/nuttx/NOTICE",
+      "sha256": "1f6ac972692c4f94fe4b904590654aeb795ff08efd9799427c2358fb568814bb",
+      "bytes": 3107
+    },
+    {
+      "repository": "apache/nuttx",
+      "revision": "2b5c0de5e933281c209f954a63b99cf10c132346",
+      "path": "arch/arm/src/mps/hardware/mps_memorymap.h",
+      "url": "https://raw.githubusercontent.com/apache/nuttx/2b5c0de5e933281c209f954a63b99cf10c132346/arch/arm/src/mps/hardware/mps_memorymap.h",
+      "local": "sources/nuttx/arch/arm/src/mps/hardware/mps_memorymap.h",
+      "sha256": "7ad6cb5a5067d6c9e9a375a8a4cc7e0ea17a35b7ab223b7d3b495b5c4d247227",
+      "bytes": 6098
+    },
+    {
+      "repository": "apache/nuttx",
+      "revision": "2b5c0de5e933281c209f954a63b99cf10c132346",
+      "path": "arch/arm/src/mps/mps_allocateheap.c",
+      "url": "https://raw.githubusercontent.com/apache/nuttx/2b5c0de5e933281c209f954a63b99cf10c132346/arch/arm/src/mps/mps_allocateheap.c",
+      "local": "sources/nuttx/arch/arm/src/mps/mps_allocateheap.c",
+      "sha256": "9129e50decb0b0922854d9e7314289d8a430488f224daae0d5ceab30e22dd600",
+      "bytes": 13470
+    },
+    {
+      "repository": "apache/nuttx",
+      "revision": "2b5c0de5e933281c209f954a63b99cf10c132346",
+      "path": "arch/arm/src/rp23xx/hardware/rp23xx_memorymap.h",
+      "url": "https://raw.githubusercontent.com/apache/nuttx/2b5c0de5e933281c209f954a63b99cf10c132346/arch/arm/src/rp23xx/hardware/rp23xx_memorymap.h",
+      "local": "sources/nuttx/arch/arm/src/rp23xx/hardware/rp23xx_memorymap.h",
+      "sha256": "c115ee72f5486b5609ff35d6bbe2268dbf87131271ffd0944afa8498060f5d4a",
+      "bytes": 7822
+    },
+    {
+      "repository": "apache/nuttx",
+      "revision": "2b5c0de5e933281c209f954a63b99cf10c132346",
+      "path": "arch/xtensa/src/esp32s3/Kconfig",
+      "url": "https://raw.githubusercontent.com/apache/nuttx/2b5c0de5e933281c209f954a63b99cf10c132346/arch/xtensa/src/esp32s3/Kconfig",
+      "local": "sources/nuttx/arch/xtensa/src/esp32s3/Kconfig",
+      "sha256": "48d3f3eb6df5dbcbe6ad3a59a4ee7c819a47f74072124e097bad8637e1e6c4ab",
+      "bytes": 70603
+    },
+    {
+      "repository": "apache/nuttx",
+      "revision": "2b5c0de5e933281c209f954a63b99cf10c132346",
+      "path": "arch/xtensa/src/esp32s3/Make.defs",
+      "url": "https://raw.githubusercontent.com/apache/nuttx/2b5c0de5e933281c209f954a63b99cf10c132346/arch/xtensa/src/esp32s3/Make.defs",
+      "local": "sources/nuttx/arch/xtensa/src/esp32s3/Make.defs",
+      "sha256": "507bf59c4a41978ba952986a7063798924633213e34cd5ac8ae6ea8242c7c83a",
+      "bytes": 8012
+    },
+    {
+      "repository": "apache/nuttx",
+      "revision": "2b5c0de5e933281c209f954a63b99cf10c132346",
+      "path": "boards/arm/mps/mps2-an521/scripts/flash.ld",
+      "url": "https://raw.githubusercontent.com/apache/nuttx/2b5c0de5e933281c209f954a63b99cf10c132346/boards/arm/mps/mps2-an521/scripts/flash.ld",
+      "local": "sources/nuttx/boards/arm/mps/mps2-an521/scripts/flash.ld",
+      "sha256": "c2d0f4b2518a46dc88d57ef17c0fa7a3f2bfea641e9f727b2ec55f750704a52c",
+      "bytes": 3410
+    },
+    {
+      "repository": "apache/nuttx",
+      "revision": "2b5c0de5e933281c209f954a63b99cf10c132346",
+      "path": "boards/arm/rp23xx/raspberrypi-pico-2/configs/nsh/defconfig",
+      "url": "https://raw.githubusercontent.com/apache/nuttx/2b5c0de5e933281c209f954a63b99cf10c132346/boards/arm/rp23xx/raspberrypi-pico-2/configs/nsh/defconfig",
+      "local": "sources/nuttx/boards/arm/rp23xx/raspberrypi-pico-2/configs/nsh/defconfig",
+      "sha256": "d90718d6c451c3c43e6a4385920ac15b4a62c7d565e849c112fe613b6828da41",
+      "bytes": 1316
+    },
+    {
+      "repository": "apache/nuttx",
+      "revision": "2b5c0de5e933281c209f954a63b99cf10c132346",
+      "path": "boards/arm/rp23xx/raspberrypi-pico-2/configs/usbnsh/defconfig",
+      "url": "https://raw.githubusercontent.com/apache/nuttx/2b5c0de5e933281c209f954a63b99cf10c132346/boards/arm/rp23xx/raspberrypi-pico-2/configs/usbnsh/defconfig",
+      "local": "sources/nuttx/boards/arm/rp23xx/raspberrypi-pico-2/configs/usbnsh/defconfig",
+      "sha256": "63a7b279f76e787402a1dc171924e785e8f7ce66a1bd6bc5166e76685f6b84e1",
+      "bytes": 1398
+    },
+    {
+      "repository": "apache/nuttx",
+      "revision": "2b5c0de5e933281c209f954a63b99cf10c132346",
+      "path": "boards/arm/rp23xx/raspberrypi-pico-2/scripts/memmap_copy_to_ram.ld",
+      "url": "https://raw.githubusercontent.com/apache/nuttx/2b5c0de5e933281c209f954a63b99cf10c132346/boards/arm/rp23xx/raspberrypi-pico-2/scripts/memmap_copy_to_ram.ld",
+      "local": "sources/nuttx/boards/arm/rp23xx/raspberrypi-pico-2/scripts/memmap_copy_to_ram.ld",
+      "sha256": "e436f47df9810443594715aabce9b7c6bad96699758221a6f04fa2fef30aa965",
+      "bytes": 10320
+    },
+    {
+      "repository": "apache/nuttx",
+      "revision": "2b5c0de5e933281c209f954a63b99cf10c132346",
+      "path": "boards/arm/rp23xx/raspberrypi-pico-2/scripts/memmap_default.ld",
+      "url": "https://raw.githubusercontent.com/apache/nuttx/2b5c0de5e933281c209f954a63b99cf10c132346/boards/arm/rp23xx/raspberrypi-pico-2/scripts/memmap_default.ld",
+      "local": "sources/nuttx/boards/arm/rp23xx/raspberrypi-pico-2/scripts/memmap_default.ld",
+      "sha256": "f1257988bca7e353b6fcfcae5c41f053904c92a910a43f23259c4209bc45366a",
+      "bytes": 10774
+    },
+    {
+      "repository": "apache/nuttx",
+      "revision": "2b5c0de5e933281c209f954a63b99cf10c132346",
+      "path": "boards/arm/rp23xx/raspberrypi-pico-2/scripts/memmap_no_flash.ld",
+      "url": "https://raw.githubusercontent.com/apache/nuttx/2b5c0de5e933281c209f954a63b99cf10c132346/boards/arm/rp23xx/raspberrypi-pico-2/scripts/memmap_no_flash.ld",
+      "local": "sources/nuttx/boards/arm/rp23xx/raspberrypi-pico-2/scripts/memmap_no_flash.ld",
+      "sha256": "67554ff6a43ec7d6d1426920fa7593c7d716d9aa3e4e02f6dd84d81e3fcb7832",
+      "bytes": 8764
+    },
+    {
+      "repository": "apache/nuttx",
+      "revision": "2b5c0de5e933281c209f954a63b99cf10c132346",
+      "path": "boards/xtensa/esp32s3/common/scripts/flat_memory.ld",
+      "url": "https://raw.githubusercontent.com/apache/nuttx/2b5c0de5e933281c209f954a63b99cf10c132346/boards/xtensa/esp32s3/common/scripts/flat_memory.ld",
+      "local": "sources/nuttx/boards/xtensa/esp32s3/common/scripts/flat_memory.ld",
+      "sha256": "5d203af8f3b43e9b0dd65c80b7261f3af7ce923ba833ff71ac795b60011870a6",
+      "bytes": 8271
+    },
+    {
+      "repository": "apache/nuttx",
+      "revision": "2b5c0de5e933281c209f954a63b99cf10c132346",
+      "path": "boards/xtensa/esp32s3/common/scripts/protected_memory.ld",
+      "url": "https://raw.githubusercontent.com/apache/nuttx/2b5c0de5e933281c209f954a63b99cf10c132346/boards/xtensa/esp32s3/common/scripts/protected_memory.ld",
+      "local": "sources/nuttx/boards/xtensa/esp32s3/common/scripts/protected_memory.ld",
+      "sha256": "a5708d71f96aff661c1773c4d1220720c680cae679b66655f7e4231fd9d17697",
+      "bytes": 6310
+    },
+    {
+      "repository": "apache/nuttx",
+      "revision": "2b5c0de5e933281c209f954a63b99cf10c132346",
+      "path": "boards/xtensa/esp32s3/esp32s3-devkit/configs/nsh/defconfig",
+      "url": "https://raw.githubusercontent.com/apache/nuttx/2b5c0de5e933281c209f954a63b99cf10c132346/boards/xtensa/esp32s3/esp32s3-devkit/configs/nsh/defconfig",
+      "local": "sources/nuttx/boards/xtensa/esp32s3/esp32s3-devkit/configs/nsh/defconfig",
+      "sha256": "7d58ba9f99fd9615547ea24fd7e64f29a4ecf8b7552cfc442d0742e3b72d0eb4",
+      "bytes": 1587
+    },
+    {
+      "repository": "apache/nuttx",
+      "revision": "2b5c0de5e933281c209f954a63b99cf10c132346",
+      "path": "boards/xtensa/esp32s3/esp32s3-devkit/scripts/Make.defs",
+      "url": "https://raw.githubusercontent.com/apache/nuttx/2b5c0de5e933281c209f954a63b99cf10c132346/boards/xtensa/esp32s3/esp32s3-devkit/scripts/Make.defs",
+      "local": "sources/nuttx/boards/xtensa/esp32s3/esp32s3-devkit/scripts/Make.defs",
+      "sha256": "d8b15e733e3cff7da97e2f607a3c6887e093c6c0704c85ddc39094512582392a",
+      "bytes": 2306
+    },
+    {
+      "repository": "yongkyuns/nxrs",
+      "revision": "c62d7e8e42f69ef1f2820f511c407e5096e00ab0",
+      "path": "upstream/nuttx/patches/0104-esp32s3-m5-cores3-raw-resources.patch",
+      "url": "https://raw.githubusercontent.com/yongkyuns/nxrs/c62d7e8e42f69ef1f2820f511c407e5096e00ab0/upstream/nuttx/patches/0104-esp32s3-m5-cores3-raw-resources.patch",
+      "local": "sources/nxrs/upstream/nuttx/patches/0104-esp32s3-m5-cores3-raw-resources.patch",
+      "sha256": "820f6d56a7a66bab97dff20c9b11f923b4511d864a1e5825729778115df4fe45",
+      "bytes": 8560
+    },
+    {
+      "repository": "qemu/qemu",
+      "revision": "98f88efe8f07067667b8d9b1a5ce9551d34036c1",
+      "path": "COPYING",
+      "url": "https://raw.githubusercontent.com/qemu/qemu/98f88efe8f07067667b8d9b1a5ce9551d34036c1/COPYING",
+      "local": "sources/qemu/COPYING",
+      "sha256": "6f04ae8364d0079a192b14635f4b1da294ce18724c034c39a6a41d1b09df6100",
+      "bytes": 17992
+    },
+    {
+      "repository": "qemu/qemu",
+      "revision": "98f88efe8f07067667b8d9b1a5ce9551d34036c1",
+      "path": "hw/arm/armsse.c",
+      "url": "https://raw.githubusercontent.com/qemu/qemu/98f88efe8f07067667b8d9b1a5ce9551d34036c1/hw/arm/armsse.c",
+      "local": "sources/qemu/hw/arm/armsse.c",
+      "sha256": "d40c50ab0e86a70df1141c3ca4bce4aa200646ae4ba4cf6ff565e1559986a856",
+      "bytes": 61609
+    },
+    {
+      "repository": "qemu/qemu",
+      "revision": "98f88efe8f07067667b8d9b1a5ce9551d34036c1",
+      "path": "hw/arm/armv7m.c",
+      "url": "https://raw.githubusercontent.com/qemu/qemu/98f88efe8f07067667b8d9b1a5ce9551d34036c1/hw/arm/armv7m.c",
+      "local": "sources/qemu/hw/arm/armv7m.c",
+      "sha256": "cf33d1b03e2739cd3eb8b9786efd851b9e27553b25d74aa48c26cf29858a0d2a",
+      "bytes": 23873
+    },
+    {
+      "repository": "qemu/qemu",
+      "revision": "98f88efe8f07067667b8d9b1a5ce9551d34036c1",
+      "path": "hw/arm/mps2-tz.c",
+      "url": "https://raw.githubusercontent.com/qemu/qemu/98f88efe8f07067667b8d9b1a5ce9551d34036c1/hw/arm/mps2-tz.c",
+      "local": "sources/qemu/hw/arm/mps2-tz.c",
+      "sha256": "97933570323e5a4eccd91f08ea88452e1c4630a68dccbcdfc445b79d01e38e3f",
+      "bytes": 56756
+    },
+    {
+      "repository": "qemu/qemu",
+      "revision": "98f88efe8f07067667b8d9b1a5ce9551d34036c1",
+      "path": "include/hw/elf_ops.h.inc",
+      "url": "https://raw.githubusercontent.com/qemu/qemu/98f88efe8f07067667b8d9b1a5ce9551d34036c1/include/hw/elf_ops.h.inc",
+      "local": "sources/qemu/include/hw/elf_ops.h.inc",
+      "sha256": "0938ecbe5f3364cc3f4c29933b00828fea29c8806a4f2cc36000b40aaee4593f",
+      "bytes": 21403
+    }
+  ],
+  "license_files": {
+    "Apache-2.0": "sources/esp-hal-3rdparty/LICENSE",
+    "GPL-2.0": "sources/qemu/COPYING",
+    "NuttX notices": "sources/nuttx/NOTICE"
+  }
+}

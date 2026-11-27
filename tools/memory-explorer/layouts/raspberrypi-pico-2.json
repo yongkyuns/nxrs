@@ -1,0 +1,80 @@
+{
+  "schema_version": 1,
+  "qualification": {
+    "name": "Pico 2 / Pico 2 W RP2350 SRAM and BSP flash window",
+    "nuttx_revision": "2b5c0de5e933281c209f954a63b99cf10c132346",
+    "scope": "Pinned Raspberry Pi Pico 2 BSP address geometry used by NXRS Pico 2 and Pico 2 W profiles. The linear resource uses the normal striped CPU coordinate view; individual main-SRAM hardware bank interleaving and alternate mappings are not modeled.",
+    "sources": [
+      "https://github.com/apache/nuttx/blob/2b5c0de5e933281c209f954a63b99cf10c132346/boards/arm/rp23xx/raspberrypi-pico-2/scripts/memmap_default.ld",
+      "https://github.com/apache/nuttx/blob/2b5c0de5e933281c209f954a63b99cf10c132346/boards/arm/rp23xx/raspberrypi-pico-2/scripts/memmap_copy_to_ram.ld",
+      "https://github.com/apache/nuttx/blob/2b5c0de5e933281c209f954a63b99cf10c132346/boards/arm/rp23xx/raspberrypi-pico-2/scripts/memmap_no_flash.ld",
+      "https://github.com/apache/nuttx/blob/2b5c0de5e933281c209f954a63b99cf10c132346/boards/arm/rp23xx/raspberrypi-pico-2/configs/nsh/defconfig",
+      "https://github.com/apache/nuttx/blob/2b5c0de5e933281c209f954a63b99cf10c132346/arch/arm/src/rp23xx/hardware/rp23xx_memorymap.h"
+    ]
+  },
+  "warnings": [
+    "RP2350 normal SRAM coordinates cover 520 KiB: a 512 KiB main SRAM group followed by two 4 KiB scratch banks. They remain one coordinate resource so an arena crossing a scratch boundary is not split.",
+    "Main SRAM banks are striped in this CPU window. The 512 KiB group is not drawn as eight contiguous 64 KiB banks, and nonstriped aliases are not assigned invented linear backing offsets.",
+    "The Pico 2 BSP declares a 4 MiB XIP flash linker window. This is a link-time budget, not a measurement of the fitted flash or its QMI translation. It has no physical backing until separately verified.",
+    "The RP23XX header retains stale flash/SRAM range comments; extents here follow all three pinned Pico 2 linker scripts and CONFIG_RAM_SIZE=532480 in its BSP defconfigs.",
+    "Pico 2 and Pico 2 W share the RP2350 SRAM map. This descriptor does not establish radio memory ownership, security access, free heap, or physical-device identity."
+  ],
+  "physical_resources": [
+    {
+      "id": "rp2350-sram",
+      "name": "RP2350 SRAM (normal striped coordinates)",
+      "size": 532480,
+      "banks": [
+        {
+          "name": "Main SRAM bank group (striped)",
+          "offset": 0,
+          "size": 524288
+        },
+        {
+          "name": "Scratch X / bank 8",
+          "offset": 524288,
+          "size": 4096
+        },
+        {
+          "name": "Scratch Y / bank 9",
+          "offset": 528384,
+          "size": 4096
+        }
+      ]
+    }
+  ],
+  "regions": [
+    {
+      "id": "rp2350-xip",
+      "name": "Pico 2 BSP XIP flash window (4 MiB linker budget)",
+      "start": 268435456,
+      "size": 4194304,
+      "kind": "flash",
+      "domain": "cpu_virtual"
+    },
+    {
+      "id": "rp2350-sram",
+      "name": "Main SRAM and scratch RAM",
+      "start": 536870912,
+      "size": 532480,
+      "kind": "ram",
+      "domain": "cpu_virtual",
+      "physical": {
+        "id": "rp2350-sram",
+        "offset": 0
+      }
+    },
+    {
+      "id": "load-rp2350-sram",
+      "name": "Linked load: Main SRAM and scratch RAM",
+      "start": 536870912,
+      "size": 532480,
+      "kind": "ram",
+      "domain": "linked_load",
+      "physical": {
+        "id": "rp2350-sram",
+        "offset": 0
+      }
+    }
+  ]
+}

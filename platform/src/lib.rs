@@ -27,7 +27,7 @@ cfg_if::cfg_if! {
     }
 }
 
-#[cfg(feature = "probe")]
+#[cfg(all(feature = "probe", feature = "imu"))]
 pub mod probe;
 
 #[cfg(feature = "battery")]

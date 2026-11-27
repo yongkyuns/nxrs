@@ -271,3 +271,162 @@ fn demonstration_is_explicitly_synthetic_and_exercises_all_layers() {
         .any(|event| event.kind == TimingEventKind::Instant));
     assert!(!demo.counters.is_empty());
 }
+
+#[test]
+fn source_identity_uses_recorded_code_and_never_guesses_from_irq_numbers() {
+    let trace = parse_timing(r#"[
+      {"ph":"X","pid":1,"ts":0,"dur":1,"name":"IRQ 42","cat":"irq","args":{"irq":42}},
+      {"ph":"X","pid":1,"ts":1,"dur":2,"name":"IRQ 42","cat":"irq","args":{"irq":42,"handler_function":"gpio_interrupt","handler_file":"chip/gpio.c","caller_function":"unrelated"}},
+      {"ph":"B","pid":2,"ts":0,"name":"heap request","cat":"heap","args":{"caller_function":"capture::open","requested_bytes":9007199254740993}},
+      {"ph":"E","pid":2,"ts":1,"args":{"caller_function":"different end source"}}
+    ]"#).unwrap();
+    let irq: Vec<_> = trace.events.iter().filter(|event| event.is_irq()).collect();
+    assert_eq!(irq[0].source_name(), None);
+    assert_eq!(irq[1].source_name(), Some("gpio_interrupt"));
+    let request = trace.events.iter().find(|event| event.is_heap()).unwrap();
+    assert_eq!(request.source_name(), Some("capture::open"));
+    assert_eq!(request.requested_bytes(), Some(9_007_199_254_740_993));
+    assert_eq!(trace.query(trace.bounds, "chip/gpio.c").len(), 1);
+}
+
+#[test]
+fn source_summaries_clip_intervals_and_keep_unknown_heap_outcomes() {
+    let trace = parse_timing(r#"[
+      {"ph":"X","pid":1,"ts":0,"dur":100,"name":"work","cat":"app","args":{"caller_function":"worker"}},
+      {"ph":"X","pid":1,"ts":20,"dur":40,"name":"work","cat":"app","args":{"caller_function":"worker"}},
+      {"ph":"i","pid":2,"ts":30,"name":"request","cat":"heap","args":{"requested_bytes":40,"failed":true,"caller_function":"capture"}},
+      {"ph":"i","pid":2,"ts":40,"name":"request","cat":"heap","args":{"requested_bytes":60,"caller_function":"capture"}},
+      {"ph":"i","pid":2,"ts":40,"name":"request","cat":"heap","args":{"requested_bytes":0,"failed":false,"caller_function":"capture"}},
+      {"ph":"i","pid":2,"ts":40,"name":"allocated","cat":"heap,allocation","args":{"bytes":104,"caller_function":"capture"}}
+    ]"#).unwrap();
+    let selected = TimingRange {
+        start_ns: 30_000,
+        end_ns: 50_000,
+    };
+    let groups = trace.source_stats(selected, "", 0);
+    let work = groups.iter().find(|group| group.name == "work").unwrap();
+    assert_eq!(work.interval_count, 2);
+    assert_eq!(work.inclusive_ns, 40_000);
+    assert_eq!(work.longest_overlap_ns, 20_000);
+    let request = groups.iter().find(|group| group.name == "request").unwrap();
+    assert_eq!((request.request_count, request.requested_bytes), (3, 100));
+    assert_eq!((request.failed_requests, request.unknown_outcomes), (1, 1));
+    let allocation = groups
+        .iter()
+        .find(|group| group.name == "allocated")
+        .unwrap();
+    assert_eq!(allocation.request_count, 0);
+    let filtered = trace.source_stats(selected, "", 50_000);
+    assert_eq!(
+        filtered
+            .iter()
+            .find(|group| group.name == "work")
+            .unwrap()
+            .interval_count,
+        1
+    );
+    assert_eq!(
+        filtered
+            .iter()
+            .find(|group| group.name == "request")
+            .unwrap()
+            .request_count,
+        3
+    );
+    assert!(trace
+        .source_stats(
+            TimingRange {
+                start_ns: 80_000,
+                end_ns: 20_000
+            },
+            "",
+            0
+        )
+        .is_empty());
+}
+
+#[test]
+fn paired_heap_outcomes_use_terminal_evidence_and_keep_beginning_source_identity() {
+    let trace = parse_timing(r#"[
+      {"ph":"B","pid":1,"ts":0,"name":"request","cat":"heap","args":{"requested_bytes":64,"caller_function":"capture::open","failed":false}},
+      {"ph":"E","pid":1,"ts":1,"args":{"failed":true,"caller_function":"allocator_end","requested_bytes":4096}},
+      {"ph":"B","pid":1,"ts":2,"name":"request","cat":"heap","args":{"requested_bytes":32,"caller_function":"capture::open"}},
+      {"ph":"E","pid":1,"ts":3,"args":{"failed":false}},
+      {"ph":"B","pid":1,"ts":4,"name":"request","cat":"heap","args":{"requested_bytes":16,"caller_function":"capture::open"}},
+      {"ph":"E","pid":1,"ts":5,"args":{"outcome":"unknown"}}
+    ]"#).unwrap();
+    assert_eq!(trace.events[0].request_failed(), Some(true));
+    assert_eq!(trace.events[1].request_failed(), Some(false));
+    assert_eq!(trace.events[2].request_failed(), None);
+    assert_eq!(trace.events[0].source_name(), Some("capture::open"));
+    assert_eq!(trace.events[0].requested_bytes(), Some(64));
+    let groups = trace.source_stats(trace.bounds, "cat:heap", 0);
+    assert_eq!(groups.len(), 1);
+    assert_eq!(groups[0].source.as_deref(), Some("capture::open"));
+    assert_eq!(groups[0].request_count, 3);
+    assert_eq!(groups[0].requested_bytes, 112);
+    assert_eq!(groups[0].failed_requests, 1);
+    assert_eq!(groups[0].unknown_outcomes, 1);
+}
+
+#[test]
+fn native_counts_remain_distinct_from_derived_events_and_reject_malformed_counts() {
+    let source = r#"{"otherData":{"nxrs":{"event_counts":{"irq_enter":3,"irq_leave":2,"heap_request":4},"source_attribution":{"callers_resolved":2}}},"traceEvents":[{"ph":"i","pid":1,"ts":0,"name":"one display marker"}]}"#;
+    let trace = parse_timing(source).unwrap();
+    assert_eq!(trace.events.len(), 1);
+    assert_eq!(trace.metadata.event_counts["heap_request"], 4);
+    assert_eq!(trace.metadata.source_attribution["callers_resolved"], 2);
+    assert!(parse_timing(&source.replace("\"irq_enter\":3", "\"irq_enter\":-1")).is_err());
+    assert!(parse_timing(&source.replace("\"irq_enter\":3", "\"irq_enter\":1.5")).is_err());
+}
+
+#[test]
+fn callback_sources_and_attribution_elf_identity_are_preserved() {
+    let hash = "a".repeat(64);
+    let source = format!(
+        r#"{{"otherData":{{"nxrs":{{"elf_sha256":"{hash}","observed_note_count":4,"ignored_line_count":2,"source_attribution":{{"elf_sha256":"{hash}","handler_resolved":1}}}}}},"traceEvents":[{{"ph":"X","pid":1,"ts":0,"dur":1,"name":"timer callback","cat":"timer","args":{{"handler_function":"imu_wake_hint"}}}}]}}"#
+    );
+    let trace = parse_timing(&source).unwrap();
+    assert!(trace.events[0].is_callback());
+    assert!(!trace.events[0].is_irq());
+    assert_eq!(trace.events[0].source_name(), Some("imu_wake_hint"));
+    assert_eq!(
+        trace.metadata.source_elf_sha256.as_deref(),
+        Some(hash.as_str())
+    );
+    assert_eq!(trace.metadata.observed_note_count, Some(4));
+    assert_eq!(trace.metadata.ignored_line_count, Some(2));
+    let mismatch = source.replacen(
+        &format!("\"source_attribution\":{{\"elf_sha256\":\"{hash}\""),
+        &format!(
+            "\"source_attribution\":{{\"elf_sha256\":\"{}\"",
+            "b".repeat(64)
+        ),
+        1,
+    );
+    assert!(parse_timing(&mismatch)
+        .unwrap_err()
+        .to_string()
+        .contains("source attribution ELF"));
+}
+
+#[test]
+fn category_filter_ignores_incidental_argument_names_and_keeps_counter_categories() {
+    let trace = parse_timing(r#"[
+        {"ph":"X","pid":1,"ts":0,"dur":10,"name":"worker","cat":"sched,cpu","args":{"includes_irq_time":true}},
+        {"ph":"X","pid":2,"ts":1,"dur":2,"name":"IRQ 15","cat":"irq"},
+        {"ph":"C","pid":3,"ts":2,"name":"heap bytes","cat":"heap,usage","args":{"used":128}}
+    ]"#).unwrap();
+    assert_eq!(
+        trace.query(trace.bounds, "irq").len(),
+        2,
+        "free text continues to search recorded arguments"
+    );
+    let irqs = trace.query(trace.bounds, "cat:irq");
+    assert_eq!(irqs.len(), 1);
+    assert_eq!(irqs[0].name, "IRQ 15");
+    assert_eq!(trace.counter_query(trace.bounds, "cat:heap").len(), 1);
+    assert_eq!(trace.counter_query(trace.bounds, "category:usage").len(), 1);
+    assert_eq!(trace.query(trace.bounds, "category:SCHED").len(), 1);
+    assert!(trace.query(trace.bounds, "cat:").is_empty());
+}

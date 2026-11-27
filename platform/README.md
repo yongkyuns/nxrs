@@ -32,10 +32,14 @@ metadata and take the delay type as a second parameter. The build generates the
 typed constructor reference. Each HAL owns acquisition, lifecycle and cleanup.
 
 Mock and simulation devices come from their HALs. With no profile, the primary
-accessors return unavailable devices. Use the explicit `probe` feature and
+accessors return unavailable devices. Use the `imu` and `probe` features and
 `composition::probe` for physical IMU diagnostics. Drivers that support the
 sensor-reference diagnostic declare `sensor-reference = true` and export
 `enable_sensor_reference`.
+
+Diagnostic product builds select the catalogue's existing `probe` feature. Its
+weak IMU/GNSS forwards instrument only capabilities already selected by Cargo;
+enabling `probe` alone does not acquire an otherwise unused device capability.
 
 ## Select resource dependencies
 

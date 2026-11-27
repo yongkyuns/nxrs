@@ -50,7 +50,7 @@ class TraceConversionTests(unittest.TestCase):
         self.assertIsNone(metadata["clock"])
         self.assertIsNone(metadata["source"])
         self.assertIsNone(metadata["lost_records"])
-        self.assertEqual(metadata["incomplete_intervals"], 2)
+        self.assertEqual(metadata["incomplete_intervals"], 3)  # Two residency edges and an undispatched wake.
         # The trailing idle residency is not extended to an unrelated wake record.
         self.assertFalse(any(event["args"].get("task_id") == 0 for event in spans))
 
@@ -216,7 +216,8 @@ class TraceConversionTests(unittest.TestCase):
         self.assertEqual(len(requests), 1)
         self.assertEqual((requests[0]["ph"], requests[0]["ts"], requests[0]["name"]), ("i", 12, "malloc"))
         self.assertEqual(requests[0]["args"], {"heap": "0xa", "requested_bytes": 8, "caller": "0xb",
-                                               "task": "worker", "task_id": 7})
+                                               "task": "worker", "task_id": 7, "cpu": 0, "operation": "malloc",
+                                               "outcome": "unknown; allocator entry only"})
         usage = [event for event in trace["traceEvents"] if event["ph"] == "C"]
         self.assertEqual((usage[0]["name"], usage[0]["ts"], usage[0]["args"]), ("Heap 0xa", 13, {"used_bytes": 200}))
         cpu = intervals(trace, "cpu")
@@ -232,7 +233,8 @@ class TraceConversionTests(unittest.TestCase):
         self.assertEqual(intervals(trace), [])
         events = [event for event in trace["traceEvents"] if event["ph"] != "M"]
         self.assertEqual(len(events), 1)
-        self.assertEqual(events[0]["args"], {"heap": "0xa", "requested_bytes": 2000000, "caller": "0xb"})
+        self.assertEqual(events[0]["args"], {"heap": "0xa", "requested_bytes": 2000000, "caller": "0xb",
+                                            "cpu": 0, "operation": "memalign", "outcome": "unknown; allocator entry only"})
         self.assertEqual(events[0]["name"], "memalign")
         self.assertNotIn("dur", events[0])
 

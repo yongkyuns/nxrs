@@ -61,6 +61,41 @@ def evidence(console):
             "observed_records": counts, "lost_records": 0, "complete": True}
 
 
+def acquisition_bridge_evidence(console):
+    """Independently inspect actual native notes from the production bridge."""
+    text = console.decode("utf-8", errors="strict")
+    lines = text.splitlines()
+    receipts = [match.groups() for line in lines
+                if (match := re.fullmatch(r"NXRS_ACQUISITION_BRIDGE rounds=(\d+) disabled_probes=(\d+)", line))]
+    if receipts != [("4", "2")]:
+        raise RuntimeError("Missing acquisition bridge execution receipt")
+    first = next(index for index, line in enumerate(lines) if line.startswith("NXRS_NOTE_BEGIN "))
+    last = next(index for index, line in enumerate(lines) if line.startswith("NXRS_NOTE_END "))
+    frame = lines[first + 1:last]
+    if any("bridge/disabled-" in line for line in frame):
+        raise RuntimeError("Acquisition bridge emitted a note while tracing was disabled")
+    edges = []
+    for line in frame:
+        if "imu/qemu-fixture/" not in line:
+            continue
+        match = re.fullmatch(r".+-\d+\s+\[0\]\s+(\d+)\.(\d{9}): tracing_mark_write: ([BEI])\|(\d+)\|(imu/qemu-fixture/(?:wake|drain))", line)
+        if match is None:
+            raise RuntimeError("Malformed acquisition bridge note")
+        seconds, nanos, edge, task, name = match.groups()
+        edges.append((edge, int(task), name, int(seconds) * 1_000_000_000 + int(nanos)))
+    if len(edges) != 12:
+        raise RuntimeError("Acquisition bridge needs four wake/begin/end groups")
+    for offset in range(0, 12, 3):
+        wake, begin, end = edges[offset:offset + 3]
+        if (wake[0], begin[0], end[0]) != ("I", "B", "E") or wake[2] != "imu/qemu-fixture/wake" or begin[2] != end[2] or begin[2] != "imu/qemu-fixture/drain":
+            raise RuntimeError("Acquisition bridge marker order or scope identity differs")
+        if not wake[1] == begin[1] == end[1] or not wake[3] <= begin[3] < end[3]:
+            raise RuntimeError("Acquisition bridge task or source-clock boundaries differ")
+    return {"drain_scopes": 4, "wake_instants": 4, "disabled_probes": 2,
+            "disabled_markers_absent": True,
+            "scope": "production note ABI and filtering; simulated workload, no physical sensor"}
+
+
 def run(args):
     if os.name != "posix":
         raise RuntimeError("The QEMU timing qualification requires a POSIX host")
@@ -119,6 +154,7 @@ def run(args):
         else:
             raise TimeoutError("QEMU timing qualification exceeded its deadline")
         report.update(evidence(console))
+        report["acquisition_trace_bridge"] = acquisition_bridge_evidence(console)
         (output / "report.json").write_text(json.dumps(report, indent=2) + "\n")
         print(json.dumps({"report": str(output / "report.json"), "clock": report["clock"],
                           "observed_records": report["observed_records"]}))

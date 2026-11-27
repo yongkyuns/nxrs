@@ -94,7 +94,7 @@ impl MemoryExplorer {
         let exact = cursor.and_then(|time| checkpoints.iter().find(|point| point.1 == time));
         let mut seek = None;
         let mut open_memory = false;
-        egui::TopBottomPanel::bottom("linked-memory-checkpoints")
+        egui::TopBottomPanel::bottom(self.widget_id("linked-memory-checkpoints"))
             .exact_height(184.0)
             .frame(egui::Frame::new().fill(PANEL).inner_margin(egui::Margin::symmetric(20, 12)))
             .show(ctx, |ui| {
