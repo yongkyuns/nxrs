@@ -46,6 +46,19 @@ class LayoutDiscoveryTests(unittest.TestCase):
         self.assertTrue(result["automatic_layout"])
         self.assertTrue(any("pinned BSP" in warning for warning in result["warnings"]))
 
+    def test_configuration_line_endings_require_their_exact_byte_digest(self):
+        config = "CONFIG_ARCH_BOARD_MPS2_AN521=y\nCONFIG_ARCH_CHIP_MPS2_AN521=y\n"
+        for name, newline, altered in (("lf", "\n", "\r\n"), ("crlf", "\r\n", "\n")):
+            with self.subTest(line_endings=name):
+                self.receipt(config=config.replace("\n", newline))
+                self.assertEqual(self.discover()["layout"].name, "mps2-an521-qemu.json")
+                # Equivalent parsed settings do not excuse changed bytes after
+                # the build receipt was written.
+                (self.root / "resolved.config").write_bytes(config.replace("\n", altered).encode("utf-8"))
+                result = self.discover()
+                self.assertIsNone(result["layout"])
+                self.assertTrue(any("resolved.config does not match" in warning for warning in result["warnings"]))
+
     def test_bare_addresses_and_unbound_sidecar_do_not_select_physical_board(self):
         self.elf.write_bytes(b"0x10000000 0x3fc88000 0x20000000")
         layout = self.elf.parent / "layout.json"

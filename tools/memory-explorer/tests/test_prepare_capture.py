@@ -153,21 +153,27 @@ class PrepareCaptureTests(unittest.TestCase):
     def test_auto_board_specialization_retains_configured_capacity_in_portable_session(self):
         config = ("CONFIG_ARCH_BOARD_ESP32S3_M5_CORES3=y\nCONFIG_ARCH_CHIP_ESP32S3=y\n"
                   "CONFIG_ESP32S3_SPIRAM=y\nCONFIG_ESP32S3_SPIRAM_SIZE=8388608\nCONFIG_ESP32S3_FLASH_16M=y\n")
-        (self.root / "resolved.config").write_text(config)
-        (self.root / "provenance.txt").write_text(
-            "board=esp32s3-m5-cores3:nsh\nnuttx=2b5c0de5e933281c209f954a63b99cf10c132346\n")
-        (self.root / "binaries.sha256").write_text(
-            f"{self.identity}  /old/build/selected.elf\n"
-            f"{hashlib.sha256(config.encode()).hexdigest()}  /old/build/resolved.config\n")
-        manifest = json.loads(self.prepare().read_text())
-        self.assertTrue(manifest["automatic_layout"])
-        layout = json.loads((self.output / manifest["layout"]).read_text())
-        self.assertEqual(layout["build"]["elf_sha256"], self.identity)
-        self.assertEqual(next(resource["size"] for resource in layout["physical_resources"]
-                              if resource["id"] == "configured-psram"), 8388608)
-        data = (self.output / manifest["layout"]).read_bytes()
-        self.assertEqual(manifest["files"][manifest["layout"]],
-                         {"sha256": hashlib.sha256(data).hexdigest(), "bytes": len(data)})
+        for name, newline in (("lf", "\n"), ("crlf", "\r\n")):
+            with self.subTest(line_endings=name):
+                config_bytes = config.replace("\n", newline).encode("utf-8")
+                # Hash exactly the bytes retained by the build, independently
+                # of the host's text-mode newline translation.
+                (self.root / "resolved.config").write_bytes(config_bytes)
+                (self.root / "provenance.txt").write_text(
+                    "board=esp32s3-m5-cores3:nsh\nnuttx=2b5c0de5e933281c209f954a63b99cf10c132346\n")
+                (self.root / "binaries.sha256").write_text(
+                    f"{self.identity}  /old/build/selected.elf\n"
+                    f"{hashlib.sha256(config_bytes).hexdigest()}  /old/build/resolved.config\n")
+                self.output = self.root / f"session-{name}"
+                manifest = json.loads(self.prepare().read_text())
+                self.assertTrue(manifest["automatic_layout"])
+                layout = json.loads((self.output / manifest["layout"]).read_text())
+                self.assertEqual(layout["build"]["elf_sha256"], self.identity)
+                self.assertEqual(next(resource["size"] for resource in layout["physical_resources"]
+                                      if resource["id"] == "configured-psram"), 8388608)
+                data = (self.output / manifest["layout"]).read_bytes()
+                self.assertEqual(manifest["files"][manifest["layout"]],
+                                 {"sha256": hashlib.sha256(data).hexdigest(), "bytes": len(data)})
 
     def test_heap_journal_must_name_the_same_elf(self):
         journal = self.root / "journal.json"
