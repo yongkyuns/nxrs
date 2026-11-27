@@ -132,9 +132,14 @@ class CheckpointProgressTests(unittest.TestCase):
             if len(self.prompts) == 2:
                 self.assertFalse(any(bp.is_valid() for bp in target.breakpoints))
 
+        def terminate_remote():
+            self.assertFalse(any(bp.is_valid() for bp in target.breakpoints))
+            return {"kill_packet": "acknowledged"}
+
+        self.terminate_remote = mock.Mock(side_effect=terminate_remote)
         modules = {
             "qemu_capture_gdb": SimpleNamespace(raw_snapshot=mock.Mock(), compare_capture=mock.Mock(),
-                                                stop_at=stop_at),
+                                                stop_at=stop_at, terminate_remote=self.terminate_remote),
             "nxgdb": SimpleNamespace(
                 mm=SimpleNamespace(__file__=str(self.output / "pynuttx" / "nxgdb" / "mm.py")),
                 utils=SimpleNamespace(get_tcbs=lambda: [])),
@@ -152,6 +157,7 @@ class CheckpointProgressTests(unittest.TestCase):
         self.assertIn(message, json.loads((self.output / "failure.json").read_text())["error"])
         self.assertFalse((self.output / "gdb-report.json").exists())
         self.assertEqual(target.commands[-1], "quit 1")
+        self.terminate_remote.assert_not_called()
 
     def test_capture_precedes_instruction_progress_and_keeps_source_identity(self):
         target = StoppedTarget()
