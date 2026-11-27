@@ -166,7 +166,10 @@ comparison below measures the application path on CoreS3.
 Ordered capture belongs to the Motion Tracker export. It uses a 512-record
 pool shared across sources, drains batches of up to 16, and retains the first
 rejected record's source and sequence on overflow. A wake tells communications
-to inspect that retained work. The admission, overflow and wake gates for a
+to inspect that retained work. A replacement communications worker registers its
+own wake target after the previous worker joins. Acquisition retains readiness
+and faults when the wake target is busy, and active export checks them on its
+existing poll. The admission, overflow and wake gates for a
 capture replacement are tracked in [#446](https://github.com/yongkyuns/nxrs/issues/446).
 
 #### CoreS3 product-path baseline
