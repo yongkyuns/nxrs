@@ -220,6 +220,10 @@ class TrackerStartupError(RuntimeError):
     pass
 
 
+class GuestFaultError(RuntimeError):
+    pass
+
+
 class Guest:
     def __init__(self, process, log):
         self.process = process
@@ -245,6 +249,12 @@ class Guest:
                 end = line.index(b'\n')
                 text = bytes(line[:end])
                 del line[:end + 1]
+                if text.startswith(b'xtensa_debug_handler: Unhandled debug cause '):
+                    # Stop at the first reported fatal exception, before a
+                    # later panel timeout hides it behind repeated handlers.
+                    # The retained registers are a stopped snapshot, not a
+                    # promise that the original exception state survived.
+                    raise GuestFaultError(text.decode(errors='replace'))
                 if text.startswith(b'tracker simulator initialization failed: '):
                     recent = self.controller.boot_hci if self.controller is not None else None
                     progress = ', '.join(recent or ()) or 'no HCI commands received'
@@ -956,8 +966,11 @@ async def run(args, log, exercise=scenario, attach_controller=None):
                 done, _ = await asyncio.wait(tasks, timeout=args.timeout, return_when=asyncio.FIRST_COMPLETED)
                 if not done:
                     raise TimeoutError('tracker scenario')
-                for task in done:
-                    task.result()
+                # Prefer the console's explicit fault over a simultaneous
+                # scenario timeout; set iteration has no stable order.
+                for task in tasks:
+                    if task in done:
+                        task.result()
                 assert test in done, 'guest console or UART terminated during the test'
                 print(f'PASS: full tracker in {time.monotonic() - start:.2f} host seconds')
             except Exception as error:
