@@ -1,15 +1,18 @@
-use super::{canvas, charts, gesture, map, quality};
-use crate::{
-    communications::{Key, LinkStatus, Tile, View, Zoom},
-    text::Text,
-    tracker::{Reading, Snapshot},
-};
+use super::{canvas, charts, quality};
+use crate::tracker::{Reading, Snapshot};
 use canvas::CanvasExt;
 use charts::{History, Metric, RoutePoint, ROUTE_POINTS, SAMPLE_INTERVAL};
 use display::graphics::{Area, Raster as Canvas};
-use display::{Display, Error, Rect, Size};
-use gesture::{Contact, Gesture};
-use map::{Position, View as MapView, Viewport};
+use display::{Display, Error};
+#[cfg(test)]
+use display::{Rect, Size};
+use maps::{Key, Position, Tile, View as MapView, Viewport, Zoom};
+use telemetry::{LinkStatus, View};
+use text::Text;
+use ui::chart::{Columns, Point};
+use ui::gesture::{Gesture, Recognizer};
+use ui::{Surface, TextCanvas};
+type PlotPoint = Point<3>;
 use qrcodegen::{QrCode, QrCodeEcc};
 use std::{
     fmt::Write,
@@ -93,13 +96,24 @@ impl Layout {
     }
 }
 
-#[derive(Default)]
 struct Dashboard {
     page: Page,
     metric: Metric,
     code: Option<QrCode>,
     menu: bool,
-    contact: Option<Contact>,
+    gestures: Recognizer,
+}
+
+impl Default for Dashboard {
+    fn default() -> Self {
+        Self {
+            page: Page::default(),
+            metric: Metric::default(),
+            code: None,
+            menu: false,
+            gestures: Recognizer::new(14, 32),
+        }
+    }
 }
 
 impl Dashboard {
@@ -141,9 +155,8 @@ impl Dashboard {
 }
 
 pub struct Screen<D> {
-    display: D,
+    surface: Surface<D>,
     layout: Layout,
-    pixels: Box<[u16]>,
     present: Option<(Page, Metric, LinkStatus, bool)>,
     quality: Option<quality::View>,
     ui: Dashboard,
@@ -170,9 +183,8 @@ impl<D: Display> Screen<D> {
         };
         let bands = (layout.plot(GRIP_HEIGHT).h as usize).div_ceil(usize::from(STRIP));
         Ok(Self {
-            display,
+            surface: Surface::new(display, STRIP)?,
             layout,
-            pixels: vec![BG; usize::from(size.width) * usize::from(STRIP)].into_boxed_slice(),
             present: None,
             quality: None,
             ui: Dashboard::default(),
@@ -206,10 +218,7 @@ impl<D: Display> Screen<D> {
         missed: bool,
     ) -> Option<Action> {
         let ui = &mut self.ui;
-        if missed {
-            ui.contact = None;
-        }
-        match gesture::recognize(&mut ui.contact, event)? {
+        match ui.gestures.observe(event, missed)? {
             Gesture::Tap(point) => Self::tap(&self.layout, ui, status, point),
             Gesture::Down if !ui.menu && status != LinkStatus::Pairing => {
                 ui.menu = true;
@@ -316,8 +325,7 @@ impl<D: Display> Screen<D> {
 
     fn render_quality(&mut self, link: LinkStatus, view: quality::View) -> Result<(), Error> {
         let Self {
-            display,
-            pixels,
+            surface,
             layout,
             ui,
             present,
@@ -338,7 +346,7 @@ impl<D: Display> Screen<D> {
             w: layout.width,
             h: layout.height - y,
         };
-        draw_strips(display, pixels, region, Some, |canvas| {
+        surface.draw(region, BG, Some, |canvas| {
             if full && canvas.area().y < top {
                 header(canvas, layout, ui, link);
             }
@@ -386,8 +394,8 @@ impl<D: Display> Screen<D> {
         );
         let chart = link != LinkStatus::Pairing && matches!(&body, Body::Motion { .. });
         if chart {
-            body.project_motion(plot, ui.metric, &mut self.projected);
-            chart_damage(plot, &self.projected, &mut self.damage);
+            body.project_motion(plot, ui.metric, &mut self.projected)?;
+            ui::chart::damage(plot, STRIP, &self.projected, &mut self.damage)?;
         }
         let paint = |canvas: &mut Canvas<'_>| {
             if link == LinkStatus::Pairing {
@@ -413,7 +421,7 @@ impl<D: Display> Screen<D> {
                     w: gyro.x + gyro.w - accel.x,
                     ..accel
                 };
-                draw_strips(&mut self.display, &mut self.pixels, controls, whole, &paint)?;
+                self.surface.draw(controls, BG, whole, paint)?;
             }
             let label = (plot.y + 5, plot.y + 12);
             let changed = |strip: Area| {
@@ -432,31 +440,29 @@ impl<D: Display> Screen<D> {
                     ..strip
                 })
             };
-            draw_strips(&mut self.display, &mut self.pixels, plot, changed, &paint)?;
-            draw_strips(
-                &mut self.display,
-                &mut self.pixels,
+            self.surface.draw(plot, BG, changed, paint)?;
+            self.surface.draw(
                 Area {
                     x: 0,
                     y: layout.height - 24,
                     w: layout.width,
                     h: 7,
                 },
+                BG,
                 whole,
-                &paint,
+                paint,
             )?;
         } else {
-            draw_strips(
-                &mut self.display,
-                &mut self.pixels,
+            self.surface.draw(
                 Area {
                     x: 0,
                     y: top,
                     w: layout.width,
                     h: layout.height - top,
                 },
+                BG,
                 whole,
-                &paint,
+                paint,
             )?;
         }
         self.present = Some(key);
@@ -465,47 +471,6 @@ impl<D: Display> Screen<D> {
         }
         Ok(())
     }
-}
-
-fn rectangle(area: Area) -> Rect {
-    // The layout and dirty regions are bounded by the display dimensions.
-    Rect {
-        x: area.x as u16,
-        y: area.y as u16,
-        size: Size {
-            width: area.w as u16,
-            height: area.h as u16,
-        },
-    }
-}
-
-fn draw_strips(
-    display: &mut impl Display,
-    pixels: &mut [u16],
-    area: Area,
-    clip: impl Fn(Area) -> Option<Area>,
-    paint: impl Fn(&mut Canvas<'_>),
-) -> Result<(), Error> {
-    let end = area.y + area.h;
-    let mut y = area.y;
-    while y < end {
-        let height = i32::from(STRIP).min(end - y);
-        let strip = Area {
-            y,
-            h: height,
-            ..area
-        };
-        y += height;
-        let Some(strip) = clip(strip) else {
-            continue;
-        };
-        let rect = rectangle(strip);
-        let pixels = &mut pixels[..strip.w as usize * height as usize];
-        pixels.fill(BG);
-        paint(&mut Canvas::new(rect, pixels)?);
-        display.draw_strip(rect, pixels)?;
-    }
-    Ok(())
 }
 
 fn header(canvas: &mut Canvas<'_>, layout: &Layout, ui: &Dashboard, link: LinkStatus) {
@@ -621,69 +586,6 @@ fn pairing(canvas: &mut Canvas<'_>, layout: &Layout, code: &QrCode) {
     }
 }
 
-#[derive(Clone, Copy)]
-struct PlotPoint {
-    x: u16,
-    y: [u16; 3],
-}
-
-#[derive(Clone, Copy, Default)]
-struct Columns {
-    left: u16,
-    right: u16,
-}
-
-impl Columns {
-    fn include(&mut self, range: Self) {
-        if range.left < range.right {
-            self.left = if self.left == self.right {
-                range.left
-            } else {
-                self.left.min(range.left)
-            };
-            self.right = self.right.max(range.right);
-        }
-    }
-}
-
-fn chart_damage(plot: Area, points: &[Option<PlotPoint>], bands: &mut [Columns]) {
-    bands.fill(Columns::default());
-    let mut previous: Option<PlotPoint> = None;
-    let right = (plot.x + plot.w) as u16;
-    let first_row = plot.y as u16;
-    for point in points {
-        if let Some(point) = *point {
-            for (axis, y) in point.y.into_iter().enumerate() {
-                let (columns, top, bottom) = if let Some(from) = previous {
-                    (
-                        Columns {
-                            left: point.x.min(from.x),
-                            right: point.x.max(from.x) + 1,
-                        },
-                        y.min(from.y[axis]),
-                        y.max(from.y[axis]),
-                    )
-                } else {
-                    (
-                        Columns {
-                            left: point.x,
-                            right: (point.x + 2).min(right),
-                        },
-                        y,
-                        y + 1,
-                    )
-                };
-                let first = usize::from((top - first_row) / STRIP);
-                let last = usize::from((bottom - first_row) / STRIP);
-                for band in &mut bands[first..=last] {
-                    band.include(columns);
-                }
-            }
-        }
-        previous = *point;
-    }
-}
-
 enum Body<'a> {
     Motion {
         samples: &'a History,
@@ -705,8 +607,12 @@ enum Body<'a> {
 }
 
 impl<'a> Body<'a> {
-    fn project_motion(&self, plot: Area, metric: Metric, points: &mut Vec<Option<PlotPoint>>) {
-        points.clear();
+    fn project_motion(
+        &self,
+        plot: Area,
+        metric: Metric,
+        points: &mut Vec<Option<PlotPoint>>,
+    ) -> Result<(), Error> {
         let Self::Motion {
             samples,
             now,
@@ -714,20 +620,16 @@ impl<'a> Body<'a> {
             limit,
         } = self
         else {
-            return;
+            points.clear();
+            return Ok(());
         };
-        let center = plot.y + plot.h / 2;
-        for (fraction, signal) in samples.motion(*index, metric, *now) {
-            points.push(signal.map(|values| {
-                let y = values.map(|value| {
-                    center - ((value / limit).clamp(-1.0, 1.0) * (plot.h / 2 - 4) as f32) as i32
-                });
-                PlotPoint {
-                    x: (plot.x + (fraction * (plot.w - 1) as f32) as i32) as u16,
-                    y: y.map(|row| row as u16),
-                }
-            }));
-        }
+        ui::chart::project(
+            plot,
+            4,
+            *limit,
+            samples.motion(*index, metric, *now),
+            points,
+        )
     }
 
     fn new(
@@ -1110,6 +1012,82 @@ mod tests {
     }
 
     #[test]
+    fn partial_display_failure_invalidates_the_scene_until_a_full_retry_succeeds() {
+        struct Interrupted {
+            panel: Panel,
+            failed: bool,
+        }
+
+        impl Display for Interrupted {
+            fn size(&self) -> Size {
+                self.panel.size()
+            }
+
+            fn draw(&mut self, rect: Rect, pixels: &[u16]) -> Result<(), Error> {
+                self.panel.draw(rect, pixels)?;
+                if !self.failed && self.panel.1.len() == 2 {
+                    self.failed = true;
+                    return Err(Error::Io);
+                }
+                Ok(())
+            }
+        }
+
+        let display = Interrupted {
+            panel: Panel::new(),
+            failed: false,
+        };
+        let mut screen = Screen::new(display, Zoom::default()).unwrap();
+        let now = screen.deadline();
+        let snapshot = Snapshot {
+            clock: None,
+            imu: [Reading::Waiting; 2],
+            gnss: Reading::Waiting,
+        };
+        assert_eq!(
+            screen.draw(
+                LinkStatus::Idle,
+                &snapshot,
+                now,
+                || Reading::Waiting,
+                |_| None
+            ),
+            Err(Error::Io)
+        );
+        assert!(screen.present.is_none());
+        screen.surface.display_mut().panel.1.clear();
+        screen
+            .draw(
+                LinkStatus::Idle,
+                &snapshot,
+                now,
+                || Reading::Waiting,
+                |_| None,
+            )
+            .unwrap();
+        assert!(screen.present.is_some());
+        assert_eq!(screen.surface.display().panel.1[0].y, 0);
+        assert_eq!(
+            screen.surface.display().panel.1.len(),
+            240 / usize::from(STRIP)
+        );
+        let mut reference = Screen::new(Panel::new(), Zoom::default()).unwrap();
+        reference
+            .draw(
+                LinkStatus::Idle,
+                &snapshot,
+                now,
+                || Reading::Waiting,
+                |_| None,
+            )
+            .unwrap();
+        assert_eq!(
+            screen.surface.display().panel.0,
+            reference.surface.display().0
+        );
+    }
+
+    #[test]
     fn steady_chart_writes_only_damaged_columns_and_erases_a_disappeared_trace() {
         let mut screen = Screen::new(Panel::new(), Zoom::default()).unwrap();
         let now = screen.deadline();
@@ -1128,12 +1106,12 @@ mod tests {
             )
             .unwrap();
         assert_eq!(screen.deadline(), now + CHART_INTERVAL);
-        screen.display.1.clear();
+        screen.surface.display_mut().1.clear();
         screen.presented_damage[(98 - 38) / usize::from(STRIP)] = Columns {
             left: 24,
             right: 26,
         };
-        screen.display.0[98 * 320 + 24] = MINT;
+        screen.surface.display_mut().0[98 * 320 + 24] = MINT;
 
         snapshot.imu[0] = Reading::Fault;
         let next = now + CHART_INTERVAL + Duration::from_millis(10);
@@ -1147,7 +1125,7 @@ mod tests {
             )
             .unwrap();
         assert_eq!(screen.deadline(), now + CHART_INTERVAL * 2);
-        let writes = &screen.display.1;
+        let writes = &screen.surface.display_mut().1;
         assert_eq!(writes.last().unwrap().y, 216);
         assert_eq!((writes[0].x, writes[0].size.width), (17, 120));
         assert_eq!((writes[1].x, writes[1].size.width), (17, 120));
@@ -1162,9 +1140,9 @@ mod tests {
                 .sum::<u32>(),
             (120 * 2 + 2) * 8 + 320 * 7
         );
-        assert_ne!(screen.display.0[98 * 320 + 24], MINT);
+        assert_ne!(screen.surface.display_mut().0[98 * 320 + 24], MINT);
 
-        let partial = screen.display.0.clone();
+        let partial = screen.surface.display_mut().0.clone();
         screen.present = None;
         screen
             .draw(
@@ -1175,7 +1153,7 @@ mod tests {
                 |_| None,
             )
             .unwrap();
-        assert_eq!(screen.display.0, partial);
+        assert_eq!(screen.surface.display_mut().0, partial);
     }
 
     fn tap(screen: &mut Screen<Panel>, link: LinkStatus, point: Point) -> Option<Action> {
@@ -1235,13 +1213,13 @@ mod tests {
         };
         draw(&mut screen, Reading::Live(report));
         let at = |x: usize, y: usize| y * 320 + x;
-        assert_eq!(screen.display.0[at(100, 150)], MINT);
+        assert_eq!(screen.surface.display_mut().0[at(100, 150)], MINT);
         // The 45 dB-Hz peak sets a 50 dB-Hz ceiling, so 25 is half-height.
-        assert_ne!(screen.display.0[at(238, 150)], 0x661f);
-        assert_eq!(screen.display.0[at(238, 151)], 0x661f);
-        screen.display.1.clear();
+        assert_ne!(screen.surface.display_mut().0[at(238, 150)], 0x661f);
+        assert_eq!(screen.surface.display_mut().0[at(238, 151)], 0x661f);
+        screen.surface.display_mut().1.clear();
         draw(&mut screen, Reading::Live(report));
-        assert!(screen.display.1.is_empty());
+        assert!(screen.surface.display_mut().1.is_empty());
         let dense = SatelliteReport::new(
             24,
             24,
@@ -1257,14 +1235,16 @@ mod tests {
         draw(&mut screen, Reading::Live(dense));
         let row = at(32, 196)..at(309, 196);
         assert_eq!(
-            screen.display.0[row.clone()]
+            screen.surface.display_mut().0[row.clone()]
                 .split(|&pixel| pixel == BG)
                 .filter(|bar| !bar.is_empty())
                 .count(),
             24,
         );
         draw(&mut screen, Reading::Stale);
-        assert!(screen.display.0[row].iter().all(|&pixel| pixel == BG));
+        assert!(screen.surface.display_mut().0[row]
+            .iter()
+            .all(|&pixel| pixel == BG));
     }
 
     #[test]
@@ -1297,8 +1277,8 @@ mod tests {
         let deadline = screen.deadline();
 
         for x in [280, 230] {
-            screen.display.1.clear();
-            let before = screen.display.0.clone();
+            screen.surface.display_mut().1.clear();
+            let before = screen.surface.display_mut().0.clone();
             assert_eq!(
                 tap(&mut screen, link, Point { x, y: 20 }),
                 Some(Action::Redraw)
@@ -1308,17 +1288,17 @@ mod tests {
                 .unwrap();
             assert_eq!(screen.deadline(), deadline);
 
-            let (controls, body) = screen.display.1.split_at(3);
+            let (controls, body) = screen.surface.display_mut().1.split_at(3);
             assert!(controls.iter().all(|r| (r.x, r.size.width) == (214, 96)));
             assert_eq!(controls[0].y, 9);
             assert!(body.iter().all(|r| (38..208).contains(&r.y) || r.y == 216));
-            let partial = screen.display.0.clone();
+            let partial = screen.surface.display_mut().0.clone();
             assert_ne!(partial, before);
             screen.present = None;
             screen
                 .draw(link, &snapshot, now, || Reading::Waiting, |_| None)
                 .unwrap();
-            assert_eq!(screen.display.0, partial);
+            assert_eq!(screen.surface.display_mut().0, partial);
         }
     }
 
@@ -1362,8 +1342,8 @@ mod tests {
                 |_| None,
             )
             .unwrap();
-        assert!(!screen.display.0.contains(&0xffff));
-        assert_eq!(screen.display.0[320 * 45 + 12], PANEL);
+        assert!(!screen.surface.display_mut().0.contains(&0xffff));
+        assert_eq!(screen.surface.display_mut().0[320 * 45 + 12], PANEL);
         assert_eq!(
             swipe(&mut screen, LinkStatus::Idle, pair, below),
             Some(Action::Redraw)
@@ -1378,8 +1358,8 @@ mod tests {
                 |_| None,
             )
             .unwrap();
-        assert_eq!(screen.display.0[320 * 39], PANEL);
-        assert_eq!(screen.display.0[320 * 45 + 12], BG);
+        assert_eq!(screen.surface.display_mut().0[320 * 39], PANEL);
+        assert_eq!(screen.surface.display_mut().0[320 * 45 + 12], BG);
         assert_eq!(
             tap(&mut screen, LinkStatus::Idle, module),
             Some(Action::Redraw)
@@ -1419,7 +1399,7 @@ mod tests {
                     0xffff
                 };
                 assert_eq!(
-                    screen.display.0[((80 + y) * 320 + left + x) as usize],
+                    screen.surface.display_mut().0[((80 + y) * 320 + left + x) as usize],
                     color
                 );
             }

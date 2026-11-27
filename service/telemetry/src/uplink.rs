@@ -1,6 +1,6 @@
-//! Reconnect policy for live tracker telemetry. The collector dial task owns TCP connect waits.
-use super::{publication::Publisher, wire};
-use crate::{text::Text, tracker::Snapshot};
+//! Reconnect policy for live sensor telemetry. The collector dial task owns TCP connect waits.
+use super::{publication::Publisher, wire, Names};
+use crate::Snapshot;
 use cellular::Status;
 use std::io::{self, Read};
 use std::net::{SocketAddr, SocketAddrV4, TcpStream};
@@ -10,6 +10,7 @@ use std::sync::{
 };
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
+use text::Text;
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(3);
 const SESSION_LIFETIME: Duration = Duration::from_secs(3600);
@@ -144,7 +145,7 @@ pub struct Modem {
 }
 
 impl Modem {
-    pub fn start(config: Config) -> io::Result<Self> {
+    pub fn start(config: Config, names: Names) -> io::Result<Self> {
         if config.collector.is_some() && !tls::Identity::SUPPORTS_PINNED_CLIENT {
             return Err(io::Error::new(
                 io::ErrorKind::Unsupported,
@@ -172,9 +173,9 @@ impl Modem {
                 .map(|collector| {
                     let control = signals.clone();
                     thread::Builder::new()
-                        .name("tracker-collector".into())
+                        .name(names.collector_worker.into())
                         .stack_size(4 * 1024)
-                        .spawn(move || dial(collector.endpoint, &control))
+                        .spawn(move || dial(collector.endpoint, &control, names.product))
                 })
                 .transpose()?
         } else {
@@ -214,7 +215,7 @@ impl Modem {
         let dial_result = self.task.take().map_or(Ok(()), |task| {
             task.thread().unpark();
             task.join()
-                .map_err(|_| io::Error::other("tracker collector dial task panicked"))
+                .map_err(|_| io::Error::other("telemetry collector dial task panicked"))
         });
         let link_result = self.link.stop().map_err(io::Error::other);
         dial_result.and(link_result)
@@ -246,7 +247,7 @@ impl Retry {
     }
 }
 
-fn dial(collector: Endpoint, signals: &Signals) {
+fn dial(collector: Endpoint, signals: &Signals, product: &str) {
     let _ = signals.dial_worker.set(thread::current());
     let mut generation = 0;
     let mut retry = Retry::new();
@@ -284,7 +285,7 @@ fn dial(collector: Endpoint, signals: &Signals) {
                 retry = Retry::new();
             }
             Err(error) => {
-                log::warn!("motion-tracker collector TCP: {}", error.kind());
+                log::warn!("{product} collector TCP: {}", error.kind());
                 retry.later();
             }
         }
@@ -294,6 +295,7 @@ fn dial(collector: Endpoint, signals: &Signals) {
 pub struct Upload<'a> {
     connection: tls::Connection<'a>,
     ready: bool,
+    product: &'static str,
 }
 
 impl<'a> Upload<'a> {
@@ -301,6 +303,7 @@ impl<'a> Upload<'a> {
         identity: &'a tls::Identity,
         socket: TcpStream,
         collector: Endpoint,
+        product: &'static str,
     ) -> io::Result<Self> {
         let connection = identity
             .connect_pinned(socket, collector.pin, SESSION_LIFETIME)
@@ -308,6 +311,7 @@ impl<'a> Upload<'a> {
         Ok(Self {
             connection,
             ready: false,
+            product,
         })
     }
 
@@ -325,7 +329,7 @@ impl<'a> Upload<'a> {
                 return Ok(false);
             }
             self.ready = true;
-            log::info!("motion-tracker collector TLS online");
+            log::info!("{} collector TLS online", self.product);
         }
         if !reports.publication.in_flight() {
             // Detect a closed peer even with no sample waiting. Finish any
@@ -345,7 +349,7 @@ impl<'a> Upload<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tracker::Reading;
+    use crate::Reading;
 
     #[test]
     fn report_budget_survives_an_interrupted_stream_and_skips_missed_intervals() {

@@ -1,9 +1,10 @@
-//! Bounded capture for the authenticated tracker export stream.
+//! Bounded capture for the authenticated navigation telemetry export stream.
 //!
 //! Three exclusive acquisition publishers share a fixed scalar pool. The
 //! communications owner copies complete batches before encoding or transport I/O.
 #[path = "export/policy.rs"]
 mod policy;
+pub use policy::CaptureBudget;
 
 use crate::clock::ClockAnchor;
 use messaging::pooled::{self, Notify, StartError, Status};
@@ -27,6 +28,20 @@ const DELTA: u8 = 0x80;
 const COUNTS: u8 = 0x40;
 const NO_UTC: u8 = 0x20;
 pub const MAX_BYTES: usize = 4 + 8 + BATCH * IMU_BYTES;
+
+/// Admission and retained-storage choices supplied by the application.
+/// Rates are in millihertz; an absent IMU or zero GNSS rate contributes no
+/// assumed traffic to the admission budget.
+/// The caller connects only the corresponding configured source callbacks;
+/// these declarations do not impose per-sample rate limits or disable a lane.
+/// Actual traffic exceeding the fixed pool still terminates export on overflow.
+pub struct CaptureConfig {
+    pub scales: [Option<[u32; 2]>; 2],
+    pub imu_rates_millihz: [Option<u32>; 2],
+    pub gnss_rate_millihz: u32,
+    pub reserve_export: bool,
+    pub budget: CaptureBudget,
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Version {
@@ -211,6 +226,13 @@ impl Sample {
 }
 
 impl CapturePublisher {
+    /// Publish one normalized measurement on its configured source endpoint.
+    ///
+    /// # Panics
+    ///
+    /// Panics if an IMU ordinal is outside the protocol's two IMU lanes or the
+    /// measurement belongs to a different endpoint. Source wiring is fixed at
+    /// composition time; the GNSS lane cannot accept IMU measurements.
     pub fn record(&mut self, measurement: Measurement) {
         // Capture the epoch before scalar conversion so a paused callback
         // cannot submit old work after a reconnect opens a different epoch.
@@ -219,7 +241,10 @@ impl CapturePublisher {
             .as_ref()
             .map(pooled::Publisher::captured_epoch);
         let source = match measurement {
-            Measurement::Imu(index, _) => index,
+            Measurement::Imu(index, _) => {
+                assert!(index < 2, "capture supports only IMU lanes 0 and 1");
+                index
+            }
             Measurement::Gnss(_) => 2,
         };
         assert_eq!(source, usize::from(self.source), "capture source mismatch");
@@ -250,24 +275,22 @@ impl Capture {
     /// pool in active and idle epochs until the last owner/publisher is dropped.
     /// Scalar arenas use fallible reservation; Arc control allocation follows
     /// Rust's ordinary infallible allocation contract.
-    pub fn new(
-        scales: [Option<[u32; 2]>; 2],
-        imu_rates: [Option<u32>; 2],
-        reserve_export: bool,
-    ) -> io::Result<(Self, [CapturePublisher; pooled::SOURCES])> {
-        if reserve_export {
-            policy::validate_imu_rates(imu_rates)?;
+    pub fn new(config: CaptureConfig) -> io::Result<(Self, [CapturePublisher; pooled::SOURCES])> {
+        if config.reserve_export {
+            config
+                .budget
+                .validate(config.imu_rates_millihz, config.gnss_rate_millihz)?;
         }
         let shared = Arc::new(CaptureShared {
             sensor_failed: AtomicBool::new(false),
             owner: OnceLock::new(),
-            scales,
+            scales: config.scales,
             clock: OnceLock::new(),
         });
-        let (owner, publishers) = if reserve_export {
+        let (owner, publishers) = if config.reserve_export {
             let (owner, publishers) = pooled::channel(
                 pooled::RetainedBudget {
-                    max_requested_bytes: policy::POOL_REQUESTED_BYTES,
+                    max_requested_bytes: config.budget.max_requested_bytes,
                 },
                 CaptureWake(shared.clone()),
             )
@@ -522,7 +545,25 @@ pub(crate) mod tests {
     use std::time::Instant;
 
     pub(crate) fn fixture(scales: [Option<[u32; 2]>; 2]) -> (Capture, [CapturePublisher; 3]) {
-        Capture::new(scales, [Some(100_000); 2], true).unwrap()
+        Capture::new(config(scales, [Some(100_000); 2], true)).unwrap()
+    }
+
+    pub(crate) fn config(
+        scales: [Option<[u32; 2]>; 2],
+        imu_rates_millihz: [Option<u32>; 2],
+        reserve_export: bool,
+    ) -> CaptureConfig {
+        CaptureConfig {
+            scales,
+            imu_rates_millihz,
+            gnss_rate_millihz: 2_000,
+            reserve_export,
+            budget: CaptureBudget {
+                max_requested_bytes: 22 * 1024,
+                stall_ms: 2_000,
+                burst_records: 64,
+            },
+        }
     }
 
     pub(crate) fn fix(sequence: u64) -> Measurement {
@@ -909,7 +950,8 @@ pub(crate) mod tests {
 
     #[test]
     fn no_export_reservation_still_publishes_clock_and_faults() {
-        let (mut capture, [_, _, mut gnss]) = Capture::new([None; 2], [None; 2], false).unwrap();
+        let (mut capture, [_, _, mut gnss]) =
+            Capture::new(config([None; 2], [None; 2], false)).unwrap();
         assert!(capture.owner.is_none());
         let view = capture.view();
         let Measurement::Gnss(mut point) = fix(1) else {
@@ -1001,7 +1043,7 @@ pub(crate) mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "capture source mismatch")]
+    #[should_panic(expected = "capture supports only IMU lanes 0 and 1")]
     fn oversized_source_ordinal_cannot_alias_a_configured_lane() {
         let (_, [mut primary, _, _]) = fixture([None; 2]);
         primary.record(imu(256, 1, 10));
@@ -1012,5 +1054,12 @@ pub(crate) mod tests {
     fn publisher_rejects_a_measurement_from_another_source() {
         let (_, [mut primary, _, _]) = fixture([None; 2]);
         primary.record(fix(0));
+    }
+
+    #[test]
+    #[should_panic(expected = "capture supports only IMU lanes 0 and 1")]
+    fn third_imu_cannot_alias_the_gnss_protocol_lane() {
+        let (_, [_, _, mut gnss]) = fixture([None; 2]);
+        gnss.record(imu(2, 1, 10));
     }
 }

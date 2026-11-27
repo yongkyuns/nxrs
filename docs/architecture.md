@@ -149,12 +149,24 @@ contract, so gateway ingest can read it with the camera-side server disabled.
 `camera::capture::Session` owns frame validation, fixed history and stop.
 `wifi::Reconnector` owns station retry and rejoin; its caller supplies credentials
 and drives polling. Home-cam composes those APIs with streaming and detection.
-Motion Tracker's `communications` module owns the BLE and cellular sessions and
-their common bounded publisher. The cellular HAL owns PPP redial and publishes
-link changes. Communications owns collector TCP/TLS recovery and the product's
-cellular summary budget. Full-rate export stays on BLE. Map tiles use BLE or an
-unmetered IP relay on a build without cellular. Navigation
-publishes measurements and terminal faults to shared observation readers.
+The [telemetry service](../service/telemetry/README.md) owns BLE and cellular
+delivery, the common bounded publisher, capture admission and the versioned
+sensor protocol. Its existing communications worker steps both transports and
+map delivery under one TLS identity lease and one logical wait point. The
+cellular HAL owns PPP redial and publishes link changes; telemetry owns collector
+TCP/TLS recovery. Applications supply BLE UUIDs, source rates, capture budgets,
+report cadence and permitted endpoints. Motion Tracker selects full-rate export
+over BLE, limited cellular summaries, and map relay only on an unmetered route.
+
+The [map service](../service/map/README.md) owns the bounded tile protocol,
+projection, viewport selection and four-tile cache. It has no display, network
+or worker dependency. Telemetry progresses its existing phone/IP transfer and
+moves completed tiles to the application's presentation owner. The
+[UI service](../service/ui/README.md) owns synchronous strip rendering, text,
+gesture recognition and bounded chart mechanics. The application supplies the
+display, page layout, colors, input actions and deadlines. It continues rendering
+on its existing event loop; extracting a service does not introduce a thread.
+Navigation publishes measurements and terminal faults to shared observation readers.
 Motion Tracker's single entry point requires a primary IMU and GNSS. The
 selected profile supplies processing capabilities and any optional display,
 touch or secondary IMU. The camera qualification's

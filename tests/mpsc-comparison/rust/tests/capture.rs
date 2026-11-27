@@ -4,11 +4,11 @@
 
 #[rustfmt::skip]
 #[allow(dead_code, unused_imports)]
-#[path = "../../../../app/motion-tracker/src/communications/export.rs"]
+#[path = "../../../../service/telemetry/src/export.rs"]
 mod capture;
 #[rustfmt::skip]
 #[allow(dead_code)]
-#[path = "../../../../app/motion-tracker/src/clock.rs"]
+#[path = "../../../../service/telemetry/src/clock.rs"]
 mod clock;
 
 #[path = "support/capture_gate.rs"]
@@ -23,7 +23,7 @@ mod capture_pool_checks;
 mod capture_protocol;
 
 use allocation_probe::{Snapshot, Tracking};
-use capture::{Capture, CapturePublisher, MAX_BYTES, Version};
+use capture::{Capture, CaptureBudget, CaptureConfig, CapturePublisher, MAX_BYTES, Version};
 use heapless::spsc::Queue;
 use navigation::observations::Measurement;
 use std::alloc::System;
@@ -182,7 +182,21 @@ fn decode(bytes: &[u8], records: &mut Vec<Record>) {
 }
 
 fn reserve_capture() -> (Capture, [CapturePublisher; 3]) {
-    Capture::new([None; 2], [Some(100_000); 2], true).unwrap()
+    Capture::new(capture_config([None; 2])).unwrap()
+}
+
+fn capture_config(scales: [Option<[u32; 2]>; 2]) -> CaptureConfig {
+    CaptureConfig {
+        scales,
+        imu_rates_millihz: [Some(100_000); 2],
+        gnss_rate_millihz: 2_000,
+        reserve_export: true,
+        budget: CaptureBudget {
+            max_requested_bytes: 22 * 1024,
+            stall_ms: 2_000,
+            burst_records: 64,
+        },
+    }
 }
 
 fn same_sources(actual: &[Record], expected: &[Record]) {
@@ -724,11 +738,9 @@ fn main() {
     println!(
         "CAPTURE_METADATA {{\"schema\":\"capture-comparison-v1\",\"runtime\":\"host\",\"timing\":\"not-measured\",\"std_backend\":\"desktop-standard-library\",\"heapless_version\":\"0.9.4\",\"heapless_features\":[],\"source_hash\":\"git-blob-sha1\",\"capture_blob\":\"{}\",\"clock_blob\":\"{}\",\"fixture_blob\":\"{}\",\"protocol_blob\":\"{}\",\"gate_blob\":\"{}\",\"pool_blob\":\"{}\",\"pool_checks_blob\":\"{}\",\"manifest_blob\":\"{}\",\"lock_blob\":\"{}\",\"production_gate_blob\":\"{}\",\"production_pool_blob\":\"{}\",\"policy_blob\":\"{}\"}}",
         blob(include_bytes!(
-            "../../../../app/motion-tracker/src/communications/export.rs"
+            "../../../../service/telemetry/src/export.rs"
         )),
-        blob(include_bytes!(
-            "../../../../app/motion-tracker/src/clock.rs"
-        )),
+        blob(include_bytes!("../../../../service/telemetry/src/clock.rs")),
         blob(include_bytes!("capture.rs")),
         blob(include_bytes!("support/capture_protocol.rs")),
         blob(include_bytes!("support/capture_gate.rs")),
@@ -741,7 +753,7 @@ fn main() {
         )),
         blob(include_bytes!("../../../../shared/messaging/src/pooled.rs")),
         blob(include_bytes!(
-            "../../../../app/motion-tracker/src/communications/export/policy.rs"
+            "../../../../service/telemetry/src/export/policy.rs"
         )),
     );
     compare("nominal-two-second-stall", &nominal(200));

@@ -252,8 +252,10 @@ retirement contributes a deadline to the owner's single park. The scalar payload
 path avoids a mutex, but the callback and platform wake primitive are not a
 whole-system lock-free or deadline guarantee.
 
-The app's [capture policy](../app/motion-tracker/src/communications/export/policy.rs)
-checks storage and workload before sensor startup:
+The [telemetry service's capture admission](../service/telemetry/src/export/policy.rs)
+checks the application's storage and workload configuration before sensor startup.
+[Motion Tracker's configuration](../app/motion-tracker/src/communications.rs)
+supplies the following product budget:
 
 | Policy | Enforcement and scope |
 | --- | --- |

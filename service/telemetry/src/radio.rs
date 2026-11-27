@@ -2,32 +2,22 @@ use super::{
     export::{Capture, Version, MAX_BYTES, REQUEST_LEN, REQUEST_PREFIX},
     publication::Publisher,
     tiles::{Key, Receiver, Response},
-    wire,
+    wire, BleServices,
 };
-use crate::{text::Text, tracker::Snapshot};
-use ble::{
-    peripheral::{self, Link, Listener, Service},
-    Uuid,
-};
+use crate::Snapshot;
+use ble::peripheral::{self, Link, Listener};
 use std::io::{self, Read, Write};
 use std::time::{Duration, Instant};
+use text::Text;
 
-fn uuid(last: u8) -> Uuid {
-    Uuid([
-        0x3c, 0xb1, 0xde, 0x6e, 0xa9, 0x55, 0x49, 0xb7, 0xbe, 0x4f, 0xc4, 0x57, 0x2d, 0x3f, 0x34,
-        last,
-    ])
-}
-
-pub fn pair<'a>(identity: &'a tls::Identity) -> io::Result<Output<'a, impl Listener>> {
-    let service = |base| Service {
-        uuid: uuid(base),
-        ingress: uuid(base + 1),
-        egress: uuid(base + 2),
-    };
-    let listener = peripheral::open_with_notifications(service(0), service(0x20))
+pub fn pair<'a>(
+    identity: &'a tls::Identity,
+    services: BleServices,
+    product: &'static str,
+) -> io::Result<Output<'a, impl Listener>> {
+    let listener = peripheral::open_with_notifications(services.pairing, services.telemetry)
         .map_err(|error| io::Error::other(format!("BLE: {error:?}")))?;
-    Output::start(listener, identity)
+    Output::start(listener, identity, product)
 }
 
 struct Bearer<T>(T);
@@ -173,6 +163,7 @@ pub struct Output<'a, L: Listener> {
     connection: Option<tls::Connection<'a, Bearer<L::Transport>>>,
     listener: L,
     identity: &'a tls::Identity,
+    product: &'static str,
     key: [u8; 32],
     tile: Receiver,
     advertised_tile: Option<Key>,
@@ -188,7 +179,11 @@ pub struct Output<'a, L: Listener> {
 }
 
 impl<'a, L: Listener> Output<'a, L> {
-    pub fn start(listener: L, identity: &'a tls::Identity) -> io::Result<Self> {
+    pub fn start(
+        listener: L,
+        identity: &'a tls::Identity,
+        product: &'static str,
+    ) -> io::Result<Self> {
         let key = identity
             .pairing_key()
             .map_err(|error| io::Error::other(format!("Pairing key: {error:?}")))?;
@@ -196,6 +191,7 @@ impl<'a, L: Listener> Output<'a, L> {
         Ok(Self {
             listener,
             identity,
+            product,
             key,
             tile: Receiver::default(),
             advertised_tile: None,
@@ -273,10 +269,11 @@ impl<'a, L: Listener> Output<'a, L> {
         };
         self.connection = None;
         let high_water = capture.finish();
-        log::warn!("motion-tracker BLE session ended: {error}");
+        log::warn!("{} BLE session ended: {error}", self.product);
         if self.last_export_service.take().is_some() {
             log::info!(
-                "motion-tracker BLE export: high_water={high_water} samples max_service_gap={} us",
+                "{} BLE export: high_water={high_water} samples max_service_gap={} us",
+                self.product,
                 self.max_service_gap.as_micros(),
             );
         }

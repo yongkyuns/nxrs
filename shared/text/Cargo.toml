@@ -1,0 +1,7 @@
+[package]
+name = "nxrs-text"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+name = "text"

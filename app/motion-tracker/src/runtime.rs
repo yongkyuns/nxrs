@@ -1,9 +1,6 @@
 use crate::{communications, screen, tracker, ReportOptions};
 use battery::Device as _;
-use communications::{
-    Capture, CapturePublisher, CellularConfig, Collector, Communications, Endpoint, Pairing,
-    Telemetry, View, Zoom,
-};
+use maps::Zoom;
 use messaging::bounded;
 use navigation::observations::{
     publication, Measurement, Observation, ObservationPublishers, ObservationService, SensorFault,
@@ -12,6 +9,10 @@ use screen::{Action, Screen};
 use std::io::{self, Write};
 use std::sync::mpsc::{RecvTimeoutError, TrySendError};
 use std::time::{Duration, Instant};
+use telemetry::{
+    Capture, CapturePublisher, CellularConfig, Collector, Communications, Endpoint, Pairing,
+    Telemetry, View,
+};
 use touch::Session as _;
 use tracker::{report_fault, Snapshot, FIX_FRESH, IMU_FRESH};
 
@@ -100,9 +101,7 @@ impl Options {
         };
         options.tile_relay = match (tile_relay, tile_pin) {
             (None, None) => None,
-            (Some(address), Some(pin))
-                if communications::DIRECT_RELAY_AVAILABLE && apn.is_none() =>
-            {
+            (Some(address), Some(pin)) if !cellular::LINK_AVAILABLE && apn.is_none() => {
                 Some(Endpoint::parse(&address, &pin)?)
             }
             (Some(_), Some(_)) => {
@@ -203,12 +202,13 @@ fn track(
     // clock/fault state and do not reserve the full-rate export pool.
     let rates = [&primary_scale, &secondary_scale]
         .map(|applied| applied.as_ref().ok().map(|config| config.rate_millihz));
-    let (capture, [primary_capture, secondary_capture, gnss_capture]) = Capture::new(
-        [primary_scale, secondary_scale]
-            .map(|applied| applied.ok().and_then(|config| config.counts_scale)),
-        rates,
-        options.ble || screen.is_some(),
-    )?;
+    let (capture, [primary_capture, secondary_capture, gnss_capture]) =
+        Capture::new(communications::capture(
+            [primary_scale, secondary_scale]
+                .map(|applied| applied.ok().and_then(|config| config.counts_scale)),
+            rates,
+            options.ble || screen.is_some(),
+        ))?;
     let capture_view = capture.view();
     let (
         ObservationPublishers {
@@ -228,9 +228,7 @@ fn track(
         (options.ble || options.cellular.is_some() || options.tile_relay.is_some())
             .then(|| {
                 Communications::start(
-                    options.ble,
-                    options.cellular,
-                    options.tile_relay,
+                    communications::config(options.ble, options.cellular, options.tile_relay),
                     &mut telemetry,
                     notify_links.clone(),
                 )
@@ -362,7 +360,7 @@ fn track(
                 let mut snapshot = Snapshot::from(sensors.snapshot(now));
                 snapshot.clock = capture_view.clock();
                 if let Some(serial) = &mut serial {
-                    communications::write_usb(&mut serial.lock(), &snapshot)?;
+                    telemetry::write_usb(&mut serial.lock(), &snapshot)?;
                 }
                 if options.reports.frames.is_some() {
                     rendered += 1;
@@ -426,9 +424,7 @@ fn track(
                         Some(Action::Pair) => match &communications {
                             Some(links) => links.pair(Pairing::Start),
                             None => match Communications::start(
-                                true,
-                                None,
-                                None,
+                                communications::config(true, None, None),
                                 &mut telemetry,
                                 notify_links.clone(),
                             ) {

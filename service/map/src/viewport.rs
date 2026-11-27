@@ -1,9 +1,10 @@
 //! North-up map projection, viewport, and display tile cache.
-use crate::communications::{Key, Tile, Zoom, SIDE};
+use crate::{Key, Tile, Zoom, SIDE};
 
 const VIEWPORT_TILES: usize = 4;
 
-#[derive(Clone, Copy)]
+/// Projected point within a tile: fractional east/south offsets are in `0..1`.
+#[derive(Clone, Copy, Debug)]
 pub struct Position {
     pub key: Key,
     pub east: f64,
@@ -11,6 +12,10 @@ pub struct Position {
 }
 
 impl Position {
+    /// Project a WGS84 latitude/longitude onto the supported Web Mercator map.
+    ///
+    /// Coordinates must be finite, latitude within ±85.05112878 degrees and
+    /// longitude within ±180 degrees. Both antimeridian endpoints map to x=0.
     pub fn project(latitude: f64, longitude: f64, zoom: Zoom) -> Option<Self> {
         if !(-85.051_128_78..=85.051_128_78).contains(&latitude)
             || !(-180.0..=180.0).contains(&longitude)
@@ -33,6 +38,11 @@ impl Position {
             south: south.fract(),
         })
     }
+
+    /// Validate a position constructed through its public fields.
+    pub fn is_valid(self) -> bool {
+        self.key.is_valid() && (0.0..1.0).contains(&self.east) && (0.0..1.0).contains(&self.south)
+    }
 }
 
 /// A one-tile-wide square centered on the fix. The tile keys are ordered
@@ -45,17 +55,25 @@ pub struct Viewport {
 }
 
 impl Viewport {
+    /// At most four intersecting tiles in fetch order, starting under the fix.
     pub fn keys(self) -> [Option<Key>; VIEWPORT_TILES] {
         self.keys
     }
 
+    /// Tile origin relative to this viewport, in tile-width units.
+    ///
+    /// Supply a tile at the viewport's zoom, normally from [`Viewport::keys`].
+    /// Coordinates outside `0..1` describe a tile partially or fully offscreen.
+    /// East/west distances wrap at the antimeridian.
     pub fn origin(self, key: Key) -> [f32; 2] {
         let [x, y] = self.position.key.delta(key);
         [x as f32 - self.offset[0], y as f32 - self.offset[1]]
     }
 
+    /// Locate a valid point inside the view, rejecting a different zoom or an
+    /// offscreen point. Returned coordinates are in the square `[0, 1)²`.
     pub fn project(self, point: Position) -> Option<[f32; 2]> {
-        if point.key.zoom != self.position.key.zoom {
+        if !point.is_valid() || point.key.zoom != self.position.key.zoom {
             return None;
         }
         let within = self.coordinates(point);
@@ -74,10 +92,13 @@ impl Viewport {
 impl Key {
     fn delta(self, other: Self) -> [i32; 2] {
         let world = self.zoom.tiles() as i32;
-        let dx = other.x as i32 - self.x as i32;
+        // Projected positions are validated before use. Explicit wrapping also
+        // makes origin() safe for arbitrary public key fields without adding
+        // 64-bit arithmetic to the normal embedded projection path.
+        let dx = (other.x as i32).wrapping_sub(self.x as i32);
         [
-            (dx + world / 2).rem_euclid(world) - world / 2,
-            other.y as i32 - self.y as i32,
+            dx.wrapping_add(world / 2).rem_euclid(world) - world / 2,
+            (other.y as i32).wrapping_sub(self.y as i32),
         ]
     }
 
@@ -99,8 +120,11 @@ impl Key {
     }
 }
 
-/// The display owns up to four complete tiles at a tile corner. Communications
-/// owns the current reply until it is ready to hand over.
+/// Synchronous viewport selection and a cache of at most four complete tiles.
+///
+/// The caller owns drawing and fetch timing. The receiver retains the current
+/// reply until it is complete and handed to [`View::accept`]. No worker, queue,
+/// or additional tile copy is introduced by the view.
 #[derive(Default)]
 pub struct View {
     tiles: [Option<Tile>; VIEWPORT_TILES],
@@ -110,14 +134,24 @@ pub struct View {
 }
 
 impl View {
+    /// Center a one-tile-wide view on a valid position and remember travel
+    /// direction for fetch ordering. Speed is in metres per second; negative
+    /// or nonfinite speed disables the direction hint without hiding the map.
+    ///
+    /// `None` or an invalid position clears the current fix, heading and pending
+    /// request. Previously received tiles remain bounded in the cache for reuse.
     pub fn select(&mut self, fix: Option<(Position, f32)>) -> Option<Viewport> {
-        let Some((position, speed)) = fix else {
+        let Some((position, speed)) = fix.filter(|(position, _)| position.is_valid()) else {
             self.last = None;
             self.heading = None;
             self.pending = None;
             return None;
         };
-        if let Some(last) = self.last.replace(position) {
+        if let Some(last) = self
+            .last
+            .replace(position)
+            .filter(|last| last.key.zoom == position.key.zoom)
+        {
             let [x, y] = last.key.delta(position.key);
             let delta = [
                 f64::from(x) + position.east - last.east,
@@ -125,11 +159,13 @@ impl View {
             ];
             let axis = usize::from(delta[1].abs() > delta[0].abs());
             let travel = delta[axis];
-            if speed < 0.8 || travel.abs() >= 1.0 {
+            if !speed.is_finite() || speed < 0.8 || travel.abs() >= 1.0 {
                 self.heading = None;
             } else if travel.abs() >= 0.0005 {
                 self.heading = Some((axis, if travel > 0.0 { 1 } else { -1 }));
             }
+        } else {
+            self.heading = None;
         }
         let offset = [position.east as f32 - 0.5, position.south as f32 - 0.5];
         let step = offset.map(|value| if value > 0.0 { 1 } else { -1 });
@@ -153,6 +189,8 @@ impl View {
         })
     }
 
+    /// Select the next missing visible tile, preserving an in-flight visible
+    /// request. Obsolete cached tiles are released when more data is needed.
     pub fn wanted(&mut self, viewport: Viewport) -> Option<Key> {
         let visible = viewport.keys();
         let missing = |key: &Key| self.tile(*key).is_none();
@@ -179,6 +217,7 @@ impl View {
         missing
     }
 
+    /// Retain a complete visible tile, dropping duplicate or obsolete replies.
     pub fn accept(&mut self, viewport: Viewport, tile: Tile) {
         let visible = viewport.keys();
         if !visible.contains(&Some(tile.key)) || self.tile(tile.key).is_some() {
@@ -192,6 +231,7 @@ impl View {
         }
     }
 
+    /// Borrow an already cached tile without copying or decoding it.
     pub fn tile(&self, key: Key) -> Option<&Tile> {
         self.tiles.iter().flatten().find(|tile| tile.key == key)
     }
@@ -308,5 +348,86 @@ mod tests {
         assert_eq!(edge.key.adjacent(0, -1).unwrap().x, 262143);
         assert!(Position::project(90.0, 0.0, wide).is_none());
         assert!(Position::project(0.0, f64::NAN, wide).is_none());
+    }
+
+    #[test]
+    fn malformed_public_positions_are_rejected_without_corrupting_the_view() {
+        let good = Position {
+            key: tile_key(1, 2),
+            east: 0.5,
+            south: 0.5,
+        };
+        let mut view = View::default();
+        let viewport = view.select(Some((good, 1.0))).unwrap();
+        let invalid = [
+            Position {
+                east: f64::NAN,
+                ..good
+            },
+            Position {
+                south: f64::INFINITY,
+                ..good
+            },
+            Position { east: 1.0, ..good },
+            Position {
+                south: -0.1,
+                ..good
+            },
+            Position {
+                key: tile_key(u32::MAX, 2),
+                ..good
+            },
+            Position {
+                key: tile_key(1, u32::MAX),
+                ..good
+            },
+        ];
+        for point in invalid {
+            assert!(view.select(Some((point, 1.0))).is_none());
+            assert!(viewport.project(point).is_none());
+            assert!(view.last.is_none());
+            assert!(view.pending.is_none());
+            assert!(view.heading.is_none());
+        }
+        let recovered = view.select(Some((good, f32::NAN))).unwrap();
+        assert_eq!(recovered.project(good), Some([0.5, 0.5]));
+        assert_eq!(view.wanted(recovered), Some(good.key));
+
+        // The unchecked origin helper also remains overflow-safe for arbitrary
+        // public key fields, even though callers normally use viewport keys.
+        assert!(viewport
+            .origin(tile_key(u32::MAX, u32::MAX))
+            .into_iter()
+            .all(f32::is_finite));
+    }
+
+    #[test]
+    fn changing_zoom_restarts_direction_hints_and_selects_new_tiles() {
+        let position = Position {
+            key: tile_key(10, 20),
+            east: 0.75,
+            south: 0.75,
+        };
+        let mut view = View::default();
+        view.select(Some((position, 1.0))).unwrap();
+        view.select(Some((
+            Position {
+                south: 0.8,
+                ..position
+            },
+            1.0,
+        )))
+        .unwrap();
+        assert_eq!(view.heading, Some((1, 1)));
+        let zoom = Zoom::new(16).unwrap();
+        let point = Position {
+            key: Key::new(zoom, 21, 41).unwrap(),
+            east: 0.5,
+            south: 0.6,
+        };
+        let viewport = view.select(Some((point, 1.0))).unwrap();
+        assert_eq!(view.heading, None);
+        assert_eq!(view.wanted(viewport), Some(point.key));
+        assert!(viewport.project(position).is_none());
     }
 }

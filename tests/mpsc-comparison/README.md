@@ -25,12 +25,12 @@ benchmark Cargo feature is added.
 ## Host capture admission comparison
 
 The serial, harness-free
-[capture fixture](rust/tests/capture.rs) source-includes Motion Tracker's
-current `Capture` and clock implementation. It compares their observable
+[capture fixture](rust/tests/capture.rs) source-includes the telemetry service's
+current `Capture` and clock implementation used by Motion Tracker. It compares their observable
 capture behavior with desktop `std::sync::mpsc` and pinned `heapless::spsc`
 0.9.4 queue models. This is a host contract and storage comparison. It does not
-measure timing or run the patched NuttX std backend. The source-included app
-now uses the same shared scalar transport exercised by the pool controls.
+measure timing or run the patched NuttX std backend. The source-included service
+uses the same shared scalar transport exercised by the pool controls.
 
 Run it from the repository root:
 
@@ -137,9 +137,11 @@ admission, overflow identity, cancellation and retirement. Its explicit `probe`
 feature exposes qualification boundaries to two independent payload paths. The [reference adapter](rust/tests/support/capture_protocol.rs) uses
 real host threads, non-Copy payloads and a 512-slot desktop std MPSC queue. The
 [pool facade](rust/tests/support/capture_pool.rs) calls `messaging::pooled`
-without implementing storage or lifecycle again. Both use safe Rust. The app
-uses the optional `pooled` feature of its existing messaging dependency; this
-adds no worker or separate runtime. The original serial comparisons and
+without implementing storage or lifecycle again. Both use safe Rust. The
+telemetry service uses messaging's `pooled` feature and receives the application's
+traffic and storage budgets. The comparison compiles that service's production
+capture and clock sources and binds their current paths and hashes to its output;
+it adds no worker or separate runtime. The original serial comparisons and
 epoch-only negative control remain independent reference checks. Reference
 ownership witnesses and event accounting run outside the allocation windows;
 they are not a product memory measurement.

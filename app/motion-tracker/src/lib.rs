@@ -1,13 +1,11 @@
 //! Motion observations and the outputs selected by this application build.
 #![forbid(unsafe_code)]
 
-mod clock;
 mod communications;
 mod health;
 mod preferences;
 mod runtime;
 mod screen;
-mod text;
 mod tracker;
 
 use preferences::Interval;

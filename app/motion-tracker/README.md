@@ -13,11 +13,25 @@ python3 tests/native/motion_tracker.py
 
 [One-IMU NuttX acquisition fixture](../../tests/nuttx-std/tracker-sim/README.md#headless-one-imu-tracker)
 
-The runtime composes acquisition, screen and communications. The `screen`
-module owns gestures, the pairing view, chart history and map presentation,
-including projection, viewport selection and the display tile cache. The
-`communications` module owns BLE and collector delivery, tile requests and
-reply decoding, and the snapshot format used by BLE, TLS and USB diagnostics.
+The runtime composes acquisition, telemetry and the product dashboard. The
+application selects devices, BLE UUIDs, source rates, report intervals and
+permitted routes. Its `screen` module owns the pages, layout, colors, pairing
+actions and redraw deadlines.
+
+| Reusable component | Responsibility | Execution |
+| --- | --- | --- |
+| [Telemetry](../../service/telemetry/README.md) | Capture/export, snapshot encoding, partial writes, BLE pairing, collector recovery and map transfer | The existing communications worker and its single wait point; one shared TLS identity |
+| [Maps](../../service/map/README.md) | Tile protocol, Mercator projection, viewport selection and bounded cache | Synchronous calls by the communications and presentation owners |
+| [UI](../../service/ui/README.md) | Reusable strip buffer, bitmap text, gesture recognition, bounded history and chart damage | Synchronous calls on the application's event loop |
+| [Fixed text](../../shared/text/src/lib.rs) | Inline formatting for wire frames and display labels | No allocation or worker |
+
+These services have no dependency on Motion Tracker. The map and UI components
+can be used without telemetry; the telemetry wire encoders and publisher can be
+used without starting its worker. Motion Tracker retains its two-IMU/GNSS product
+wiring and uses the same versioned protocol as its existing clients. A different
+application can reuse that protocol and supply its own admitted traffic budget,
+Bluetooth UUIDs and endpoints. Arbitrary sensor counts require a deliberate
+protocol extension.
 
 ## Dashboard
 

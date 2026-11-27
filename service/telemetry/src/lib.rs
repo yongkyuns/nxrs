@@ -1,17 +1,26 @@
-//! One task steps both TLS sessions under the SDK's single identity lease.
-mod export;
-mod publication;
+//! Navigation telemetry, bounded capture and authenticated delivery.
+//!
+//! One owner steps BLE, collector TLS and map transfer under one identity lease.
+//! Applications supply product identity, endpoints and resource budgets. Wire
+//! encoders and synchronous publication can be used without starting that owner.
+#![forbid(unsafe_code)]
+
+mod clock;
+pub mod export;
+pub mod publication;
 mod radio;
+mod snapshot;
 mod tiles;
 mod uplink;
-mod wire;
+pub mod wire;
 
-pub(super) use export::{Capture, CapturePublisher};
-pub(super) use tiles::{Key, Tile, Zoom, DIRECT_RELAY_AVAILABLE, SIDE};
-pub(super) use uplink::{Collector, Config as CellularConfig, Endpoint};
-pub(super) use wire::write_usb;
+pub use clock::ClockAnchor;
+pub use export::{Capture, CaptureBudget, CaptureConfig, CapturePublisher, CaptureView};
+pub use snapshot::{reading_status, Reading, Snapshot};
+pub use uplink::{Collector, Config as CellularConfig, Endpoint};
+pub use wire::write_usb;
 
-use crate::tracker::Snapshot;
+use maps::{Key, Tile};
 use navigation::observations::ObservationReader;
 use std::cell::OnceCell;
 use std::io;
@@ -21,6 +30,48 @@ use std::time::{Duration, Instant};
 use tiles::Response;
 
 const ACTIVE_POLL: Duration = Duration::from_millis(15);
+
+/// Longest supported summary interval. A bounded interval also keeps scheduling
+/// arithmetic representable throughout the lifetime of a running owner.
+pub const MAX_REPORT_INTERVAL: Duration = Duration::from_secs(86_400);
+
+/// The legacy polling and notification-capable BLE byte-stream services.
+/// Product UUIDs belong to application composition, not the delivery owner.
+#[derive(Clone, Copy)]
+pub struct BleServices {
+    pub pairing: ble::peripheral::Service,
+    pub telemetry: ble::peripheral::Service,
+}
+
+/// Human-readable labels for diagnostics and the existing execution owners.
+#[derive(Clone, Copy)]
+pub struct Names {
+    pub product: &'static str,
+    pub worker: &'static str,
+    pub collector_worker: &'static str,
+    pub tile_worker: &'static str,
+}
+
+impl Default for Names {
+    fn default() -> Self {
+        Self {
+            product: "telemetry",
+            worker: "telemetry-links",
+            collector_worker: "telemetry-dial",
+            tile_worker: "telemetry-tile",
+        }
+    }
+}
+
+/// Connections selected by the application. Supplying a tile relay admits its
+/// use; the application decides whether the underlying network may carry maps.
+pub struct Config {
+    pub ble: BleServices,
+    pub pair_on_start: bool,
+    pub cellular: Option<CellularConfig>,
+    pub tile_relay: Option<Endpoint>,
+    pub names: Names,
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum LinkStatus {
@@ -63,7 +114,7 @@ struct Shared {
     telemetry: Option<Telemetry>,
 }
 
-pub(super) struct Telemetry {
+pub struct Telemetry {
     pub readings: ObservationReader<2>,
     pub capture: Capture,
     pub interval: Duration,
@@ -124,30 +175,33 @@ pub struct Communications {
 
 impl Communications {
     pub fn start(
-        pair: bool,
-        cellular: Option<CellularConfig>,
-        tile_relay: Option<Endpoint>,
+        config: Config,
         telemetry: &mut Option<Telemetry>,
         mut notify: impl FnMut() + Send + 'static,
     ) -> io::Result<Self> {
+        if let Some(telemetry) = telemetry.as_ref() {
+            validate_interval(telemetry.interval, "telemetry report interval")?;
+        }
+        if let Some(collector) = config.cellular.as_ref().and_then(|config| config.collector) {
+            validate_interval(collector.interval, "collector report interval")?;
+        }
         Self::start_owner(telemetry, move |incoming| {
             thread::Builder::new()
-                .name("tracker-links".into())
+                .name(config.names.worker.into())
                 .stack_size(23 * 1024)
                 .spawn(move || {
                     let mut owner = TelemetryOwner::take(&incoming);
+                    let product = config.names.product;
                     let result = run(
                         &incoming,
-                        pair,
-                        cellular,
-                        tile_relay,
+                        config,
                         owner.telemetry.as_mut().unwrap(),
                         &mut notify,
                     );
                     if let Err(error) = &result {
                         incoming.lock().unwrap().view = unavailable();
                         notify();
-                        log::error!("motion-tracker communications stopped: {error}");
+                        log::error!("{product} communications stopped: {error}");
                     }
                     result
                 })
@@ -181,12 +235,15 @@ impl Communications {
     }
 
     pub fn pair(&self, command: Pairing) {
+        let Some(task) = self.task.as_ref().filter(|task| !task.is_finished()) else {
+            return;
+        };
         self.shared.lock().unwrap().pairing = Some(command);
-        self.task.as_ref().unwrap().thread().unpark();
+        task.thread().unpark();
     }
 
     pub fn view(&self, previous: View) -> View {
-        if self.task.as_ref().is_some_and(JoinHandle::is_finished) {
+        if self.task.as_ref().is_none_or(JoinHandle::is_finished) {
             return unavailable();
         }
         self.shared
@@ -195,6 +252,7 @@ impl Communications {
     }
 
     pub fn map(&self, wanted: Option<Key>) -> Option<Tile> {
+        let task = self.task.as_ref().filter(|task| !task.is_finished())?;
         let Ok(mut shared) = self.shared.try_lock() else {
             return None;
         };
@@ -202,7 +260,7 @@ impl Communications {
         let wanted = wanted.filter(|key| tile.as_ref().is_none_or(|tile| tile.key != *key));
         if shared.tile_request != wanted {
             shared.tile_request = wanted;
-            self.task.as_ref().unwrap().thread().unpark();
+            task.thread().unpark();
         }
         tile
     }
@@ -216,7 +274,7 @@ impl Communications {
             task.thread().unpark();
             return task
                 .join()
-                .map_err(|_| io::Error::other("tracker links task panicked"))?;
+                .map_err(|_| io::Error::other("telemetry links task panicked"))?;
         }
         Ok(())
     }
@@ -226,7 +284,7 @@ impl Communications {
     /// Capture can still be retiring a paused acquisition callback: the joined
     /// owner returns promptly and the next owner drains before opening an epoch.
     /// Full application shutdown joins acquisition before retiring this endpoint.
-    pub(super) fn take_telemetry(&mut self) -> Option<Telemetry> {
+    pub fn take_telemetry(&mut self) -> Option<Telemetry> {
         if self.task.is_some() {
             return None;
         }
@@ -236,6 +294,19 @@ impl Communications {
             .telemetry
             .take()
     }
+}
+
+fn validate_interval(interval: Duration, name: &str) -> io::Result<()> {
+    if interval.is_zero()
+        || interval > MAX_REPORT_INTERVAL
+        || Instant::now().checked_add(interval).is_none()
+    {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("{name} must be greater than zero and at most one day"),
+        ));
+    }
+    Ok(())
 }
 
 fn unavailable() -> View {
@@ -261,9 +332,7 @@ fn tls_identity(slot: &OnceCell<tls::Identity>) -> io::Result<&tls::Identity> {
 
 fn run(
     shared: &Mutex<Shared>,
-    pair: bool,
-    cellular: Option<CellularConfig>,
-    tile_relay: Option<Endpoint>,
+    mut config: Config,
     telemetry: &mut Telemetry,
     notify: &mut impl FnMut(),
 ) -> io::Result<()> {
@@ -273,18 +342,21 @@ fn run(
         Ok(()) | Err(execution::Error::Unsupported) => {}
         Err(error) => {
             return Err(io::Error::other(format!(
-                "tracker links priority: {error:?}"
+                "telemetry links priority: {error:?}"
             )))
         }
     }
     telemetry.capture.register_owner();
-    let collector = cellular.as_ref().and_then(|config| config.collector);
-    let mut modem = cellular.map(uplink::Modem::start).transpose()?;
+    let collector = config.cellular.as_ref().and_then(|config| config.collector);
+    let mut modem = config
+        .cellular
+        .take()
+        .map(|cellular| uplink::Modem::start(cellular, config.names))
+        .transpose()?;
     serve(
         shared,
-        pair,
+        &config,
         modem.as_ref().map(|modem| (modem, collector)),
-        tile_relay,
         telemetry,
         notify,
     );
@@ -294,9 +366,8 @@ fn run(
 
 fn serve(
     shared: &Mutex<Shared>,
-    pair: bool,
+    config: &Config,
     modem: Option<(&uplink::Modem, Option<uplink::Collector>)>,
-    tile_relay: Option<Endpoint>,
     telemetry: &mut Telemetry,
     notify: &mut impl FnMut(),
 ) {
@@ -307,14 +378,14 @@ fn serve(
     let readings = &mut telemetry.readings;
     let mut snapshot = |now| Telemetry::snapshot_from(readings, &capture_view, now);
     let mut radio: Option<radio::Output<'_, _>> = None;
-    let mut tiles = tiles::Tiles::new(tile_relay, Instant::now());
+    let mut tiles = tiles::Tiles::new(config.tile_relay, Instant::now(), config.names);
     let mut next_radio = Instant::now();
     let mut upload = None;
     let mut retry = uplink::Retry::new();
     let mut retry_pending = false;
     let mut link_generation = 0;
     let mut pairing_failed = false;
-    let mut command = pair.then_some(Pairing::Start);
+    let mut command = config.pair_on_start.then_some(Pairing::Start);
     let mut next_report = Instant::now();
     let mut cellular = modem.and_then(|(modem, collector)| {
         collector.map(|collector| {
@@ -343,7 +414,7 @@ fn serve(
         if let Some((modem, _)) = modem {
             let status = modem.status();
             if cellular_status != Some(status) {
-                log::info!("motion-tracker cellular {status:?}");
+                log::info!("{} cellular {status:?}", config.names.product);
                 cellular_status = Some(status);
             }
         }
@@ -362,10 +433,12 @@ fn serve(
                 Pairing::Start => match radio.as_mut() {
                     Some(output) => output.show_pairing_code(),
                     None => {
-                        match tls_identity(&identity).and_then(|identity| radio::pair(identity)) {
+                        match tls_identity(&identity).and_then(|identity| {
+                            radio::pair(identity, config.ble, config.names.product)
+                        }) {
                             Ok(output) => radio = Some(output),
                             Err(error) => {
-                                log::warn!("motion-tracker pairing: {error}");
+                                log::warn!("{} pairing: {error}", config.names.product);
                                 pairing_failed = true;
                             }
                         }
@@ -426,7 +499,9 @@ fn serve(
             }
             let progress = if let Some(socket) = socket {
                 tls_identity(&identity)
-                    .and_then(|identity| uplink::Upload::open(identity, socket, *collector))
+                    .and_then(|identity| {
+                        uplink::Upload::open(identity, socket, *collector, config.names.product)
+                    })
                     .map(|connection| {
                         upload = Some(connection);
                         reports.reset_stream();
@@ -434,14 +509,14 @@ fn serve(
                     })
             } else {
                 upload.as_mut().map_or(Ok(false), |connection| {
-                    connection.service(reports, |now| snapshot(now))
+                    connection.service(reports, &mut snapshot)
                 })
             };
             match progress {
                 Ok(true) => retry = uplink::Retry::new(),
                 Ok(false) => {}
                 Err(error) => {
-                    log::warn!("motion-tracker collector retry: {error}");
+                    log::warn!("{} collector retry: {error}", config.names.product);
                     upload = None;
                     reports.reset_stream();
                     retry.later();
@@ -511,8 +586,7 @@ mod tests {
     ) {
         let (publishers, [display, readings]) =
             publication::<2, 2>(Duration::from_secs(1), Some(Duration::from_secs(3)));
-        let (capture, capture_publishers) =
-            Capture::new([None; 2], [Some(100_000); 2], true).unwrap();
+        let (capture, capture_publishers) = export::tests::fixture([None; 2]);
         (
             publishers,
             display,
@@ -523,6 +597,24 @@ mod tests {
             }),
             capture_publishers,
         )
+    }
+
+    fn test_config() -> Config {
+        let service = ble::peripheral::Service {
+            uuid: ble::Uuid([0; 16]),
+            ingress: ble::Uuid([1; 16]),
+            egress: ble::Uuid([2; 16]),
+        };
+        Config {
+            ble: BleServices {
+                pairing: service,
+                telemetry: service,
+            },
+            pair_on_start: false,
+            cellular: None,
+            tile_relay: None,
+            names: Names::default(),
+        }
     }
 
     fn sample(sequence: u64) -> imu::ImuSample {
@@ -571,9 +663,7 @@ mod tests {
                     let mut owner = TelemetryOwner::take(&incoming);
                     run(
                         &incoming,
-                        false,
-                        None,
-                        None,
+                        test_config(),
                         owner.telemetry.as_mut().unwrap(),
                         &mut || {},
                     )
@@ -616,9 +706,7 @@ mod tests {
                 started.send(()).unwrap();
                 run(
                     &incoming,
-                    false,
-                    None,
-                    None,
+                    test_config(),
                     owner.telemetry.as_mut().unwrap(),
                     &mut || {},
                 )
@@ -640,9 +728,7 @@ mod tests {
                 let mut owner = TelemetryOwner::take(&incoming);
                 run(
                     &incoming,
-                    false,
-                    None,
-                    None,
+                    test_config(),
                     owner.telemetry.as_mut().unwrap(),
                     &mut || {
                         let _ = serviced.send(());
@@ -726,5 +812,31 @@ mod tests {
             assert_eq!(returned.snapshot(Instant::now()).imu, [Reading::Waiting; 2]);
             assert!(links.take_telemetry().is_none());
         }
+    }
+
+    #[test]
+    fn joined_owner_controls_are_quiescent_and_state_is_unavailable() {
+        let (_, _, mut pending, _publishers) = telemetry();
+        let mut links = Communications::start_owner(&mut pending, |incoming| {
+            thread::Builder::new().spawn(move || {
+                let _owner = TelemetryOwner::take(&incoming);
+                Ok(())
+            })
+        })
+        .unwrap();
+        links.stop().unwrap();
+        links.pair(Pairing::Start);
+        links.pair(Pairing::Cancel);
+        assert_eq!(links.view(View::default()).link, LinkStatus::Unavailable);
+        assert!(links
+            .map(Some(Key {
+                zoom: maps::Zoom::default(),
+                x: 1,
+                y: 2,
+            }))
+            .is_none());
+        assert!(links.shared.lock().unwrap().pairing.is_none());
+        assert!(links.shared.lock().unwrap().tile_request.is_none());
+        assert!(links.take_telemetry().is_some());
     }
 }

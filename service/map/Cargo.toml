@@ -1,0 +1,10 @@
+[package]
+name = "nxrs-map-service"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+name = "maps"
+
+[dependencies]
+log = "0.4"

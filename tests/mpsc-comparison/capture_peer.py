@@ -29,11 +29,11 @@ CASES = {
     "overflow-v3": (3, 0),
 }
 COMPILED_SOURCES = {
-    "capture_blob": "app/motion-tracker/src/communications/export.rs",
-    "clock_blob": "app/motion-tracker/src/clock.rs",
+    "capture_blob": "service/telemetry/src/export.rs",
+    "clock_blob": "service/telemetry/src/clock.rs",
     "production_gate_blob": "shared/messaging/src/pooled/gate.rs",
     "production_pool_blob": "shared/messaging/src/pooled.rs",
-    "policy_blob": "app/motion-tracker/src/communications/export/policy.rs",
+    "policy_blob": "service/telemetry/src/export/policy.rs",
 }
 
 

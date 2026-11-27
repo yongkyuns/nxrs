@@ -1,10 +1,8 @@
 //! Route one visible tile request over the paired phone or a pinned IP relay.
-mod wire;
+use maps::wire::REQUEST_BYTES;
+pub use maps::wire::{Key, Receiver, Response};
 
-use wire::REQUEST_BYTES;
-pub use wire::{Key, Receiver, Response, Tile, Zoom, SIDE};
-
-use super::Endpoint;
+use super::{Endpoint, Names};
 use std::{
     io::{self, Write},
     net::{SocketAddr, TcpStream},
@@ -12,14 +10,14 @@ use std::{
     time::{Duration, Instant},
 };
 
-pub const DIRECT_RELAY_AVAILABLE: bool = !cellular::LINK_AVAILABLE;
-
 const BLE_DEADLINE: Duration = Duration::from_secs(25);
 const IP_DEADLINE: Duration = Duration::from_secs(12);
 const RETRY: Duration = Duration::from_secs(30);
 const REQUEST_INTERVAL: Duration = Duration::from_secs(5);
 
 pub struct Tiles<'a> {
+    product: &'static str,
+    worker: &'static str,
     relay: Option<Endpoint>,
     dial: Option<Dial>,
     key: Option<Key>,
@@ -36,8 +34,10 @@ enum Transfer<'a> {
 }
 
 impl<'a> Tiles<'a> {
-    pub fn new(relay: Option<Endpoint>, now: Instant) -> Self {
+    pub fn new(relay: Option<Endpoint>, now: Instant, names: Names) -> Self {
         Self {
+            product: names.product,
+            worker: names.tile_worker,
             relay,
             dial: None,
             key: None,
@@ -78,7 +78,7 @@ impl<'a> Tiles<'a> {
         phone: Option<Response>,
         now: Instant,
     ) -> Option<Response> {
-        if DIRECT_RELAY_AVAILABLE && !matches!(self.active, Some(Transfer::Relay(_, Relay::Dial))) {
+        if !matches!(self.active, Some(Transfer::Relay(_, Relay::Dial))) {
             if let Some(dial) = &mut self.dial {
                 if !matches!(dial.poll(), Ok(None)) {
                     self.dial = None;
@@ -99,15 +99,13 @@ impl<'a> Tiles<'a> {
                 _ if !phone_live || now >= *deadline => Err(io::ErrorKind::TimedOut.into()),
                 _ => return None,
             },
-            Some(Transfer::Relay(deadline, relay)) if DIRECT_RELAY_AVAILABLE && now < *deadline => {
-                relay.poll(
-                    key,
-                    self.relay.unwrap(),
-                    &mut self.dial,
-                    &mut self.receiver,
-                    identity,
-                )
-            }
+            Some(Transfer::Relay(deadline, relay)) if now < *deadline => relay.poll(
+                key,
+                self.relay.unwrap(),
+                &mut self.dial,
+                &mut self.receiver,
+                identity,
+            ),
             Some(Transfer::Relay(..)) => Err(io::ErrorKind::TimedOut.into()),
             None => {
                 if now < self.next || now < self.throttle {
@@ -116,11 +114,8 @@ impl<'a> Tiles<'a> {
                 if phone_live && !self.try_ip {
                     self.throttle = now + REQUEST_INTERVAL;
                     self.active = Some(Transfer::Phone(now + BLE_DEADLINE));
-                } else if let Some(endpoint) = self
-                    .relay
-                    .filter(|_| DIRECT_RELAY_AVAILABLE && self.dial.is_none())
-                {
-                    if let Ok(dial) = Dial::start(endpoint) {
+                } else if let Some(endpoint) = self.relay.filter(|_| self.dial.is_none()) {
+                    if let Ok(dial) = Dial::start(endpoint, self.worker) {
                         self.throttle = now + REQUEST_INTERVAL;
                         self.dial = Some(dial);
                         self.active = Some(Transfer::Relay(now + IP_DEADLINE, Relay::Dial));
@@ -133,7 +128,7 @@ impl<'a> Tiles<'a> {
         };
         if let Err(error) = &result {
             if matches!(self.active, Some(Transfer::Relay(..))) {
-                eprintln!("motion-tracker map relay: {error}");
+                eprintln!("{} map relay: {error}", self.product);
             }
         }
         match result {
@@ -161,7 +156,7 @@ impl<'a> Tiles<'a> {
 struct Dial(Option<JoinHandle<io::Result<TcpStream>>>);
 
 impl Dial {
-    fn start(endpoint: Endpoint) -> io::Result<Self> {
+    fn start(endpoint: Endpoint, worker: &'static str) -> io::Result<Self> {
         if !tls::Identity::SUPPORTS_PINNED_CLIENT {
             return Err(io::Error::new(
                 io::ErrorKind::Unsupported,
@@ -169,7 +164,7 @@ impl Dial {
             ));
         }
         thread::Builder::new()
-            .name("tracker-tile-dial".into())
+            .name(worker.into())
             .stack_size(8 * 1024)
             .spawn(move || {
                 TcpStream::connect_timeout(

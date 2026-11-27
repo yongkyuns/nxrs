@@ -38,7 +38,10 @@
         {"package": "nxrs-detection-service", "crate": "detection_service", "path": "service/detection", "summary": "Bounded inference sessions, alert policy, and versioned detection metadata."},
         {"package": "nxrs-enrollment", "crate": "enrollment", "path": "service/enrollment", "summary": "Bounded commissioning records and gateway enrollment."},
         {"package": "nxrs-firmware-update", "crate": "firmware_update", "path": "service/firmware-update", "summary": "Bounded firmware upload over an authenticated byte stream."},
-        {"package": "nxrs-navigation-services", "crate": "navigation", "path": "service/navigation", "summary": "Example-domain IMU, GNSS, fusion, and health services."}
+        {"package": "nxrs-navigation-services", "crate": "navigation", "path": "service/navigation", "summary": "Example-domain IMU, GNSS, fusion, and health services."},
+        {"package": "nxrs-telemetry-service", "crate": "telemetry", "path": "service/telemetry", "summary": "Bounded sensor capture, versioned telemetry and authenticated delivery under one communications owner."},
+        {"package": "nxrs-map-service", "crate": "maps", "path": "service/map", "summary": "Bounded tile decoding, map projection, viewport selection and tile ownership."},
+        {"package": "nxrs-ui-service", "crate": "ui", "path": "service/ui", "summary": "Synchronous strip rendering, bitmap text, gestures and bounded chart history."}
       ]
     },
     {
@@ -46,6 +49,7 @@
       "title": "Contracts and delivery",
       "packages": [
         {"package": "nxrs-messaging", "crate": "messaging", "path": "shared/messaging", "summary": "Typed delivery results and bounded task-context channels."},
+        {"package": "nxrs-text", "crate": "text", "path": "shared/text", "summary": "Allocation-free, fixed-capacity UTF-8 formatting for frames and labels."},
         {"package": "nxrs-radio-types", "crate": "radio_types", "path": "hal/radio-types", "summary": "Supporting radio request identities and bounded payload types."},
         {"package": "nxrs-peripheral", "crate": "peripheral", "path": "driver/peripheral", "summary": "Synchronous IMU and GNSS contracts shared by chip drivers and consumers."}
       ]

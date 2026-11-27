@@ -1,11 +1,10 @@
-use super::{
-    canvas::CanvasExt,
-    dashboard::{GOLD, GRID, MUTED, RED, TEXT},
-};
-use crate::{text::Text, tracker::Reading};
+use super::dashboard::{GOLD, GRID, MUTED, RED, TEXT};
+use crate::tracker::Reading;
 use display::graphics::{Area, Raster};
 use gnss::{Constellation, FixQuality, GnssFix, SatelliteReport, SatelliteSignal};
 use std::fmt::Write;
+use text::Text;
+use ui::TextCanvas;
 
 #[derive(PartialEq)]
 pub(super) struct View {
