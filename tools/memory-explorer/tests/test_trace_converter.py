@@ -50,7 +50,7 @@ class TraceConversionTests(unittest.TestCase):
         self.assertIsNone(metadata["clock"])
         self.assertIsNone(metadata["source"])
         self.assertIsNone(metadata["lost_records"])
-        self.assertEqual(metadata["incomplete_intervals"], 2)
+        self.assertEqual(metadata["incomplete_intervals"], 3)  # Two residency edges and an undispatched wake.
         # The trailing idle residency is not extended to an unrelated wake record.
         self.assertFalse(any(event["args"].get("task_id") == 0 for event in spans))
 
@@ -168,6 +168,40 @@ class TraceConversionTests(unittest.TestCase):
         self.assertEqual(intervals(trace), [])
         self.assertTrue(any("continuity" in warning for warning in trace["otherData"]["nxrs"]["warnings"]))
 
+    def test_checkpoint_recording_identity_requires_both_native_frame_endpoints(self):
+        recording = "a204bb6097f14793b352dd4c22cf0eda"
+        rows = framed([row(1_234_567_891, "tracing_mark_write: I|7|memory/checkpoint/1")])
+        rows[0] += f" recording_id={recording} capture_mode=stopped-checkpoints"
+        rows[-1] += f" recording_id={recording}"
+        trace = CONVERTER.convert(rows, elf_sha256="a" * 64)
+        metadata = trace["otherData"]["nxrs"]
+        self.assertEqual(metadata["recording_id"], recording)
+        self.assertEqual(metadata["origin_ns"], 1_234_567_891)
+        marker = next(event for event in trace["traceEvents"] if event["ph"] == "i")
+        self.assertEqual((marker["name"], marker["ts"]), ("memory/checkpoint/1", Decimal(0)))
+        self.assertTrue(any("debugger stops" in warning for warning in metadata["warnings"]))
+        for first, last in [(recording, None), (None, recording), (recording, "other-run")]:
+            with self.subTest(first=first, last=last):
+                malformed = framed([row(20, "tracing_mark_write: I|7|memory/checkpoint/1")])
+                if first is not None:
+                    malformed[0] += f" recording_id={first}"
+                if last is not None:
+                    malformed[-1] += f" recording_id={last}"
+                with self.assertRaisesRegex(ValueError, "recording_id"):
+                    CONVERTER.convert(malformed)
+
+    def test_invalid_recording_identity_is_rejected_and_old_captures_stay_unbound(self):
+        for recording in ["x" * 129, "non-ascii-\u00e9", "control-\x7f"]:
+            with self.subTest(recording=recording):
+                rows = framed([row(20, "tracing_mark_write: I|7|memory/checkpoint/1")])
+                rows[0] += f" recording_id={recording}"
+                rows[-1] += f" recording_id={recording}"
+                with self.assertRaisesRegex(ValueError, "recording_id"):
+                    CONVERTER.convert(rows)
+        for rows in [[row(20, "tracing_mark_write: I|7|ready")],
+                     framed([row(20, "tracing_mark_write: I|7|memory/checkpoint/1")])]:
+            self.assertIsNone(CONVERTER.convert(rows)["otherData"]["nxrs"]["recording_id"])
+
     def test_diagnostics_heap_records_share_native_scheduler_coordinates(self):
         # This is the diagnostic-build branch's native request/counter format.
         trace = CONVERTER.convert([
@@ -182,7 +216,8 @@ class TraceConversionTests(unittest.TestCase):
         self.assertEqual(len(requests), 1)
         self.assertEqual((requests[0]["ph"], requests[0]["ts"], requests[0]["name"]), ("i", 12, "malloc"))
         self.assertEqual(requests[0]["args"], {"heap": "0xa", "requested_bytes": 8, "caller": "0xb",
-                                               "task": "worker", "task_id": 7})
+                                               "task": "worker", "task_id": 7, "cpu": 0, "operation": "malloc",
+                                               "outcome": "unknown; allocator entry only"})
         usage = [event for event in trace["traceEvents"] if event["ph"] == "C"]
         self.assertEqual((usage[0]["name"], usage[0]["ts"], usage[0]["args"]), ("Heap 0xa", 13, {"used_bytes": 200}))
         cpu = intervals(trace, "cpu")
@@ -198,7 +233,8 @@ class TraceConversionTests(unittest.TestCase):
         self.assertEqual(intervals(trace), [])
         events = [event for event in trace["traceEvents"] if event["ph"] != "M"]
         self.assertEqual(len(events), 1)
-        self.assertEqual(events[0]["args"], {"heap": "0xa", "requested_bytes": 2000000, "caller": "0xb"})
+        self.assertEqual(events[0]["args"], {"heap": "0xa", "requested_bytes": 2000000, "caller": "0xb",
+                                            "cpu": 0, "operation": "memalign", "outcome": "unknown; allocator entry only"})
         self.assertEqual(events[0]["name"], "memalign")
         self.assertNotIn("dur", events[0])
 

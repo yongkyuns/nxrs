@@ -245,6 +245,8 @@ pub struct Symbol {
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Snapshot {
+    /// An ordering coordinate for legacy snapshots. When `correlation` is
+    /// present, this is the exact source-clock timestamp of its trace marker.
     pub time_ns: u64,
     pub label: String,
     pub spans: Vec<Span>,
@@ -252,6 +254,20 @@ pub struct Snapshot {
     /// Omit for incomplete captures; unobserved gaps remain unknown.
     #[serde(default)]
     pub complete_regions: Vec<String>,
+    /// Explicit recording and clock identity. Its presence does not establish
+    /// a trace link until the matching marker and timestamp have been checked.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub correlation: Option<SnapshotCorrelation>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct SnapshotCorrelation {
+    /// Producer-assigned token unique to one recording and target reset epoch.
+    pub recording_id: String,
+    pub clock: String,
+    /// Nonzero, monotonically increasing marker sequence in this recording.
+    pub checkpoint_id: u64,
 }
 
 /// Version 1 observation envelope. JSON addresses and sizes are unsigned integer
@@ -390,10 +406,21 @@ impl MemoryModel {
         validate_load_mappings(&self.load_mappings, &self.regions)?;
         validate_snapshots(&self.snapshots, &self.regions)?;
         for snapshot in &self.snapshots {
-            self.validate_cpu_states(snapshot.time_ns)?;
-            self.validate_physical_states(snapshot.time_ns)?;
+            self.validate_runtime_spans(&snapshot.spans)
+                .map_err(|error| {
+                    Error(format!("{} at snapshot time {}", error, snapshot.time_ns))
+                })?;
         }
         Ok(())
+    }
+
+    /// Admit one explicit runtime layer against this model's address map and
+    /// linked placement. Heap replay uses this without manufacturing a Snapshot;
+    /// complete heap tiling remains the caller's separate evidence obligation.
+    pub fn validate_runtime_spans(&self, runtime: &[Span]) -> Result<()> {
+        validate_spans(runtime, &self.regions)?;
+        self.validate_cpu_states(runtime)?;
+        self.validate_physical_states(runtime)
     }
 
     pub fn snapshot_at(&self, time_ns: u64) -> Option<&Snapshot> {
@@ -469,7 +496,22 @@ impl MemoryModel {
     /// storage view use physical_occupied_intervals instead, because an observed
     /// allocator can replace parts of its backing reservation with unknown state.
     pub fn physical_intervals(&self, time_ns: u64) -> Vec<PhysicalInterval<'_>> {
-        self.observed_spans(time_ns)
+        self.physical_intervals_with_runtime(
+            self.snapshot_at(time_ns)
+                .map_or(&[], |snapshot| snapshot.spans.as_slice()),
+        )
+    }
+
+    /// Project an explicitly selected, validated runtime layer. This lets a
+    /// heap-only replay share physical mappings without inventing a Snapshot or
+    /// importing unrelated runtime observations at a coincident timestamp.
+    pub fn physical_intervals_with_runtime<'a>(
+        &'a self,
+        runtime: &'a [Span],
+    ) -> Vec<PhysicalInterval<'a>> {
+        self.static_spans
+            .iter()
+            .chain(runtime)
             .filter_map(|span| {
                 let region = self
                     .regions
@@ -496,10 +538,22 @@ impl MemoryModel {
     /// Aliases and stack overlays may still overlap; preserve the source Span
     /// for inspection and union their ranges when computing byte totals.
     pub fn physical_occupied_intervals(&self, time_ns: u64) -> Vec<PhysicalInterval<'_>> {
+        self.physical_occupied_intervals_with_runtime(
+            self.snapshot_at(time_ns)
+                .map_or(&[], |snapshot| snapshot.spans.as_slice()),
+        )
+    }
+
+    /// Effective occupied storage for the supplied validated runtime layer.
+    /// An empty layer projects only linked placement and static reservations.
+    pub fn physical_occupied_intervals_with_runtime<'a>(
+        &'a self,
+        runtime: &'a [Span],
+    ) -> Vec<PhysicalInterval<'a>> {
         let mut intervals = Vec::new();
         for region in &self.regions {
             if let Some(backing) = &region.physical {
-                for (range, span) in self.occupied_ranges(&region.id, time_ns) {
+                for (range, span) in self.occupied_ranges_with_runtime(&region.id, runtime) {
                     let start = range.start - region.start + backing.offset;
                     intervals.push(PhysicalInterval {
                         resource: &backing.id,
@@ -518,8 +572,17 @@ impl MemoryModel {
     /// Occupied physical bytes, unioned within each resource. Two CPU aliases
     /// into the same bytes, and nested allocation/stack labels, count once.
     pub fn physical_occupied_bytes(&self, time_ns: u64) -> BTreeMap<String, u64> {
+        self.physical_occupied_bytes_with_runtime(
+            self.snapshot_at(time_ns)
+                .map_or(&[], |snapshot| snapshot.spans.as_slice()),
+        )
+    }
+
+    /// Union occupied bytes within each declared resource for one selected
+    /// runtime layer. Aliases and static backing reservations count once.
+    pub fn physical_occupied_bytes_with_runtime(&self, runtime: &[Span]) -> BTreeMap<String, u64> {
         let mut groups: BTreeMap<String, Vec<AddressRange>> = BTreeMap::new();
-        for interval in self.physical_occupied_intervals(time_ns) {
+        for interval in self.physical_occupied_intervals_with_runtime(runtime) {
             groups
                 .entry(interval.resource.into())
                 .or_default()
@@ -575,45 +638,53 @@ impl MemoryModel {
     }
 
     fn occupied_ranges(&self, region_id: &str, time_ns: u64) -> Vec<(AddressRange, &Span)> {
+        self.occupied_ranges_with_runtime(
+            region_id,
+            self.snapshot_at(time_ns)
+                .map_or(&[], |snapshot| snapshot.spans.as_slice()),
+        )
+    }
+
+    fn occupied_ranges_with_runtime<'a>(
+        &'a self,
+        region_id: &str,
+        runtime: &'a [Span],
+    ) -> Vec<(AddressRange, &'a Span)> {
         let Some(region) = self.regions.iter().find(|region| region.id == region_id) else {
             return Vec::new();
         };
-        let snapshot = self.snapshot_at(time_ns);
         let mut arenas = Vec::new();
-        if let Some(snapshot) = snapshot {
-            for arena in snapshot
-                .spans
-                .iter()
-                .filter(|span| matches!(span.kind, SpanKind::HeapArena | SpanKind::Pool))
-            {
-                if arena.region == region_id {
-                    if let Ok(range) = arena.range() {
-                        arenas.push(range);
-                    }
-                } else if let (Some(target), Some(origin)) = (
-                    region.physical.as_ref(),
-                    self.regions
-                        .iter()
-                        .find(|r| r.id == arena.region)
-                        .and_then(|r| r.physical.as_ref().map(|p| (r, p))),
-                ) {
-                    if target.id == origin.1.id {
-                        let start = arena.start - origin.0.start + origin.1.offset;
-                        let source = AddressRange {
+        for arena in runtime
+            .iter()
+            .filter(|span| matches!(span.kind, SpanKind::HeapArena | SpanKind::Pool))
+        {
+            if arena.region == region_id {
+                if let Ok(range) = arena.range() {
+                    arenas.push(range);
+                }
+            } else if let (Some(target), Some(origin)) = (
+                region.physical.as_ref(),
+                self.regions
+                    .iter()
+                    .find(|r| r.id == arena.region)
+                    .and_then(|r| r.physical.as_ref().map(|p| (r, p))),
+            ) {
+                if target.id == origin.1.id {
+                    let start = arena.start - origin.0.start + origin.1.offset;
+                    let source = AddressRange {
+                        start,
+                        end: start + arena.size,
+                    };
+                    let target_range = AddressRange {
+                        start: target.offset,
+                        end: target.offset + region.size,
+                    };
+                    if let Some(overlap) = source.intersection(target_range) {
+                        let start = region.start + (overlap.start - target.offset);
+                        arenas.push(AddressRange {
                             start,
-                            end: start + arena.size,
-                        };
-                        let target_range = AddressRange {
-                            start: target.offset,
-                            end: target.offset + region.size,
-                        };
-                        if let Some(overlap) = source.intersection(target_range) {
-                            let start = region.start + (overlap.start - target.offset);
-                            arenas.push(AddressRange {
-                                start,
-                                end: start + overlap.size(),
-                            });
-                        }
+                            end: start + overlap.size(),
+                        });
                     }
                 }
             }
@@ -639,45 +710,42 @@ impl MemoryModel {
                 result.extend(remaining.into_iter().map(|range| (range, span)));
             }
         }
-        if let Some(snapshot) = snapshot {
-            for span in snapshot
-                .spans
-                .iter()
-                .filter(|span| span.region == region_id && span.kind.is_occupied())
-            {
-                let Ok(range) = span.range() else {
-                    continue;
-                };
-                let mut remaining = vec![range];
-                for arena in snapshot.spans.iter().filter(|arena| {
-                    arena.region == region_id
-                        && matches!(arena.kind, SpanKind::HeapArena | SpanKind::Pool)
-                }) {
-                    if is_ancestor(span, arena, &snapshot.spans) {
-                        if let Ok(mask) = arena.range() {
-                            remaining = remaining
-                                .into_iter()
-                                .flat_map(|range| subtract_range(range, mask))
-                                .collect();
-                        }
+        for span in runtime
+            .iter()
+            .filter(|span| span.region == region_id && span.kind.is_occupied())
+        {
+            let Ok(range) = span.range() else {
+                continue;
+            };
+            let mut remaining = vec![range];
+            for arena in runtime.iter().filter(|arena| {
+                arena.region == region_id
+                    && matches!(arena.kind, SpanKind::HeapArena | SpanKind::Pool)
+            }) {
+                if is_ancestor(span, arena, runtime) {
+                    if let Ok(mask) = arena.range() {
+                        remaining = remaining
+                            .into_iter()
+                            .flat_map(|range| subtract_range(range, mask))
+                            .collect();
                     }
                 }
-                result.extend(remaining.into_iter().map(|range| (range, span)));
             }
+            result.extend(remaining.into_iter().map(|range| (range, span)));
         }
         result
     }
 
-    fn validate_physical_states(&self, time_ns: u64) -> Result<()> {
+    fn validate_physical_states(&self, runtime: &[Span]) -> Result<()> {
         let mut occupied: BTreeMap<&str, Vec<AddressRange>> = BTreeMap::new();
-        for interval in self.physical_occupied_intervals(time_ns) {
+        for interval in self.physical_occupied_intervals_with_runtime(runtime) {
             occupied
                 .entry(interval.resource)
                 .or_default()
                 .push(interval.range);
         }
         for interval in self
-            .physical_intervals(time_ns)
+            .physical_intervals_with_runtime(runtime)
             .into_iter()
             .filter(|i| i.span.kind == SpanKind::Free)
         {
@@ -686,22 +754,18 @@ impl MemoryModel {
                 .is_some_and(|ranges| ranges.iter().any(|range| range.overlaps(interval.range)))
             {
                 return Err(Error(format!(
-                    "physical resource {} has contradictory free/occupied observations at time {}",
-                    interval.resource, time_ns
+                    "physical resource {} has contradictory free/occupied observations",
+                    interval.resource
                 )));
             }
         }
         Ok(())
     }
 
-    fn validate_cpu_states(&self, time_ns: u64) -> Result<()> {
-        let Some(snapshot) = self.snapshot_at(time_ns) else {
-            return Ok(());
-        };
+    fn validate_cpu_states(&self, runtime: &[Span]) -> Result<()> {
         for region in &self.regions {
-            let occupied = self.occupied_ranges(&region.id, time_ns);
-            for free in snapshot
-                .spans
+            let occupied = self.occupied_ranges_with_runtime(&region.id, runtime);
+            for free in runtime
                 .iter()
                 .filter(|span| span.region == region.id && span.kind == SpanKind::Free)
             {
@@ -710,8 +774,8 @@ impl MemoryModel {
                     .any(|(range, _)| range.overlaps(free.range().expect("validated span")))
                 {
                     return Err(Error(format!(
-                        "region {} has contradictory free/live extents at time {}",
-                        region.id, time_ns
+                        "region {} has contradictory free/live extents",
+                        region.id
                     )));
                 }
             }
@@ -970,6 +1034,7 @@ fn validate_snapshots(snapshots: &[Snapshot], regions: &[Region]) -> Result<()> 
     {
         return Err(Error("snapshot times must be strictly increasing".into()));
     }
+    crate::correlation::validate_snapshot_correlations(snapshots)?;
     for snapshot in snapshots {
         validate_spans(&snapshot.spans, regions)?;
         for id in &snapshot.complete_regions {

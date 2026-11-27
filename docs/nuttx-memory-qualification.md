@@ -13,7 +13,27 @@ The option is off by default and is independent of the application.
 ```toml
 [build]
 diagnostics = true
+# Optional: 32768 bytes by default; multiples of 4 from 4096 through 4194304.
+diagnostics-trace-bytes = 65536
+# Optional: 0 for task identity only, or 1..16 captured allocation frames.
+diagnostics-heap-backtrace-depth = 4
 ```
+
+The recorder is a fixed native buffer. Choose its size for the target's available
+RAM and the duration/event density of the reproduction. Recording preserves the
+start by default and stops admitting notes when full; explicit overwrite mode
+can retain the tail instead. Neither mode guarantees a complete workload.
+Without the backtrace-depth option, the target's existing allocator setting is
+preserved. Captured frames add allocator metadata and work and require a working
+target unwinder. These two options require `diagnostics = true`.
+
+Diagnostic builds retain the final map, native debug symbols, and Rust line
+tables for host-side source resolution. They also enable application markers and
+select the existing `probe` implementation for consumed IMU/GNSS providers. These
+providers record canonical device names with wake, drain, bus-transfer, or
+read/parse/deliver work in task context. They add no recorder thread or heap
+allocation per marker. A shared IRQ handler still does not establish which
+attached sensor caused the interrupt.
 
 ESP32-S3 diagnostics currently require effective `CONFIG_SMP=n`. Its hardware
 performance counter belongs to each CPU, while the pinned overflow correction
@@ -33,16 +53,17 @@ baseline, then capture a short reproduction. Save the console output as text.
 cat /proc/meminfo
 ps
 cat /proc/<pid>/stack
-trace mode +o +w +i
+trace mode -o +w +i +d
 trace start
 trace stop
 trace dump
 cat /proc/meminfo
 ```
 
-Run the workload between `trace start` and `trace stop`. The 8 KiB trace
-buffer retains the newest events with `+o`. Each `trace` invocation needs a
-4 KiB task stack. Use `-w -i` to preserve more heap history when investigating
+Run the workload between `trace start` and `trace stop`. The default 32 KiB trace
+buffer retains the earliest events with `-o`; use `+o` deliberately to retain
+the newest events instead. Each `trace` invocation needs a 4 KiB task stack.
+Keep `+d` for named device scopes. Use `-w -i` to preserve more heap history when investigating
 allocations. A `requests <heap> <count>` row
 in `/proc/meminfo` counts allocator entries since heap initialization, even
 when tracing is stopped. It includes failed requests, retries, and backing
@@ -51,16 +72,41 @@ memory. A slot taken from an already reserved application pool does not enter
 the OS allocator.
 
 ```sh
-python3 tools/nuttx-trace-to-perfetto.py console.txt diagnostic-trace.json
+python3 tools/nuttx-trace-to-perfetto.py console.txt diagnostic-trace.json \
+  --elf target/build/<app>/<profile>/nuttx/nuttx
 ```
 
-Open the JSON in [Perfetto](https://ui.perfetto.dev/) to correlate heap requests
-and heap usage with scheduler switches and IRQ handlers. A request records the
-task, operation, byte count, heap address, and immediate caller. Resolve the
-caller using the target toolchain's `addr2line -f -C -e` and the matching
-unstripped `nuttx/nuttx` ELF. The caller can be a libc wrapper such as
-`malloc`. The separate heap usage events show successful allocations and
-frees. Use a matched ordinary image to measure production throughput.
+Open the JSON in [Memory Explorer](../tools/memory-explorer/README.md) or
+[Perfetto](https://ui.perfetto.dev/) to correlate heap requests and usage with
+scheduler switches, IRQ handlers, and named application scopes. Supplying the
+ELF resolves IRQ/caller addresses to function and file/line, records resolution
+coverage, and binds the converted trace to that host ELF's SHA-256. Pass
+`--addr2line /path/to/target-addr2line` if the tool is not discoverable. The host
+ELF still needs to be the one actually flashed; conversion does not attest that.
+The caller can be a libc wrapper such as `malloc`. A request records entry,
+including failed attempts; it is not proof of either success or failure.
+Separate heap events retain successful operations and observed used-byte counts.
+Use a matched ordinary image to measure production throughput.
+
+The converter also accepts native watchdog events when a qualified producer
+records them. They are excluded from the diagnostic preset because the pinned
+native watchdog hooks bypass the runtime enabled filter. Enabling those hooks
+manually can retain notes after `trace stop`.
+
+Package each recording with `tools/memory-explorer/prepare_capture.py` and open
+the resulting `session.json` in the viewer. Normal build receipts let the tool
+find the linker map and select a bundled BSP memory layout automatically after
+checking the ELF and configuration hashes. The layout catalog covers CoreS3,
+ESP32-S3 DevKit/WROOM, Pico 2/2W, and the MPS2 QEMU fixture. It keeps external
+memory mappings unknown when the build supplies only capacity. The BSP source
+definitions and their provenance are checked in, so opening sessions works
+offline. See [automatic board layouts](../tools/memory-explorer/README.md#automatic-board-layouts)
+for selection, overrides, and source refresh.
+
+Use a separate [recording tab](../tools/memory-explorer/README.md#keep-several-recordings-open)
+for each run. Repeat `--session` or use **+ New** to keep a baseline and a
+diagnostic capture open together. Each tab retains its own time axis, filters,
+memory position, and validated evidence; switching tabs does not combine runs.
 
 ## What is measured
 
@@ -156,10 +202,11 @@ frees. It also does not sample stack coloration or measure requested payload
 sizes, so keep using this qualification for lifecycle reclamation and stack
 high-water evidence.
 
-The viewer can navigate independently captured lifecycle points, with unknown
-runtime state between them. A host ELF hash prevents accidental artifact mixing;
+The viewer plots per-heap usage and observed peaks across independently captured
+lifecycle points, with unknown runtime state between them. A host ELF hash prevents accidental artifact mixing;
 it does not verify the running device image or prove allocator quiescence.
-Physical backing requires an explicit board layout. The tool's guide describes
+The firmware overview can use named linker memory regions without a descriptor;
+physical backing requires an explicit board layout. The tool's guide describes
 capture prerequisites, file semantics, controls, and the remaining qualification
 work in issue #442.
 
@@ -342,6 +389,228 @@ the pristine pinned submodules, and retains the whole
 The native timing ELF and the separate Rust `std-demo` heap ELF have different
 identities; they are separate observations and are not one synchronized runtime
 history.
+
+### Linked QEMU lifecycle witness
+
+The native timing fixture also supports a stopped-checkpoint mode that supplies
+memory and timing from one firmware invocation. It qualifies the viewer's
+[linked checkpoint navigation](../tools/memory-explorer/README.md#link-memory-checkpoints-to-timing),
+including an actual free hole between live allocations. This mode retains the
+ordinary continuously running timing witness above as a separate regression.
+
+The [lifecycle harness](../tools/memory-explorer/tests/qualify_lifecycle_qemu.py)
+starts the exact ELF in QEMU and supplies a fresh 128-bit recording nonce to
+`memory_timing --checkpoints`. At each of four checkpoints, the single-core
+fixture enters a native critical section, masks interrupts with PRIMASK, emits
+`memory/checkpoint/<id>`, and reaches a hardware breakpoint. The admitted sole
+note driver writes a fixed RAM ring and has no poll subscriber that could wake
+another task. This preserves heap topology and task-stack reservations from the
+marker to the debugger stop; it does not establish current stack usage.
+
+The debugger checks those conditions, independently decodes the last native note
+from the ring, and compares raw allocator headers and task metadata before and
+after the read-only exporter. The dedicated timer must remain unchanged while
+stopped. After the workload finishes, the host requires the ring note's exact
+marker, CPU, task, and timestamp to match the raw UART note. Only then does it
+write a correlated snapshot. Original exporter observations remain in separate
+`unbound-N.json` files, alongside the raw observations and note bytes.
+
+The first qualified interior-hole run used QEMU 10.0.13, GDB 16.3, and ELF SHA-256
+`77f86bbabdd4c829ecd1d97ea4b11b84539460a65fc270edf44edd8599716242`.
+Its recording ID was `32c749812a07eafbe1f65ac4dcd4402e` and the trace source origin
+was 20,655,250 ns. These are observations from that run, not future thresholds.
+
+| Checkpoint | Source time (ns) | Raw chunks | Task stacks | Allocated chunk bytes |
+| --- | ---: | ---: | ---: | ---: |
+| Baseline | 21,290,100 | 37 | 4 | 21,528 |
+| Three allocations | 27,382,900 | 40 | 4 | 87,208 |
+| Middle allocation freed | 48,796,150 | 42 | 5 | 62,896 |
+| Workload released | 84,967,650 | 40 | 4 | 30,032 |
+
+The controlled requests are 16 KiB, 32 KiB, and 16 KiB. Each observed chunk has
+48 bytes of allocator overhead. The three chunks occupy adjacent ranges
+`[0x38012788, 0x380167b8)`, `[0x380167b8, 0x3801e7e8)`, and
+`[0x3801e7e8, 0x38022818)`. At checkpoint 3, the middle range is explicitly free
+and both neighboring allocation extents are unchanged. At checkpoint 4, all three
+controlled payload ranges lie in observed free chunks. Thread creation and
+retirement also affect the heap; the higher final total is not classified as a
+leak. The gate checks addresses and states, not just the totals in this table.
+
+The same recording contains 103 closed timing intervals, seven instants, and
+four counter samples, with no reported record loss. Two scheduler boundaries
+remain unknown-duration markers. Debugger stops pause the admitted peripheral
+clock and perturb execution, so these intervals characterize this instrumented
+QEMU run. They do not establish uninterrupted scheduling costs or physical-MCU
+performance. Memory remains unknown between the four checkpoints; there is no
+allocation-event replay or inferred lifetime continuity.
+
+#### Capture and open the linked observations
+
+First build the current native fixture using the disposable-source procedure
+above. Keep `timing_sources` and `timing_output` set to those directories. Install
+a Python-enabled `gdb-multiarch` and the pinned NuttX `pynuttx` dependencies as
+required by the [memory capture prerequisites](../tools/memory-explorer/README.md#capture-a-nuttx-lifecycle-point).
+Run from the repository root, using a new output directory:
+
+```sh
+lifecycle_output="$timing_output/lifecycle"
+python3 tools/memory-explorer/tests/qualify_lifecycle_qemu.py \
+  --qemu "$(command -v qemu-system-arm)" \
+  --gdb "$(command -v gdb-multiarch)" \
+  --image "$timing_output/build/nuttx" \
+  --config "$timing_output/build/resolved.config" \
+  --pynuttx "$timing_sources/nuttx/tools/pynuttx" \
+  --output "$lifecycle_output"
+
+NXRS_MEMORY_LIFECYCLE_EVIDENCE="$lifecycle_output" \
+NXRS_MEMORY_LIFECYCLE_ELF="$timing_output/build/nuttx" \
+  cargo +1.90.0 test --locked -p nxrs-memory-explorer \
+    --test lifecycle_qemu -- --ignored --nocapture
+
+cargo run --locked -p nxrs-memory-explorer --features gui -- \
+  --elf "$timing_output/build/nuttx" \
+  --map "$timing_output/build/nuttx.map" \
+  --layout tools/memory-explorer/layouts/mps2-an521-qemu.json \
+  --snapshot "$lifecycle_output/capture-1.json" \
+  --snapshot "$lifecycle_output/capture-2.json" \
+  --snapshot "$lifecycle_output/capture-3.json" \
+  --snapshot "$lifecycle_output/capture-4.json" \
+  --trace "$lifecycle_output/timing.json" --view timing
+```
+
+Select checkpoint 3 and **Open captured memory**. Double-click its free middle
+chunk to inspect the exact boundaries, then select **Show in timing** to return
+to its measured marker. Select a time between checkpoints to inspect the
+explicit evidence gap.
+
+The [ignored Rust gate](../tools/memory-explorer/tests/lifecycle_qemu.rs) decodes
+the saved native note bytes independently of the Python collector, parses the
+UART markers, compares every chunk and represented stack, and checks the
+ELF/configuration/current-fixture receipts. It also checks the exact interior
+hole and final payload release. The ARM CI job reuses its native timing build
+for this second invocation and retains `memory-timing/lifecycle/` beside the
+ordinary timing capture. No production build switch, NuttX patch, or extra
+firmware worker is introduced by the viewer's correlation support.
+
+### Isolated heap topology replay witness
+
+The [heap replay fixture](../tests/nuttx-std/heap-replay/replay_main.c) qualifies
+ordered, committed chunk geometry for one fixed NuttX heap. It complements the
+point observations above and leaves other heaps and task stacks unobserved.
+The host contract and egui controls are documented in the
+[memory explorer guide](../tools/memory-explorer/README.md#replay-one-heap).
+
+The admitted configuration uses pinned NuttX
+`2b5c0de5e933281c209f954a63b99cf10c132346`, one Cortex-M33 CPU in MPS2-AN521
+QEMU, the flat default allocator, one region, and a single fixture owner. Pools,
+SMP, interrupt-context mutation, heap extension, and heap lifecycle changes
+during collection are outside this admission. The 20 MHz CMSDK clock resets
+with each fixture invocation; the capture must stay below five source seconds.
+
+The fixture uses a 64 KiB static arena. Link wrappers observe every admitted
+`mm_lock` acquisition and `mm_unlock` release, including failed/no-op phases and
+the temporary backing allocation inside `mm_memalign`. Each begin/commit probe
+checks task context and native mutex ownership. Read-only GDB observations retain
+raw header bytes under interrupt exclusion. Separate application safe points use
+an independent raw walker after the public allocation operation returns.
+
+Admission checks the actual final ELF branch destinations, including calls to
+geometry helpers. It rejects direct lock calls that bypass the wrappers and
+unexpected callers of the admitted helpers. Source/configuration hashes, a
+strict target probe counter, transaction counters, and an independent UART
+footer close the recording. The observer disables the probe breakpoint while
+single-stepping past its entry; duplicate stops are rejected rather than
+deduplicated by timestamp. No target function is called by the debugger.
+
+The retained QEMU 10.0.13 / GDB 16.3 run uses ELF SHA-256
+`aa44326577792359b3f89edcd2bf2dbd4a46337405658779ffda102a86fde0a6`, effective
+configuration SHA-256
+`70bdfda4e2c5b9c56be7d653c5c3b7b9dbc54aaeb146c7e88ae6d8de06b9b95e`, and recording
+`ed2ec40d65493e4cd543ffd4f8549c45`.
+
+| Observation | Measured result |
+| --- | ---: |
+| Committed allocator phases | 29 |
+| Independent application safe points | 24 |
+| Strictly ordered target probe stops | 84 |
+| Source-clock coverage | 1,125,800–155,305,750 ns |
+| Host capture elapsed time | 1.855069 s |
+| Static fixture arena | 65,536 B |
+| Allocator control prefix | 1,024 B |
+| Journal chunk region, including both 48-byte guards | 64,512 B |
+| Named linked fixture/clock storage | 65,636 B |
+| Named linked fixture code | 2,996 B |
+| Configured fixture task stack reservation | 8,192 B |
+| Raw observations / journal / derived timing JSON | 181,211 / 53,210 / 21,697 B |
+
+The code/storage counts sum named linked fixture symbols; they are not a
+whole-firmware size delta and exclude linker padding. The stack number is a
+reservation, not a measured high-water result. Host elapsed time and source
+intervals describe this instrumented run. Debugger stops and wrapper execution
+perturb it, so these numbers do not establish production allocation latency or
+physical-MCU throughput.
+
+The workload demonstrates splitting, an interior free hole, coalescing, realloc
+shrink and in-place growth, realloc move and failure, aligned allocation's
+intermediate state, pointer reuse, and delayed reclamation. Its final raw chunk
+geometry matches the initial geometry. Deferred releases remain allocated until
+the next actual reclamation. PID/backtrace fields written after unlock are not
+used to invent application allocation identities or source ownership.
+
+The retained `journal-loss-control.json` deliberately removes the real cancelling
+allocation/free sequences 23 and 24 and their safe-point records from a copy of
+the complete journal. Its equal endpoint geometry cannot hide the sequence gap.
+The selected heap is unknown at source time **132,833,150 ns** and becomes known
+again only at the full recovery checkpoint at **136,256,200 ns**, sequence 25.
+This is an injected host-side negative control, not measured target data loss.
+
+#### Build, capture, and inspect replay
+
+Use the disposable pinned source trees from the timing instructions above.
+Complete and retain the timing/checkpoint captures before reconfiguring those
+trees for this separate native fixture:
+
+```sh
+python3 tools/memory-explorer/tests/build_replay_nuttx.py \
+  --nuttx target/memory-timing-sources/nuttx \
+  --apps target/memory-timing-sources/apps \
+  --output target/heap-replay/build
+python3 tools/memory-explorer/tests/qualify_replay_qemu.py \
+  --qemu "$(command -v qemu-system-arm)" \
+  --gdb "$(command -v gdb-multiarch)" \
+  --build target/heap-replay/build/build.json \
+  --output target/heap-replay/capture
+NXRS_HEAP_REPLAY_BUILD="$PWD/target/heap-replay/build" \
+NXRS_HEAP_REPLAY_EVIDENCE="$PWD/target/heap-replay/capture" \
+  cargo test --locked -p nxrs-memory-explorer \
+    --test replay_qemu -- --ignored --nocapture
+cargo run --locked -p nxrs-memory-explorer --features gui -- \
+  --elf target/heap-replay/build/nuttx \
+  --map target/heap-replay/build/nuttx.map \
+  --layout tools/memory-explorer/layouts/mps2-an521-qemu.json \
+  --heap-journal target/heap-replay/capture/journal.json \
+  --trace target/heap-replay/capture/timing.json --view memory
+```
+
+The derived timing file uses the same exact clock coordinates as the journal.
+It shows instrumented mutation windows and committed/safe observations; it does
+not add scheduler measurements. **Show in timing** links a covered heap coordinate
+to that trace. A source time outside the imported trace clears its timing cursor
+and disables the link. Select the loss-control journal to inspect missing
+evidence and checkpoint recovery with the same physical address mapping.
+
+The ARM std-demo workflow runs the collector and an independent Rust gate that
+decodes retained raw headers and compares the imported geometry. Cross-platform
+host tests exercise invalid replacements, sequence loss/order, equal-clock-tick
+ambiguity, identity/configuration mismatches, physical aliases, and recovery.
+The native viewer workflow also renders an explicitly synthetic heap journal.
+
+This fixture adds no production allocator patch or worker. Continuous product
+recording still requires a bounded recorder with qualified mutation coverage,
+ordering, resource costs, loss detection, and recovery. Keep the product entry
+point as `[build] diagnostics = true`; the existing request notes alone do not
+supply that additional topology evidence. Track production qualification under
+[#442](https://github.com/yongkyuns/nxrs/issues/442).
 
 ## Flat-build pthread key patchset
 

@@ -55,6 +55,8 @@ class BuildEvidenceChecks(unittest.TestCase):
                 self.assertEqual(cwd, nuttx)
                 if len(commands) == 1:
                     self.assertEqual(command[1], "tools/configure.sh")
+                    production = Path(__file__).resolve().parents[3] / "shared/acquisition/src/platform/nuttx/ffi/trace.c"
+                    self.assertEqual((apps / "examples/memory_timing/acquisition_trace.c").read_bytes(), production.read_bytes())
                     supplied = Path(command[command.index("-a") + 1])
                     self.assertFalse(supplied.is_absolute())
                     self.assertEqual((cwd / supplied).resolve(), apps)

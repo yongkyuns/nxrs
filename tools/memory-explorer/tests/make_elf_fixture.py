@@ -94,6 +94,32 @@ def generate(output: Path) -> dict:
     }
     (output / "layout.json").write_text(json.dumps(layout, indent=2) + "\n", encoding="utf-8")
     generate_synthetic_capture(output / "fixture.elf", output / "exporter-snapshot.json")
+    # Independent synthetic topology for the GUI renderer. Its explicit labels
+    # prevent this host-linked ELF fixture being mistaken for target evidence.
+    start, size = expected["heap_start"], expected["heap_size"]
+    free = {"start": start, "size": size, "state": "free"}
+    journal = {
+        "schema_version": 1,
+        "build": {"elf_sha256": expected["elf_sha256"], "label": "Synthetic heap renderer fixture"},
+        "provenance": {"nuttx_revision": "0" * 40, "config_sha256": "0" * 64,
+                       "collector": "synthetic-render-fixture"},
+        "recording_id": "synthetic-render-recording", "clock": "synthetic-nanosecond-clock",
+        "heap": {"id": "synthetic-heap", "epoch": "1", "region": "fixture-ram-window",
+                 "start": start, "size": size},
+        "initial": {"sequence": 0, "time_ns": 0, "chunks": [free]},
+        "records": [
+            {"kind": "transaction", "sequence": 1, "heap_epoch": "1", "start_ns": 2000,
+             "commit_ns": 4000, "start": start, "size": size, "expected": [free],
+             "replacement": [{"start": start, "size": 512, "state": "allocated"},
+                             {"start": start + 512, "size": size - 512, "state": "free"}],
+             "label": "Synthetic split"},
+            {"kind": "loss", "heap_epoch": "1", "time_ns": 7000, "reason": "Synthetic loss control"},
+            {"kind": "checkpoint", "heap_epoch": "1", "sequence": 3, "time_ns": 9000,
+             "chunks": [free], "label": "Synthetic recovery observation"},
+        ],
+        "closing": {"heap_epoch": "1", "sequence": 3, "time_ns": 10000},
+    }
+    (output / "heap-journal.json").write_text(json.dumps(journal, indent=2) + "\n", encoding="utf-8")
     return expected
 
 

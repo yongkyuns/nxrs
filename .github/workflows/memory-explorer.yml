@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - 'tools/memory-explorer/**'
+      - 'upstream/memory-layouts/**'
       - 'tools/nuttx-trace-to-perfetto.py'
       - 'tests/host/test_nuttx_trace.py'
       - 'tests/host/test_imu_scheduler_trace.py'
@@ -15,6 +16,7 @@ on:
     branches: [main]
     paths:
       - 'tools/memory-explorer/**'
+      - 'upstream/memory-layouts/**'
       - 'tools/nuttx-trace-to-perfetto.py'
       - 'tests/host/test_nuttx_trace.py'
       - 'tests/host/test_imu_scheduler_trace.py'
@@ -91,6 +93,7 @@ jobs:
         run: |
           python tools/memory-explorer/tests/make_elf_fixture.py target/memory-explorer-fixture
           timeout 45s xvfb-run -a -s '-screen 0 1600x1100x24' target/debug/nxrs-memory-explorer --elf target/memory-explorer-fixture/fixture.elf --map target/memory-explorer-fixture/fixture.map --layout target/memory-explorer-fixture/layout.json --snapshot target/memory-explorer-fixture/exporter-snapshot.json --smoke-test --screenshot target/memory-explorer-smoke/elf.ppm
+          timeout 45s xvfb-run -a -s '-screen 0 1600x1100x24' target/debug/nxrs-memory-explorer --elf target/memory-explorer-fixture/fixture.elf --map target/memory-explorer-fixture/fixture.map --layout target/memory-explorer-fixture/layout.json --heap-journal target/memory-explorer-fixture/heap-journal.json --smoke-test --screenshot target/memory-explorer-smoke/heap-replay.ppm
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: runner.os == 'Linux' && always()
         with:
