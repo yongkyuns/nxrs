@@ -16,6 +16,20 @@ const MAX_TRACE_BYTES: usize = 128 * 1024 * 1024;
 const MAX_TRACE_EVENTS: usize = 1_000_000;
 const MAX_NESTING: usize = 1024;
 
+fn category_filter(filter: &str) -> Option<&str> {
+    filter
+        .strip_prefix("cat:")
+        .or_else(|| filter.strip_prefix("category:"))
+        .map(str::trim)
+}
+
+fn category_matches(category: &str, filter: &str) -> bool {
+    !filter.is_empty()
+        && category
+            .split(',')
+            .any(|part| part.trim().eq_ignore_ascii_case(filter))
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct TimingRange {
     pub start_ns: u64,
@@ -67,8 +81,69 @@ impl TimingEvent {
         self.end_ns - self.start_ns
     }
 
+    /// Read producer evidence, including the beginning of a paired B/E span.
+    /// End arguments never silently replace its original source identity.
+    pub fn argument(&self, name: &str) -> Option<&Value> {
+        self.args
+            .get(name)
+            .or_else(|| self.args.get("begin_args").and_then(|args| args.get(name)))
+    }
+
+    pub fn is_irq(&self) -> bool {
+        self.category
+            .split(',')
+            .any(|part| matches!(part.trim(), "irq" | "interrupt"))
+    }
+
+    pub fn is_heap(&self) -> bool {
+        self.category.split(',').any(|part| part.trim() == "heap")
+    }
+
+    pub fn is_callback(&self) -> bool {
+        self.is_irq() || self.category.split(',').any(|part| part.trim() == "timer")
+    }
+
+    /// A recorded/resolved code location, never an inferred device or owner.
+    /// In particular, an IRQ number alone cannot identify a sensor.
+    pub fn source_name(&self) -> Option<&str> {
+        let fields: &[&str] = if self.is_callback() {
+            &["handler_function", "handler_file", "source_label"]
+        } else {
+            &["caller_function", "caller_file", "source_label"]
+        };
+        fields.iter().find_map(|field| {
+            self.argument(field)
+                .and_then(Value::as_str)
+                .filter(|value| !value.trim().is_empty())
+        })
+    }
+
+    pub fn requested_bytes(&self) -> Option<u64> {
+        self.is_heap()
+            .then(|| self.argument("requested_bytes").and_then(Value::as_u64))
+            .flatten()
+    }
+
+    /// Explicit allocator result, when reported. Paired B/E spans can record
+    /// the result at E while retaining caller and request size from B.
+    /// Neither a missing result nor an unrelated allocation implies success.
+    pub fn request_failed(&self) -> Option<bool> {
+        self.is_heap()
+            .then(|| {
+                self.args
+                    .get("end_args")
+                    .and_then(|args| args.get("failed"))
+                    .or_else(|| self.argument("failed"))
+                    .and_then(Value::as_bool)
+            })
+            .flatten()
+    }
+
     pub fn matches(&self, filter: &str) -> bool {
         let filter = filter.trim().to_lowercase();
+        if let Some(category) = category_filter(&filter) {
+            return category_matches(&self.category, category);
+        }
         filter.is_empty()
             || self.name.to_lowercase().contains(&filter)
             || self.category.to_lowercase().contains(&filter)
@@ -91,6 +166,7 @@ pub struct CounterSample {
     pub track: usize,
     pub time_ns: u64,
     pub name: String,
+    pub category: String,
     pub series: String,
     /// Finite numeric value for plotting. `exact_value` preserves the original
     /// decimal representation for inspection when f64 cannot represent it.
@@ -100,6 +176,9 @@ pub struct CounterSample {
 
 #[derive(Clone, Debug, Default)]
 pub struct TimingMetadata {
+    /// Producer-assigned identity for one recording and target reset epoch.
+    /// This token never establishes memory alignment without checked markers.
+    pub recording_id: Option<String>,
     pub clock: Option<String>,
     pub source: Option<String>,
     /// Explicit source-clock origin of a normalized trace, if supplied.
@@ -110,6 +189,12 @@ pub struct TimingMetadata {
     pub loss_detected: Option<bool>,
     pub complete: Option<bool>,
     pub incomplete_intervals: u64,
+    /// Native recorder counts, kept distinct from derived display intervals.
+    pub event_counts: BTreeMap<String, u64>,
+    pub source_attribution: BTreeMap<String, u64>,
+    pub source_elf_sha256: Option<String>,
+    pub observed_note_count: Option<u64>,
+    pub ignored_line_count: Option<u64>,
 }
 
 #[derive(Clone, Debug)]
@@ -143,9 +228,32 @@ pub struct TimingStats {
     pub tracks: Vec<TimingTrackStats>,
 }
 
+/// Matching observations grouped by track, operation and recorded code source.
+/// Durations are clipped to the query window and summed inclusively: nested or
+/// overlapping tracks must not be presented as additive CPU utilization.
+#[derive(Clone, Debug, Default)]
+pub struct TimingSourceStats {
+    pub track: usize,
+    pub name: String,
+    pub category: String,
+    pub source: Option<String>,
+    pub interval_count: usize,
+    pub instant_count: usize,
+    pub inclusive_ns: u128,
+    pub longest_overlap_ns: u64,
+    pub representative_event: usize,
+    pub request_count: usize,
+    pub requested_bytes: u128,
+    pub failed_requests: usize,
+    pub unknown_outcomes: usize,
+}
+
 impl TimingTrace {
     pub fn event_matches(&self, event: &TimingEvent, filter: &str) -> bool {
         let filter = filter.trim().to_lowercase();
+        if category_filter(&filter).is_some() {
+            return event.matches(&filter);
+        }
         let track = &self.tracks[event.track];
         event.matches(&filter)
             || track.name.to_lowercase().contains(&filter)
@@ -159,23 +267,101 @@ impl TimingTrace {
             .collect()
     }
 
+    /// Minimum duration applies only to intervals; instantaneous allocation,
+    /// loss and checkpoint evidence stays visible at any duration threshold.
+    pub fn source_stats(
+        &self,
+        range: TimingRange,
+        filter: &str,
+        minimum_ns: u64,
+    ) -> Vec<TimingSourceStats> {
+        let mut groups: BTreeMap<(usize, &str, &str, Option<&str>), TimingSourceStats> =
+            BTreeMap::new();
+        for event in self.query(range, filter) {
+            if event.kind == TimingEventKind::Interval && event.duration_ns() < minimum_ns {
+                continue;
+            }
+            let key = (
+                event.track,
+                event.name.as_str(),
+                event.category.as_str(),
+                event.source_name(),
+            );
+            let group = groups.entry(key).or_insert_with(|| TimingSourceStats {
+                track: event.track,
+                name: event.name.clone(),
+                category: event.category.clone(),
+                source: event.source_name().map(str::to_owned),
+                representative_event: event.id,
+                ..Default::default()
+            });
+            if event.kind == TimingEventKind::Instant {
+                group.instant_count += 1;
+            } else {
+                let overlap = event
+                    .end_ns
+                    .min(range.end_ns)
+                    .saturating_sub(event.start_ns.max(range.start_ns));
+                group.interval_count += 1;
+                group.inclusive_ns += u128::from(overlap);
+                if overlap > group.longest_overlap_ns {
+                    group.longest_overlap_ns = overlap;
+                    group.representative_event = event.id;
+                }
+            }
+            if let Some(bytes) = event.requested_bytes() {
+                group.request_count += 1;
+                group.requested_bytes += u128::from(bytes);
+                match event.request_failed() {
+                    Some(true) => group.failed_requests += 1,
+                    Some(false) => {}
+                    None => group.unknown_outcomes += 1,
+                }
+            }
+        }
+        let mut groups: Vec<_> = groups.into_values().collect();
+        groups.sort_by(|left, right| {
+            right
+                .inclusive_ns
+                .cmp(&left.inclusive_ns)
+                .then_with(|| right.requested_bytes.cmp(&left.requested_bytes))
+                .then_with(|| {
+                    (left.track, &left.name, &left.source).cmp(&(
+                        right.track,
+                        &right.name,
+                        &right.source,
+                    ))
+                })
+        });
+        groups
+    }
+
     pub fn counter_query(&self, range: TimingRange, filter: &str) -> Vec<&CounterSample> {
-        let filter = filter.trim().to_lowercase();
         self.counters
             .iter()
-            .filter(|sample| {
-                let track = &self.tracks[sample.track];
-                range.contains(sample.time_ns)
-                    && (filter.is_empty()
-                        || sample.name.to_lowercase().contains(&filter)
-                        || sample.series.to_lowercase().contains(&filter)
-                        || track.name.to_lowercase().contains(&filter)
-                        || track.process_name.to_lowercase().contains(&filter))
-            })
+            .filter(|sample| range.contains(sample.time_ns) && self.counter_matches(sample, filter))
             .collect()
     }
 
+    pub fn counter_matches(&self, sample: &CounterSample, filter: &str) -> bool {
+        let filter = filter.trim().to_lowercase();
+        if let Some(category) = category_filter(&filter) {
+            return category_matches(&sample.category, category);
+        }
+        let track = &self.tracks[sample.track];
+        filter.is_empty()
+            || sample.name.to_lowercase().contains(&filter)
+            || sample.series.to_lowercase().contains(&filter)
+            || sample.category.to_lowercase().contains(&filter)
+            || track.name.to_lowercase().contains(&filter)
+            || track.process_name.to_lowercase().contains(&filter)
+    }
+
     pub fn stats(&self, range: TimingRange, filter: &str) -> TimingStats {
+        self.stats_filtered(range, filter, 0)
+    }
+
+    pub fn stats_filtered(&self, range: TimingRange, filter: &str, minimum_ns: u64) -> TimingStats {
         let mut stats = TimingStats {
             range,
             interval_count: 0,
@@ -185,6 +371,9 @@ impl TimingTrace {
         };
         let mut by_track: BTreeMap<usize, (TimingTrackStats, Vec<(u64, u64)>)> = BTreeMap::new();
         for event in self.query(range, filter) {
+            if event.kind == TimingEventKind::Interval && event.duration_ns() < minimum_ns {
+                continue;
+            }
             let (track, intervals) = by_track.entry(event.track).or_insert_with(|| {
                 (
                     TimingTrackStats {
@@ -367,6 +556,7 @@ pub fn parse_timing(text: &str) -> Result<TimingTrace> {
                     track,
                     time_ns: time,
                     name: name.clone(),
+                    category: category.clone(),
                     series: series.clone(),
                     value: numeric,
                     exact_value: number.to_string(),
@@ -495,6 +685,10 @@ fn parse_metadata(document: &Value) -> Result<(TimingMetadata, Vec<String>)> {
             return Err(timing_error("unsupported otherData.nxrs schema_version"));
         }
         metadata.clock = optional_str(object, "clock")?.map(str::to_owned);
+        metadata.recording_id = optional_str(object, "recording_id")?.map(str::to_owned);
+        if let Some(recording_id) = &metadata.recording_id {
+            crate::correlation::validate_recording_id(recording_id)?;
+        }
         metadata.source = optional_str(object, "source")?.map(str::to_owned);
         metadata.elf_sha256 = optional_str(object, "elf_sha256")?.map(str::to_owned);
         if metadata.elf_sha256.as_ref().is_some_and(|hash| {
@@ -509,6 +703,40 @@ fn parse_metadata(document: &Value) -> Result<(TimingMetadata, Vec<String>)> {
         metadata.loss_detected = optional_bool(object, "loss_detected")?;
         metadata.complete = optional_bool(object, "complete")?;
         metadata.incomplete_intervals = optional_u64(object, "incomplete_intervals")?.unwrap_or(0);
+        metadata.observed_note_count = optional_u64(object, "observed_note_count")?;
+        metadata.ignored_line_count = optional_u64(object, "ignored_line_count")?;
+        for (field, target) in [
+            ("event_counts", &mut metadata.event_counts),
+            ("source_attribution", &mut metadata.source_attribution),
+        ] {
+            if let Some(counts) = object.get(field) {
+                let counts = counts
+                    .as_object()
+                    .ok_or_else(|| timing_error(format!("metadata {field} must be an object")))?;
+                for (name, value) in counts {
+                    if field == "source_attribution" && name == "elf_sha256" {
+                        let hash = value.as_str().filter(|hash| hash.len() == 64 && hash.bytes().all(|byte| byte.is_ascii_hexdigit())).ok_or_else(|| timing_error("source_attribution elf_sha256 must contain 64 hexadecimal digits"))?;
+                        if metadata
+                            .elf_sha256
+                            .as_ref()
+                            .is_some_and(|elf| !elf.eq_ignore_ascii_case(hash))
+                        {
+                            return Err(timing_error(
+                                "source attribution ELF does not match trace ELF",
+                            ));
+                        }
+                        metadata.source_elf_sha256 = Some(hash.to_owned());
+                        continue;
+                    }
+                    let count = value.as_u64().ok_or_else(|| {
+                        timing_error(format!(
+                            "metadata {field}.{name} must be a nonnegative integer"
+                        ))
+                    })?;
+                    target.insert(name.clone(), count);
+                }
+            }
+        }
         if metadata.loss_detected == Some(false)
             && metadata.lost_records.is_some_and(|count| count > 0)
             || metadata.loss_detected == Some(true) && metadata.lost_records == Some(0)
@@ -552,7 +780,11 @@ fn parse_metadata(document: &Value) -> Result<(TimingMetadata, Vec<String>)> {
             "Capture has incomplete coverage. Unclosed intervals have no inferred duration.".into(),
         );
     }
-    warnings.push("Timing coordinates are not synchronized with memory snapshot labels. An ELF match alone does not establish a clock mapping.".into());
+    if metadata.recording_id.is_none() {
+        warnings.push("Timing coordinates are not synchronized with memory snapshot labels. An ELF match alone does not establish a clock mapping.".into());
+    } else {
+        warnings.push("Recording identity permits checkpoint verification, but does not itself synchronize memory. A link requires matching ELF, recording, clock, unique marker, and exact source timestamp; memory between checkpoints remains unknown.".into());
+    }
     warnings.push("Per-track coverage is an interval union. Scheduled residency can overlap IRQ and application tracks; these layers are not additive CPU time.".into());
     Ok((metadata, warnings))
 }

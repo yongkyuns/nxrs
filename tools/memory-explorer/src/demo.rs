@@ -231,6 +231,7 @@ pub fn demo() -> MemoryModel {
             ),
             spans,
             complete_regions: vec!["demo-ram".into()],
+            correlation: None,
         });
     }
     MemoryModel {

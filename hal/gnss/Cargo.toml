@@ -9,9 +9,11 @@ name = "gnss"
 
 [package.metadata.nxrs]
 kind = "hal-capability"
+diagnostic-features = ["probe"]
 platforms = ["mock", "nuttx", "simulation"]
 
 [features]
+probe = ["nxrs-acquisition/probe"]
 pps = ["dep:nxrs-gpio"]
 
 [dependencies]

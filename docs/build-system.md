@@ -349,9 +349,14 @@ image size, and static RAM in CI. Heap use and worker stacks are measured at
 runtime.
 
 For an instrumented build, set `diagnostics = true` in the profile's
-`[build]` table. It enables kernel tracing, heap request counters, and stack
-high-water measurements on flat NuttX with the default allocator. Start a
-trace from NSH when reproducing a problem. See
+`[build]` table. It enables kernel and application tracing, heap request counters,
+stack high-water measurements, source symbols, and the final linker map on flat
+NuttX with the default allocator. The fixed trace buffer defaults to 32768 bytes
+and preserves the start. `diagnostics-trace-bytes` selects a multiple of four
+from 4096 through 4194304. Optional `diagnostics-heap-backtrace-depth` selects
+0..16 allocator frames (0 retains task identity only); leaving it unset preserves
+the target's setting. Both options require diagnostics. Start a trace from NSH
+when reproducing a problem. See
 [NuttX diagnostics](nuttx-memory-qualification.md#diagnostic-builds) for commands
 and how to read the results.
 
@@ -378,8 +383,20 @@ participate in native cache identity and build provenance.
 Components are ordinary Cargo packages. Additive Cargo features may enable
 optional algorithms, formats, integrations and driver code. App/service code
 remains platform-free; OS selection stays at HAL module/factory boundaries.
-`probe` remains an explicit diagnostic opt-in. The detector's model features
+`probe` remains the diagnostic opt-in. An explicit diagnostic profile selects
+the existing probe features declared by consumed providers; ordinary builds do
+not add them. The detector's model features
 still follow the selected product profile.
+
+A package declares its existing diagnostic entry point through
+`[package.metadata.nxrs] diagnostic-features = ["probe"]`. Catalogues forward
+that feature through ordinary weak Cargo edges such as `nxrs-imu?/probe` and
+`nxrs-gnss?/probe`. The build controller queries Cargo again after feature
+selection. This supports renamed and detached composition dependencies while
+leaving unused optional capabilities absent. A consumed provider without an
+enabled forwarding route fails with a diagnostic rather than silently omitting
+its requested probes. Completed build and editor receipts record the selected
+`diagnostic_features` alongside the driver and model features.
 
 `build` accepts repeated `--features` (or the compatible `--feature` spelling)
 with comma- or space-separated values, plus `--no-default-features`. The same

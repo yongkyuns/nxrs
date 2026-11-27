@@ -8,6 +8,15 @@ pub struct Trace {}
 pub type Observed<T> = T;
 
 impl Trace {
+    pub fn for_source(_: &'static str, _: &'static str) -> Self {
+        Self {}
+    }
+
+    #[inline]
+    pub fn scope<T>(&self, _: &str, call: impl FnOnce() -> T) -> T {
+        call()
+    }
+
     pub fn observe<T>(self, inner: T) -> T {
         inner
     }

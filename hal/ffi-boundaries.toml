@@ -200,6 +200,11 @@ kind = "abi"
 reason = "Target pollfd layout and pipe2 flags only. Shared Rust readiness owns descriptor lifetime and cancellation; HALs own reads, deadlines and event admission."
 
 [[bridge]]
+path = "shared/acquisition/src/platform/nuttx/ffi/trace.c"
+kind = "abi"
+reason = "Translate bounded task-context labels and begin/end/instant tags to NuttX scheduler note constants. Rust owns source identity, operation scopes and label storage."
+
+[[bridge]]
 path = "driver/gpio/src/platform/nuttx/ffi/gpio.c"
 kind = "abi"
 reason = "Individual GPIO interrupt ioctls only. NuttX owns ISR notifications; the Rust GPIO resource owns registration and rollback and reports cleanup uncertainty to its owner."

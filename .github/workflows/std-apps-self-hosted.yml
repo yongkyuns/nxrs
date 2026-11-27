@@ -47,7 +47,8 @@ on:
       - 'tools/apply-nuttx-patches.py'
       - '.github/workflows/std-apps-self-hosted.yml'
   pull_request:
-    branches: [main]
+    # Stacked diagnostics PRs need the same native timing and heap witnesses
+    # before their prerequisite lands; retain the path and actor restrictions.
     paths:
       - '.github/scripts/install-ubuntu-packages.sh'
       - 'app/**'
@@ -370,6 +371,45 @@ jobs:
           NXRS_MEMORY_TIMING_ELF="$timing_output/build/nuttx" \
             cargo +1.90.0 test --locked -p nxrs-memory-explorer \
               --test timing_qemu -- --ignored --nocapture
+      - name: Capture memory checkpoints and timing from one QEMU run
+        if: matrix.app == 'std-demo'
+        shell: bash
+        run: |
+          set -euo pipefail
+          timing_sources="$GITHUB_WORKSPACE/target/memory-timing-sources"
+          timing_output="$GITHUB_WORKSPACE/target/firmware/std-demo/mps2-an521-mock/memory-timing"
+          python3 tools/memory-explorer/tests/qualify_lifecycle_qemu.py \
+            --qemu "$(command -v qemu-system-arm)" \
+            --gdb "$(command -v gdb-multiarch)" \
+            --image "$timing_output/build/nuttx" \
+            --config "$timing_output/build/resolved.config" \
+            --pynuttx "$timing_sources/nuttx/tools/pynuttx" \
+            --output "$timing_output/lifecycle"
+          NXRS_MEMORY_LIFECYCLE_EVIDENCE="$timing_output/lifecycle" \
+          NXRS_MEMORY_LIFECYCLE_ELF="$timing_output/build/nuttx" \
+            cargo +1.90.0 test --locked -p nxrs-memory-explorer \
+              --test lifecycle_qemu -- --ignored --nocapture
+      - name: Qualify isolated heap topology replay against real QEMU headers
+        if: matrix.app == 'std-demo'
+        shell: bash
+        run: |
+          set -euo pipefail
+          replay_sources="$GITHUB_WORKSPACE/target/memory-timing-sources"
+          replay_output="$GITHUB_WORKSPACE/target/firmware/std-demo/mps2-an521-mock/heap-replay"
+          # Reuse disposable sources only after the independent timing and
+          # checkpoint witnesses have retained their final images and captures.
+          python3 tools/memory-explorer/tests/build_replay_nuttx.py \
+            --nuttx "$replay_sources/nuttx" --apps "$replay_sources/apps" \
+            --output "$replay_output/build"
+          python3 tools/memory-explorer/tests/qualify_replay_qemu.py \
+            --qemu "$(command -v qemu-system-arm)" \
+            --gdb "$(command -v gdb-multiarch)" \
+            --build "$replay_output/build/build.json" \
+            --output "$replay_output/capture"
+          NXRS_HEAP_REPLAY_BUILD="$replay_output/build" \
+          NXRS_HEAP_REPLAY_EVIDENCE="$replay_output/capture" \
+            cargo +1.90.0 test --locked -p nxrs-memory-explorer \
+              --test replay_qemu -- --ignored --nocapture
       - name: Retain firmware qualification
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -385,4 +425,5 @@ jobs:
             target/firmware/${{ matrix.app }}/*/nuttx/nuttx.bin
             target/firmware/${{ matrix.app }}/*/memory-explorer/
             target/firmware/${{ matrix.app }}/*/memory-timing/
+            target/firmware/${{ matrix.app }}/*/heap-replay/
           if-no-files-found: warn
