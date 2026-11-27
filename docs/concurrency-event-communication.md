@@ -206,17 +206,18 @@ Production capture retains its current pool until those requirements are met.
 #### ARM product build comparison
 
 Matched `mps2-an521-mock` builds of the actual Motion Tracker application
-compare updated parent `43eca59c`, including the fixed-reader implementation
-from #451, with reusable publication revision `b4948b2f`. Both use the same
+compare updated parent `66c57797`, including the fixed-reader implementation
+from #451, with reusable publication revision `21b7cafa`. Both use the same
 current frontend, pinned ARM compiler, effective Kconfig, SDK patch receipt,
-linker script and normal PI-enabled mutex policy. Both builds pass the native
+ARMv8-M SysTick correction, linker script and normal PI-enabled mutex policy.
+Both builds pass the native
 ABI gate, with identical results for all 126 checked values within that gate's
 documented scope.
 
 | Linked product measurement | Updated parent with #451 | Reusable ownership API | Change |
 | --- | ---: | ---: | ---: |
-| File-backed allocated ELF sections | 428,026 B | 429,866 B | +1,840 B |
-| Unpadded `nuttx.bin` | 428,028 B | 429,868 B | +1,840 B |
+| File-backed allocated ELF sections | 428,154 B | 429,978 B | +1,824 B |
+| Unpadded `nuttx.bin` | 428,156 B | 429,980 B | +1,824 B |
 | Static SRAM sections | 10,900 B | 10,900 B | 0 B |
 
 The binary includes two bytes of flash alignment; the SRAM address span is
@@ -259,7 +260,7 @@ parent branch. It measured the original mutex-to-fixed-reader change:
 
 Those images also passed the two-run headless product smoke under their matched
 SDK and configuration. These historical figures describe their own source pair;
-the current PR's incremental footprint is the +1,840 B comparison above.
+the current PR's incremental footprint is the +1,824 B comparison above.
 
 #### CoreS3 product-path baseline
 

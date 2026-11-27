@@ -99,10 +99,17 @@ uncontended timings cannot establish physical worst-case latency. The probe
 itself can retry while allocator hooks are active, so snapshots run only after
 the workers have joined; it is not part of production publication.
 
-The implementation's ARM MPS2 QEMU run passed both publication and mutex
-inheritance cases on fresh boots of the same image, including 126 native ABI
-witnesses at build time. The retained build identity was
-`81862211df48d6f2ce24fdcdac4854af43f472f40102a95d9e01139cb76100ae`.
+The fresh integration run at `21b7cafa`, using the corrected ARMv8-M timer and
+QEMU 8.2.7, passed both publication and mutex inheritance cases on fresh boots
+of the same image. Its normal build passed the 126-check ABI gate within that
+gate's documented scope. All 1,038 inventoried source inputs match the retained
+build identity
+`e9137d19153e9e3aa4509f90c23fb9f0dd26355ad3e5191f946f2f2d64062cce`.
+Eight additional fresh boots passed the unchanged strict mutex control,
+including the 120-to-180-to-120 priority observations and release/acquire/event
+order. All ten captures completed with emulator exit zero and passed independent
+replay. The original elapsed-time resample and assertion remain intact.
+
 The two-IMU, two-reader comparison (GNSS disabled) observed:
 
 | Requested Rust allocation | Mutex model | Production publication API |
@@ -116,6 +123,8 @@ The additional mutex allocation was a zeroed first-use allocation. These
 measurements quantify this matched model, not Motion Tracker's full four-stream
 publication set or native heap usage outside Rust. QEMU elapsed times are kept
 in the raw records without a physical speedup or deadline claim.
+The allocation table also matches the earlier implementation's retained build
+`81862211df48d6f2ce24fdcdac4854af43f472f40102a95d9e01139cb76100ae`.
 
 Data accounting excludes the isolated stop token, endpoint-closure probes and
 the owner’s derived reports. A handler may create several reports for one input.
