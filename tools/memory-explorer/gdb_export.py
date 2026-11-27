@@ -22,6 +22,8 @@ import hashlib
 import json
 from pathlib import Path
 import re
+import subprocess
+import tempfile
 
 
 MAX_HEAPS = 128
@@ -30,10 +32,229 @@ MAX_TASKS = 65536
 MAX_REGIONS = 128
 MAX_CPUS = 256
 U64_MAX = (1 << 64) - 1
+MAX_STACK_SCAN_BYTES = 16 * 1024 * 1024
+STACK_READ_BYTES = 1024
+MAX_MACRO_BYTES = 64 * 1024 * 1024
+STACK_MACROS = frozenset((
+    "CONFIG_ARCH_ARM", "CONFIG_ARCH_ARMV6M", "CONFIG_ARCH_ARMV7M", "CONFIG_ARCH_ARMV8M",
+    "CONFIG_ARCH_XTENSA", "CONFIG_STACK_COLORATION", "CONFIG_SMP", "CONFIG_SMP_NCPUS",
+    "STACK_COLOR", "STACKFRAME_ALIGN",
+))
 
 
 class ExportError(Exception):
     """The requested capture cannot be represented truthfully."""
+
+
+def parse_stack_macros(lines):
+    """Retain only unambiguous literal constants from host ELF DWARF.
+
+    Do not evaluate macro expressions or accept the last of contradictory
+    definitions. Unlike nxgdb's macro helper this does not create/select an
+    inferior, invoke a shell, or change the selected source/frame.
+    """
+    definitions = {}
+    pattern = re.compile(r"^\s*DW_MAC(?:RO|INFO)_(?:define\w*|undef\w*)\b.*?\bmacro\s*:\s*(\w+)(?:\s+(.*))?$")
+    literal = re.compile(r"(0[xX][0-9a-fA-F]+|0[0-7]*|[1-9][0-9]*)[uUlL]*")
+    for line in lines:
+        match = pattern.match(line)
+        if not match or match[1] not in STACK_MACROS:
+            continue
+        value = (match[2] or "").strip()
+        while value.startswith("(") and value.endswith(")"):
+            value = value[1:-1].strip()
+        scalar = literal.fullmatch(value)
+        parsed = None
+        if "_define" in line and scalar:
+            number = scalar[1]
+            base = 16 if number.lower().startswith("0x") else 8 if number.startswith("0") else 10
+            parsed = int(number, base)
+        definitions.setdefault(match[1], set()).add(parsed)
+    constants = {name: next(iter(values)) for name, values in definitions.items()
+                 if len(values) == 1 and None not in values}
+    ambiguous = sorted(name for name, values in definitions.items()
+                       if len(values) != 1 or None in values)
+    return constants, ambiguous
+
+
+def read_stack_macros(filename):
+    """Read the selected host ELF, never a cached or inferred build config."""
+    try:
+        # A temporary spool keeps the debug dump outside Python/GDB memory.
+        # Execution has a timeout; the completed dump then has an admission
+        # size limit. readelf receives an argv, never shell text.
+        with tempfile.TemporaryFile(mode="w+b") as output:
+            process = subprocess.run(["readelf", "--debug-dump=macro", str(filename)],
+                                     stdout=output, stderr=subprocess.DEVNULL,
+                                     timeout=15, check=False)
+            if process.returncode:
+                raise ExportError("readelf could not read loaded ELF macro information")
+            if output.tell() > MAX_MACRO_BYTES:
+                raise ExportError("Loaded ELF macro information exceeds the 64 MiB admission limit")
+            output.seek(0)
+            constants, ambiguous = parse_stack_macros(
+                line.decode("utf-8", errors="replace").rstrip() for line in output)
+        if not constants:
+            raise ExportError("Loaded ELF has no admitted stack configuration macros; use debug symbols level -g3")
+        return constants, ambiguous, None
+    except Exception as exc:
+        return {}, [], str(exc)
+
+
+def _unavailable(reason):
+    return {"status": "unavailable", "reason": str(reason)}
+
+
+class StackReader:
+    """Read-only, bounded stack observations for the pinned ARM/Xtensa ABI.
+
+    Coloration estimates touched depth, independently of the current SP's
+    reserved depth. Neither establishes a task lifetime or historical maximum
+    between observations. Unsupported configurations retain unavailable values.
+    """
+
+    def __init__(self, gdb_api, identity, layout):
+        self.gdb = gdb_api
+        self.identity = identity
+        self.layout = layout
+        self.constants = {}
+        self.ambiguous = []
+        self.macro_error = None
+        self.loaded = False
+        self.read_bytes = 0
+
+    def load(self):
+        if not self.loaded:
+            self.constants, self.ambiguous, self.macro_error = read_stack_macros(self.identity["host_elf"])
+            self.loaded = True
+
+    def provenance(self):
+        return {
+            "configuration_source": "readelf of loaded host ELF DWARF macro definitions",
+            "elf_sha256": self.identity["elf_sha256"],
+            "constants": self.constants,
+            "ambiguous_or_nonliteral_macros": self.ambiguous,
+            "configuration_unavailable_reason": self.macro_error,
+            "scan_byte_order": self.identity["byte_order"],
+            "scan_limit_bytes": MAX_STACK_SCAN_BYTES,
+            "scan_read_chunk_bytes": STACK_READ_BYTES,
+            "scan_requested_bytes": self.read_bytes,
+            "current_support": "single-core Cortex-M thread mode, live register or bounded saved task context",
+            "high_water_support": "pinned ARM/Xtensa downward stack coloration; unscanned alignment edges remain unknown",
+        }
+
+    def high_water(self, start, size):
+        self.load()
+        try:
+            if self.macro_error:
+                raise ExportError(self.macro_error)
+            enabled = self.constants.get("CONFIG_STACK_COLORATION")
+            if enabled != 1:
+                raise ExportError("CONFIG_STACK_COLORATION is disabled or unavailable in loaded ELF DWARF")
+            arm = self.constants.get("CONFIG_ARCH_ARM") == 1
+            xtensa = self.constants.get("CONFIG_ARCH_XTENSA") == 1
+            if arm == xtensa or self.layout["pointer_bits"] != 32:
+                raise ExportError("Stack coloration is not admitted for this target architecture")
+            alignment = self.constants.get("STACKFRAME_ALIGN")
+            if alignment != (8 if arm else 16):
+                raise ExportError("Native stack alignment is missing or unsupported")
+            pattern = self.constants.get("STACK_COLOR")
+            if pattern is None or not 0 <= pattern <= 0xffffffff:
+                raise ExportError("Native STACK_COLOR is missing or unsupported")
+            word_bytes = int(self.gdb.lookup_type("uint32_t").sizeof)
+            if word_bytes != 4:
+                raise ExportError("Native coloration word is not a 32-bit value")
+            end = _extent(start, size, self.layout["address_limit"])
+            scan_start = (start + alignment - 1) & -alignment
+            scan_end = end & -alignment
+            scan_size = scan_end - scan_start
+            if scan_size <= 0:
+                raise ExportError("Stack contains no complete native-aligned coloration scan interval")
+            if scan_size > MAX_STACK_SCAN_BYTES - self.read_bytes:
+                raise ExportError("Stack coloration scan exceeds the remaining per-capture byte limit")
+            inferior = self.gdb.selected_inferior()
+            used = 0
+            for offset in range(0, scan_size, STACK_READ_BYTES):
+                count = min(STACK_READ_BYTES, scan_size - offset)
+                self.read_bytes += count
+                data = bytes(inferior.read_memory(scan_start + offset, count))
+                if len(data) != count:
+                    raise ExportError("Short read while scanning stack coloration")
+                for index in range(0, count, 4):
+                    if int.from_bytes(data[index:index + 4], self.identity["byte_order"]) != pattern:
+                        used = scan_size - offset - index
+                        break
+                if used:
+                    break
+            return {"status": "coloration", "scan_start": scan_start, "scan_size": scan_size,
+                    "used_bytes": used, "pattern": pattern, "word_bytes": 4}
+        except Exception as exc:
+            return _unavailable(exc)
+
+    def current(self, tcb, start, size):
+        self.load()
+        try:
+            if self.macro_error:
+                raise ExportError(self.macro_error)
+            if (self.constants.get("CONFIG_ARCH_ARM") != 1 or
+                    not any(self.constants.get(name) == 1 for name in
+                            ("CONFIG_ARCH_ARMV6M", "CONFIG_ARCH_ARMV7M", "CONFIG_ARCH_ARMV8M")) or
+                    self.layout["pointer_bits"] != 32):
+                raise ExportError("Current stack pointer is only admitted for Cortex-M targets")
+            if (self.constants.get("CONFIG_SMP_NCPUS") != 1 or
+                    self.constants.get("CONFIG_SMP", 0) != 0 or "CONFIG_SMP" in self.ambiguous):
+                raise ExportError("Current stack pointer requires an explicitly single-core configuration")
+            threads = self.gdb.selected_inferior().threads()
+            if len(threads) != 1 or not threads[0].is_stopped():
+                raise ExportError("Current stack pointer requires one stopped debugger CPU thread; synthetic RTOS thread mapping is unqualified")
+            frame = self.gdb.newest_frame()
+            if not frame or int(frame.read_register("xpsr")) & 0x1ff:
+                raise ExportError("Current stack pointer is unavailable at an interrupt/exception stop")
+            running_tasks = self.gdb.parse_and_eval("g_running_tasks")
+            if _array_length(running_tasks) != 1 or not running_tasks[0]:
+                raise ExportError("The runtime CPU/task mapping is not a single running task")
+            running_state = int(self.gdb.parse_and_eval("TSTATE_TASK_RUNNING"))
+            state = int(tcb["task_state"])
+            running = int(running_tasks[0])
+            end = _extent(start, size, self.layout["address_limit"])
+            if running == int(tcb):
+                if state != running_state:
+                    raise ExportError("Running-task identity conflicts with its scheduler state")
+                sp = int(frame.read_register("sp"))
+                source = "live_register"
+            else:
+                if state == running_state:
+                    raise ExportError("Running task does not match the stopped CPU")
+                # Unlike utils.get_sp(tcb), validate the map bounds and missing
+                # register sentinel before accessing a saved context. We never
+                # use the selected (possibly unwound) frame's register value.
+                registers = list(frame.architecture().registers())
+                positions = [index for index, register in enumerate(registers) if register.name == "sp"]
+                info = self.gdb.parse_and_eval("g_tcbinfo")
+                count = int(info["regs_num"])
+                if len(positions) != 1 or not 0 < count <= 256 or positions[0] >= count:
+                    raise ExportError("Saved context has no bounded native SP register mapping")
+                table = info["reg_off"]["p"]
+                if not table:
+                    raise ExportError("Saved context register-offset table is null")
+                offset = int(table[positions[0]])
+                if offset == 0xffff or not 0 <= offset <= 4092 or offset % 4:
+                    raise ExportError("Saved SP offset is unavailable or outside the admitted context bound")
+                context = tcb["xcp"]["regs"]
+                context_address = int(context)
+                if (not context_address or context_address % 4 or int(context.type.target().sizeof) != 4 or
+                        context_address < start or context_address + offset + 4 > end):
+                    raise ExportError("Saved SP storage is not contained by the task's reserved stack")
+                data = bytes(self.gdb.selected_inferior().read_memory(context_address + offset, 4))
+                if len(data) != 4:
+                    raise ExportError("Short read of saved stack pointer")
+                sp = int.from_bytes(data, self.identity["byte_order"])
+                source = "saved_context"
+            if not start <= sp <= end:
+                raise ExportError(f"Observed stack pointer {sp:#x} lies outside reserved stack bounds")
+            return {"status": "observed", "sp": sp, "source": source}
+        except Exception as exc:
+            return _unavailable(exc)
 
 
 def _fields(value_or_type):
@@ -350,15 +571,16 @@ def collect_heaps(heaps, layout, gdb_api):
     return regions, spans, metadata
 
 
-def collect_tasks(gdb_api, utils, layout, regions, spans, warnings):
+def collect_tasks(gdb_api, utils, layout, regions, spans, warnings, stack_reader):
     try:
         count = int(gdb_api.parse_and_eval("g_npidhash"))
     except Exception:
         warnings.append("Task hash unavailable; task stack bounds were not captured")
-        return []
+        return [], []
     if count < 1 or count > MAX_TASKS:
         raise ExportError("Invalid task hash capacity")
     tasks = []
+    observations = []
     seen = set()
     for tcb in utils.get_tcbs():
         address = int(tcb)
@@ -373,6 +595,8 @@ def collect_tasks(gdb_api, utils, layout, regions, spans, warnings):
                 "stack_base_ptr": int(tcb["stack_base_ptr"]),
                 "adj_stack_size": int(tcb["adj_stack_size"]),
             })
+            if not 0 <= task["pid"] <= 0xffffffff:
+                raise ExportError("Task PID is outside the unsigned 32-bit range")
             start, size = task["stack_base_ptr"], task["adj_stack_size"]
             end = _extent(start, size, layout["address_limit"])
             if not 0 < task["stack_alloc_ptr"] <= start:
@@ -398,13 +622,21 @@ def collect_tasks(gdb_api, utils, layout, regions, spans, warnings):
             spans.append(_span(span_id, f"Task {task['pid']} {task['name']} usable stack",
                                region_id, start, size, "stack", parent,
                                f"TCB {address:#x}; stack_alloc_ptr={task['stack_alloc_ptr']:#x}; "
-                               "adjusted usable bounds only; current use and high-water unknown"))
+                               "adjusted usable reservation; pointer depth and coloration are separate observations"))
             task["span"] = span_id
+            current = stack_reader.current(tcb, start, size)
+            high_water = stack_reader.high_water(start, size)
+            observations.append({"stack": span_id, "task_id": task["pid"], "tcb": address,
+                                 "growth": "down", "current": current, "high_water": high_water})
+            if current["status"] == "observed":
+                task["current_sp"] = current["sp"]
+            if high_water["status"] == "coloration":
+                task["high_water_bytes"] = high_water["used_bytes"]
         except Exception as exc:
             task["unavailable_reason"] = str(exc)
             warnings.append(f"TCB {address:#x}: no stack span: {exc}")
         tasks.append(task)
-    return tasks
+    return tasks, observations
 
 
 def collect_snapshot(gdb_api, mm, utils, label="halted snapshot", time_ns=0, heap_symbols=()):
@@ -419,14 +651,16 @@ def collect_snapshot(gdb_api, mm, utils, label="halted snapshot", time_ns=0, hea
     regions, spans, heap_metadata = collect_heaps(heaps, layout, gdb_api)
     complete = [region["id"] for region in regions]
     warnings = []
-    tasks = collect_tasks(gdb_api, utils, layout, regions, spans, warnings)
+    stack_reader = StackReader(gdb_api, identity, layout)
+    tasks, stack_observations = collect_tasks(gdb_api, utils, layout, regions, spans, warnings, stack_reader)
     if require_stopped(gdb_api) != stopped:
         raise ExportError("The visible target thread inventory changed during capture")
     evidence_warnings = [
         "Snapshot coordinates are supplied manually; no target-time or boot-time clock is inferred.",
         "The ELF hash identifies the loaded host file; running target firmware identity is unverified.",
         "All GDB-reported threads were stopped and chunk topology checked; hidden CPUs and allocator quiescence remain unverified.",
-        "Requested allocation sizes, current stack use, and stack high-water are unknown.",
+        "Requested allocation sizes remain unknown. Stack pointer depth and coloration watermark are independent checkpoint observations; unavailable evidence is explicit.",
+        "Coloration measures touched words in its aligned scan interval, not every past stack-pointer movement; edge bytes outside that interval remain unknown.",
         "Allocation source colors identify the first recorded backtrace frame when host symbols resolve it, not the current semantic owner.",
         "Backtrace frames resolve recorded allocation PCs against host DWARF; unresolved frames are retained and no live stack was unwound.",
         "Pool backing chunks are visible; pool-slot occupancy and physical address aliases are not captured.",
@@ -444,12 +678,13 @@ def collect_snapshot(gdb_api, mm, utils, label="halted snapshot", time_ns=0, hea
             "consistency": "all reported threads stopped; chunk topology validated",
             "reported_stopped_threads": stopped,
             "heap_discovery": discovery, "heaps": heap_metadata, "tasks": tasks,
+            "stack_evidence": stack_reader.provenance(),
             "warnings": warnings,
             "limits": [
                 "Caller must halt every relevant CPU at a quiescent point; GDB may hide cores.",
                 "Topology checks do not prove allocator or scheduler transaction quiescence.",
-                "No target calls, deferred-free drain, memory payloads, or physical alias inference.",
-                "Requested sizes, semantic owners, current stack use, and stack high-water are unknown.",
+                "No target calls, deferred-free drain, allocation payload export, or physical alias inference. Bounded stack-word reads retain only coloration measurements.",
+                "Requested sizes and semantic owners are unknown. Stack observations require admitted native evidence; current depth and coloration history are separate.",
                 "Pool backing chunks are visible; individual pool slots are not captured.",
                 "Chunk addresses and optional allocator sequence numbers are not durable lifetime IDs.",
                 "This snapshot makes no claim about changes between capture points.",
@@ -457,7 +692,7 @@ def collect_snapshot(gdb_api, mm, utils, label="halted snapshot", time_ns=0, hea
         },
         "regions": regions,
         "snapshots": [{"time_ns": time_ns, "label": label, "spans": spans,
-                       "complete_regions": complete}],
+                       "complete_regions": complete, "stack_observations": stack_observations}],
     }
 
 

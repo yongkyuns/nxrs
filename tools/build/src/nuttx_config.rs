@@ -265,6 +265,9 @@ fn diagnostics(profile: &Profile) -> Result<Vec<(&'static str, String)>> {
     }
     let mut settings: Vec<(&'static str, String)> = vec![
         ("DEBUG_SYMBOLS", "y"),
+        // The read-only stack exporter needs the exact compiled coloration
+        // and architecture macros. Keep them in host debug information.
+        ("DEBUG_SYMBOLS_LEVEL", "\"-g3\""),
         ("DEBUG_LINK_MAP", "y"),
         ("MM_ALLOC_REQUEST_TRACE", "y"),
         ("SCHED_INSTRUMENTATION", "y"),
@@ -919,6 +922,7 @@ mod tests {
         assert_eq!(settings["DRIVERS_NOTERAM_DEFAULT_NOOVERWRITE"], "y");
         assert_eq!(settings["SCHED_INSTRUMENTATION_DUMP"], "y");
         assert_eq!(settings["DEBUG_SYMBOLS"], "y");
+        assert_eq!(settings["DEBUG_SYMBOLS_LEVEL"], "\"-g3\"");
         assert_eq!(settings["DEBUG_LINK_MAP"], "y");
         assert!(!settings.contains_key("MM_BACKTRACE"));
         // Native watchdog hooks do not honor the master trace filter on the

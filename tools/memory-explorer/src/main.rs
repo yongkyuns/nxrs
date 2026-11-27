@@ -9,7 +9,7 @@ const HELP: &str = "NXRS Memory Explorer\n\n\
 Usage: nxrs-memory-explorer [--elf FINAL_ELF] [--map FINAL_MAP]\n\
                             [--snapshot CAPTURE.json]... [--layout LAYOUT.json]\n\
                             [--trace TRACE.json] [--heap-journal JOURNAL.json]\n\
-                            [--view overview|memory|timing|timing-events|timing-sources]\n\
+                            [--view overview|memory|stacks|timing|timing-events|timing-sources]\n\
        nxrs-memory-explorer --session SESSION.json [--session OTHER.json]... [--view NAME]\n\
        nxrs-memory-explorer --demo\n\n\
 An empty invocation opens the file-loading screen. --demo opens synthetic data.\n\
@@ -23,7 +23,7 @@ Options:\n\
   --board ID          Select a bundled board layout; default automatic (see --help)\n\
   --trace PATH        Chrome Trace Event JSON (also opens without an ELF)\n\
   --heap-journal PATH Heap topology journal for one explicitly identified heap\n\
-  --view NAME         Initial view: overview, memory, timing, timing-events, timing-sources\n\
+  --view NAME         Initial view: overview, memory, stacks, timing, timing-events, timing-sources\n\
   --demo              Inspect an explicitly synthetic demonstration\n\
   --smoke-test        Exercise navigation, render a screenshot, and exit\n\
   --screenshot PATH   PPM output for --smoke-test (default /tmp/nxrs-memory-smoke.ppm)\n\

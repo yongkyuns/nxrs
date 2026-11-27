@@ -158,7 +158,7 @@ pub fn demo() -> MemoryModel {
             ),
             span(
                 "stack-used",
-                "Synthetic observed stack use",
+                "Synthetic touched stack watermark",
                 "demo-ram",
                 0x2000_1a00,
                 512,
@@ -230,6 +230,33 @@ pub fn demo() -> MemoryModel {
                 ["one allocation", "two allocations", "hole after A"][index as usize]
             ),
             spans,
+            stack_observations: vec![StackObservation {
+                stack: "stack".into(),
+                task_id: 7,
+                tcb: 0x2000_1f00,
+                growth: StackGrowth::Down,
+                current: if index == 2 {
+                    StackCurrent::Unavailable {
+                        reason: "Synthetic checkpoint without an admitted task context".into(),
+                    }
+                } else {
+                    StackCurrent::Observed {
+                        sp: 0x2000_1c00 - if index == 0 { 320 } else { 640 },
+                        source: if index == 0 {
+                            StackPointerSource::LiveRegister
+                        } else {
+                            StackPointerSource::SavedContext
+                        },
+                    }
+                },
+                high_water: StackHighWater::Coloration {
+                    scan_start: 0x2000_1800,
+                    scan_size: 1024,
+                    used_bytes: 512,
+                    pattern: 0xdead_beef,
+                    word_bytes: 4,
+                },
+            }],
             complete_regions: vec!["demo-ram".into()],
             correlation: None,
         });

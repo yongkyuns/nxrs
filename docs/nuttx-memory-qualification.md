@@ -27,8 +27,10 @@ Without the backtrace-depth option, the target's existing allocator setting is
 preserved. Captured frames add allocator metadata and work and require a working
 target unwinder. These two options require `diagnostics = true`.
 
-Diagnostic builds retain the final map, native debug symbols, and Rust line
-tables for host-side source resolution. They also enable application markers and
+Diagnostic builds retain the final map, native debug symbols and C macro data
+(`-g3`), and Rust line tables for host-side source resolution. The macro data lets
+the stopped-target exporter verify the compiled stack coloration and context
+layout without calling a target function. They also enable application markers and
 select the existing `probe` implementation for consumed IMU/GNSS providers. These
 providers record canonical device names with wake, drain, bus-transfer, or
 read/parse/deliver work in task context. They add no recorder thread or heap
@@ -198,8 +200,11 @@ benchmark.
 map alongside addressed heap/task-stack observations in an egui viewer. Its
 read-only GDB exporter records raw default-allocator chunk extents and stack
 reservations. Unlike the procfs meminfo read above, it does not drain delayed
-frees. It also does not sample stack coloration or measure requested payload
-sizes, so keep using this qualification for lifecycle reclamation and stack
+frees. Its **Stack usage** view separates usable reservation, admitted current
+pointer depth, and a read-only coloration watermark at each checkpoint. Missing
+or ambiguous measurements remain unknown, and sampled observations do not prove
+maximum stack depth. It does not measure requested payload sizes, so keep using
+this qualification for lifecycle reclamation and stack
 high-water evidence.
 
 The viewer plots per-heap usage and observed peaks across independently captured
@@ -405,7 +410,8 @@ fixture enters a native critical section, masks interrupts with PRIMASK, emits
 `memory/checkpoint/<id>`, and reaches a hardware breakpoint. The admitted sole
 note driver writes a fixed RAM ring and has no poll subscriber that could wake
 another task. This preserves heap topology and task-stack reservations from the
-marker to the debugger stop; it does not establish current stack usage.
+marker to the debugger stop. A stack pointer sampled at that stop describes the
+stopped instruction; it is not proof of the pointer's value at marker emission.
 
 The debugger checks those conditions, independently decodes the last native note
 from the ring, and compares raw allocator headers and task metadata before and
@@ -467,6 +473,11 @@ NXRS_MEMORY_LIFECYCLE_ELF="$timing_output/build/nuttx" \
   cargo +1.90.0 test --locked -p nxrs-memory-explorer \
     --test lifecycle_qemu -- --ignored --nocapture
 
+NXRS_STACK_QEMU_BUILD="$timing_output/build" \
+NXRS_STACK_QEMU_EVIDENCE="$lifecycle_output" \
+  cargo +1.90.0 test --locked -p nxrs-memory-explorer \
+    --test stack_qemu -- --ignored --nocapture
+
 cargo run --locked -p nxrs-memory-explorer --features gui -- \
   --elf "$timing_output/build/nuttx" \
   --map "$timing_output/build/nuttx.map" \
@@ -491,6 +502,50 @@ hole and final payload release. The ARM CI job reuses its native timing build
 for this second invocation and retains `memory-timing/lifecycle/` beside the
 ordinary timing capture. No production build switch, NuttX patch, or extra
 firmware worker is introduced by the viewer's correlation support.
+
+### Stopped stack-depth and coloration witness
+
+The current native fixture retains C macro debug data with `-g3`. The read-only
+exporter uses that exact ELF's architecture, coloration pattern and alignment
+to admit a bounded scan. Its **Stack usage** view keeps three measurements
+separate: the usable reservation, the live or saved stack-pointer depth, and the
+coloration watermark over the declared scanned interval. Untouched scanned
+bytes are not a guarantee that a future call fits. A stack pointer can reserve
+bytes that have not been touched, so its current depth can exceed the watermark.
+
+The MPS2 Cortex-M33 witness uses ELF SHA-256
+`52fbaa759a720134c588066dd90560a32e0c4fd52b648c4d36f711e172948b36`.
+Across four checkpoints it retains 17 task-stack observations: four live pointer
+reads, 13 saved-context pointer reads, and 17 coloration scans. An independent
+raw-memory oracle saves the stack bytes and saved register words, compares them
+before and after export, and reconstructs each watermark in the
+[Rust gate](../tools/memory-explorer/tests/stack_qemu.rs). The gate also checks the
+exact ELF, resolved configuration, fixture inputs, and exporter/collector source
+hashes. The ordinary lifecycle gate still checks native note correlation and
+heap geometry on the same capture.
+
+Current depth is measured at the debugger stop, with the current task's live
+register distinguished from another task's saved context. Checkpoint and
+scheduler instrumentation can contribute to both pointer depth and touched
+bytes. To avoid duplicate stops on the same breakpoint instruction, the
+qualification harness disables that breakpoint after capture, advances one
+instruction with a checked PC change, then reenables it. This occurs after the
+before/after read-only comparison; every expected checkpoint ID remains checked.
+
+A legacy `-g` image is a separate negative control: its missing macro evidence
+leaves measurements explicitly unavailable while reservations remain visible.
+Unsupported architectures, ambiguous stopped contexts, unreadable target bytes,
+and exhausted scan budgets similarly produce reasons, never zero-use results.
+This witness qualifies the single-core MPS2/QEMU adapter. It does not qualify
+physical targets, SMP capture, stack overflow detection, or intermediate stack
+history. The pinned Xtensa coloration layout is covered by host fixtures; its
+native target qualification remains open, and current SP stays unavailable.
+
+Use the capture commands above with a fresh build and evidence directory, then
+open **Stack usage** or replace `--view timing` with `--view stacks`. Select a task
+to inspect exact pointer and scan addresses; **Open in memory** preserves its
+reservation's interval on the memory canvas. Choose a time between checkpoints
+to verify that stack measurements remain unknown there.
 
 ### Isolated heap topology replay witness
 

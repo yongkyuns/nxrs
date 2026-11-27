@@ -77,8 +77,9 @@ def checkpoint(settings, checkpoint_id, raw_snapshot, compare_capture):
     output, image = Path(settings["output"]), Path(settings["image"])
     require(all(thread.is_stopped() for inferior in gdb.inferiors() for thread in inferior.threads()),
             "Not every GDB-reported thread is stopped")
-    require(int(gdb.parse_and_eval("g_memory_checkpoint_id")) == checkpoint_id,
-            "Native checkpoint sequence differs")
+    actual_checkpoint = int(gdb.parse_and_eval("g_memory_checkpoint_id"))
+    require(actual_checkpoint == checkpoint_id,
+            f"Native checkpoint sequence differs: expected {checkpoint_id}, observed {actual_checkpoint}")
     recording_id = gdb.parse_and_eval("g_memory_recording_id").string()
     require(recording_id == settings["recording_id"], "Native recording ID differs")
     require(int(gdb.parse_and_eval("g_memory_checkpoint_primask")) == 1,
@@ -101,13 +102,13 @@ def checkpoint(settings, checkpoint_id, raw_snapshot, compare_capture):
             "Marker does not belong to the stopped CPU/task")
     inferior = gdb.selected_inferior()
     timer_before = bytes(inferior.read_memory(0x50001004, 4))
-    before = raw_snapshot(image)
+    before = raw_snapshot(image, include_stack_bytes=True)
     pointers = [int(gdb.parse_and_eval("g_memory_checkpoint_blocks")[index]) for index in range(3)]
     unbound_name = f"unbound-{checkpoint_id}.json"
     command = [str(output / unbound_name), "--label", settings["labels"][checkpoint_id - 1],
                "--time-ns", str(marker["source_time_ns"])]
     gdb.execute("nxrs-memory-export " + shlex.join(command))
-    after = raw_snapshot(image)
+    after = raw_snapshot(image, include_stack_bytes=True)
     require(before == after, "Allocator/task metadata changed during stopped export")
     require(last_native_marker(checkpoint_id) == marker, "Native note ring changed while stopped")
     timer_after = bytes(inferior.read_memory(0x50001004, 4))
@@ -135,11 +136,14 @@ def run():
     output, image = Path(settings["output"]), Path(settings["image"])
     try:
         sys.path.insert(0, settings["test_tools"])
-        from qemu_capture_gdb import raw_snapshot, compare_capture, stop_at
+        from qemu_capture_gdb import raw_snapshot, compare_capture, stop_at, terminate_remote
         gdb.execute("set pagination off")
         gdb.execute("set confirm off")
         gdb.execute("set non-stop off")
         gdb.execute("target remote | exec " + shlex.join(settings["qemu_command"]))
+        # This witness admits one hardware CPU. Step only that thread rather
+        # than sending a mixed single-step/continue-all remote packet.
+        gdb.execute("set scheduler-locking step")
         stop_at("nsh_prompt")
         sys.path.insert(0, settings["pynuttx"])
         gdb.execute("source " + shlex.quote(str(Path(settings["pynuttx"]) / "gdbinit.py")))
@@ -149,14 +153,25 @@ def run():
         require(callable(utils.get_tcbs), "Missing actual pynuttx task reader")
         gdb.execute("source " + shlex.quote(settings["exporter"]))
         points = []
+        # Keep one breakpoint and verify progress beyond the stopped address
+        # before rearming it. A repeated remote stop must never be counted as
+        # another checkpoint; native marker IDs remain an independent check.
+        breakpoint = gdb.Breakpoint("*timing_checkpoint_stop", type=gdb.BP_HARDWARE_BREAKPOINT)
         for checkpoint_id in range(1, 5):
-            breakpoint = gdb.Breakpoint("*timing_checkpoint_stop", type=gdb.BP_HARDWARE_BREAKPOINT,
-                                        temporary=True)
             if checkpoint_id == 1:
                 (output / "send-command").write_text("ready\n")
             gdb.execute("continue")
-            require(not breakpoint.is_valid(), "Execution stopped before the checkpoint safe point")
+            require(breakpoint.is_valid() and breakpoint.hit_count == checkpoint_id,
+                    "Execution stopped before the next checkpoint safe point")
             points.append(checkpoint(settings, checkpoint_id, raw_snapshot, compare_capture))
+            if checkpoint_id < 4:
+                stopped_pc = int(gdb.newest_frame().read_register("pc"))
+                breakpoint.enabled = False
+                gdb.execute("stepi")
+                require(int(gdb.newest_frame().read_register("pc")) != stopped_pc,
+                        "Single-step did not advance beyond the captured checkpoint")
+                breakpoint.enabled = True
+        breakpoint.delete()
         stop_at("nsh_prompt")
         report = {"schema_version": 1, "evidence": "real_nuttx_qemu_linked_lifecycle",
                   "machine": "mps2-an521", "recording_id": settings["recording_id"],
@@ -164,8 +179,8 @@ def run():
                   "checks": {"independent_raw_header_comparison": True,
                              "independent_native_note_ring": True, "stopped_metadata_unchanged": True,
                              "target_function_calls": False, "timer_unchanged_while_stopped": True}}
+        report["remote_teardown"] = terminate_remote()
         (output / "gdb-report.json").write_text(json.dumps(report, indent=2) + "\n")
-        gdb.execute("kill")
         gdb.execute("quit 0")
     except Exception as exc:
         failure = {"error": str(exc), "traceback": traceback.format_exc()}

@@ -13,6 +13,7 @@ mod history;
 mod linked;
 mod overview;
 mod replay;
+mod stacks;
 mod timing;
 mod workspace;
 
@@ -26,6 +27,7 @@ pub enum ViewMode {
     #[default]
     Memory,
     Timing,
+    Stacks,
 }
 
 impl ViewMode {
@@ -34,7 +36,8 @@ impl ViewMode {
             "overview" => Ok(Self::Overview),
             "memory" => Ok(Self::Memory),
             "timing" => Ok(Self::Timing),
-            _ => Err("--view requires overview, memory, or timing".into()),
+            "stacks" => Ok(Self::Stacks),
+            _ => Err("--view requires overview, memory, timing, or stacks".into()),
         }
     }
 }
@@ -332,6 +335,7 @@ pub struct MemoryExplorer {
     replay_enabled: bool,
     replay_time_entry: String,
     history: history::MemoryHistory,
+    stacks: stacks::StackView,
     color_by_role: bool,
 }
 
@@ -392,6 +396,7 @@ impl MemoryExplorer {
             replay_enabled: false,
             replay_time_entry: String::new(),
             history: history::MemoryHistory::default(),
+            stacks: stacks::StackView::default(),
             color_by_role: true,
         };
         if let Some(model) = model {
@@ -424,7 +429,7 @@ impl MemoryExplorer {
             return Err("The timing view needs --trace FILE or --demo.".into());
         }
         if view != ViewMode::Timing && self.model.is_none() {
-            return Err("Memory and overview views need a final ELF or --demo.".into());
+            return Err("Memory, overview, and stack views need a final ELF or --demo.".into());
         }
         self.view = view;
         Ok(())
@@ -469,6 +474,7 @@ impl MemoryExplorer {
     fn install_model(&mut self, model: MemoryModel, synthetic: bool) {
         self.symbol_labels = symbol_labels(&model);
         self.history = history::MemoryHistory::from_model(&model);
+        self.stacks = stacks::StackView::from_model(&model);
         let preferred_heap_region = model
             .snapshots
             .iter()
@@ -783,6 +789,9 @@ impl MemoryExplorer {
                     if ui.add_enabled(self.model.is_some(), egui::Button::new("Memory detail").selected(self.view == ViewMode::Memory)).clicked() {
                         self.view = ViewMode::Memory;
                     }
+                    if ui.add_enabled(self.model.is_some(), egui::Button::new("Stack usage").selected(self.view == ViewMode::Stacks)).clicked() {
+                        self.view = ViewMode::Stacks;
+                    }
                     if ui.add_enabled(self.trace.is_some() && (!self.replay_active() || self.replay_time_is_covered()), egui::Button::new("Timing").selected(self.view == ViewMode::Timing)).on_hover_text("Heap-to-timing navigation requires the selected source time to be inside the imported trace.").clicked() {
                         if self.replay_active() {
                             self.open_replay_timing();
@@ -957,6 +966,9 @@ impl MemoryExplorer {
                     if matches!(block.span.kind, SpanKind::Stack | SpanKind::StackUsed) {
                         ui.add_space(9.0);
                         ui.label(RichText::new("Stack reservations can overlap heap allocations. These layers are not additive. A sampled/high-water extent does not reconstruct call-frame history.").small().color(WARNING));
+                        if ui.button("Inspect stack usage").clicked() {
+                            self.open_stack_usage(&block.span);
+                        }
                     }
                     ui.add_space(15.0);
                     if ui.button("Zoom to block").clicked() {
@@ -1613,6 +1625,17 @@ impl MemoryExplorer {
     }
 
     fn keyboard(&mut self, ctx: &egui::Context) {
+        if self.view == ViewMode::Stacks {
+            if !ctx.wants_keyboard_input() && !self.replay_active() {
+                if ctx.input(|input| input.key_pressed(egui::Key::PageDown)) {
+                    self.adjacent_snapshot(true);
+                }
+                if ctx.input(|input| input.key_pressed(egui::Key::PageUp)) {
+                    self.adjacent_snapshot(false);
+                }
+            }
+            return;
+        }
         if self.view != ViewMode::Memory {
             return;
         }
@@ -1664,7 +1687,7 @@ impl MemoryExplorer {
             }
         };
         let outcome = (|| -> Result<(), String> {
-            if smoke.frame == 3 && self.view != ViewMode::Timing {
+            if smoke.frame == 3 && !matches!(self.view, ViewMode::Timing | ViewMode::Stacks) {
                 let region = self.current_region().ok_or("No region rendered")?;
                 let before = self.viewport;
                 self.viewport = self
@@ -1709,7 +1732,10 @@ impl MemoryExplorer {
                     .checks
                     .push("heap replay sequence navigation and evidence gaps");
             }
-            if smoke.frame == 6 && self.view != ViewMode::Timing && !self.replay_active() {
+            if smoke.frame == 6
+                && !matches!(self.view, ViewMode::Timing | ViewMode::Stacks)
+                && !self.replay_active()
+            {
                 if let Some(model) = self
                     .model
                     .as_ref()
@@ -1771,6 +1797,12 @@ impl MemoryExplorer {
                         .checks
                         .push("linked marker/memory navigation and unknown gaps");
                 }
+            }
+            if smoke.frame == 6 && self.view == ViewMode::Stacks {
+                self.smoke_stack_navigation()?;
+                smoke
+                    .checks
+                    .push("stack checkpoint selection, unknown gaps, and exact address navigation");
             }
             if smoke.frame >= 10 && !smoke.screenshot_requested {
                 ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(egui::UserData::default()));
@@ -1842,6 +1874,8 @@ impl MemoryExplorer {
             if self.timing.cursor() != previous {
                 ctx.request_repaint();
             }
+        } else if self.view == ViewMode::Stacks && self.model.is_some() {
+            self.stack_usage(ctx);
         } else if self.view == ViewMode::Overview && self.model.is_some() {
             self.timeline(ctx);
             self.overview(ctx);
