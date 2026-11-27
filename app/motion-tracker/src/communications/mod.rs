@@ -95,9 +95,6 @@ impl Communications {
         telemetry: Telemetry,
         mut notify: impl FnMut() + Send + 'static,
     ) -> io::Result<Self> {
-        if ble::peripheral::AVAILABLE && (pair || map) {
-            telemetry.capture.prepare()?;
-        }
         let shared = Arc::new(Mutex::new(Shared::default()));
         let incoming = shared.clone();
         let task = thread::Builder::new()
@@ -203,20 +200,33 @@ fn run(
     telemetry.capture.register_owner();
     let collector = cellular.as_ref().and_then(|config| config.collector);
     let radio = ble::peripheral::AVAILABLE && (pair || map);
+    let ip_tls = collector.is_some() || tile_relay.is_some();
+    let slots = usize::from(radio) + usize::from(ip_tls);
+    let identity = if slots == 0 {
+        None
+    } else {
+        match tls::open() {
+            Ok(mut identity) => {
+                identity
+                    .reserve_reconnects(slots)
+                    .map_err(|error| io::Error::other(format!("TLS reconnect storage: {error:?}")))?;
+                Some(identity)
+            }
+            // Display pairing is optional when the platform has no qualified entropy.
+            Err(tls::Error::Unsupported) if !pair && !ip_tls => None,
+            Err(error) => return Err(io::Error::other(format!("TLS setup: {error:?}"))),
+        }
+    };
+    let radio = radio && identity.is_some();
     if radio {
+        telemetry.capture.prepare()?;
         radio::prepare().map_err(|error| io::Error::other(format!("BLE setup: {error:?}")))?;
     }
-    let mut identity = None;
-    let slots = usize::from(radio) + usize::from(collector.is_some() || tile_relay.is_some());
-    if slots != 0 {
-        let mut tls =
-            tls::open().map_err(|error| io::Error::other(format!("TLS setup: {error:?}")))?;
-        tls.reserve_reconnects(slots)
-            .map_err(|error| io::Error::other(format!("TLS reconnect storage: {error:?}")))?;
-        identity = Some(tls);
-    }
     let mut modem = cellular.map(uplink::Modem::start).transpose()?;
-    let map = map
+    if identity.is_none() && modem.is_none() {
+        return Ok(());
+    }
+    let map = (map && (radio || tile_relay.is_some()))
         .then(tiles::Pool::new)
         .transpose()
         .unwrap_or_else(|error| {
