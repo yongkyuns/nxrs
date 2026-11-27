@@ -165,6 +165,25 @@ the old epoch, transfers two records with fresh bits, and crosses the source's
 512-entry index-ring wrap before cancellation, finish and both worker joins.
 Rust owns these phases; the existing native observer is unchanged.
 
+The accepted native run at source `60ee9f07` used build
+`8c3b03806043487146b8caaebf8ac13302542be19f9f41fd373ca52d35c363a1`,
+with 1,042 retained source inputs. Fresh boots of `capture-pool-progress`
+(token `9c8114e1d9b63fec4b163463`) and the same-image `std-mutex-inherit`
+control (token `6735dc646fe8a9cfc5e382b8`) completed with exit zero and passed
+independent replay. The pool admitted and handled 514 of 516 attempts, with
+one full and one stale-epoch rejection, two observed native waits and two joined
+workers. The mutex control observed priority donation 120 → 180 → 120.
+
+The linked ABI gate accepted 126 qualified-scope witnesses: 125 compatible rows
+plus the explicitly known-unsupported `SIG_IGN` mismatch. The general signal API
+remains unqualified. Local execution used privately extracted Debian QEMU
+10.0.13; CI remains pinned to source QEMU 8.2.7. The
+[retained evidence](https://github.com/yongkyuns/nxrs/issues/446) records the
+source, configuration, ELF, emulator and capture hashes. These results belong to
+`60ee9f07`, before the later [#470](https://github.com/yongkyuns/nxrs/pull/470)
+production owner-registration integration; subsequent source changes are not
+new native runs.
+
 Polling checks at most three source lanes per call. The allocator can repeat
 its fixed-size bitmap scan under concurrent claims and returns; these retries
 have no established per-call bound on SMP. An admitted producer must not invent
@@ -178,11 +197,18 @@ the bitmap, cursors and four boxed-slice descriptors; adding that size to all
 four components would double-count the bitmap and cursors. These numbers exclude
 the lifecycle gate, Arc, retained thread handle, allocator overhead and stacks.
 The pool retains its arena while inactive, whereas production capture releases
-its record buffer after finish. Target atomic-width flags establish availability,
-not the compiler's exact instruction sequence; the retained ELF still needs
-inspection. Product adoption also requires the real owner batch/wake protocol,
-partial wire writes, lifecycle and memory-budget gates. Cross-source interleaving
-is a rotating merge, without a global reservation-order FIFO promise.
+its record buffer after finish. The separate 21,712-byte host requested-allocation
+total is not a native heap measurement.
+
+Symbol-scoped inspection of this ELF's `Owner::poll` and
+`Publisher::offer_with_hooks` identifies `LDRH`/`STRH` index access and `LDA`/`STL`
+publication-cursor access. Gate and bitmap updates use 32-bit exclusive retry
+paths; the linked ELF contains no compiler `__atomic_*` or `__sync_*` helper
+symbols. This establishes the selected lowering, without a per-call retry or
+timing bound. Native wake/park remains a separate notification path. Product
+adoption also requires the real owner batch/wake protocol, partial wire writes,
+lifecycle and memory-budget gates. Cross-source interleaving is a rotating merge,
+without a global reservation-order FIFO promise.
 
 ## Execution contract and limits
 

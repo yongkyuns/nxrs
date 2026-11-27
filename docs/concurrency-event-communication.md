@@ -214,7 +214,10 @@ invokes the synchronized ordered-capture path after latest publication.
 Ordered capture belongs to the Motion Tracker export. It uses a 512-record
 pool shared across sources, drains batches of up to 16, and retains the first
 rejected record's source and sequence on overflow. A wake tells communications
-to inspect that retained work. The admission, overflow and wake gates for a
+to inspect that retained work. A replacement communications worker registers its
+own wake target after the previous worker joins. Acquisition retains readiness
+and faults when the wake target is busy, and active export checks them on its
+existing poll. The admission, overflow and wake gates for a
 capture replacement are tracked in [#446](https://github.com/yongkyuns/nxrs/issues/446).
 
 The production capture's wake destination can be replaced after the previous
@@ -263,13 +266,18 @@ reclaims it at final endpoint teardown. Production releases its 20,480 B payload
 allocation on finish; those different allocation scopes and lifetimes are not a
 complete product heap comparison.
 
-These fixtures check controlled host schedules and per-source FIFO, not a total
-order of cross-source reservations. The native pool-progress scenario is
-prepared, but no successful native build or execution is included in this
-record. CAS and bitmap retries have no per-call SMP bound. Communications wake
-and batch-deadline integration, partial writes, client compatibility, target
-memory and scheduling remain gates. Production keeps its mutex-protected shared
-payload queue; the pooled candidate has not been integrated.
+These fixtures check controlled schedules and per-source FIFO, without imposing
+a total order on cross-source reservations. At source `60ee9f07`, the
+[native capture suite](../tests/owner-qualification/README.md#pooled-capture-transport-witness)
+passed the shared Gate/pool's single-core fixed-priority witness and its
+same-image std-mutex inheritance control; both retained captures passed
+independent replay. Build `8c3b0380` predates the later production
+owner-registration integration and records progress for that fixture source
+and configuration. CAS and bitmap retries still have no per-call SMP bound.
+Communications wake and batch-deadline integration, partial writes, client
+compatibility, target memory and physical timing remain gates. Production keeps
+its mutex-protected shared payload queue; the pooled candidate has not been
+integrated.
 
 #### ARM product build comparison
 

@@ -233,14 +233,22 @@ and retirement remain outside the payload lock. The `CAPTURE_GATES` record
 therefore reports `production_capture_changed: true` and
 `candidate_integrated: false`.
 
-The native `capture-pool-progress` scenario is prepared in the
-[owner qualification fixture](../owner-qualification/README.md), but this host
-record includes no successful native build or execution for the pool. Adoption
-still requires communications-owner wake/clear/recheck/sleep and batch-deadline
-integration, partial transport writes and client compatibility, product stall
-and memory budgets, and target atomic and scheduling qualification. Bitmap scans
-and compare-and-exchange retries have no per-call SMP bound. These controlled
-host schedules and zero allocator-call windows do not establish WCET, ISR
+At source `60ee9f07`, the single-core MPS2 NuttX
+[`capture` suite](../owner-qualification/README.md#pooled-capture-transport-witness)
+passed `capture-pool-progress` and the same-image `std-mutex-inherit` control in
+fresh QEMU boots; both retained captures passed independent replay. Build
+`8c3b0380` checks the actual shared Gate/pool: a priority-120 producer pauses
+after claiming a physical slot while a priority-180 owner publishes and drains
+the other 511 records, then blocks until publication and obligation retirement
+permit completion. This is evidence for that exact fixture revision and
+controlled schedule, before the later production owner-registration integration.
+
+Adoption still requires communications-owner wake/clear/recheck/sleep and
+batch-deadline integration, partial transport writes and client compatibility,
+product stall and memory budgets, and qualification of each deployed target's
+atomic and scheduling behavior. Bitmap scans and compare-and-exchange retries
+have no per-call SMP bound. These controlled schedules and the separate host
+windows with zero allocator calls do not establish WCET, ISR
 suitability, physical acquisition latency or a whole-product deadline. See
 [#446](https://github.com/yongkyuns/nxrs/issues/446) and the
 [capture contract](../../docs/concurrency-event-communication.md#motion-tracker-observations-and-capture).
