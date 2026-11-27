@@ -7,6 +7,7 @@ use std::sync::{
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
+use crate::control::Notification;
 use gnss::GnssFix;
 use imu::ImuSample;
 use messaging::{bounded, Inbox, Sender};
@@ -153,7 +154,21 @@ impl FusionService {
         )
     }
 
-    pub fn start(mut self) -> io::Result<FusionHandle> {
+    pub fn start(self) -> io::Result<FusionHandle> {
+        self.start_with_wake(|| {})
+    }
+
+    /// Signal the caller's existing wait after output admission and retirement.
+    ///
+    /// `wake` runs on this worker and must only provide bounded notification;
+    /// it must not run the caller's handler or wait for notification capacity.
+    /// Output stays in the existing bounded queue until `try_recv` consumes it.
+    /// After a bounded drain, the caller must keep dispatching while data remains
+    /// instead of sleeping just because several notifications coalesced.
+    pub fn start_with_wake(
+        mut self,
+        wake: impl FnMut() + Send + 'static,
+    ) -> io::Result<FusionHandle> {
         let output = self
             .output_rx
             .take()
@@ -163,7 +178,11 @@ impl FusionService {
         let stop = stopping.clone();
         let join = thread::Builder::new()
             .name("fusion-service".into())
-            .spawn(move || run(self, &stop))?;
+            .spawn(move || {
+                // The signal outlives run's service/output sender even on unwind.
+                let mut signal = OutputWake(Notification::new(wake));
+                run(self, &stop, &mut signal.0)
+            })?;
         Ok(FusionHandle {
             control,
             output,
@@ -203,7 +222,19 @@ impl Drop for FusionHandle {
     }
 }
 
-fn run(service: FusionService, stopping: &AtomicBool) -> FusionStats {
+struct OutputWake<W: FnMut()>(Notification<W>);
+
+impl<W: FnMut()> Drop for OutputWake<W> {
+    fn drop(&mut self) {
+        self.0.retire();
+    }
+}
+
+fn run(
+    service: FusionService,
+    stopping: &AtomicBool,
+    wake: &mut Notification<impl FnMut()>,
+) -> FusionStats {
     let mut core = FusionCore::default();
     let mut stats = FusionStats::default();
     let mut imu_since_output = 0u8;
@@ -234,7 +265,10 @@ fn run(service: FusionService, stopping: &AtomicBool) -> FusionStats {
         };
 
         match service.output.try_send(state) {
-            Ok(()) => stats.outputs = stats.outputs.saturating_add(1),
+            Ok(()) => {
+                stats.outputs = stats.outputs.saturating_add(1);
+                wake.notify();
+            }
             Err(TrySendError::Full(_)) => {
                 stats.dropped_outputs = stats.dropped_outputs.saturating_add(1);
             }
@@ -378,6 +412,69 @@ mod fifo_timing_tests {
 #[cfg(test)]
 mod lifecycle_tests {
     use super::*;
+    #[test]
+    fn a_panicking_output_wake_remains_a_joined_worker_failure() {
+        let (fusion, inputs) = FusionService::with_config(FusionConfig {
+            publish_every_imu: 1,
+            ..FusionConfig::default()
+        });
+        let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let count = calls.clone();
+        let handle = fusion
+            .start_with_wake(move || {
+                count.fetch_add(1, Ordering::SeqCst);
+                panic!("output wake failed");
+            })
+            .unwrap();
+        assert_eq!(
+            inputs.imu.submit(ImuSample {
+                sequence: 1,
+                timestamp_us: 0,
+                is_capture_time: false,
+                sample_interval_us: 10_000,
+                accel_mps2: [0.0; 3],
+                gyro_rps: [0.0; 3],
+            }),
+            Submit::Accepted
+        );
+        assert_eq!(
+            handle.stop().unwrap_err().to_string(),
+            "fusion service panicked"
+        );
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn wake_follows_output_publication_and_channel_retirement() {
+        let (fusion, inputs) = FusionService::with_config(FusionConfig {
+            publish_every_imu: 1,
+            ..FusionConfig::default()
+        });
+        let (wake, notifications) = std::sync::mpsc::sync_channel(1);
+        let handle = fusion
+            .start_with_wake(move || {
+                let _ = wake.try_send(());
+            })
+            .unwrap();
+        assert_eq!(
+            inputs.imu.submit(ImuSample {
+                sequence: 1,
+                timestamp_us: 0,
+                is_capture_time: false,
+                sample_interval_us: 10_000,
+                accel_mps2: [0.0; 3],
+                gyro_rps: [0.0; 3],
+            }),
+            Submit::Accepted
+        );
+        notifications.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert_eq!(handle.try_recv().unwrap().imu_sequence, 1);
+        handle.control.try_send(Event::Shutdown).unwrap();
+        notifications.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert_eq!(handle.try_recv(), Err(TryRecvError::Disconnected));
+        handle.stop().unwrap();
+    }
+
     #[test]
     fn explicit_stop_drains_previously_admitted_inputs() {
         let (fusion, inputs) = FusionService::new();

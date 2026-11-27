@@ -1,6 +1,7 @@
 use imu::Device;
 use std::time::Duration;
 
+use navigation::{ControlRequest, RequestError};
 use navigation::{FusionConfig, FusionService, GnssService, HealthService, ImuService};
 
 // These integration cases use the profile's same canonical primary device.
@@ -40,6 +41,79 @@ fn publication_open_failure_remains_terminal_after_the_callback_is_dropped() {
         service.start_imu_with(0, device, sender, |_| None),
         Err(SensorFault::Imu(0, imu::DeviceError::Busy))
     );
+}
+
+#[test]
+fn retained_commands_share_the_callers_existing_wait_point() {
+    let _primary = PRIMARY.lock().unwrap();
+    let caller = std::thread::current();
+    let wake = move || caller.unpark();
+    let (fusion, inputs) = FusionService::new();
+    let fusion = fusion.start_with_wake(wake.clone()).unwrap();
+    let mut imu = ImuService::new(inputs.imu)
+        .start_on_with_wake(composition::imu::primary_imu(), wake.clone())
+        .unwrap();
+    let mut gnss = GnssService::new(inputs.gnss)
+        .start_on_with_wake(composition::gnss::primary_gnss(), wake)
+        .unwrap();
+
+    for request in [
+        ControlRequest::Pause,
+        ControlRequest::Resume,
+        ControlRequest::Status,
+    ] {
+        let imu_id = imu.try_request(request).unwrap();
+        let gnss_id = gnss.try_request(request).unwrap();
+        assert_eq!(
+            imu.try_request(ControlRequest::Status),
+            Err(RequestError::Busy)
+        );
+        assert_eq!(
+            gnss.try_request(ControlRequest::Status),
+            Err(RequestError::Busy)
+        );
+        let deadline = std::time::Instant::now() + Duration::from_secs(2);
+        let mut imu_reply = None;
+        let mut gnss_reply = None;
+        loop {
+            imu_reply = imu_reply.or_else(|| imu.try_completion());
+            gnss_reply = gnss_reply.or_else(|| gnss.try_completion());
+            // Data and completions share the wake, but retain independent capacity.
+            // A bounded drain must continue without parking when it exhausts its budget.
+            let mut drain_exhausted = true;
+            for _ in 0..4 {
+                if fusion.try_recv().is_err() {
+                    drain_exhausted = false;
+                    break;
+                }
+            }
+            if imu_reply.is_some() && gnss_reply.is_some() {
+                break;
+            }
+            let now = std::time::Instant::now();
+            assert!(now < deadline, "control reply did not arrive");
+            if !drain_exhausted {
+                std::thread::park_timeout(deadline.saturating_duration_since(now));
+            }
+        }
+        let imu_reply = imu_reply.unwrap();
+        let gnss_reply = gnss_reply.unwrap();
+        assert_eq!(imu_reply.id, imu_id);
+        assert_eq!(gnss_reply.id, gnss_id);
+        assert_eq!(imu_reply.request, request);
+        assert_eq!(gnss_reply.request, request);
+        assert_eq!(
+            imu_reply.result.unwrap().sampling,
+            request != ControlRequest::Pause
+        );
+        assert_eq!(
+            gnss_reply.result.unwrap().sampling,
+            request != ControlRequest::Pause
+        );
+    }
+    imu.stop().unwrap();
+    gnss.stop().unwrap();
+    fusion.stop().unwrap();
 }
 
 fn start_services() -> (

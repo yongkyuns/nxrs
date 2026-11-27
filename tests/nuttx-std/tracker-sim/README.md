@@ -245,8 +245,9 @@ console task's guard and requires the scheduler to assert.
 On an interrupt-driven switch the assertion reuses the outgoing task's saved
 registers to report the fault.
 
-The application's firmware metadata reserves 16 KiB for the `motion_tracker`
-entry/display task. This adds 1,536 bytes to its previous 14,848-byte reservation;
+The [application's firmware metadata](../../../app/motion-tracker/Cargo.toml)
+reserves 16 KiB (16,384 bytes) for the `motion_tracker` entry/display task.
+This adds 1,536 bytes to its previous 14,848-byte reservation;
 the communications and acquisition worker budgets are unchanged. At revision
 `66c57797`, the [retained coexistence run](https://github.com/yongkyuns/nxrs/actions/runs/45913615465)
 reported a 12,352-byte touched peak in all 46 samples of that task, with 14,328
@@ -262,6 +263,15 @@ and touched peaks. A host regression replays the old failure and checks that the
 declared entry budget covers the retained peak at the existing 20% target. The
 15% rejection floor, worker checks and native memory safeguards remain in force.
 
+Separate export runs on
+[`main` at `5511a6c9`](https://github.com/yongkyuns/nxrs/actions/runs/45895997638/job/140169914131)
+and [PR #453 at `9a0a6329`](https://github.com/yongkyuns/nxrs/actions/runs/45902015775/job/140189801518)
+left 1,864 bytes (13.0%) and 1,656 bytes (11.6%) free, respectively, from the
+same 14,328-byte usable capacity. Their higher observed peak of 12,672 bytes
+projects 3,192 of 15,864 usable bytes free (20.1%) with the same 16 KiB
+reservation and observed 520-byte difference. This is a separate historical
+budget projection, not a new native measurement.
+
 The later [export run at `3e841457`](https://github.com/yongkyuns/nxrs/actions/runs/45919882637)
 measured 3,448 of 15,864 usable entry-task bytes free (21.7%). All tracked
 workers passed the headroom gate. Three restart/export cycles recovered
@@ -270,6 +280,12 @@ guard corruption was detected. These are results for that revision's `--export`
 workload. They do not replace the separate map measurement or qualify later
 source changes. The extra 1,536 B is a requested runtime task reservation, not
 an increase in the historical linked product's measured static SRAM.
+
+The current merged source still requires fresh `--export` and
+`--tiles --tile-write-loss` runs with the existing stack, heap recovery,
+20 KiB largest-free-block, watchdog and guard checks. The extra task stack
+comes from the heap, so stack headroom alone cannot qualify the change.
+Physical CoreS3 qualification remains a separate gate.
 
 For a five-minute soak, pass `--export --export-seconds 300 --timeout 440`.
 The runner repeats the fault sequence and checks that the export catches up
