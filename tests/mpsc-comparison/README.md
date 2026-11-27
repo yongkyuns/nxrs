@@ -43,8 +43,9 @@ cargo test --manifest-path tests/mpsc-comparison/rust/Cargo.toml \
 ```
 
 The executable emits `CAPTURE_METADATA`, `CAPTURE_COMPARE`, `CAPTURE_CHECK`,
-and `CAPTURE_GATES` JSON records. Metadata hashes the compiled-in capture,
-clock, fixture, manifest and lockfile bytes using Git blob SHA-1. Retain the
+`CAPTURE_PROTOCOL` and `CAPTURE_GATES` JSON records. Metadata hashes the
+compiled-in capture, clock, fixture, protocol module, manifest and lockfile
+bytes using Git blob SHA-1. Retain the
 whole output and the command's exit status. The existing allocation probe
 observes requested Rust heap bytes, not process RAM or native allocator use.
 The harness is disabled because an ordinary libtest harness can allocate
@@ -110,12 +111,75 @@ Stable ring storage is retained throughout the test. Empty storage is not proof
 that every admitted producer is quiescent, and a last epoch check is not an
 atomic commit barrier.
 
-Production capture stays unchanged. Adoption remains gated on concurrent
-admission/overflow arbitration, accounting for in-flight commits before terminal
-delivery, producer quiescence across restart, the actual communications-owner
-wake/clear/recheck/sleep protocol, transport/client compatibility, declared
-product stall and memory budgets, and native progress qualification. A queue
-model's zero steady-state Rust allocator calls does not establish these
+### Concurrent capture lifecycle fixture
+
+The separate [protocol module](rust/tests/support/capture_protocol.rs) exercises
+shared admission and retirement with real host threads and a 512-slot desktop
+std MPSC payload adapter. It is fixture-only, uses safe Rust, and introduces no
+production dependency, worker or payload queue. The original serial comparisons
+and epoch-only negative control remain independent reference checks. Per-value
+ownership witnesses and event accounting run outside the original allocation
+windows; they are not a product memory measurement.
+
+One `AtomicU32` coordinates the following state:
+
+| Field | Width | Meaning |
+| --- | ---: | --- |
+| Phase | 2 bits | Idle, open, overflow or cancelled |
+| Occupied credits | 10 bits | Accepted records reserved or retained, up to 512 across all sources |
+| Busy sources | 3 bits | One outstanding publication or closing obligation per source |
+| Epoch | 17 bits | Session identity; exhaustion fails explicitly without wrapping |
+
+Three exclusive producer endpoints reserve a shared credit and their source bit
+in the same compare-and-exchange that validates the captured epoch and open
+phase. The first offer at genuine capacity closes admission and holds its source
+bit until the first-missing identity is published. A failed compare-and-exchange
+requires reconsidering the new state; it is not itself evidence of overflow.
+Rejected offers return their original values.
+
+The owner can drain visible records while another source is paused. Closing
+remains Pending while publication is outstanding; the overflow terminal and
+restart wait until every credit and source obligation has retired. Terminal
+state remains observable until the owner explicitly finishes the closed epoch.
+Occupied credits and busy sources are independent: a consumer may release the
+last queued record before its producer retires. Forgetting a permit strands its
+source bit and keeps the epoch pending; it cannot overflow a counter or permit
+unsafe reuse. Abandoning an accepted permit cancels the session, so discarded
+work cannot be presented as a lossless overflow prefix.
+
+The candidate checks per-source FIFO and accepted-record accounting. Credit
+reservation order is not global payload order: another source may publish while
+an earlier reservation is paused. The current Capture's mutex-admission order
+and the candidate's cross-source interleaving therefore remain distinct.
+
+The 24 `CAPTURE_PROTOCOL` cases cover pooled admission under nominal and skewed
+loads; simultaneous overflow and the last shared credit; a credit returned
+between observing Full and attempting to close; paused admission, marker
+publication and producer retirement; cancellation, stale epochs and reuse of
+source sequence numbers; abandoned and forgotten permits; unwinding after
+dequeue; epoch exhaustion; setup rollback before opening; and concurrent FIFO
+with credit return. Non-Copy values have independent identity and exactly-once
+drop witnesses. Each report reconciles admitted values with delivered,
+explicitly discarded and still-retained values. The deliberate forgotten-permit
+case retains one obligation and does not claim successful teardown.
+
+Three of those cases use fresh owner threads with readiness checks and a 5 ms
+bounded host poll. They check retained-data progress before a delayed unpark and
+notification during unwind. They do not force publication into the exact final
+recheck-to-park window or qualify the production batch deadline and wait loop.
+The actual communications-owner wake integration remains an adoption gate.
+
+These host checks establish behavior for the controlled schedules in the fixture.
+They do not qualify desktop std MPSC as a nonblocking NuttX transport, prove
+bounded compare-and-exchange retries, or measure acquisition latency. The epoch
+limit is a prototype constraint, not an accepted product lifetime budget.
+
+Production capture stays unchanged. Adoption still requires the actual pooled
+payload transport and communications-owner wake/clear/recheck/sleep integration,
+transport/client compatibility, declared product stall and memory budgets, and
+native atomic and scheduling qualification. The candidate must carry its
+admission, retirement and cancellation guarantees through that integration.
+A queue model's zero steady-state Rust allocator calls does not establish those
 properties or an acquisition-latency improvement. See
 [#446](https://github.com/yongkyuns/nxrs/issues/446) and the
 [capture contract](../../docs/concurrency-event-communication.md#motion-tracker-observations-and-capture).

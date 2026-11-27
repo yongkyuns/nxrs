@@ -199,22 +199,37 @@ evenly partitioned SPSC design admits only 346 records. A rate-weighted split
 admits all 404, then admits only 406 of a three-second, 606-record workload while
 106 slots remain unused elsewhere; the shared pool admits 512. Partitioning
 therefore changes admission behavior. The comparison retains non-Copy ownership,
-overflow/restart and epoch-boundary controls, but does not qualify a replacement
-admission/commit/close protocol, wake protocol, or target memory and scheduling.
-Production capture retains its current pool until those requirements are met.
+overflow/restart and epoch-boundary controls.
+
+A fixture-only concurrent protocol now uses one atomic word to reserve a shared
+credit, validate the captured epoch and retain each source's outstanding
+publication obligation. Its desktop std MPSC adapter still has 512 shared
+payload slots. A producer paused after admission or after closing for overflow
+keeps retirement Pending; an empty queue cannot authorize terminal delivery or
+restart. Cancelling an epoch accounts for discarded accepted work and waits for
+producer retirement before reuse. Terminal state remains available until the
+owner explicitly finishes the closed epoch. A forgotten permit keeps its source busy,
+and epoch exhaustion fails explicitly instead of wrapping.
+
+The host fixture checks controlled concurrent schedules and per-source FIFO.
+It does not preserve a total order of cross-source credit reservations or
+qualify a NuttX payload transport. The actual pooled transport, communications
+owner wake protocol, partial writes, client compatibility, target memory budget
+and scheduling remain integration gates. Production capture retains its current
+pool until those requirements are met.
 
 #### ARM product build comparison
 
-Matched `mps2-an521-mock` builds of the actual Motion Tracker application
-compare updated parent `66c57797`, including the fixed-reader implementation
+Retained `mps2-an521-mock` builds of the actual Motion Tracker application
+compare parent `66c57797`, including the fixed-reader implementation
 from #451, with reusable publication revision `21b7cafa`. Both use the same
-current frontend, pinned ARM compiler, effective Kconfig, SDK patch receipt,
+qualified frontend, pinned ARM compiler, effective Kconfig, SDK patch receipt,
 ARMv8-M SysTick correction, linker script and normal PI-enabled mutex policy.
 Both builds pass the native
 ABI gate, with identical results for all 126 checked values within that gate's
 documented scope.
 
-| Linked product measurement | Updated parent with #451 | Reusable ownership API | Change |
+| Linked product measurement | Parent `66c57797` with #451 | Reusable API `21b7cafa` | Change |
 | --- | ---: | ---: | ---: |
 | File-backed allocated ELF sections | 428,154 B | 429,978 B | +1,824 B |
 | Unpadded `nuttx.bin` | 428,156 B | 429,980 B | +1,824 B |
@@ -227,6 +242,12 @@ are separate from static SRAM. The parent uses seven mailboxes with display-only
 satellites; the reusable API provides satellites to both readers and uses eight.
 Their payload layouts differ, so mailbox counts alone do not establish the net
 runtime heap difference.
+
+The later entry-task correction raises the `motion_tracker` reservation from
+14,848 B to 16,384 B, adding 1,536 B of requested task stack. This cost is
+separate from the retained 10,900 B static-SRAM measurements and was not present
+in those two measured images. The [coexistence fixture](../tests/nuttx-std/tracker-sim/README.md)
+records the observed peak, projected margin and required native rerun.
 
 Both images completed two sequential four-frame runs in a fresh MPS2 QEMU
 8.2.7 boot using `motion_tracker --interval-ms 100 --frames 4 --stream-usb --ble`.
@@ -260,7 +281,9 @@ parent branch. It measured the original mutex-to-fixed-reader change:
 
 Those images also passed the two-run headless product smoke under their matched
 SDK and configuration. These historical figures describe their own source pair;
-the current PR's incremental footprint is the +1,824 B comparison above.
+the retained `66c57797`/`21b7cafa` comparison above measured a +1,824 B increment.
+Subsequent profile and task-stack changes require new build results for their
+actual revisions.
 
 #### CoreS3 product-path baseline
 
@@ -302,8 +325,10 @@ suite and future physical product captures.
 The implementation merged in [#451](https://github.com/yongkyuns/nxrs/pull/451)
 used seven mailboxes, with satellite reports available only to the display.
 These measurements predate the normal PI-enabled policy and the reusable
-`messaging::latest` integration described above. With the same profile and priorities, the display retained an IMU reader slot
-through a 120 ms forced pause. Both IMUs kept publishing, with 15 and 12
+`messaging::latest` integration described above.
+
+With the original profile priorities, the display retained an IMU reader
+slot through a 120 ms forced pause. Both IMUs kept publishing, with 15 and 12
 publications during the pause, and the longest callback was 2.41 ms. In a
 combined repeat with BLE acknowledgments held for 0.95 s, the IMUs published
 11 and 12 samples during the pause and the longest callback was 2.50 ms. Both
@@ -313,14 +338,25 @@ A 0.95 s acknowledgment hold alone raised queue depth to 148 records with
 contiguous received sequences. A 7 s hold filled the 512-record queue. The peer
 received all 1,099 admitted records followed by the first-loss marker.
 
-The BMI270 timeout also occurred with fixed readers. Target traces showed
-three consecutive FIFO length snapshots crossing sensor sampling boundaries,
-which is when the driver returns `Timeout`. Both IMUs stayed live in the
-25-second BLE-off and advertising-only controls. The connected runs establish
-the failure path. The cause of the extended register-read intervals and
-sustained acquisition remain open.
+The BMI270 timeout also occurred with fixed readers after three FIFO snapshots
+crossed sensor sampling boundaries. A CoreS3 trace separated the bus lock,
+controller interrupts and dispatch after the interrupt. In one 12.50 ms read,
+the controller phases took 0.52 ms and the acquisition worker waited another
+11.90 ms to resume. The bus lock took 8 µs. Dispatch dominated 106 of the
+first 112 retained slow reads, and `tracker-links` was the most frequent
+running task at completion.
 
-The matched build added 3,348 bytes of linked flash and 104 bytes to the boot
+The dual-IMU profile gives communications priority 99 and keeps acquisition
+at 100. The physical control in [#461](https://github.com/yongkyuns/nxrs/pull/461),
+head `c50d939a` based on `5511a6c`, still used seven fixed-reader mailboxes before
+the new PI policy and reusable publication integration. With the Mac BLE peer, the longest retained
+post-interrupt delay fell to 4.38 ms. Both IMUs maintained continuous 100 Hz
+timestamps in the control, forced display pause, 0.95 s acknowledgment hold,
+and both combined runs. During the 7 s acknowledgment hold, both IMUs kept
+sampling and the peer received all 1,103 admitted records before the expected
+overflow marker.
+
+The matched fixed-reader build added 3,348 bytes of linked flash and 104 bytes to the boot
 image. Publication setup used 3,720 bytes of heap versus 480 bytes. Static RAM
 and task stack reservations were identical.
 

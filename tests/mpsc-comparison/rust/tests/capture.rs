@@ -10,6 +10,9 @@ mod capture;
 #[path = "../../../../app/motion-tracker/src/clock.rs"]
 mod clock;
 
+#[path = "support/capture_protocol.rs"]
+mod capture_protocol;
+
 use allocation_probe::{Snapshot, Tracking};
 use capture::{Capture, MAX_BYTES, Version};
 use heapless::spsc::Queue;
@@ -683,7 +686,7 @@ fn blob(bytes: &[u8]) -> String {
 fn main() {
     allocation_probe::begin_measurement();
     println!(
-        "CAPTURE_METADATA {{\"schema\":\"capture-comparison-v1\",\"runtime\":\"host\",\"timing\":\"not-measured\",\"std_backend\":\"desktop-standard-library\",\"heapless_version\":\"0.9.4\",\"heapless_features\":[],\"source_hash\":\"git-blob-sha1\",\"capture_blob\":\"{}\",\"clock_blob\":\"{}\",\"fixture_blob\":\"{}\",\"manifest_blob\":\"{}\",\"lock_blob\":\"{}\"}}",
+        "CAPTURE_METADATA {{\"schema\":\"capture-comparison-v1\",\"runtime\":\"host\",\"timing\":\"not-measured\",\"std_backend\":\"desktop-standard-library\",\"heapless_version\":\"0.9.4\",\"heapless_features\":[],\"source_hash\":\"git-blob-sha1\",\"capture_blob\":\"{}\",\"clock_blob\":\"{}\",\"fixture_blob\":\"{}\",\"protocol_blob\":\"{}\",\"manifest_blob\":\"{}\",\"lock_blob\":\"{}\"}}",
         blob(include_bytes!(
             "../../../../app/motion-tracker/src/communications/export.rs"
         )),
@@ -691,6 +694,7 @@ fn main() {
             "../../../../app/motion-tracker/src/clock.rs"
         )),
         blob(include_bytes!("capture.rs")),
+        blob(include_bytes!("support/capture_protocol.rs")),
         blob(include_bytes!("../Cargo.toml")),
         blob(include_bytes!("../Cargo.lock")),
     );
@@ -727,9 +731,10 @@ fn main() {
     spsc_concurrent_handoff();
     capture_concurrent_overflow_and_restart();
     epoch_check_is_not_a_commit_barrier();
+    capture_protocol::run();
     done.send(()).unwrap();
     watchdog.join().unwrap();
     println!(
-        "CAPTURE_GATES {{\"production_capture_changed\":false,\"candidate_integrated\":false,\"unmet\":[\"concurrent-epoch-admission-and-overflow-linearization\",\"outstanding-commit-before-terminal\",\"producer-quiescence-and-restart\",\"actual-owner-wake-clear-recheck-sleep\",\"partial-transport-and-client-compatibility\",\"declared-product-stall-and-memory-budgets\",\"native-atomic-and-scheduling-qualification\"],\"success\":true}}"
+        "CAPTURE_GATES {{\"production_capture_changed\":false,\"candidate_integrated\":false,\"host_protocol_checked\":true,\"unmet\":[\"pooled-native-payload-transport\",\"protocol-integration-with-production-capture\",\"actual-owner-wake-clear-recheck-sleep\",\"partial-transport-and-client-compatibility\",\"declared-product-stall-and-memory-budgets\",\"native-atomic-and-scheduling-qualification\"],\"success\":true}}"
     );
 }
