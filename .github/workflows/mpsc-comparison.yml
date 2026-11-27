@@ -18,6 +18,7 @@ on:
       - 'shared/messaging/**'
       - 'shared/lock-order/**'
       - 'service/navigation/**'
+      - 'service/telemetry/**'
       - 'app/motion-tracker/**'
       - 'tests/nuttx-std/channels/mpsc-fixture-iram.ld'
       - 'tests/event-services-comparison/image_package.py'

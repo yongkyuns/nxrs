@@ -50,17 +50,17 @@ The executable emits `CAPTURE_METADATA`, `CAPTURE_COMPARE`, `CAPTURE_CHECK`,
 JSON records. Metadata hashes the compiled-in capture, clock, fixture, lifecycle
 gate, reference adapter, pool facade, pool checks, manifest and lockfile
 bytes using Git blob SHA-1. Separate fields bind the actual shared production
-gate, pool implementation and app budget policy; facade hashes alone would not
+gate, pool implementation and capture budget policy; facade hashes alone would not
 identify the compiled transport. Retain the
 whole output and the command's exit status. The existing allocation probe
 observes requested Rust heap bytes, not process RAM or native allocator use.
 The harness is disabled because an ordinary libtest harness can allocate
 concurrently with an allocation window. The source-included module's own
 `#[test]` functions are not executed by this harness; they remain in the
-Motion Tracker test suite.
+telemetry service test suite.
 
 The peer checker executes the unchanged `dashboard.py::decode_batch` function
-against eight vectors emitted by the real app encoder, including mixed-source
+against eight vectors emitted by the production telemetry encoder, including mixed-source
 v1/v2/v3 batches, count encoding and float fallback, UTC, wrapping sequences and
 timestamps, and overflow framing. It binds both compiled source blobs and the
 current decoder source, and rejects six deliberately damaged controls. It loads
