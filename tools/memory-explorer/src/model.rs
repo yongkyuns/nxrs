@@ -245,6 +245,8 @@ pub struct Symbol {
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Snapshot {
+    /// An ordering coordinate for legacy snapshots. When `correlation` is
+    /// present, this is the exact source-clock timestamp of its trace marker.
     pub time_ns: u64,
     pub label: String,
     pub spans: Vec<Span>,
@@ -252,6 +254,20 @@ pub struct Snapshot {
     /// Omit for incomplete captures; unobserved gaps remain unknown.
     #[serde(default)]
     pub complete_regions: Vec<String>,
+    /// Explicit recording and clock identity. Its presence does not establish
+    /// a trace link until the matching marker and timestamp have been checked.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub correlation: Option<SnapshotCorrelation>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct SnapshotCorrelation {
+    /// Producer-assigned token unique to one recording and target reset epoch.
+    pub recording_id: String,
+    pub clock: String,
+    /// Nonzero, monotonically increasing marker sequence in this recording.
+    pub checkpoint_id: u64,
 }
 
 /// Version 1 observation envelope. JSON addresses and sizes are unsigned integer
@@ -970,6 +986,7 @@ fn validate_snapshots(snapshots: &[Snapshot], regions: &[Region]) -> Result<()> 
     {
         return Err(Error("snapshot times must be strictly increasing".into()));
     }
+    crate::correlation::validate_snapshot_correlations(snapshots)?;
     for snapshot in snapshots {
         validate_spans(&snapshot.spans, regions)?;
         for id in &snapshot.complete_regions {
