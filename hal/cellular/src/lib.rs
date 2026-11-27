@@ -1,10 +1,17 @@
 //! An owned cellular IPv4 link. Applications use ordinary Rust sockets once it is online.
 #![deny(unsafe_code)]
 
-use std::{fmt, net::Ipv4Addr};
+use std::{fmt, net::Ipv4Addr, time::Duration};
 
 mod platform;
+#[cfg(any(platform = "nuttx", test))]
+mod teardown;
 pub use platform::{connect, connect_managed, LINK_AVAILABLE};
+
+/// Maximum modem command-mode cleanup budget after cancellation is observed.
+/// This software deadline includes both escape guards, writes and responses;
+/// callers must also budget scheduler and resource-retirement latency.
+pub const SHUTDOWN_TIMEOUT: Duration = Duration::from_millis(10_200);
 
 #[cfg(test)]
 mod test_support;
@@ -51,12 +58,24 @@ pub enum Status {
     Failed(Error),
 }
 
-/// One exclusive link. Dropping or stopping it joins its worker and removes the IP interface.
+/// One exclusive link. Stopping it joins its worker and removes the IP interface.
 /// `connect_managed` retries recoverable failures and notifies its caller from
 /// the worker when the retained status changes.
 pub trait Session {
     fn status(&self) -> Status;
 
+    /// Wake the worker and begin cancellation without joining it.
+    fn request_stop(&mut self);
+
+    /// Whether the worker has retired and can be joined without waiting for I/O.
+    fn is_finished(&self) -> bool;
+
     /// Join teardown and report the terminal failure, if any.
-    fn stop(&mut self) -> Result<(), Error>;
+    fn join(&mut self) -> Result<(), Error>;
+
+    /// Cancel then join. Supervisors with a deadline should use the split API.
+    fn stop(&mut self) -> Result<(), Error> {
+        self.request_stop();
+        self.join()
+    }
 }

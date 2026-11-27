@@ -38,11 +38,25 @@ architecture checks reject its use in apps and services.
 
 A device stays Busy through final delivery, sink destruction and resource cleanup.
 Failed cleanup leaves that device faulted until restart, without affecting other
-devices. Drop requests cancellation; explicit `join()` establishes retirement.
+devices. Drop requests cancellation; successful `join()` establishes retirement.
+A failed join can report either a retired worker's terminal fault or a failed
+cancellation wake while it still runs. Retain the session and retry if
+`is_finished()` is false; a join error alone does not establish retirement.
 The shared acquisition worker implements `Session` directly. Static device storage
 is separate from thread stacks, cancellation state and OS allocations. Opening
 uses typed function pointers; sample processing and ordinary sinks remain
 statically dispatched, without boxing or a runtime device registry.
+
+After `join`, `Session::failure()` exposes independent acquisition and cleanup
+causes retained in the existing worker result, even if the terminal event was
+rejected or cancellation ended its delivery. `Event::Failed` reports the original
+acquisition cause when one exists. The legacy `join()` error still gives cleanup
+failure precedence so callers do not overlook uncertain retirement/quarantine.
+Read both fields before discarding the session when diagnosing a double failure.
+Mock/simulation failures use the acquisition field. A provider implementing only
+the legacy contract may return no detail. Startup preparation still returns one
+error, and cleanup still selects one of sensor-stop/IRQ-detach errors; this small
+terminal record does not claim a complete trace of every cleanup step.
 
 The HAL owns readiness and cancellation through NuttX GPIO and shared acquisition
 helpers. A configured IRQ failure never falls back to a timer. An explicitly
@@ -50,6 +64,23 @@ unwired device uses a sampling-rate-derived periodic wake, which is only a hint:
 the driver still checks its FIFO. Late wakes coalesce and empty FIFOs emit nothing.
 NuttX handles interrupt entry; Rust message delivery runs in task context.
 Resource packages own native ABI glue; this HAL contains no C/FFI implementation.
+
+A driver's `WouldBlock` means a coherent FIFO observation was unavailable and
+no measurement was consumed or offered. The HAL defers that drain to the next
+delivery interval and preserves cancellation, including an already acknowledged
+IRQ watermark that stays high. Repeated ambiguity is bounded by the driver's
+declared FIFO capacity divided by the applied rate. For BMI270, 170 complete
+frames at 100 Hz give a nominal 1.7 s bound; after that interval the next wake
+ends acquisition with `Timeout`. This is an upper bound for an incoherent
+observation, not a freshness threshold or a lossless-retention guarantee. A
+partly occupied FIFO may overflow earlier, and bus, overflow and continuity
+errors remain terminal. Drivers without a declared capacity cannot defer.
+
+If an empty FIFO snapshot is followed by an asserted IRQ, the HAL allows one
+cancellable recheck after a delivery interval. This admits data that arrived
+between the FIFO and GPIO reads. A second empty observation with the line still
+asserted ends acquisition with `Io`. Neither path silently flushes a FIFO or
+restarts a sequence; a new session is a distinct acquisition lifetime.
 
 `probe` enables optional tracing. Ordinary builds use zero-sized tracing and
 unwrapped resources, with no observer checks or timing reads. The catalogue's
@@ -59,7 +90,10 @@ the catalogue reexports `Timing` for diagnostic callers. Sensor-reference setup 
 in catalogue diagnostics, with HAL cleanup retained on setup failure. Mock,
 simulation, unbound and non-probe acquisition reject physical diagnostics.
 
-Samples use SI units and one `timestamp_us` on the device's monotonic clock.
+Samples use SI units and `timestamp_us` on the device's monotonic clock.
+`received_us` records delivery on the same clock so a consumer can distinguish
+capture age from recent publication. Mock and coordinated simulation use their
+provider clock for both timestamps.
 BMI270 uses its internal counter to estimate each FIFO frame's capture time.
 Accuracy depends on host clock resolution, bus timing and sensor clock drift.
 Other drivers can report reception time by leaving `is_capture_time` false.

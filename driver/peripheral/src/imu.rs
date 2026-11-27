@@ -11,6 +11,9 @@ pub enum Error {
     InvalidData,
     Io,
     Timeout,
+    /// A drain could not make a coherent observation. No measurement was
+    /// consumed or offered; the caller may retry after a bounded wait.
+    WouldBlock,
     Overflow,
 }
 
@@ -40,6 +43,11 @@ pub struct Measurement {
 pub trait Imu {
     const DEFAULT: Config;
     const BUFFERING: Buffering;
+    /// Maximum complete measurements retained by the configured FIFO path.
+    /// Together with the applied rate this bounds how long acquisition may
+    /// defer an incoherent observation. It does not promise lossless retention:
+    /// a partly occupied FIFO can overflow sooner. `None` permits no deferral.
+    const FIFO_CAPACITY_SAMPLES: Option<u32> = None;
     type Settings;
 
     /// Resolve requirements without I/O. Only driver-supported combinations may
@@ -50,8 +58,9 @@ pub trait Imu {
     /// evidence of data. `Some(n)` counts offered measurements (zero is allowed);
     /// `None` means the consumer returned false and acquisition must stop.
     /// `now_us` supplies the same monotonic microsecond clock for every drain.
-    /// Never invoke the consumer again after false. Errors may follow an emitted
-    /// prefix; they must not silently imply that sample continuity was retained.
+    /// Never invoke the consumer again after false. `WouldBlock` consumes and
+    /// offers no measurement. Other errors may follow an emitted prefix; they
+    /// must not silently imply that sample continuity was retained.
     fn read_available(
         &mut self,
         now_us: impl FnMut() -> u64,

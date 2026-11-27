@@ -28,10 +28,16 @@ struct Fake {
     fail_register: bool,
     fail_unregister: bool,
     fail_stop: bool,
+    bad_stop_readback: bool,
     fail_reference: bool,
     irq_asserted: bool,
     periodic_wake: bool,
     repeat_periodic: bool,
+    snapshot_crossings: usize,
+    snapshots: usize,
+    overflow_at_snapshot: usize,
+    data_after_empty_snapshot: bool,
+    empty_snapshot: bool,
     registrations: usize,
     unregisters: usize,
     transfers: usize,
@@ -55,10 +61,16 @@ impl Fake {
             fail_register: false,
             fail_unregister: false,
             fail_stop: false,
+            bad_stop_readback: false,
             fail_reference: false,
             irq_asserted: true,
             periodic_wake: false,
             repeat_periodic: false,
+            snapshot_crossings: 0,
+            snapshots: 0,
+            overflow_at_snapshot: usize::MAX,
+            data_after_empty_snapshot: false,
+            empty_snapshot: false,
             registrations: 0,
             unregisters: 0,
             transfers: 0,
@@ -119,7 +131,18 @@ pub(super) mod ffi {
                 0x03 => r.fill(0xc0),
                 0x21 => r.fill(if f.bad_init { 2 } else { 1 }),
                 0x1d => r.fill(f.regs[0x1d]),
-                0x24 => r.copy_from_slice(&(f.fifo.len() as u16).to_le_bytes()),
+                0x24 => {
+                    f.snapshots += 1;
+                    if f.snapshots == f.overflow_at_snapshot {
+                        f.regs[0x1d] |= 1;
+                    }
+                    f.empty_snapshot = f.fifo.is_empty();
+                    r.copy_from_slice(&(f.fifo.len() as u16).to_le_bytes());
+                    if f.snapshot_crossings > 0 {
+                        f.snapshot_crossings -= 1;
+                        f.regs[0x19] = f.regs[0x19].wrapping_add(1);
+                    }
+                }
                 0x25 => r.fill(0),
                 0x3a if address == 0x6a => {
                     r.copy_from_slice(&((f.fifo.len() / 7) as u16).to_le_bytes())
@@ -130,6 +153,7 @@ pub(super) mod ffi {
                     }
                 }
                 0x41 if f.bad_config_readback => r.fill(f.regs[reg] ^ 1),
+                0x53 if f.bad_stop_readback && f.regs[reg] == 0x02 => r.fill(0x0a),
                 _ => r.copy_from_slice(&f.regs[reg..reg + r.len()]),
             }
         }
@@ -153,7 +177,14 @@ pub(super) mod ffi {
         Ok(())
     }
     pub(crate) fn irq_read(_: i32) -> io::Result<bool> {
-        Ok(FAKE.lock().unwrap().irq_asserted)
+        let mut f = FAKE.lock().unwrap();
+        if f.data_after_empty_snapshot && f.empty_snapshot {
+            // Data arrives after the driver's zero-length observation, before
+            // the HAL checks whether the watermark is still asserted.
+            f.fifo.extend_from_slice(&[0; 12]);
+            f.data_after_empty_snapshot = false;
+        }
+        Ok(f.irq_asserted)
     }
     pub(crate) fn irq_register(_: i32) -> io::Result<()> {
         let mut f = FAKE.lock().unwrap();
@@ -297,7 +328,9 @@ fn run<S: ImuDevice>(
     wake: &File,
     emit: &mut dyn FnMut(crate::Event) -> bool,
 ) -> Result<(), crate::DeviceError> {
-    device.run(stop, wake, emit)
+    device
+        .run(stop, wake, emit)
+        .map_err(crate::Failure::joined_error)
 }
 
 fn assert_state(expected: State) {
@@ -669,6 +702,7 @@ fn hal_adds_stream_metadata_and_preserves_device_overflow() {
             for (i, sample) in samples.iter().enumerate() {
                 assert_eq!(sample.sequence, i as u64 + 1);
                 assert!(sample.is_capture_time);
+                assert!(sample.received_us >= sample.timestamp_us);
                 assert_eq!(sample.timestamp_us, newest - (2 - i as u64) * 10_000);
                 assert_eq!(sample.sample_interval_us, 10_000);
                 assert!((sample.accel_mps2[0] - 9.80665).abs() < 1e-5);
@@ -681,15 +715,258 @@ fn hal_adds_stream_metadata_and_preserves_device_overflow() {
 }
 
 #[test]
+fn ambiguous_snapshot_retries_keep_fifo_and_allow_cancellation_on_both_wake_paths() {
+    let _serial = SERIAL.lock().unwrap();
+    let file = DeviceFile::new();
+    for (irq, retry) in [(false, true), (true, true), (true, false), (false, false)] {
+        reset();
+        {
+            let mut f = FAKE.lock().unwrap();
+            f.fifo.extend_from_slice(&[0; 12]);
+            f.snapshot_crossings = 3;
+            f.periodic_wake = !irq;
+            f.repeat_periodic = retry;
+        }
+        let device = acquire_bmi270(
+            binding(file.path(), irq.then_some(file.path())),
+            default_config(),
+        )
+        .unwrap();
+        let mut samples = Vec::new();
+        run(
+            device,
+            &AtomicBool::new(false),
+            &File::open(file.path()).unwrap(),
+            &mut |event| {
+                let crate::Event::Sample(sample) = event else {
+                    panic!("unexpected terminal event")
+                };
+                samples.push(sample);
+                false
+            },
+        )
+        .unwrap();
+        let f = FAKE.lock().unwrap();
+        assert_eq!(f.snapshot_crossings, 0);
+        assert_eq!(f.fifo.len(), if retry { 0 } else { 12 });
+        assert_eq!(f.snapshots, if retry { 4 } else { 3 });
+        assert_eq!(f.unregisters, usize::from(irq));
+        assert_state(State::Available);
+        if retry {
+            assert_eq!(samples.len(), 1);
+            assert_eq!(samples[0].sequence, 1);
+            assert!(samples[0].is_capture_time);
+        } else {
+            assert!(samples.is_empty());
+        }
+    }
+}
+
+#[test]
+fn persistent_snapshot_ambiguity_stops_within_the_fifo_retention_budget() {
+    let _serial = SERIAL.lock().unwrap();
+    let file = DeviceFile::new();
+    reset();
+    {
+        let mut f = FAKE.lock().unwrap();
+        f.fifo.extend_from_slice(&[0; 12]);
+        f.snapshot_crossings = usize::MAX;
+        f.repeat_periodic = true;
+    }
+    let mut config = default_config();
+    config.min_rate_millihz = 200_000;
+    config.max_rate_millihz = 200_000;
+    config.max_delivery_interval_us = 5_000;
+    let device = acquire_bmi270(binding(file.path(), Some(file.path())), config).unwrap();
+    let started = std::time::Instant::now();
+    assert_eq!(
+        run(
+            device,
+            &AtomicBool::new(false),
+            &File::open(file.path()).unwrap(),
+            &mut |_| panic!("ambiguous FIFO must not deliver data"),
+        ),
+        Err(crate::DeviceError::Timeout)
+    );
+    // 170 complete frames / 200 Hz, with no arbitrary tolerated-delay setting.
+    assert!(started.elapsed() >= std::time::Duration::from_millis(850));
+    let f = FAKE.lock().unwrap();
+    assert!(f.snapshots <= 170 * 3);
+    assert_eq!(f.fifo.len(), 12);
+    assert_eq!(f.ops, [Op::Stop, Op::Detach]);
+    assert_state(State::Available);
+}
+
+#[test]
+fn timeout_and_cleanup_fault_both_survive_full_or_cancelled_terminal_delivery() {
+    use crate::{DeviceError, Event, Failure, Session};
+    use std::{
+        sync::mpsc,
+        time::{Duration, Instant},
+    };
+
+    let _serial = SERIAL.lock().unwrap();
+    let file = DeviceFile::new();
+    for cancel_before_delivery in [false, true] {
+        reset();
+        {
+            let mut fake = FAKE.lock().unwrap();
+            fake.fifo.extend_from_slice(&[0; 12]);
+            fake.snapshot_crossings = usize::MAX;
+            fake.repeat_periodic = true;
+        }
+        let mut config = default_config();
+        config.min_rate_millihz = 200_000;
+        config.max_rate_millihz = 200_000;
+        config.max_delivery_interval_us = 5_000;
+        let mut device = acquire_bmi270(binding(file.path(), Some(file.path())), config).unwrap();
+        // Fail only retirement, after normal sensor initialization succeeded.
+        FAKE.lock().unwrap().fail_stop = true;
+        let cancel = readiness::Cancel::new(|| {
+            let (reader, writer) = UnixStream::pair()?;
+            Ok((OwnedFd::from(reader).into(), OwnedFd::from(writer).into()))
+        })
+        .unwrap();
+        let wake = cancel.reader.clone();
+        let (attempted, observed) = mpsc::sync_channel(1);
+        let mut worker = crate::session::start(
+            65536,
+            cancel,
+            (
+                move |event| {
+                    assert!(
+                        !cancel_before_delivery,
+                        "cancelled terminal delivery must not call its sink"
+                    );
+                    assert_eq!(event, Event::Failed(DeviceError::Timeout));
+                    let _ = attempted.try_send(());
+                    Err(crate::Rejected {
+                        value: event,
+                        error: crate::DeliveryError::Full,
+                    })
+                },
+                (),
+            ),
+            move |stop, emit| {
+                let result = device.run(stop, &wake, emit);
+                if cancel_before_delivery {
+                    // Deterministic cancellation boundary after native-source
+                    // cleanup and before the common terminal delivery loop.
+                    stop.store(true, Ordering::Release);
+                }
+                result
+            },
+        )
+        .unwrap();
+        if cancel_before_delivery {
+            let deadline = Instant::now() + Duration::from_secs(3);
+            while !worker.is_finished() && Instant::now() < deadline {
+                std::thread::yield_now();
+            }
+            assert!(worker.is_finished());
+        } else {
+            observed.recv_timeout(Duration::from_secs(3)).unwrap();
+            worker.request_stop().unwrap();
+        }
+        assert_eq!(Session::failure(&worker), None);
+        assert_eq!(Session::join(&mut worker), Err(DeviceError::Io));
+        assert_eq!(
+            Session::failure(&worker),
+            Some(Failure {
+                acquisition: Some(DeviceError::Timeout),
+                cleanup: Some(DeviceError::Io),
+            })
+        );
+        assert_eq!(Session::join(&mut worker), Err(DeviceError::Io));
+        assert_state(State::Faulted);
+        assert_eq!(FAKE.lock().unwrap().ops, [Op::Stop, Op::Detach]);
+    }
+}
+
+#[test]
+fn overflow_after_ambiguous_snapshot_remains_a_terminal_fault() {
+    let _serial = SERIAL.lock().unwrap();
+    let file = DeviceFile::new();
+    reset();
+    {
+        let mut f = FAKE.lock().unwrap();
+        f.fifo.extend_from_slice(&[0; 12]);
+        f.snapshot_crossings = 3;
+        f.overflow_at_snapshot = 3;
+        f.repeat_periodic = true;
+    }
+    let device = acquire_bmi270(binding(file.path(), Some(file.path())), default_config()).unwrap();
+    assert_eq!(
+        run(
+            device,
+            &AtomicBool::new(false),
+            &File::open(file.path()).unwrap(),
+            &mut |_| panic!("overflow must not be hidden by snapshot retry"),
+        ),
+        Err(crate::DeviceError::Full)
+    );
+    let f = FAKE.lock().unwrap();
+    assert_eq!(f.snapshots, 3);
+    assert_eq!(f.fifo.len(), 12);
+    assert_eq!(f.ops, [Op::Stop, Op::Detach]);
+    assert_state(State::Available);
+}
+
+#[test]
+fn asserted_irq_after_empty_snapshot_gets_one_cancellable_recheck() {
+    let _serial = SERIAL.lock().unwrap();
+    let file = DeviceFile::new();
+    for (arrives, retry) in [(true, true), (false, true), (false, false)] {
+        reset();
+        {
+            let mut f = FAKE.lock().unwrap();
+            f.data_after_empty_snapshot = arrives;
+            f.repeat_periodic = retry;
+        }
+        let device =
+            acquire_bmi270(binding(file.path(), Some(file.path())), default_config()).unwrap();
+        let mut samples = 0;
+        let result = run(
+            device,
+            &AtomicBool::new(false),
+            &File::open(file.path()).unwrap(),
+            &mut |event| {
+                assert!(matches!(event, crate::Event::Sample(_)));
+                samples += 1;
+                false
+            },
+        );
+        assert_eq!(
+            result,
+            if retry && !arrives {
+                Err(crate::DeviceError::Io)
+            } else {
+                Ok(())
+            }
+        );
+        assert_eq!(samples, usize::from(arrives));
+        let f = FAKE.lock().unwrap();
+        assert_eq!(f.snapshots, if retry { 2 } else { 1 });
+        assert_eq!(f.ops, [Op::Stop, Op::Detach]);
+        assert_state(State::Available);
+    }
+}
+
+#[test]
 fn failed_stop_or_detach_marks_faulted_without_repeating_release() {
     let _serial = SERIAL.lock().unwrap();
     let file = DeviceFile::new();
-    for (fail_stop, fail_unregister) in [(true, false), (false, true)] {
+    for (fail_stop, fail_unregister, bad_stop_readback) in [
+        (true, false, false),
+        (false, true, false),
+        (false, false, true),
+    ] {
         reset();
         {
             let mut f = FAKE.lock().unwrap();
             f.fail_stop = fail_stop;
             f.fail_unregister = fail_unregister;
+            f.bad_stop_readback = bad_stop_readback;
         }
         let device =
             acquire_bmi270(binding(file.path(), Some(file.path())), default_config()).unwrap();
@@ -700,12 +977,20 @@ fn failed_stop_or_detach_marks_faulted_without_repeating_release() {
                 &File::open(file.path()).unwrap(),
                 &mut |_| true
             ),
-            Err(crate::DeviceError::Io)
+            Err(if bad_stop_readback {
+                crate::DeviceError::InvalidData
+            } else {
+                crate::DeviceError::Io
+            })
         );
         let f = FAKE.lock().unwrap();
         assert_state(State::Faulted);
         assert_eq!((f.registrations, f.unregisters), (0, 1));
         assert_eq!(f.ops, [Op::Stop, Op::Detach]);
+        // Even a failure to unmap the interrupt must not skip power-off or
+        // disabling the output; ownership is nevertheless quarantined.
+        assert_eq!(f.regs[0x53] & 0x18, 0);
+        assert_eq!(f.regs[0x7d] & 0x0f, 0);
     }
 }
 
@@ -751,6 +1036,7 @@ mod diagnostics {
         let _serial = SERIAL.lock().unwrap();
         let file = DeviceFile::new();
         reset();
+        FAKE.lock().unwrap().repeat_periodic = true;
         let events = Arc::new(Mutex::new(Vec::new()));
         let captured = events.clone();
         let trace = trace::Trace::new(move |event| captured.lock().unwrap().push(event)).unwrap();
@@ -775,9 +1061,10 @@ mod diagnostics {
             "observer released after cleanup"
         );
         let events = events.lock().unwrap();
-        let wake = events
+        let wakes: Vec<_> = events
             .iter()
-            .position(|event| {
+            .enumerate()
+            .filter_map(|(index, event)| {
                 matches!(
                     event,
                     Timing::Wake {
@@ -785,17 +1072,26 @@ mod diagnostics {
                         ..
                     }
                 )
+                .then_some(index)
             })
-            .unwrap();
-        let drain = events
+            .collect();
+        let drains: Vec<_> = events
             .iter()
-            .position(|event| matches!(event, Timing::Drain { complete: true, .. }))
-            .unwrap();
-        assert!(wake > 0 && drain > wake + 1 && drain + 1 < events.len());
+            .enumerate()
+            .filter_map(|(index, event)| {
+                matches!(event, Timing::Drain { complete: true, .. }).then_some(index)
+            })
+            .collect();
+        assert_eq!((wakes.len(), drains.len()), (2, 2));
+        assert!(wakes[0] > 0 && drains[0] > wakes[0] + 1);
+        assert!(wakes[1] > drains[0] && drains[1] > wakes[1] + 1);
+        assert!(drains[1] + 1 < events.len());
         assert!(events
             .iter()
             .enumerate()
-            .all(|(i, event)| i == wake || i == drain || matches!(event, Timing::Ioctl { .. })));
+            .all(|(i, event)| wakes.contains(&i)
+                || drains.contains(&i)
+                || matches!(event, Timing::Ioctl { .. })));
     }
 
     #[test]

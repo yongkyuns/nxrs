@@ -8,6 +8,23 @@ pub trait Link: Read + Write {
     fn abort(&mut self);
 }
 
+/// Delivery evidence for one accepted transport. Compare tokens for equality;
+/// neither token is a wall clock or an application message sequence.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct DeliveryProgress {
+    /// Changes when a different central connection is admitted.
+    pub generation: u32,
+    /// Changes only as queued output is consumed by the transport's peer-facing
+    /// delivery operation. Enqueueing and retransmission are not progress.
+    /// NuttX advances this on a validated cumulative notification ACK or on a
+    /// legacy ATT read taking bytes. It does not prove application processing
+    /// or durable storage, and wraps within a generation.
+    pub completed: u32,
+    /// Output is retained awaiting transport delivery, including queued bytes
+    /// not yet sent. False does not describe a consumer's own pending writes.
+    pub pending: bool,
+}
+
 pub trait Listener {
     type Transport: Link;
     fn accept(&mut self) -> Result<Option<Self::Transport>, Error>;
@@ -19,6 +36,13 @@ pub trait Listener {
     /// this listener. The owner still drives retry deadlines.
     fn take_ready(&self) -> bool {
         false
+    }
+    /// A coherent delivery snapshot for the accepted connection. None means the
+    /// provider cannot expose this evidence; local writes alone must not be
+    /// labelled peer acknowledgment. WouldBlock means retry the snapshot, not
+    /// that the output queue is empty or the peer has stopped progressing.
+    fn delivery_progress(&self) -> std::io::Result<Option<DeliveryProgress>> {
+        Ok(None)
     }
     /// The next retry needed while no accepted connection is active.
     fn idle_retry_at(&self) -> Option<Instant> {

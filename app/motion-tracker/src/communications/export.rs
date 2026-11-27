@@ -1,10 +1,10 @@
 //! Bounded capture for the authenticated tracker export stream.
 use crate::clock::ClockAnchor;
-use navigation::observations::Measurement;
+use navigation::observations::{Measurement, SensorFault};
 use std::collections::VecDeque;
 use std::io;
 use std::sync::{
-    atomic::{AtomicBool, AtomicUsize, Ordering},
+    atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering},
     Mutex, OnceLock,
 };
 use std::thread::{self, Thread};
@@ -23,6 +23,7 @@ const UTC_UNAVAILABLE: i64 = i64::MIN;
 const DELTA: u8 = 0x80;
 const COUNTS: u8 = 0x40;
 const NO_UTC: u8 = 0x20;
+const FAILED: usize = 1 << (usize::BITS - 1);
 pub const MAX_BYTES: usize = 4 + 8 + BATCH * IMU_BYTES;
 
 #[derive(Clone, Copy)]
@@ -30,6 +31,8 @@ pub enum Version {
     Fixed = 1,
     Compact = 2,
     Timed = 3,
+    /// Capture-time provenance, source unavailability and typed terminal faults.
+    Evidence = 4,
 }
 
 impl Version {
@@ -38,12 +41,17 @@ impl Version {
             1 => Some(Self::Fixed),
             2 => Some(Self::Compact),
             3 => Some(Self::Timed),
+            4 => Some(Self::Evidence),
             _ => None,
         }
     }
 
     pub fn batch_interval(self) -> Duration {
-        Duration::from_millis(if matches!(self, Self::Timed) { 75 } else { 40 })
+        Duration::from_millis(if matches!(self, Self::Timed | Self::Evidence) {
+            75
+        } else {
+            40
+        })
     }
 }
 
@@ -59,10 +67,12 @@ pub struct Capture {
     epoch: AtomicUsize,
     ready: AtomicBool,
     sensor_failed: AtomicBool,
+    // Source/cause survives a full queue and a missed owner notification.
+    first_fault: AtomicU32,
     owner: OnceLock<Mutex<Thread>>,
     samples: Mutex<Samples>,
     scales: [Option<[u32; 2]>; 2],
-    clock: OnceLock<ClockAnchor>,
+    clock: Mutex<Option<ClockAnchor>>,
 }
 
 #[derive(Default)]
@@ -76,6 +86,7 @@ struct Samples {
 enum Source {
     Imu(u8),
     Gnss,
+    GnssUnavailable,
 }
 
 impl Source {
@@ -83,6 +94,7 @@ impl Source {
         match self {
             Self::Imu(index) => 1 + index,
             Self::Gnss => 3,
+            Self::GnssUnavailable => 4,
         }
     }
 }
@@ -92,7 +104,11 @@ impl Source {
 #[derive(Clone, Copy)]
 struct Sample {
     time: u64,
+    // Capture the applicable mapping at admission. A later fix or NoFix must
+    // never re-date the admitted prefix while transport is backpressured.
+    utc_offset_ms: i64,
     sequence: u32,
+    capture_time: bool,
     source: Source,
     values: [u32; 6],
 }
@@ -105,7 +121,9 @@ impl From<Measurement> for Sample {
                 let [gx, gy, gz] = sample.gyro_rps.map(f32::to_bits);
                 Self {
                     time: sample.timestamp_us / 1_000,
+                    utc_offset_ms: UTC_UNAVAILABLE,
                     sequence: sample.sequence as u32,
+                    capture_time: sample.is_capture_time,
                     source: Source::Imu(index as u8),
                     values: [ax, ay, az, gx, gy, gz],
                 }
@@ -115,7 +133,9 @@ impl From<Measurement> for Sample {
                 let lon = fix.longitude_deg.to_bits();
                 Self {
                     time: fix.timestamp_us / 1_000,
+                    utc_offset_ms: UTC_UNAVAILABLE,
                     sequence: fix.sequence as u32,
+                    capture_time: fix.is_capture_time,
                     source: Source::Gnss,
                     values: [
                         lat as u32,
@@ -144,7 +164,7 @@ impl Capture {
     }
 
     pub fn clock(&self) -> Option<ClockAnchor> {
-        self.clock.get().copied()
+        *self.clock.lock().unwrap()
     }
 
     pub fn register_owner(&self) {
@@ -174,6 +194,66 @@ impl Capture {
         self.ready.swap(false, Ordering::AcqRel)
     }
 
+    pub fn source_failed(&self, fault: SensorFault) {
+        let (source, reason) = match fault {
+            SensorFault::Imu(index, error) if index < 2 => {
+                let reason = match error {
+                    imu::DeviceError::Unsupported => 1,
+                    imu::DeviceError::Busy => 2,
+                    imu::DeviceError::Timeout => 3,
+                    imu::DeviceError::Full => 4,
+                    imu::DeviceError::Io => 5,
+                    imu::DeviceError::InvalidData => 6,
+                };
+                (index as u32 + 1, reason)
+            }
+            SensorFault::Imu(_, _) => return,
+            SensorFault::Gnss(error) => {
+                let reason = match error {
+                    gnss::DeviceError::Unsupported => 1,
+                    gnss::DeviceError::Busy => 2,
+                    gnss::DeviceError::Timeout => 3,
+                    gnss::DeviceError::Full => 4,
+                    gnss::DeviceError::Io => 5,
+                    gnss::DeviceError::InvalidData => 6,
+                };
+                *self.clock.lock().unwrap() = None;
+                (3, reason)
+            }
+        };
+        let _ = self.first_fault.compare_exchange(
+            0,
+            source | reason << 8,
+            Ordering::AcqRel,
+            Ordering::Acquire,
+        );
+        // Close admission before waking the owner. A paused producer is rejected
+        // by its epoch check; the admitted prefix drains before the fault record.
+        self.epoch.fetch_or(FAILED, Ordering::AcqRel);
+        self.ready.store(true, Ordering::Release);
+        self.sensor_failed();
+    }
+
+    pub fn gnss_unavailable(&self, status: gnss::NoFix) {
+        *self.clock.lock().unwrap() = None;
+        let epoch = self.epoch.load(Ordering::Acquire);
+        if epoch & (FAILED | 1) == 1 {
+            let source_epoch = status.source_epoch_ms.unwrap_or(u64::MAX);
+            self.enqueue(
+                epoch,
+                Sample {
+                    time: status.received_us / 1_000,
+                    utc_offset_ms: UTC_UNAVAILABLE,
+                    sequence: status.generation,
+                    capture_time: false,
+                    source: Source::GnssUnavailable,
+                    values: [source_epoch as u32, (source_epoch >> 32) as u32, 0, 0, 0, 0],
+                },
+            );
+        }
+        self.sensor_failed(); // retained state changed; wake the telemetry owner
+    }
+
     pub fn sensor_failed(&self) {
         self.sensor_failed.store(true, Ordering::Release);
         self.notify_owner();
@@ -183,7 +263,19 @@ impl Capture {
         self.sensor_failed.swap(false, Ordering::AcqRel)
     }
 
+    /// A v4 peer can still receive the retained typed failure after admission
+    /// is refused. This predicate never authorizes new sample admission.
+    pub fn is_failed(&self) -> bool {
+        self.first_fault.load(Ordering::Acquire) != 0
+    }
+
     pub fn enable(&self) -> io::Result<()> {
+        if self.first_fault.load(Ordering::Acquire) != 0 {
+            return Err(io::Error::new(
+                io::ErrorKind::NotConnected,
+                "capture source unavailable",
+            ));
+        }
         // An export reconnect may overlap an acquisition callback. Reserve
         // before touching the queue lock, and retire the old queue outside it.
         let mut queue = VecDeque::new();
@@ -192,12 +284,24 @@ impl Capture {
             .map_err(|_| io::ErrorKind::OutOfMemory)?;
         {
             let mut samples = self.samples.lock().unwrap();
+            if self.first_fault.load(Ordering::Acquire) != 0 {
+                return Err(io::Error::new(
+                    io::ErrorKind::NotConnected,
+                    "capture source unavailable",
+                ));
+            }
+            let prior = self.epoch.load(Ordering::Acquire);
+            let epoch = prior
+                .checked_add(if prior & 1 == 0 { 1 } else { 2 })
+                .filter(|value| *value < FAILED - 1)
+                .ok_or_else(|| io::Error::other("capture generation exhausted or source failed"))?;
+            self.epoch
+                .compare_exchange(prior, epoch, Ordering::AcqRel, Ordering::Acquire)
+                .map_err(|_| io::Error::other("capture source failed during admission"))?;
             std::mem::swap(&mut samples.queue, &mut queue);
             samples.first_missing = None;
             samples.high_water = 0;
             self.ready.store(false, Ordering::Relaxed);
-            let epoch = self.epoch.load(Ordering::Relaxed).wrapping_add(1) | 1;
-            self.epoch.store(epoch, Ordering::Release);
         }
         Ok(())
     }
@@ -207,8 +311,7 @@ impl Capture {
         let (_retired_queue, high_water) = {
             let mut samples = self.samples.lock().unwrap();
             let epoch = self.epoch.load(Ordering::Relaxed);
-            self.epoch
-                .store(epoch.wrapping_add(epoch & 1), Ordering::Release);
+            self.epoch.fetch_add(epoch & 1, Ordering::AcqRel);
             self.ready.store(false, Ordering::Relaxed);
             samples.first_missing = None;
             (std::mem::take(&mut samples.queue), samples.high_water)
@@ -217,19 +320,24 @@ impl Capture {
     }
 
     pub fn record(&self, sample: Measurement) {
-        if let Measurement::Gnss(fix) = sample {
-            if let Some(anchor) = fix
-                .receiver_utc_ms
-                .and_then(|utc| ClockAnchor::new(fix.timestamp_us / 1_000, utc))
-            {
-                let _ = self.clock.set(anchor);
-            }
-        }
         let epoch = self.epoch.load(Ordering::Acquire);
-        if epoch & 1 == 0 {
+        let clock = {
+            let mut clock = self.clock.lock().unwrap();
+            if let Measurement::Gnss(fix) = sample {
+                *clock = ClockAnchor::from_fix(fix);
+            }
+            *clock
+        };
+        if epoch & (FAILED | 1) != 1 {
             return;
         }
-        self.enqueue(epoch, sample.into());
+        let mut sample = Sample::from(sample);
+        if sample.capture_time {
+            sample.utc_offset_ms = clock
+                .filter(|anchor| anchor.utc_ms(sample.time).is_some())
+                .map_or(UTC_UNAVAILABLE, |anchor| anchor.offset_ms);
+        }
+        self.enqueue(epoch, sample);
     }
 
     fn enqueue(&self, epoch: usize, sample: Sample) {
@@ -242,7 +350,7 @@ impl Capture {
             }
             if samples.queue.len() == QUEUE {
                 samples.first_missing = Some((sample.source, sample.sequence));
-                self.epoch.store(epoch.wrapping_add(1), Ordering::Release);
+                self.epoch.fetch_add(1, Ordering::AcqRel);
             } else {
                 samples.queue.push_back(sample);
                 let depth = samples.queue.len();
@@ -258,19 +366,61 @@ impl Capture {
 
     pub fn take(&self, output: &mut [u8; MAX_BYTES], due: bool, version: Version) -> Option<Batch> {
         let mut records = [None; BATCH];
+        let timed = matches!(version, Version::Timed | Version::Evidence);
+        let mut utc_offset_ms = UTC_UNAVAILABLE;
         let count = {
             let mut samples = self.samples.lock().unwrap();
             let count = samples.queue.len().min(BATCH);
             // Full batches can catch up while the deadline bounds how
             // long a smaller batch waits to fill.
-            if count < BATCH && !due && samples.first_missing.is_none() {
+            if count < BATCH
+                && !due
+                && samples.first_missing.is_none()
+                && self.first_fault.load(Ordering::Acquire) == 0
+            {
                 return None;
             }
             if count == 0 {
-                let (source, sequence) = samples.first_missing?;
+                let Some((source, sequence)) = samples.first_missing else {
+                    let fault = self.first_fault.load(Ordering::Acquire);
+                    if fault == 0 {
+                        return None;
+                    }
+                    if matches!(version, Version::Evidence) {
+                        output[4] = fault as u8;
+                        output[5] = (fault >> 8) as u8;
+                        header(output, version, 6);
+                        return Some(Batch {
+                            len: 6,
+                            terminal: true,
+                        });
+                    }
+                    // Legacy peers cannot name this terminal condition. End the
+                    // connection after its admitted prefix, never claim overflow
+                    // or normal completion for a failed source.
+                    return Some(Batch {
+                        len: 0,
+                        terminal: true,
+                    });
+                };
+                if matches!(source, Source::GnssUnavailable) {
+                    if matches!(version, Version::Evidence) {
+                        output[4] = 3;
+                        output[5] = 7; // GNSS availability evidence was lost
+                        header(output, version, 6);
+                        return Some(Batch {
+                            len: 6,
+                            terminal: true,
+                        });
+                    }
+                    return Some(Batch {
+                        len: 0,
+                        terminal: true,
+                    });
+                }
                 let len = match version {
                     Version::Fixed => 4,
-                    Version::Compact | Version::Timed => {
+                    Version::Compact | Version::Timed | Version::Evidence => {
                         output[4] = source.tag();
                         output[5..9].copy_from_slice(&sequence.to_le_bytes());
                         9
@@ -282,26 +432,57 @@ impl Capture {
                     terminal: true,
                 });
             }
-            for (record, sample) in records.iter_mut().zip(samples.queue.drain(..count)) {
-                *record = Some(sample);
+            let mut accepted = 0;
+            for _ in 0..count {
+                let sample = *samples.queue.front().unwrap();
+                // v3/v4 have one offset per frame. End a batch before a new
+                // mapping segment, without changing any queued sample's UTC.
+                if timed
+                    && sample.utc_offset_ms != UTC_UNAVAILABLE
+                    && utc_offset_ms != UTC_UNAVAILABLE
+                    && sample.utc_offset_ms != utc_offset_ms
+                {
+                    break;
+                }
+                samples.queue.pop_front();
+                if matches!(sample.source, Source::GnssUnavailable)
+                    && !matches!(version, Version::Evidence)
+                {
+                    continue;
+                }
+                if sample.utc_offset_ms != UTC_UNAVAILABLE {
+                    utc_offset_ms = sample.utc_offset_ms;
+                }
+                records[accepted] = Some(sample);
+                accepted += 1;
             }
-            count
+            if accepted == 0 {
+                return None;
+            }
+            accepted
         };
 
-        let timed = matches!(version, Version::Timed);
-        let clock = self.clock();
         let mut previous = [None::<(u32, u64)>; 3];
         let mut end = 4;
         if timed {
-            output[end..end + 8].copy_from_slice(
-                &clock
-                    .map_or(UTC_UNAVAILABLE, |anchor| anchor.offset_ms)
-                    .to_le_bytes(),
-            );
+            output[end..end + 8].copy_from_slice(&utc_offset_ms.to_le_bytes());
             end += 8;
         }
         for sample in records[..count].iter().flatten() {
             let kind = sample.source.tag();
+            if matches!(sample.source, Source::GnssUnavailable) {
+                output[end] = 4;
+                output[end + 1..end + 5].copy_from_slice(&sample.sequence.to_le_bytes());
+                output[end + 5..end + 13].copy_from_slice(&sample.time.to_le_bytes());
+                for (bytes, value) in output[end + 13..end + 21]
+                    .chunks_exact_mut(4)
+                    .zip(sample.values)
+                {
+                    bytes.copy_from_slice(&value.to_le_bytes());
+                }
+                end += 21;
+                continue;
+            }
             let index = usize::from(kind - 1);
             let len = if kind == 3 { GNSS_BYTES } else { IMU_BYTES };
             let sequence = sample.sequence;
@@ -321,8 +502,11 @@ impl Capture {
             }
             let payload = &payload[..len - RECORD_HEADER];
             let mut tag = kind;
-            if timed && clock.is_some_and(|anchor| time < anchor.since_ms) {
+            if timed && sample.utc_offset_ms == UTC_UNAVAILABLE {
                 tag |= NO_UTC;
+            }
+            if matches!(version, Version::Evidence) && !sample.capture_time {
+                tag |= 0x10; // received timestamp; measurement age is unknown
             }
             let counts = if timed && kind != 3 {
                 self.scales[index].and_then(|scale| encode_counts(payload, scale))
@@ -386,8 +570,11 @@ mod tests {
 
     fn fix(sequence: u64) -> Measurement {
         Measurement::Gnss(gnss::GnssFix {
+            generation: 1,
+            source_epoch_ms: 0,
             sequence,
             timestamp_us: sequence * 500_000,
+            received_us: sequence * 500_000,
             is_capture_time: false,
             receiver_utc_ms: None,
             latitude_deg: 45.0,
@@ -547,6 +734,7 @@ mod tests {
                 imu::ImuSample {
                     sequence,
                     timestamp_us: time * 1_000 + 700,
+                    received_us: time * 1_000 + 700,
                     is_capture_time: true,
                     sample_interval_us: 10_000,
                     accel_mps2: [-4096.0, 0.0, 4095.875],
@@ -559,6 +747,8 @@ mod tests {
             unreachable!()
         };
         fix.timestamp_us = (first + 3) * 1_000;
+        fix.received_us = fix.timestamp_us;
+        fix.is_capture_time = true;
         fix.receiver_utc_ms = Some(1_767_225_600_000);
         capture.record(Measurement::Gnss(fix));
         capture.record(imu(2, first + 9));
@@ -610,6 +800,7 @@ mod tests {
                 imu::ImuSample {
                     sequence,
                     timestamp_us: timestamp_ms * 1_000,
+                    received_us: timestamp_ms * 1_000,
                     is_capture_time: true,
                     sample_interval_us: 10_000,
                     accel_mps2: [1.25, -0.5, 9.75],
@@ -626,5 +817,205 @@ mod tests {
         assert_eq!(&bytes[37..39], &[0x81, 11]);
         assert_eq!(&bytes[39..63], &bytes[13..37]);
         assert_eq!(&bytes[63..72], &[1, 18, 0, 0, 0, 130, 0, 0, 0]);
+    }
+
+    fn imu(sequence: u64, time_ms: u64, capture_time: bool) -> Measurement {
+        Measurement::Imu(
+            0,
+            imu::ImuSample {
+                sequence,
+                timestamp_us: time_ms * 1_000,
+                received_us: time_ms * 1_000,
+                is_capture_time: capture_time,
+                sample_interval_us: 10_000,
+                accel_mps2: [1.25, -0.5, 9.75],
+                gyro_rps: [0.0, 1.0, -2.0],
+            },
+        )
+    }
+
+    fn qualified_fix(sequence: u64, time_ms: u64, utc_ms: i64) -> Measurement {
+        let Measurement::Gnss(mut fix) = fix(sequence) else {
+            unreachable!()
+        };
+        fix.timestamp_us = time_ms * 1_000;
+        fix.received_us = fix.timestamp_us;
+        fix.is_capture_time = true;
+        fix.receiver_utc_ms = Some(utc_ms);
+        Measurement::Gnss(fix)
+    }
+
+    #[test]
+    fn source_failure_retains_the_prefix_and_first_cause_independent_of_queue_capacity() {
+        let capture = Capture::default();
+        capture.enable().unwrap();
+        for sequence in 0..QUEUE as u64 {
+            capture.record(fix(sequence));
+        }
+        capture.source_failed(SensorFault::Imu(0, imu::DeviceError::Timeout));
+        capture.source_failed(SensorFault::Gnss(gnss::DeviceError::Io));
+        capture.record(fix(QUEUE as u64));
+        let mut bytes = [0; MAX_BYTES];
+        for _ in (0..QUEUE).step_by(BATCH) {
+            assert!(
+                !capture
+                    .take(&mut bytes, false, Version::Evidence)
+                    .unwrap()
+                    .terminal
+            );
+        }
+        let fault = capture.take(&mut bytes, false, Version::Evidence).unwrap();
+        assert!(fault.terminal);
+        assert_eq!(&bytes[..fault.len], &[0xa5, 4, 2, 0, 1, 3]);
+        let legacy = capture.take(&mut bytes, false, Version::Timed).unwrap();
+        assert!(legacy.terminal);
+        assert_eq!(legacy.len, 0);
+        capture.finish();
+        assert_eq!(
+            capture.enable().unwrap_err().kind(),
+            io::ErrorKind::NotConnected
+        );
+    }
+
+    #[test]
+    fn a_preexisting_failure_is_reportable_without_admitting_another_capture() {
+        let capture = Capture::default();
+        capture.source_failed(SensorFault::Imu(1, imu::DeviceError::Busy));
+        assert!(capture.enable().is_err());
+        assert!(capture.is_failed());
+        capture.record(imu(1, 1_000, true));
+        let mut bytes = [0; MAX_BYTES];
+        let fault = capture.take(&mut bytes, true, Version::Evidence).unwrap();
+        assert!(fault.terminal);
+        assert_eq!(&bytes[..fault.len], &[0xa5, 4, 2, 0, 2, 2]);
+        assert_eq!(capture.samples.lock().unwrap().queue.len(), 0);
+    }
+
+    #[test]
+    fn no_fix_has_an_explicit_v4_record_and_does_not_stop_other_sources() {
+        let capture = Capture::default();
+        capture.enable().unwrap();
+        capture.gnss_unavailable(gnss::NoFix {
+            generation: 7,
+            received_us: 1_000_000,
+            source_epoch_ms: Some(500),
+        });
+        let mut bytes = [0; MAX_BYTES];
+        let frame = capture.take(&mut bytes, true, Version::Evidence).unwrap();
+        assert!(!frame.terminal);
+        // Shared protocol golden: no mapping, generation 7, receipt 1000 ms,
+        // receiver epoch 500 ms. NoFix has no timestamp delta or sample flags.
+        assert_eq!(
+            &bytes[..frame.len],
+            &[
+                0xa5, 4, 29, 0, 0, 0, 0, 0, 0, 0, 0, 128, 4, 7, 0, 0, 0, 232, 3, 0, 0, 0, 0, 0, 0,
+                244, 1, 0, 0, 0, 0, 0, 0,
+            ]
+        );
+        capture.record(imu(9, 1_000, false));
+        let frame = capture.take(&mut bytes, true, Version::Evidence).unwrap();
+        assert_eq!(frame.len, 49);
+        assert_eq!(bytes[12], 1 | NO_UTC | 0x10);
+        assert_eq!(&bytes[13..17], &9_u32.to_le_bytes());
+        assert!(!frame.terminal);
+    }
+
+    #[test]
+    fn legacy_export_skips_no_fix_without_fabricating_an_overflow() {
+        for version in [Version::Fixed, Version::Compact, Version::Timed] {
+            let capture = Capture::default();
+            capture.enable().unwrap();
+            capture.gnss_unavailable(gnss::NoFix {
+                generation: 7,
+                received_us: 1_000_000,
+                source_epoch_ms: None,
+            });
+            capture.record(imu(1, 1_000, true));
+            let mut bytes = [0; MAX_BYTES];
+            let frame = capture.take(&mut bytes, true, version).unwrap();
+            assert!(!frame.terminal);
+            let start = if matches!(version, Version::Timed) {
+                12
+            } else {
+                4
+            };
+            assert_eq!(bytes[start] & 0x0f, 1);
+            assert!(capture.take(&mut bytes, true, version).is_none());
+        }
+    }
+
+    #[test]
+    fn losing_availability_evidence_is_not_a_fake_missing_sample_sequence() {
+        let capture = Capture::default();
+        capture.enable().unwrap();
+        for sequence in 0..QUEUE as u64 {
+            capture.record(fix(sequence));
+        }
+        capture.gnss_unavailable(gnss::NoFix {
+            generation: 7,
+            received_us: 1_000_000,
+            source_epoch_ms: None,
+        });
+        let mut bytes = [0; MAX_BYTES];
+        for _ in (0..QUEUE).step_by(BATCH) {
+            assert!(
+                !capture
+                    .take(&mut bytes, false, Version::Evidence)
+                    .unwrap()
+                    .terminal
+            );
+        }
+        let fault = capture.take(&mut bytes, false, Version::Evidence).unwrap();
+        assert!(fault.terminal);
+        assert_eq!(&bytes[..fault.len], &[0xa5, 4, 2, 0, 3, 7]);
+    }
+
+    #[test]
+    fn queued_samples_keep_their_mapping_across_clock_replacement_and_no_fix() {
+        let capture = Capture::default();
+        capture.record(qualified_fix(1, 1_000, 100_000));
+        capture.enable().unwrap();
+        capture.record(imu(1, 1_500, true));
+        // A delayed fix changes the mapping at a capture time before the IMU.
+        capture.record(qualified_fix(2, 1_400, 200_000));
+        capture.gnss_unavailable(gnss::NoFix {
+            generation: 1,
+            received_us: 1_600_000,
+            source_epoch_ms: Some(2_000),
+        });
+        assert!(capture.clock().is_none());
+        let mut bytes = [0; MAX_BYTES];
+        let first = capture.take(&mut bytes, true, Version::Evidence).unwrap();
+        assert_eq!(first.len, 49);
+        assert_eq!(&bytes[4..12], &99_000_i64.to_le_bytes());
+        assert_eq!(bytes[12], 1);
+        let second = capture.take(&mut bytes, true, Version::Evidence).unwrap();
+        assert_eq!(second.len, 12 + 33 + 21);
+        assert_eq!(&bytes[4..12], &198_600_i64.to_le_bytes());
+        assert_eq!(bytes[12], 3);
+        assert_eq!(bytes[45], 4);
+    }
+
+    #[test]
+    fn received_and_expired_measurements_never_gain_utc_from_a_current_mapping() {
+        let capture = Capture::default();
+        capture.record(qualified_fix(1, 1_000, 100_000));
+        capture.enable().unwrap();
+        capture.record(imu(1, 1_500, false));
+        capture.record(imu(2, 4_000, true));
+        let mut bytes = [0; MAX_BYTES];
+        let frame = capture.take(&mut bytes, true, Version::Evidence).unwrap();
+        assert_eq!(frame.len, 12 + 37 + 37);
+        assert_eq!(&bytes[4..12], &UTC_UNAVAILABLE.to_le_bytes());
+        assert_eq!(bytes[12], 1 | NO_UTC | 0x10);
+        assert_eq!(bytes[49], 1 | NO_UTC);
+    }
+
+    #[test]
+    fn capture_generation_exhaustion_never_reuses_an_old_epoch() {
+        let capture = Capture::default();
+        capture.epoch.store(FAILED - 3, Ordering::Relaxed);
+        assert!(capture.enable().is_err());
+        assert_eq!(capture.epoch.load(Ordering::Acquire), FAILED - 3);
     }
 }

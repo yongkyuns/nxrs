@@ -123,6 +123,7 @@ impl<R: Read + Write> Driver<R> {
     ) -> Result<(), DriverError> {
         self.read_chunk(|event| match event {
             ubx::Event::NavPvt(report) => emit(report.copied()),
+            ubx::Event::NoFix(_) => emit(Err(DriverError::NoFix)),
             ubx::Event::Invalid => emit(Err(DriverError::InvalidData)),
             _ => {}
         })
@@ -180,7 +181,10 @@ impl<R: Read + Write> Driver<R> {
     }
 
     fn set_and_verify_rate(
-        &mut self, key: ConfigKey, rate: u8, deadline: Instant,
+        &mut self,
+        key: ConfigKey,
+        rate: u8,
+        deadline: Instant,
     ) -> Result<(), DriverError> {
         self.set_rate(key, rate, deadline)?;
         if self.query_rate(key, deadline)? != rate {
@@ -273,6 +277,8 @@ impl<R> AsMut<R> for Driver<R> {
     }
 }
 impl<R: Read + Write> peripheral::gnss::Receiver for Driver<R> {
+    const EPOCH_MODULUS_MS: Option<u64> = Some(604_800_000);
+
     fn configure(&mut self, deadline: Instant) -> Result<(), DriverError> {
         self.decoder.set_satellite_interval(0);
         self.saved_rate = Some(self.query_nav_pvt_uart1_rate(deadline)?);
@@ -293,7 +299,8 @@ impl<R: Read + Write> peripheral::gnss::Receiver for Driver<R> {
             let key = ConfigKey::MSGOUT_NAV_SAT_UART1;
             self.saved_satellite_rate = Some(self.query_rate(key, deadline)?);
             self.set_and_verify_rate(key, rate, deadline)?;
-            self.decoder.set_satellite_interval(nav_period.saturating_mul(u32::from(rate)));
+            self.decoder
+                .set_satellite_interval(nav_period.saturating_mul(u32::from(rate)));
         }
         self.reset_decoder();
         Ok(())
@@ -351,6 +358,9 @@ impl<R: Read + Write> peripheral::gnss::Receiver for Driver<R> {
                 })
             })),
             ubx::Event::Pulse(pulse) => emit(Ok(Report::Pulse(pulse))),
+            ubx::Event::NoFix(epoch_ms) => emit(Ok(Report::NoFix {
+                epoch_ms: u64::from(epoch_ms),
+            })),
             ubx::Event::Satellites(report) => emit(Ok(Report::Satellites(report))),
             ubx::Event::Invalid => emit(Err(DriverError::InvalidData)),
             _ => {}

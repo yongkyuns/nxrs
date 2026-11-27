@@ -8,7 +8,7 @@ mod platform;
 mod session;
 #[cfg(test)]
 mod test_support;
-pub use api::{AppliedConfig, Config, Device, DeviceError, Event, ImuSample, Session};
+pub use api::{AppliedConfig, Config, Device, DeviceError, Event, Failure, ImuSample, Session};
 pub use messaging::{DeliveryError, Rejected};
 /// Construction for platform catalogues; applications use their named device accessors.
 pub use platform::construction;

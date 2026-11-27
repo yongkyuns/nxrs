@@ -18,7 +18,7 @@ FIX = struct.Struct("<Qddfq")
 NO_UTC = -(1 << 63)
 EPOCH = datetime(1970, 1, 1)
 MAX_LINE = 4096
-ENDS = {"stopped", "disconnected", "invalid_stream", "writer_overrun", "clock_reset"}
+ENDS = {"stopped", "disconnected", "invalid_stream", "writer_overrun", "clock_reset", "source_failure"}
 INTERRUPTIONS = {"reconnecting", "backgrounded"}
 
 
@@ -28,6 +28,7 @@ class Recording:
     duration_ms: int
     counts: dict[str, int]
     complete: bool
+    archive_version: int = 1
 
 
 def integer(value, lo, hi):
@@ -68,7 +69,12 @@ def rows(stream):
 
 
 def stage(path, fixture):
-    """Stream into private fixture files while preserving source order."""
+    """Stage v1 historical arrival schedules or complete v2 capture histories.
+
+    The native fixture cannot preserve original receipt-only timing, no-fix
+    events, or terminal failures. Reject those v2 histories rather than turn
+    them into capture evidence or silently discard lifecycle records.
+    """
     seen = dict.fromkeys(SOURCES, 0)
     previous_time = {}
     previous_sequence = {}
@@ -78,8 +84,10 @@ def stage(path, fixture):
         stream = stack.enter_context(path.open("rb"))
         entries = rows(stream)
         _, header = next(entries, (0, {}))
-        if header != {"type": "header", "format": "nxrs-motion-tracker", "version": 1}:
-            raise ValueError("expected a Motion Tracker v1 header")
+        version = header.get("version")
+        if (type(version) is not int or version not in (1, 2)
+                or header != {"type": "header", "format": "nxrs-motion-tracker", "version": version}):
+            raise ValueError("expected a Motion Tracker v1 or v2 header")
         outputs = {source: stack.enter_context((fixture / name).open("wb"))
                    for source, name in SOURCES.items()}
         for source in ("imu_primary", "imu_secondary"):
@@ -94,11 +102,17 @@ def stage(path, fixture):
                     end = True
                     reason = row.get("reason")
                     complete = row.get("complete")
-                    if reason not in ENDS or type(complete) is not bool:
+                    if reason not in ENDS or (version == 1 and reason == "source_failure") or type(complete) is not bool:
                         raise ValueError("invalid footer")
+                    if version == 2 and not complete:
+                        raise ValueError("native replay requires a complete v2 recording")
                     if complete and (reason != "stopped" or incomplete or first is None):
                         raise ValueError("footer contradicts loss or interruption")
                     continue
+                if version == 2 and kind == "source_failure":
+                    raise ValueError("native replay cannot preserve a v2 source_failure history")
+                if version == 2 and kind == "no_fix":
+                    raise ValueError("native replay cannot preserve v2 no_fix lifecycle records")
                 if kind == "interruption" and not paused and row.get("reason") in INTERRUPTIONS:
                     paused = incomplete = True
                     continue
@@ -109,7 +123,15 @@ def stage(path, fixture):
                 source = row.get("source")
                 if paused or source not in SOURCES or kind != ("gnss" if source == "gnss" else "imu"):
                     raise ValueError("unexpected sample or transition")
-                stamp = integer(row["received_ms"], 0, (1 << 64) - 1)
+                if version == 2:
+                    provenance = row.get("timestamp_provenance")
+                    if provenance not in ("capture", "received", "unknown"):
+                        raise ValueError("invalid v2 timestamp provenance")
+                    if provenance != "capture":
+                        raise ValueError(f"native replay requires capture-qualified v2 timestamps; {provenance} has unknown capture age")
+                    if "received_ms" in row:
+                        raise ValueError("ambiguous v2 timestamp fields")
+                stamp = integer(row["timestamp_ms" if version == 2 else "received_ms"], 0, (1 << 64) - 1)
                 seq = integer(row["sequence"], 0, (1 << 32) - 1)
                 missing = integer(row.get("missed_before", 0), 0, (1 << 31) - 2)
                 if source in previous_sequence:
@@ -147,7 +169,7 @@ def stage(path, fixture):
         for source in ("imu_primary", "imu_secondary"):
             outputs[source].seek(0)
             outputs[source].write(ORIGIN.pack(first))
-        return Recording(first, last - first, seen, complete)
+        return Recording(first, last - first, seen, complete, version)
 
 
 def fixes(path):

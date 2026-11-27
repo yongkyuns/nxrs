@@ -29,7 +29,7 @@ ROUTER_MAC = bytes.fromhex('5255c0000203')
 REPORT_INTERVAL_MS = 200
 CELLULAR_INTERVAL_S = 1
 CELLULAR_FRAME_BYTES = 288
-SENSOR_STATES = {'live', 'waiting', 'stale', 'fault'}
+SENSOR_STATES = {'live', 'received', 'unavailable', 'waiting', 'stale', 'fault'}
 
 
 class Collector(socketserver.ThreadingTCPServer):
@@ -60,15 +60,18 @@ class Receive(socketserver.BaseRequestHandler):
                     for raw in iter(stream.readline, b''):
                         assert len(raw) <= CELLULAR_FRAME_BYTES and raw.endswith(b'\n'), raw
                         sample = json.loads(raw)
-                        assert set(sample) == {'v', 'kind', 'imu', 'imu1_received_ms', 'gnss'}, sample
+                        required = {'v', 'kind', 'imu', 'imu1_received_ms', 'gnss'}
+                        assert required <= set(sample) <= required | {'output_faults'}, sample
+                        if 'output_faults' in sample:
+                            assert type(sample['output_faults']) is int and 0 <= sample['output_faults'] <= 255, sample
                         assert sample['v'] == 1 and sample['kind'] == 'summary', sample
                         assert len(sample['imu']) == 2 and set(sample['imu']) <= SENSOR_STATES, sample
                         state = sample['gnss']['state']
                         assert state in SENSOR_STATES
                         keys = {'state', 'seq', 'received_ms', 'lat_deg', 'lon_deg', 'speed_mps', 'utc_ms'}
-                        assert set(sample['gnss']) == (keys if state == 'live' else {'state'}), sample
+                        assert set(sample['gnss']) == (keys if state in ('live', 'received') else {'state'}), sample
                         stamp = sample['imu1_received_ms']
-                        if sample['imu'][0] == 'live':
+                        if sample['imu'][0] in ('live', 'received'):
                             assert type(stamp) is int and stamp >= 0, sample
                         else:
                             assert stamp is None, sample
@@ -192,7 +195,8 @@ class TcpStamp(Stamp):
 
 
 def is_live(sample):
-    return sample['gnss']['state'] == 'live' and sample['imu'] == ['live', 'live']
+    return sample['gnss']['state'] in ('live', 'received') and all(
+        state in ('live', 'received') for state in sample['imu'])
 
 
 def imu_time(sample):

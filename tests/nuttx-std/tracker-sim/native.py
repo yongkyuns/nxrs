@@ -49,14 +49,14 @@ class Guest:
 
     def record(self, sample):
         self.samples.append(sample)
-        if self.fault_trigger is not None and sample['gnss']['state'] == 'live' and all(
-            source['state'] == 'live' for source in sample['imu']
+        if self.fault_trigger is not None and sample['gnss']['state'] in ('live', 'received') and all(
+            source['state'] in ('live', 'received') for source in sample['imu']
         ):
             check_live(sample)
             self.fault_trigger.touch()
             self.fault_trigger = None
         if self.pause_fixes:
-            if not self.live and sample['gnss']['state'] == 'live':
+            if not self.live and sample['gnss']['state'] in ('live', 'received'):
                 check_live(sample)
                 self.live = True
             if self.live and not self.stale:
@@ -243,6 +243,8 @@ def run(image, log, recording=None):
         try:
             if recording is not None:
                 staged = replay.stage(recording, fixture)
+                if staged.archive_version == 1:
+                    print('Replaying the historical v1 arrival schedule; original capture timing is unknown.', flush=True)
                 if not staged.complete:
                     print('Replaying an incomplete recording with its original gaps.', flush=True)
                 guest = ReplayGuest(process, log, fixture, staged)

@@ -67,8 +67,26 @@ impl<'a> Tiles<'a> {
         }
     }
 
-    pub fn busy(&self) -> bool {
-        self.active.is_some()
+    /// Every pending operation contributes to the communications owner's one
+    /// wait. A retired viewport's dial still has to be reaped before reuse.
+    pub fn next_service(&self, poll: Instant, phone_live: bool) -> Option<Instant> {
+        if self.dial.is_some() {
+            return Some(match self.active.as_ref() {
+                Some(Transfer::Relay(deadline, _)) => poll.min(*deadline),
+                _ => poll,
+            });
+        }
+        self.key?;
+        match self.active.as_ref() {
+            Some(Transfer::Phone(deadline)) => Some(*deadline),
+            Some(Transfer::Relay(deadline, _)) => Some(poll.min(*deadline)),
+            None if (phone_live && !self.try_ip)
+                || (DIRECT_RELAY_AVAILABLE && self.relay.is_some()) =>
+            {
+                Some(self.next.max(self.throttle))
+            }
+            None => None,
+        }
     }
 
     pub fn service(
@@ -80,7 +98,7 @@ impl<'a> Tiles<'a> {
     ) -> Option<Response> {
         if DIRECT_RELAY_AVAILABLE && !matches!(self.active, Some(Transfer::Relay(_, Relay::Dial))) {
             if let Some(dial) = &mut self.dial {
-                if !matches!(dial.poll(), Ok(None)) {
+                if dial.poll().is_some() {
                     self.dial = None;
                 }
             }
@@ -180,16 +198,17 @@ impl Dial {
             .map(|thread| Self(Some(thread)))
     }
 
-    fn poll(&mut self) -> io::Result<Option<TcpStream>> {
+    fn poll(&mut self) -> Option<io::Result<TcpStream>> {
         if self.0.as_ref().is_some_and(|task| task.is_finished()) {
-            self.0
-                .take()
-                .unwrap()
-                .join()
-                .map_err(|_| io::Error::other("tile dial panicked"))?
-                .map(Some)
+            Some(
+                self.0
+                    .take()
+                    .unwrap()
+                    .join()
+                    .unwrap_or_else(|_| Err(io::Error::other("tile dial panicked"))),
+            )
         } else {
-            Ok(None)
+            None
         }
     }
 }
@@ -223,8 +242,9 @@ impl<'a> Relay<'a> {
     ) -> io::Result<Option<Response>> {
         match self {
             Self::Dial => {
-                if let Some(socket) = dial.as_mut().unwrap().poll()? {
+                if let Some(result) = dial.as_mut().unwrap().poll() {
                     *dial = None;
+                    let socket = result?;
                     let connection = identity()?
                         .connect_pinned(socket, endpoint.pin, IP_DEADLINE)
                         .map_err(|_| io::ErrorKind::PermissionDenied)?;
@@ -267,5 +287,117 @@ impl<'a> Relay<'a> {
             }
         }
         Ok(None)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::mpsc;
+
+    fn key(x: u32) -> Key {
+        Key {
+            zoom: Zoom::default(),
+            x,
+            y: 1,
+        }
+    }
+
+    fn relay() -> Endpoint {
+        Endpoint {
+            address: std::net::SocketAddrV4::new(std::net::Ipv4Addr::LOCALHOST, 9),
+            pin: [1; 32],
+        }
+    }
+
+    fn failed_dial() -> Dial {
+        let task = thread::spawn(|| Err(io::ErrorKind::ConnectionRefused.into()));
+        let deadline = Instant::now() + Duration::from_secs(1);
+        while !task.is_finished() {
+            assert!(Instant::now() < deadline);
+            thread::yield_now();
+        }
+        Dial(Some(task))
+    }
+
+    #[test]
+    fn failed_dial_retires_its_slot_and_owner_wakes_for_the_same_tile() {
+        if !DIRECT_RELAY_AVAILABLE {
+            return;
+        }
+        let (sent, received) = mpsc::channel();
+        let owner = thread::spawn(move || {
+            let dial = failed_dial();
+            // Keep the real 30 s retry policy; choose a past event instant so
+            // the real owner wait expires soon without a synthetic unpark.
+            let failure_at = Instant::now() - RETRY + Duration::from_millis(30);
+            let mut tiles = Tiles::new(Some(relay()), failure_at);
+            tiles.select(Some(key(1)), failure_at);
+            tiles.dial = Some(dial);
+            tiles.active = Some(Transfer::Relay(failure_at + IP_DEADLINE, Relay::Dial));
+            assert!(tiles
+                .service(|| unreachable!(), false, None, failure_at)
+                .is_none());
+            assert!(tiles.dial.is_none());
+            assert!(tiles.active.is_none());
+            assert_eq!(
+                tiles.next_service(Instant::now() + super::super::ACTIVE_POLL, false),
+                Some(failure_at + RETRY)
+            );
+            loop {
+                super::super::wait_for_work(None, &tiles, false);
+                if Instant::now() >= failure_at + RETRY {
+                    break;
+                }
+            }
+            sent.send(()).unwrap();
+        });
+        let result = received.recv_timeout(Duration::from_secs(1));
+        owner.thread().unpark(); // Release a broken implementation for a useful failure.
+        owner.join().unwrap();
+        assert!(
+            result.is_ok(),
+            "tile retry must wake an otherwise idle owner"
+        );
+    }
+
+    #[test]
+    fn replacing_a_viewport_keeps_its_unfinished_dial_in_the_wait_set() {
+        if !DIRECT_RELAY_AVAILABLE {
+            return;
+        }
+        let now = Instant::now();
+        let (complete, wait) = mpsc::channel();
+        let mut tiles = Tiles::new(Some(relay()), now);
+        tiles.select(Some(key(1)), now);
+        tiles.dial = Some(Dial(Some(thread::spawn(move || {
+            wait.recv().unwrap();
+            Err(io::ErrorKind::ConnectionRefused.into())
+        }))));
+        tiles.active = Some(Transfer::Relay(now + IP_DEADLINE, Relay::Dial));
+        tiles.select(Some(key(2)), now);
+        let poll = now + Duration::from_millis(15);
+        assert_eq!(tiles.next_service(poll, false), Some(poll));
+        complete.send(()).unwrap();
+        // Drop still joins the bounded in-flight connect before owner exit.
+    }
+
+    #[test]
+    fn unavailable_transport_sleeps_and_phone_failure_retains_retry_deadline() {
+        let now = Instant::now();
+        let mut tiles = Tiles::new(None, now);
+        tiles.select(Some(key(1)), now);
+        assert_eq!(tiles.next_service(now, false), None);
+        tiles.service(|| unreachable!(), true, None, now);
+        assert_eq!(tiles.next_service(now, true), Some(now + BLE_DEADLINE));
+        tiles.service(
+            || unreachable!(),
+            true,
+            Some(Response::Unavailable(key(1))),
+            now,
+        );
+        assert_eq!(tiles.next_service(now, true), Some(now + RETRY));
+        tiles.next = now;
+        assert_eq!(tiles.next_service(now, true), Some(now + REQUEST_INTERVAL));
     }
 }

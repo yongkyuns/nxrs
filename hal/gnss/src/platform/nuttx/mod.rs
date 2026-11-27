@@ -7,8 +7,8 @@ use crate::{receiver::Receiver, DeviceError, Event, Session};
 use acquisition::nuttx as events;
 use acquisition::readiness;
 use core::sync::atomic::{AtomicU8, Ordering};
-use pps_line::PpsLine;
 use peripheral::gnss::Receiver as Protocol;
+use pps_line::PpsLine;
 use std::sync::Mutex;
 use std::{
     fs::{File, OpenOptions},
@@ -117,6 +117,7 @@ fn acquire<R: Protocol + AsRef<Serial> + AsMut<Serial>>(
     pps_path: Option<&str>,
     construct: fn(Serial) -> R,
 ) -> Result<Active<R>, DeviceError> {
+    let generation = session::next_generation()?;
     state
         .compare_exchange(0, 1, Ordering::AcqRel, Ordering::Acquire)
         .map_err(|value| {
@@ -170,7 +171,7 @@ fn acquire<R: Protocol + AsRef<Serial> + AsMut<Serial>>(
         return Err(crate::receiver::map_error(error));
     }
     Ok(Active {
-        receiver: Receiver::new(source),
+        receiver: Receiver::new(source, generation),
         pps,
         cleaned: false,
     })
@@ -274,15 +275,17 @@ impl<R: Protocol + AsRef<Serial> + AsMut<Serial> + Send + 'static> crate::Device
                         }
                     }
                     let now = acquisition::monotonic_us();
-                    let read = trace.scope("read_parse_deliver", || device.receiver.read_events(now, |event| {
-                        if connected {
-                            connected = match event {
-                                Ok(event) => emit(event),
-                                Err(DeviceError::Busy) => true,
-                                Err(_) => emit(Event::InvalidFrame),
-                            };
-                        }
-                    }));
+                    let read = trace.scope("read_parse_deliver", || {
+                        device.receiver.read_events(now, |event| {
+                            if connected {
+                                connected = match event {
+                                    Ok(event) => emit(event),
+                                    Err(DeviceError::Busy) => true,
+                                    Err(_) => emit(Event::InvalidFrame),
+                                };
+                            }
+                        })
+                    });
                     trace.drain(read.is_ok() && connected);
                     read?;
                     if !connected {

@@ -36,7 +36,12 @@ The dashboard samples the latest observation from each sensor when it redraws
 or publishes telemetry. Touch events and sensor faults have their own inbox.
 The BLE export receives the full stream before the dashboard downsamples it.
 The tracker expires IMU readings after 500 ms and GNSS fixes after three
-seconds.
+seconds. These are presentation freshness budgets, not reasons to terminate
+acquisition. `live` means the provider supplies a capture timestamp and its
+known age is within budget. `received` means a sample arrived recently but
+its measurement age is unknown. The display labels that uncertainty. Waiting
+expires if a source never reports; an explicit GNSS no-fix report immediately
+removes the current position while retaining the last fix as history.
 
 ## GNSS street map
 
@@ -230,6 +235,11 @@ starts with each authenticated connection. A 512-sample buffer covers about
 up. If the buffer fills, the tracker delivers queued samples and reports an
 incomplete export. Sensor acquisition and the display continue. The phone
 also marks an export incomplete if it detects a sequence gap.
+Version 4 also records receiver no-fix transitions and the first typed terminal
+sensor failure. No fix is normal availability information; it does not end IMU
+recording. A terminal source failure closes the strict export after its admitted
+prefix and refuses another export in that capture lifetime. Acquisition of
+unaffected sources and the dashboard continue.
 
 Pairing is opt-in for each run. The TLS 1.2 PSK cipher is
 `TLS_PSK_WITH_AES_128_GCM_SHA256` and the PSK identity is `nxrs-tracker-v1`.
@@ -267,38 +277,74 @@ tracker retries the remaining bytes for receivers that discard them after a
 gap. The original dashboard service uses
 the unchanged `3400`, `3401` and `3402` UUIDs and handles, and is advertised
 in the scan response. Dashboard snapshots retain the v1 NDJSON
-layout shared with USB. Live readings keep the legacy `received_ms` field
+layout shared with USB and add the `received` and `unavailable` state values.
+Clients with a closed enumeration of the former states need an update; retaining
+the older binary layouts does not guarantee those dashboards accept new states.
+Data-bearing readings keep the legacy `received_ms` field
 on the device's monotonic clock. USB adds `timestamp_us` and `time_source`.
 Corrected BMI270 samples and PPS-aligned GNSS fixes use `capture`. Other
-readings use `reception`. Each reading has `utc_ms`
-in Unix milliseconds after the first valid GNSS UTC solution, or `null`
-before that. All three outputs share one UTC offset for the run, anchored to
-the first valid GNSS UTC solution and its device timestamp. An offset anchored
-to a UART reception includes UART latency.
+readings use `reception`. Each reading has `utc_ms` in Unix milliseconds only
+when its capture time is covered by a capture-qualified GNSS UTC mapping.
+Reception-only measurements retain `null`: UART receipt does not establish
+the solution's capture time. A mapping covers the half-open interval from
+its fix timestamp through the three-second GNSS freshness budget. A newer
+qualified fix replaces it; no fix or a GNSS fault invalidates the current
+mapping. There is no indefinite clock holdover and no claimed oscillator-error
+bound. Queued export samples retain the offset valid at admission, so a delayed
+fix or clock correction cannot rewrite their UTC. A batch ends before records
+with a different known offset.
 Binary recordings encode the same monotonic timestamps at millisecond resolution.
 
 The notification dashboard advertises `imu_scale_bits`. It contains one
 pair of IEEE float32 scale bit patterns per IMU, or `null` for a float-only
-source. New clients request timed export with `4e 58 52 53 03`. The batch
-starts with `a5 03`, a little-endian 16-bit payload length and a signed
+source. The dashboard advertises `export_version: 4`. New clients request
+version 4 with `4e 58 52 53 04`; version 3 remains available with the last byte
+`03`. A normal batch starts with `a5 04` (or `a5 03`), a little-endian
+16-bit payload length and a signed
 64-bit UTC offset. An offset of `i64::MIN` means UTC is unavailable.
 The offset plus the sample's monotonic timestamp gives the absolute time
-unless the sample was received before the UTC anchor.
+unless the record has the no-UTC flag.
 
-A data batch carries up to 16 records. The low five bits of the tag
-identify IMU 1, IMU 2 or GNSS as 1, 2 or 3. The first record for a
+A data batch carries up to 16 records. Version 4 uses the low four bits of
+the tag to identify IMU 1, IMU 2 or GNSS as 1, 2 or 3. Version 3 uses the
+low five bits. The first record for a
 source, one after a sequence gap, or one with a time delta above 255 ms
 carries a 32-bit sequence and a
 64-bit monotonic timestamp in milliseconds. When bit 7 is
 set, the record instead carries an 8-bit time delta from that source's
 previous record in the batch and advances its sequence by one. Bit 5
-marks samples received before the UTC anchor. Bit 6 marks six signed
+marks an unavailable UTC mapping. In version 4, bit 4 marks a receipt timestamp
+whose measurement age is unknown and requires bit 5; without bit 4 the timestamp
+is capture-qualified.
+Version 1–3 records do not prove timestamp provenance. Bit 6 marks six signed
 16-bit IMU counts. Multiplying each group of three counts by its scale
 reconstructs the same float32 values used by the navigation filter.
 The alternate IMU payload is six float32s. Both use acceleration then
 gyroscope in X/Y/Z order. GNSS sends float64 latitude and longitude and
 float32 ground speed. A five-byte payload contains only the source and
 sequence of the first missing sample. Multibyte values are little-endian.
+
+Version 4 adds a no-fix record with tag `04` and no flags: a 32-bit acquisition
+generation, a 64-bit monotonic receipt time in milliseconds, and a 64-bit
+receiver epoch in milliseconds (`u64::MAX` when unknown). It has no sample
+sequence and does not participate in delta coding. A terminal two-byte payload
+contains source (1 = IMU 1, 2 = IMU 2, 3 = GNSS) followed by cause:
+
+| Cause | Meaning |
+| --- | --- |
+| 1 | Unsupported source |
+| 2 | Source busy |
+| 3 | Acquisition timeout |
+| 4 | Sensor continuity/overflow failure |
+| 5 | Device I/O failure |
+| 6 | Invalid data |
+| 7 | GNSS availability evidence lost from the export queue |
+
+The first terminal sensor cause is retained separately from the sample queue.
+A five-byte first-missing-sample payload still reports capture queue overflow.
+Legacy streams omit no-fix records and close after the admitted prefix when
+a sensor fails; they never relabel that failure as queue overflow or complete
+recording. Clients that need explicit causes and provenance must request v4.
 
 The `NXRS 01` and `NXRS 02` requests still select the original 32-bit
 timestamp layouts. Version 1 uses full float records and an empty overflow
@@ -364,10 +410,56 @@ when TCP retransmits. The buffered sender queues writes in a fixed kernel pool.
 A modem that cannot recover command mode reports the fault and stops redialing.
 
 The CoreS3 tracker profiles enable an eight-second hardware watchdog. The tracker
-feeds it after completing a report iteration and disarms it after its workers
-stop. Missing GNSS fixes and cellular retries leave that health check active.
+feeds it after completing a supervisor iteration. Missing GNSS fixes, contained
+sensor faults, and cellular retries leave that health check active. Shutdown
+requests all owners to stop before joining any, retries failed cancellation
+requests at most three times, and feeds only during one 12-second software
+cleanup budget. The modem's 10.2-second command-mode cleanup fits inside that
+budget. The tracker disarms only after all acquisition, touch and communications
+owners have retired. Incomplete shutdown leaves the hardware timer armed.
 The interactive image boots to NSH after a reset. The next tracker launch logs
 the hardware reset cause and can start a fresh BLE pairing session.
+
+### Failure containment and remaining qualification
+
+Returned display, touch and USB diagnostic errors disable the affected optional
+capability. They do not terminate sensing. Dashboard `output_faults` is a sticky
+bit mask: display = 1, touch = 2, USB = 4, communications = 8; an absent field
+means zero. It describes faults observed during this run, including a capability
+that later recovered. Sensor state is reported separately. Native calls that
+block the supervisor still rely on the hardware watchdog; returned-error
+containment is not a worst-case native-call timing guarantee.
+
+Cellular admission retries Busy/I/O at most three times with one- and two-second
+delays. Invalid configuration, unsupported hardware and a quarantined modem
+remain unavailable. This does not prevent BLE pairing. A poisoned TLS identity
+is replaced only after every session borrowing it retires, with retry delays
+bounded at 30 seconds and a fresh pairing key. Map retry and unfinished dial
+deadlines remain in the communications wait set.
+
+BLE delivery is bounded by actual provider progress when available. Native
+cumulative acknowledgments or legacy reads advance an opaque progress marker;
+newly queued bytes and retransmissions do not. An authenticated stream with
+pending output and no progress for 12 seconds is retired. A continuously busy
+stream whose acknowledgments advance is healthy. Providers without progress
+evidence bound a stalled local write without claiming peer acknowledgment.
+Transport progress proves consumption at the link, not durable phone recording.
+
+BMI270 ambiguous FIFO snapshots retry on cancellable delivery cadence until
+the declared FIFO retention budget expires. Overflow and permanent device I/O
+remain terminal for the acquisition lifetime: there is no silent FIFO flush or
+sequence reset. Reuse requires a fresh owner after successful cleanup; failed
+cleanup keeps the endpoint quarantined. This patch does not automatically reopen
+a terminal sensor, enable unattended startup, or qualify a new interrupt/mutex
+worst-case timing bound. The host tests exercise these decisions; target builds,
+resource comparison and the physical tests below remain separate evidence.
+
+Joined IMU sessions retain acquisition and cleanup errors independently. The
+navigation owner preserves that evidence after releasing the session handle,
+and the tracker reports both. The stream's first terminal cause remains the
+acquisition error when both fail. Startup errors still use the existing single
+error return, and cleanup detail retains one aggregate cleanup cause rather
+than a per-register failure history.
 
 The [simulator qualification](../../tests/nuttx-std/tracker-sim/README.md)
 exercises the full tracker and a local collector over PPP. The
@@ -382,10 +474,20 @@ Data**, then **Stop Recording** and **Share Last Recording**. Use **Browse
 Recordings** to share previous files. Recordings can contain precise location
 and stay in the tracker’s local app storage until shared.
 
-The tracker Swift module writes decoded full-rate measurements as versioned
-NDJSON. Each sample carries its stream identity, tracker reception time,
-sequence and sensor values. UTC is included when available. Sequence gaps and
-connection interruptions are recorded explicitly. An interrupted recording can
-resume on the same tracker clock and is marked incomplete when saved.
+The tracker Swift module writes decoded full-rate measurements as version-2
+NDJSON. Each sample carries its stream identity, monotonic `timestamp_ms`,
+`timestamp_provenance` (`capture`, `received`, or legacy `unknown`), sequence
+and sensor values. UTC is included when supported by the record's evidence.
+No-fix transitions retain generation, receipt time and receiver epoch separately
+from measurements. A terminal source failure is written before an incomplete
+footer, even if no measurement was admitted. Sequence gaps and connection
+interruptions are recorded explicitly. An interrupted recording can resume
+on the same tracker clock and remains incomplete when saved.
+
+The native replay fixture has a narrower contract than recording. It preserves
+legacy v1 arrival-scheduling playback and accepts complete v2 capture-qualified
+measurement histories. It rejects v2 histories whose no-fix, receipt-only,
+unknown-timing or terminal-failure evidence the native device models cannot
+faithfully reproduce.
 
 [Replay the file through the NuttX IMU and GNSS device models](../../tests/nuttx-std/tracker-sim/README.md#replay-an-iphone-recording).

@@ -21,7 +21,7 @@ fn imu_json(
     extended_time: bool,
 ) -> fmt::Result {
     write!(out, "{{\"state\":\"{}\"", reading_status(&reading))?;
-    if let Reading::Live(sample) = reading {
+    if let Reading::Live(sample) | Reading::Received(sample) = reading {
         let [ax, ay, az] = sample.accel_mps2;
         let [gx, gy, gz] = sample.gyro_rps;
         write!(
@@ -47,7 +47,7 @@ fn gnss_json(
     extended_time: bool,
 ) -> fmt::Result {
     write!(out, "{{\"state\":\"{}\"", reading_status(&reading))?;
-    if let Reading::Live(fix) = reading {
+    if let Reading::Live(fix) | Reading::Received(fix) = reading {
         write!(
             out,
             ",\"seq\":{},\"lat_deg\":{:.7},\"lon_deg\":{:.7},\"speed_mps\":{:.6e}",
@@ -89,9 +89,9 @@ fn encode(
 ) -> fmt::Result {
     out.write_str("{\"v\":1,")?;
     if let Some(scales) = scales {
-        // Legacy clients still request v2. The array advertises v3, with
-        // null for each source that requires the float payload.
-        out.write_str("\"export_version\":2,\"imu_scale_bits\":[")?;
+        // Legacy clients may still request v1-v3. Version4 adds source
+        // availability/fault evidence and per-record timestamp provenance.
+        out.write_str("\"export_version\":4,\"imu_scale_bits\":[")?;
         for (index, scale) in scales.into_iter().enumerate() {
             if index != 0 {
                 out.write_char(',')?;
@@ -110,19 +110,22 @@ fn encode(
             out.write_char(',')?;
         }
         let absolute = match reading {
-            Reading::Live(sample) => utc(sample.timestamp_us / 1_000),
+            Reading::Live(sample) if sample.is_capture_time => utc(sample.timestamp_us / 1_000),
             _ => None,
         };
         imu_json(out, reading, absolute, extended_time)?;
     }
     out.write_str("],\"gnss\":")?;
     let absolute = match snapshot.gnss {
-        Reading::Live(fix) => utc(fix.timestamp_us / 1_000),
+        Reading::Live(fix) if fix.is_capture_time => utc(fix.timestamp_us / 1_000),
         _ => None,
     };
     gnss_json(out, snapshot.gnss, absolute, extended_time)?;
     if let Some(key) = tile {
         write!(out, ",\"tile\":[{},{},{}]", key.zoom.level(), key.x, key.y)?;
+    }
+    if snapshot.output_faults != 0 {
+        write!(out, ",\"output_faults\":{}", snapshot.output_faults)?;
     }
     out.write_str("}\n")
 }
@@ -144,7 +147,7 @@ pub const CELLULAR_FRAME_BYTES: usize = 288;
 pub fn cellular_frame(snapshot: &Snapshot) -> io::Result<Text<CELLULAR_FRAME_BYTES>> {
     let [first, second] = snapshot.imu.each_ref().map(reading_status);
     let utc = match snapshot.gnss {
-        Reading::Live(fix) => snapshot
+        Reading::Live(fix) if fix.is_capture_time => snapshot
             .clock
             .and_then(|anchor| anchor.utc_ms(fix.timestamp_us / 1_000)),
         _ => None,
@@ -155,7 +158,9 @@ pub fn cellular_frame(snapshot: &Snapshot) -> io::Result<Text<CELLULAR_FRAME_BYT
         "{{\"v\":1,\"kind\":\"summary\",\"imu\":[\"{first}\",\"{second}\"],\"imu1_received_ms\":"
     )
     .and_then(|()| match snapshot.imu[0] {
-        Reading::Live(sample) => write!(frame, "{}", sample.timestamp_us / 1_000),
+        Reading::Live(sample) | Reading::Received(sample) => {
+            write!(frame, "{}", sample.timestamp_us / 1_000)
+        }
         _ => frame.write_str("null"),
     })
     .and_then(|()| frame.write_str(",\"gnss\":"))
@@ -197,6 +202,7 @@ mod tests {
                 Reading::Live(imu::ImuSample {
                     sequence: u64::MAX,
                     timestamp_us: u64::MAX,
+                    received_us: u64::MAX,
                     is_capture_time: true,
                     sample_interval_us: 10_000,
                     accel_mps2: [1.0; 3],
@@ -205,8 +211,11 @@ mod tests {
                 Reading::Fault,
             ],
             gnss: Reading::Live(gnss::GnssFix {
+                generation: 1,
+                source_epoch_ms: 0,
                 sequence: u64::MAX,
                 timestamp_us: u64::MAX,
+                received_us: u64::MAX,
                 is_capture_time: true,
                 receiver_utc_ms: None,
                 latitude_deg: -90.0,
@@ -216,6 +225,7 @@ mod tests {
                 quality: None,
             }),
             clock: crate::clock::ClockAnchor::new(u64::MAX / 1_000, -1),
+            output_faults: 0,
         };
         let frame = cellular_frame(&sample).unwrap();
         let line = std::str::from_utf8(frame.bytes()).unwrap();
@@ -235,6 +245,7 @@ mod tests {
             imu: [Reading::Fault, Reading::Waiting],
             gnss: Reading::Stale,
             clock: None,
+            output_faults: 0,
         };
         assert_eq!(
             frame(&snapshot).unwrap().bytes(),
@@ -247,6 +258,7 @@ mod tests {
         let sample = imu::ImuSample {
             sequence: 12_008,
             timestamp_us: 120_014_500,
+            received_us: 120_014_500,
             is_capture_time: true,
             sample_interval_us: 10_000,
             accel_mps2: [-9.81234, -0.12345, -1.23456],
@@ -255,8 +267,11 @@ mod tests {
         let snapshot = Snapshot {
             imu: [Reading::Live(sample); 2],
             gnss: Reading::Live(gnss::GnssFix {
+                generation: 1,
+                source_epoch_ms: 0,
                 sequence: 240,
                 timestamp_us: 120_013_000,
+                received_us: 120_013_000,
                 is_capture_time: true,
                 receiver_utc_ms: None,
                 latitude_deg: -45.1234567,
@@ -266,6 +281,7 @@ mod tests {
                 quality: None,
             }),
             clock: crate::clock::ClockAnchor::new(100_000, 1_767_225_600_000),
+            output_faults: 15,
         };
         let usb = frame(&snapshot).unwrap();
         let json = std::str::from_utf8(usb.bytes()).unwrap();
@@ -282,6 +298,51 @@ mod tests {
         let json = std::str::from_utf8(ble.bytes()).unwrap();
         assert!(json.contains("\"tile\":[18,123456,234567]"));
         assert!(json.contains("\"received_ms\":120014"));
+        assert!(json.contains("\"output_faults\":15"));
         assert!(!json.contains("time_source"));
+    }
+
+    #[test]
+    fn receipt_only_json_never_inherits_capture_utc_and_fault_bits_are_retained() {
+        let snapshot = Snapshot {
+            imu: [Reading::Received(imu::ImuSample {
+                sequence: 1,
+                timestamp_us: 1_500_000,
+                received_us: 1_500_000,
+                is_capture_time: false,
+                sample_interval_us: 10_000,
+                accel_mps2: [0.0; 3],
+                gyro_rps: [0.0; 3],
+            }); 2],
+            gnss: Reading::Received(gnss::GnssFix {
+                generation: 1,
+                source_epoch_ms: 500,
+                sequence: 1,
+                timestamp_us: 1_500_000,
+                received_us: 1_500_000,
+                is_capture_time: false,
+                receiver_utc_ms: Some(100_500),
+                latitude_deg: 45.0,
+                longitude_deg: -76.0,
+                speed_mps: 0.0,
+                course_rad: None,
+                quality: None,
+            }),
+            clock: crate::clock::ClockAnchor::new(1_000, 100_000),
+            output_faults: 15,
+        };
+        for data in [
+            frame(&snapshot).unwrap(),
+            ble_frame(&snapshot, None).unwrap(),
+            export_frame(&snapshot, [Some([0x3c23_d70a; 2]); 2], None).unwrap(),
+        ] {
+            let json = std::str::from_utf8(data.bytes()).unwrap();
+            assert_eq!(json.matches("\"utc_ms\":null").count(), 3);
+            assert!(json.contains("\"output_faults\":15"));
+        }
+        let data = cellular_frame(&snapshot).unwrap();
+        let json = std::str::from_utf8(data.bytes()).unwrap();
+        assert!(json.contains("\"utc_ms\":null"));
+        assert!(!json.contains("100500"));
     }
 }

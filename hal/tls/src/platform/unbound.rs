@@ -21,6 +21,10 @@ impl Identity {
     /// A profile without a TLS provider cannot open pinned client sessions.
     pub const SUPPORTS_PINNED_CLIENT: bool = false;
 
+    pub fn is_poisoned(&self) -> bool {
+        false
+    }
+
     pub fn request(&self, _: &str, output: &mut [u8]) -> Result<usize, Error> {
         output.fill(0);
         Err(Error::Unsupported)

@@ -8,6 +8,7 @@ impl From<Error> for imu::Error {
             Error::Bus => Self::Io,
             Error::InvalidData => Self::InvalidData,
             Error::Timeout => Self::Timeout,
+            Error::UnstableSnapshot => Self::WouldBlock,
             Error::Overflow => Self::Overflow,
         }
     }
@@ -22,6 +23,7 @@ impl<T: Registers, D: DelayNs> imu::Imu for Device<T, D> {
         max_delivery_interval_us: 1_000_000_000u32.div_ceil(Rate::Hz100.milli_hz()),
     };
     const BUFFERING: imu::Buffering = imu::Buffering::Fifo;
+    const FIFO_CAPACITY_SAMPLES: Option<u32> = Some((FIFO_BYTES / FRAME_BYTES) as u32);
     type Settings = Config;
 
     fn resolve(config: imu::Config) -> Result<(Self::Settings, imu::AppliedConfig), imu::Error> {

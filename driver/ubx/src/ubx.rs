@@ -16,13 +16,11 @@ pub(super) const TIM_TP_RATE: ConfigKey = match ConfigKey::new(0x2091_017e) {
 
 pub(super) enum Event<'a> {
     NavPvt(Result<&'a NavPvt, DriverError>),
+    NoFix(u32),
     Satellites(SatelliteReport<'a>),
     Rate(ConfigKey, u8),
     Pulse(Option<TimePulse>),
-    Navigation {
-        measurement: u16,
-        cycles: u16,
-    },
+    Navigation { measurement: u16, cycles: u16 },
     Ack(bool),
     Invalid,
 }
@@ -80,7 +78,12 @@ impl Decoder {
                     }
                     if raw[21] & 1 == 0 || raw[78] & 1 != 0 || !matches!(raw[20], 2 | 3) {
                         self.satellites = None;
-                        emit(Event::NavPvt(Err(DriverError::NoFix)));
+                        let epoch = u32::from_le_bytes(raw[..4].try_into().unwrap());
+                        if epoch < WEEK_MS {
+                            emit(Event::NoFix(epoch));
+                        } else {
+                            emit(Event::Invalid);
+                        }
                         continue;
                     }
                     let lon = i32::from_le_bytes(raw[24..28].try_into().unwrap());
@@ -227,23 +230,14 @@ impl core::ops::Deref for Command {
 }
 pub(super) fn get_rate(key: ConfigKey) -> Command {
     let mut out = Command::default();
-    out.used = config::valget(
-        PollLayer::Ram,
-        0,
-        &[key],
-        &mut out.bytes,
-    )
-    .expect("one U1 key fits the fixed command buffer");
+    out.used = config::valget(PollLayer::Ram, 0, &[key], &mut out.bytes)
+        .expect("one U1 key fits the fixed command buffer");
     out
 }
 pub(super) fn set_rate(key: ConfigKey, rate: u8) -> Command {
     let mut out = Command::default();
-    out.used = config::valset(
-        Layers::RAM,
-        &[(key, rate.into())],
-        &mut out.bytes,
-    )
-    .expect("one U1 value fits the fixed command buffer");
+    out.used = config::valset(Layers::RAM, &[(key, rate.into())], &mut out.bytes)
+        .expect("one U1 value fits the fixed command buffer");
     out
 }
 

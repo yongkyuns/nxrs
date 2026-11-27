@@ -79,6 +79,48 @@ import XCTest
         XCTAssertEqual(tracker.presentation.status, "Sensor export incomplete. First missing: Module IMU #1.")
     }
 
+    func testTypedSourceFailurePreservesOtherSourcesAcceptedBeforeIt() {
+        let tracker = TrackerConnection { _ in }
+        let failure = Data([0xa5, 4, 2, 0, 3, 7])
+        XCTAssertFalse(tracker.receiveAuthenticatedData(batch(0..<1) + failure, at: .now))
+        XCTAssertEqual(tracker.presentation.history.counts.map(\.received), [1, 1, 1])
+        XCTAssertEqual(tracker.presentation.status, "Sensor export incomplete. GNSS: lost availability evidence.")
+    }
+
+    func testNoFixKeepsImuProgressAndBreaksTheRouteWithoutInventingSampleLoss() {
+        var history = TrackerHistory()
+        history.append(.fix(sequence: 1, receivedMS: 100, latitude: 45, longitude: -76, speed: 2, provenance: .received))
+        history.append(.noFix(generation: 7, receivedMS: 110, sourceEpochMS: 500))
+        XCTAssertTrue(history.gnssUnavailable)
+        history.append(.imu(index: 0, sequence: 1, receivedMS: 115, accel: [0, 0, 9.8], gyro: [0, 0, 0], provenance: .capture))
+        history.append(.imu(index: 1, sequence: 1, receivedMS: 115, accel: [0, 0, 9.8], gyro: [0, 0, 0], provenance: .received))
+        history.append(.fix(sequence: 2, receivedMS: 120, latitude: 46, longitude: -75, speed: 2, provenance: .received))
+        XCTAssertFalse(history.gnssUnavailable)
+        XCTAssertEqual(history.counts.map(\.received), [1, 1, 2])
+        XCTAssertEqual(history.counts.map(\.dropped), [0, 0, 0])
+        XCTAssertEqual(history.unavailable.count, 1)
+        XCTAssertEqual(history.positions.map(\.breakBefore), [false, true])
+        XCTAssertEqual(history.motion[1][0].provenance, .received)
+    }
+
+    func testNoncriticalOutputFaultsRemainDashboardState() throws {
+        let tracker = TrackerConnection { _ in }
+        let snapshot = Data((#"{"v":1,"output_faults":15,"export_version":4,"imu":[{"state":"waiting"},{"state":"waiting"}],"gnss":{"state":"unavailable"}}"# + "\n").utf8)
+        XCTAssertTrue(tracker.receiveAuthenticatedData(snapshot, at: .now))
+        XCTAssertEqual(try XCTUnwrap(tracker.presentation.reading).outputFaults, 15)
+    }
+
+    func testRateStartsANewWindowWhenTimingProvenanceChanges() throws {
+        var history = TrackerHistory()
+        for (sequence, time, capture) in [(1, 100, false), (2, 99, true), (3, 2099, true)] {
+            history.append(.fix(sequence: UInt32(sequence), receivedMS: UInt64(time),
+                                latitude: 45, longitude: -76, speed: 2,
+                                provenance: capture ? .capture : .received))
+        }
+        XCTAssertEqual(try XCTUnwrap(history.counts[2].rate), 0.5, accuracy: 0.001)
+        XCTAssertEqual(history.counts[2].dropped, 0)
+    }
+
     func testDashboardTrafficDoesNotExtendSampleDeadline() {
         let tracker = TrackerConnection { _ in }
         let start = ContinuousClock.now

@@ -94,6 +94,10 @@ jobs:
             -configuration Debug -destination "platform=iOS Simulator,id=$fixture_sim" \
             -derivedDataPath /tmp/nxrs-client-ios CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- \
             SWIFT_SUPPRESS_WARNINGS=NO SWIFT_TREAT_WARNINGS_AS_ERRORS=YES build-for-testing
+          xcodebuild test-without-building -project clients/ios/NxrsMonitor.xcodeproj \
+            -scheme CameraSessionTests -destination "platform=iOS Simulator,id=$fixture_sim" \
+            -derivedDataPath /tmp/nxrs-client-ios \
+            -only-testing:NxrsMonitorSessionTests/TrackerSessionTests
           NXRS_IOS_SIMULATOR="$fixture_sim" NXRS_IOS_TEST_PRODUCTS=/tmp/nxrs-client-ios/Build/Products \
             python3 clients/tests/multicamera_reference.py \
               --gateway "$PWD/gateway/target/release/nxrs-gateway-control" \

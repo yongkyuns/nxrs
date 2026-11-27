@@ -33,7 +33,7 @@ def reading(raw):
         raise ValueError("expected Tracker v1 with two IMUs")
     imus = []
     for imu in frame["imu"]:
-        if imu["state"] == "live":
+        if imu["state"] in ("live", "received"):
             stamp = [imu["seq"], imu["received_ms"]]
             if any(type(value) is not int or value < 0 for value in stamp):
                 raise ValueError("invalid tracker sample metadata")
@@ -50,7 +50,7 @@ def summary_time(raw):
     if frame["v"] != 1 or frame["kind"] != "summary" or len(frame["imu"]) != 2:
         raise ValueError("expected a Tracker v1 cellular summary")
     stamp = frame["imu1_received_ms"]
-    if frame["imu"] != ["live", "live"]:
+    if not all(state in ("live", "received") for state in frame["imu"]):
         return None
     if type(stamp) is not int or stamp < 0:
         raise ValueError("invalid tracker summary timestamp")

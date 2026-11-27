@@ -83,6 +83,11 @@ pub enum TimePulse {
 
 pub enum Report<'a> {
     Fix(Measurement),
+    /// Checked navigation epoch with no usable position solution. Retain this
+    /// separately from corrupt frames and transport failures.
+    NoFix {
+        epoch_ms: u64,
+    },
     /// A checked report, available while searching for a fix as well.
     Satellites(SatelliteReport<'a>),
     /// None invalidates the timing association, for example on loss of lock.
@@ -92,6 +97,10 @@ pub enum Report<'a> {
 /// Bounded, synchronous operations on an already opened byte stream.
 /// Failed configuration must retain enough state for `restore` to roll back.
 pub trait Receiver {
+    /// Wrap modulus of the receiver's navigation epoch, when it is cyclic.
+    /// A forward step must be less than half this interval to be unambiguous.
+    const EPOCH_MODULUS_MS: Option<u64> = None;
+
     fn configure(&mut self, deadline: Instant) -> Result<(), Error>;
     fn enable_time_pulse(&mut self, _: Instant) -> Result<(), Error> {
         Err(Error::InvalidData)

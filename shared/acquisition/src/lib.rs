@@ -86,6 +86,11 @@ impl<C: Wake, E: Copy + Send + 'static, S: Send + Sync + 'static> Worker<C, E, S
     pub fn state(&self) -> &S {
         &self.state.caller
     }
+    /// Retained completion after a join; an unjoined or still-running worker
+    /// has no result here. Reading it does not wait or request cancellation.
+    pub fn result(&self) -> Option<Result<(), E>> {
+        self.result
+    }
     pub fn join(&mut self, panic_error: E) -> Result<(), E> {
         if let Some(join) = self.join.take() {
             self.result = Some(join.join().unwrap_or(Err(panic_error)));
@@ -104,9 +109,11 @@ impl<C: Wake, E: Copy + Send + 'static, S: Send + Sync + 'static> Worker<C, E, S
     }
 }
 fn wake(cancel: &impl Wake) -> io::Result<()> {
+    let mut attempts = 0;
     loop {
+        attempts += 1;
         match cancel.wake() {
-            Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
+            Err(error) if error.kind() == io::ErrorKind::Interrupted && attempts < 3 => continue,
             result => return result,
         }
     }

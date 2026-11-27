@@ -1,5 +1,5 @@
 //! IMU delivery policy and session lifetime.
-use crate::{DeviceError, Event, Session};
+use crate::{DeviceError, Event, Failure, Session};
 use acquisition::{Wake, Worker};
 use messaging::{DeliveryError, DeliveryResult};
 use std::{
@@ -8,18 +8,16 @@ use std::{
     time::Duration,
 };
 
-type SessionWorker<C> = Worker<C, DeviceError, AtomicU32>;
+type SessionWorker<C> = Worker<C, Failure, AtomicU32>;
 
-pub(crate) fn start<C: Wake>(
+pub(crate) fn start<C: Wake, E: Into<Failure> + 'static>(
     stack_bytes: usize,
     cancel: C,
     delivery: (
         impl FnMut(Event) -> DeliveryResult<Event> + Send + 'static,
         impl Send + 'static,
     ),
-    run: impl FnOnce(&AtomicBool, &mut dyn FnMut(Event) -> bool) -> Result<(), DeviceError>
-        + Send
-        + 'static,
+    run: impl FnOnce(&AtomicBool, &mut dyn FnMut(Event) -> bool) -> Result<(), E> + Send + 'static,
 ) -> std::io::Result<SessionWorker<C>> {
     Worker::start(
         "imu-acquire",
@@ -41,11 +39,11 @@ pub(crate) fn start<C: Wake>(
                 }
                 Err(_) => false,
             };
-            let result = run(stop, &mut emit);
-            if let Err(error) = result {
+            let result: Result<(), Failure> = run(stop, &mut emit).map_err(Into::into);
+            if let Err(failure) = result {
                 // Keep a single terminal failure until admitted, closed or
                 // canceled. The join result independently retains the error.
-                let mut pending = Event::Failed(error);
+                let mut pending = Event::Failed(failure.reported_error());
                 while !stop.load(Ordering::Acquire) {
                     match sink(pending) {
                         Ok(()) => break,
@@ -68,11 +66,23 @@ impl<C: Wake> Session for SessionWorker<C> {
     }
 
     fn join(&mut self) -> Result<(), DeviceError> {
-        self.stop_and_join(DeviceError::Io)
+        // A panic or failed wake does not identify an acquisition/cleanup
+        // phase. Keep its legacy Io result without inventing terminal detail.
+        self.stop_and_join(Failure {
+            acquisition: None,
+            cleanup: None,
+        })
+        .map_err(Failure::joined_error)
     }
 
     fn is_finished(&self) -> bool {
         Worker::is_finished(self)
+    }
+
+    fn failure(&self) -> Option<Failure> {
+        self.result()
+            .and_then(Result::err)
+            .filter(|failure| failure.acquisition.is_some() || failure.cleanup.is_some())
     }
 
     fn dropped(&self) -> u32 {
@@ -123,19 +133,21 @@ mod tests {
                     emit(crate::Event::Sample(crate::ImuSample {
                         sequence: 0,
                         timestamp_us: 0,
+                        received_us: 0,
                         is_capture_time: false,
                         sample_interval_us: 10_000,
                         accel_mps2: [0.0; 3],
                         gyro_rps: [0.0; 3],
                     }));
-                    Ok(())
+                    Ok::<(), DeviceError>(())
                 },
             )
             .unwrap();
             assert_eq!(
-                worker.join(DeviceError::Io),
+                crate::Session::join(&mut worker),
                 if panic { Err(DeviceError::Io) } else { Ok(()) }
             );
+            assert_eq!(crate::Session::failure(&worker), None);
             assert_eq!(*order.lock().unwrap(), [1, 2]);
         }
     }

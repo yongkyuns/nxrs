@@ -338,8 +338,11 @@ mod tests {
     fn projects_relative_to_first_fix_and_preserves_heading_when_course_is_unknown() {
         let mut core = FusionCore::default();
         let mut fix = GnssFix {
+            generation: 1,
+            source_epoch_ms: 0,
             sequence: 1,
             timestamp_us: 0,
+            received_us: 0,
             is_capture_time: false,
             receiver_utc_ms: None,
             latitude_deg: 45.0,
@@ -369,6 +372,7 @@ mod fifo_timing_tests {
         let mut sample = ImuSample {
             sequence: 1,
             timestamp_us: 30_000,
+            received_us: 30_000,
             is_capture_time: true,
             sample_interval_us: 10_000,
             accel_mps2: [0.0; 3],
@@ -389,6 +393,7 @@ mod fifo_timing_tests {
         let sample = ImuSample {
             sequence: 1,
             timestamp_us: 123_000,
+            received_us: 123_000,
             is_capture_time: false,
             sample_interval_us: 10_000,
             accel_mps2: [0.0; 3],
@@ -430,6 +435,7 @@ mod lifecycle_tests {
             inputs.imu.submit(ImuSample {
                 sequence: 1,
                 timestamp_us: 0,
+                received_us: 0,
                 is_capture_time: false,
                 sample_interval_us: 10_000,
                 accel_mps2: [0.0; 3],
@@ -460,6 +466,7 @@ mod lifecycle_tests {
             inputs.imu.submit(ImuSample {
                 sequence: 1,
                 timestamp_us: 0,
+                received_us: 0,
                 is_capture_time: false,
                 sample_interval_us: 10_000,
                 accel_mps2: [0.0; 3],
@@ -483,6 +490,7 @@ mod lifecycle_tests {
                 inputs.imu.submit(ImuSample {
                     sequence,
                     timestamp_us: 0,
+                    received_us: 0,
                     is_capture_time: false,
                     sample_interval_us: 10_000,
                     accel_mps2: [0.0; 3],
@@ -502,6 +510,7 @@ mod lifecycle_tests {
         let sample = ImuSample {
             sequence: 1,
             timestamp_us: 0,
+            received_us: 0,
             is_capture_time: false,
             sample_interval_us: 10_000,
             accel_mps2: [0.0; 3],

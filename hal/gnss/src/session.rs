@@ -10,6 +10,17 @@ use std::{
 
 type SessionWorker<C> = Worker<C, DeviceError, AtomicU32>;
 
+/// Never reuse a generation in a boot, including after failed startup. Exhaustion
+/// closes admission instead of making old observations belong to a new session.
+pub(crate) fn next_generation() -> Result<u32, DeviceError> {
+    static NEXT: AtomicU32 = AtomicU32::new(0);
+    NEXT.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
+        value.checked_add(1)
+    })
+    .map(|previous| previous + 1)
+    .map_err(|_| DeviceError::Io)
+}
+
 pub(crate) fn start<C: Wake>(
     stack_bytes: usize,
     cancel: C,

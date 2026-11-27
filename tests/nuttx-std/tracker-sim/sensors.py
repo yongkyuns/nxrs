@@ -100,7 +100,8 @@ class NeoM9n:
 def check_imus(sample):
     assert sample['v'] == 1, sample
     imu = sample['imu']
-    assert len(imu) == 2 and all(source['state'] == 'live' for source in imu), sample
+    # Receipt-fresh data is usable here without asserting known capture age.
+    assert len(imu) == 2 and all(source['state'] in ('live', 'received') for source in imu), sample
     assert imu[0]['accel_mps2'][0] < 0 < imu[1]['accel_mps2'][0], sample
 
 
@@ -111,7 +112,7 @@ def check_live(sample, **location):
 
 def check_fix(sample, *, latitude_deg=48.1173, longitude_deg=-11.5166667):
     gnss = sample['gnss']
-    assert gnss['state'] == 'live', sample
+    assert gnss['state'] in ('live', 'received'), sample
     assert abs(gnss['lat_deg'] - latitude_deg) < 1e-6 and abs(gnss['lon_deg'] - longitude_deg) < 1e-6, sample
 
 
@@ -124,5 +125,5 @@ def check_progress(samples):
     for previous, latest in zip(samples, samples[1:]):
         assert latest['gnss']['seq'] > previous['gnss']['seq'], samples
         for old, new in zip(previous['imu'], latest['imu']):
-            if old['state'] == new['state'] == 'live':
+            if old['state'] in ('live', 'received') and new['state'] in ('live', 'received'):
                 assert new['seq'] > old['seq'], samples

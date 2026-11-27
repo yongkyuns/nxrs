@@ -43,7 +43,7 @@ def qualify(platform, archive):
         # Rust normally suppresses the compiler driver's default libraries.
         # Let that driver select its matching sanitizer runtimes for this test.
         environment['RUSTFLAGS'] = environment.get('RUSTFLAGS', '')+' -C default-linker-libraries=yes -C link-arg=-fsanitize=address,undefined'
-        subprocess.run(['cargo', 'test', '--locked', '--target', host, '-p', 'nxrs-tls', '--features', 'probe'],
+        subprocess.run(['cargo', 'test', '--locked', '--target', host, '-p', 'nxrs-tls', '--features', 'probe,pairing'],
                        cwd=ROOT, env=environment, check=True, timeout=180)
         keys = []
         for name in ['first.csr', 'second.csr']:

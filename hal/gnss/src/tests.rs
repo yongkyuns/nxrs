@@ -105,7 +105,10 @@ impl Write for Stream {
         self.commands += 1;
         if self.fault != Fault::Silent {
             if self.tx[3] == 0x8b && length == 12 {
-                assert_eq!(&self.tx[6..18], &[0, 0, 0, 0, 1, 0, 0x21, 0x30, 2, 0, 0x21, 0x30]);
+                assert_eq!(
+                    &self.tx[6..18],
+                    &[0, 0, 0, 0, 1, 0, 0x21, 0x30, 2, 0, 0x21, 0x30]
+                );
                 let mut reply = [1, 0, 0, 0, 1, 0, 0x21, 0x30, 0, 0, 2, 0, 0x21, 0x30, 1, 0];
                 reply[8..10].copy_from_slice(&self.period_ms.to_le_bytes());
                 self.input.extend(frame(6, 0x8b, &reply));
@@ -174,10 +177,14 @@ impl Receiver<Driver<Stream>> {
         latest
     }
 }
+fn fixture_receiver(source: Driver<Stream>) -> Receiver<Driver<Stream>> {
+    Receiver::new(source, 1)
+}
+
 fn receiver_with(payload: &[u8]) -> Receiver<Driver<Stream>> {
     let mut stream = Stream::default();
     stream.input.extend(frame(1, 7, payload));
-    Receiver::new(Driver::new(stream))
+    fixture_receiver(Driver::new(stream))
 }
 
 #[test]
@@ -210,7 +217,7 @@ fn fixes_include_quality_and_only_recent_satellite_reports() {
         block[8] = quality;
     }
     stream.input.extend(frame(1, 0x35, &sat));
-    let mut receiver = Receiver::new(Driver::new(stream));
+    let mut receiver = fixture_receiver(Driver::new(stream));
     let mut satellite_report = None;
     while !receiver.source.io().input.is_empty() {
         receiver
@@ -277,8 +284,18 @@ fn fixes_include_quality_and_only_recent_satellite_reports() {
         .unwrap()
         .satellites
         .is_none());
-    receiver.source.io_mut().input.extend(frame(1, 7, &pvt(4_000)));
-    let satellites = receiver.fixture_fix(32_000).unwrap().quality.unwrap().satellites.unwrap();
+    receiver
+        .source
+        .io_mut()
+        .input
+        .extend(frame(1, 7, &pvt(4_000)));
+    let satellites = receiver
+        .fixture_fix(32_000)
+        .unwrap()
+        .quality
+        .unwrap()
+        .satellites
+        .unwrap();
     assert_eq!(satellites.age_ms, 0);
 }
 
@@ -286,45 +303,72 @@ fn report_pulse(receiver: &mut Receiver<Driver<Stream>>, epoch: u32, flags: u8, 
     let mut pulse = [0; 16];
     pulse[..4].copy_from_slice(&epoch.to_le_bytes());
     pulse[14] = flags;
-    receiver.source.io_mut().input.extend(frame(0x0d, 1, &pulse));
+    receiver
+        .source
+        .io_mut()
+        .input
+        .extend(frame(0x0d, 1, &pulse));
     while !receiver.source.io().input.is_empty() {
-        receiver.read_events(now, |_| panic!("pulse is not a fix")).unwrap();
+        receiver
+            .read_events(now, |_| panic!("pulse is not a fix"))
+            .unwrap();
     }
 }
 
 #[test]
 fn pps_recovers_the_device_time_of_fixes_across_week_rollover() {
-    let mut receiver = Receiver::new(Driver::new(Stream::default()));
+    let mut receiver = fixture_receiver(Driver::new(Stream::default()));
     report_pulse(&mut receiver, 604_799_000, 0x10, 9_700_000);
     receiver.observe_edge(1, 10_000_000);
     report_pulse(&mut receiver, 0, 0x10, 10_700_000);
     receiver.observe_edge(2, 11_000_000);
 
-    for (epoch, received, expected) in [(0, 11_052_000, 11_000_000), (500, 11_537_000, 11_500_000)] {
-        receiver.source.io_mut().input.extend(frame(1, 7, &pvt(epoch)));
+    for (epoch, received, expected) in [(0, 11_052_000, 11_000_000), (500, 11_537_000, 11_500_000)]
+    {
+        receiver
+            .source
+            .io_mut()
+            .input
+            .extend(frame(1, 7, &pvt(epoch)));
         let fix = receiver.fixture_fix(received).unwrap();
         assert_eq!(fix.timestamp_us, expected);
         assert!(fix.is_capture_time);
     }
-    receiver.source.io_mut().input.extend(frame(1, 7, &pvt(250)));
-    assert!(!receiver.fixture_fix(11_920_000).unwrap().is_capture_time);
+    receiver
+        .source
+        .io_mut()
+        .input
+        .extend(frame(1, 7, &pvt(250)));
+    // A late receiver epoch must not become a new receipt-timed current fix.
+    assert_eq!(
+        receiver.fixture_fix(11_920_000),
+        Err(DeviceError::InvalidData)
+    );
 
     report_pulse(&mut receiver, 1_000, 0x10, 11_700_000);
     receiver.observe_edge(4, 12_000_000); // a lost GPIO edge invalidates the pair
-    receiver.source.io_mut().input.extend(frame(1, 7, &pvt(1_000)));
+    receiver
+        .source
+        .io_mut()
+        .input
+        .extend(frame(1, 7, &pvt(1_000)));
     let fix = receiver.fixture_fix(12_050_000).unwrap();
     assert_eq!(fix.timestamp_us, 12_050_000);
     assert!(!fix.is_capture_time);
 
     report_pulse(&mut receiver, 2_000, 0x20, 12_700_000);
     receiver.observe_edge(5, 13_000_000);
-    receiver.source.io_mut().input.extend(frame(1, 7, &pvt(2_000)));
+    receiver
+        .source
+        .io_mut()
+        .input
+        .extend(frame(1, 7, &pvt(2_000)));
     assert!(!receiver.fixture_fix(13_050_000).unwrap().is_capture_time);
 }
 
 #[test]
 fn pps_uses_resolved_utc_with_the_m9_pulse_flags() {
-    let mut receiver = Receiver::new(Driver::new(Stream::default()));
+    let mut receiver = fixture_receiver(Driver::new(Stream::default()));
     report_pulse(&mut receiver, 0, 0x17, 9_700_000);
     receiver.observe_edge(1, 10_000_000);
     report_pulse(&mut receiver, 1_000, 0x17, 10_700_000);
@@ -436,10 +480,13 @@ fn ram_configuration_is_acknowledged_read_back_and_restored() {
             period_ms,
             ..Stream::default()
         };
-        let mut receiver = Receiver::new(Driver::new(stream).with_uart_baud(baud));
+        let mut receiver = fixture_receiver(Driver::new(stream).with_uart_baud(baud));
         receiver.source.configure(deadline()).unwrap();
         assert_eq!(receiver.source.io().rate, 1);
-        assert_eq!(receiver.source.io().satellite_rate, satellite_rate.unwrap_or(4));
+        assert_eq!(
+            receiver.source.io().satellite_rate,
+            satellite_rate.unwrap_or(4)
+        );
         receiver.source.restore(deadline()).unwrap();
         assert_eq!(receiver.source.io().rate, 7);
         assert_eq!(receiver.source.io().satellite_rate, 4);
@@ -457,7 +504,7 @@ fn negative_ack_readback_mismatch_and_uncertain_apply_can_be_rolled_back() {
         Fault::WrongReadback,
         Fault::SatelliteReadAfterSet,
     ] {
-        let mut receiver = Receiver::new(Driver::new(Stream {
+        let mut receiver = fixture_receiver(Driver::new(Stream {
             fault,
             ..Stream::default()
         }));
@@ -466,7 +513,7 @@ fn negative_ack_readback_mismatch_and_uncertain_apply_can_be_rolled_back() {
         assert_eq!(receiver.source.io().rate, 7);
         assert_eq!(receiver.source.io().satellite_rate, 4);
     }
-    let mut receiver = Receiver::new(Driver::new(Stream {
+    let mut receiver = fixture_receiver(Driver::new(Stream {
         fault: Fault::Silent,
         ..Stream::default()
     }));
@@ -482,7 +529,7 @@ fn negative_ack_readback_mismatch_and_uncertain_apply_can_be_rolled_back() {
 
 #[test]
 fn failed_restoration_stays_pending_until_it_is_verified() {
-    let mut receiver = Receiver::new(Driver::new(Stream::default()));
+    let mut receiver = fixture_receiver(Driver::new(Stream::default()));
     receiver.source.configure(deadline()).unwrap();
     receiver.source.io_mut().fault = Fault::Silent;
     assert_eq!(
@@ -499,7 +546,7 @@ fn failed_restoration_stays_pending_until_it_is_verified() {
 
 #[test]
 fn event_reads_deliver_every_fragmented_fix_without_coalescing() {
-    let mut receiver = Receiver::new(Driver::new(Stream::default()));
+    let mut receiver = fixture_receiver(Driver::new(Stream::default()));
     for epoch in 1..=3 {
         receiver
             .source
@@ -528,7 +575,7 @@ fn event_reads_deliver_every_fragmented_fix_without_coalescing() {
 
 #[test]
 fn corrupt_event_frame_is_reported_then_next_valid_fix_is_delivered() {
-    let mut receiver = Receiver::new(Driver::new(Stream::default()));
+    let mut receiver = fixture_receiver(Driver::new(Stream::default()));
     let mut wire = frame(1, 7, &pvt(1));
     *wire.last_mut().unwrap() ^= 1;
     receiver.source.io_mut().input.extend(wire);
@@ -540,4 +587,122 @@ fn corrupt_event_frame_is_reported_then_next_valid_fix_is_delivered() {
     assert_eq!(events.len(), 2);
     assert_eq!(events[0], Err(DeviceError::InvalidData));
     assert!(matches!(events[1], Ok(Event::Fix(fix)) if fix.sequence == 1));
+}
+
+#[test]
+fn explicit_no_fix_invalidates_the_same_epoch_and_rejects_replayed_recovery() {
+    let mut receiver = receiver_with(&pvt(1_000));
+    assert_eq!(receiver.fixture_fix(2_000).unwrap().sequence, 1);
+    let mut unavailable = pvt(1_000);
+    unavailable[21] = 0;
+    // A no-fix update for the current epoch takes precedence over its old fix.
+    // Repeated no-fix and the old fix must not refresh its availability again.
+    for payload in [unavailable, unavailable, pvt(1_000), pvt(999), pvt(1_001)] {
+        receiver.source.io_mut().input.extend(frame(1, 7, &payload));
+    }
+    let mut events = Vec::new();
+    while !receiver.source.io().input.is_empty() {
+        receiver
+            .read_events(3_000, |event| events.push(event))
+            .unwrap();
+    }
+    assert_eq!(events.len(), 3);
+    assert_eq!(
+        events[0],
+        Ok(Event::NoFix(NoFix {
+            generation: 1,
+            source_epoch_ms: Some(1_000),
+            received_us: 3_000,
+        }))
+    );
+    assert_eq!(events[1], Err(DeviceError::InvalidData));
+    assert!(matches!(events[2], Ok(Event::Fix(fix))
+        if fix.sequence == 2 && fix.source_epoch_ms == 1_001 && fix.generation == 1));
+}
+
+#[test]
+fn receiver_epoch_order_accepts_week_rollover_but_requires_a_new_lifetime_for_reset() {
+    let mut receiver = receiver_with(&pvt(604_799_999));
+    assert_eq!(
+        receiver.fixture_fix(10).unwrap().source_epoch_ms,
+        604_799_999
+    );
+    receiver.source.io_mut().input.extend(frame(1, 7, &pvt(0)));
+    let wrapped = receiver.fixture_fix(20).unwrap();
+    assert_eq!(
+        (
+            wrapped.source_epoch_ms,
+            wrapped.sequence,
+            wrapped.generation
+        ),
+        (0, 2, 1)
+    );
+    // A pre-rollover packet is old even though its integer epoch is larger.
+    receiver
+        .source
+        .io_mut()
+        .input
+        .extend(frame(1, 7, &pvt(604_799_999)));
+    assert_eq!(receiver.fixture_fix(30), Err(DeviceError::InvalidData));
+    receiver
+        .source
+        .io_mut()
+        .input
+        .extend(frame(1, 7, &pvt(2_000)));
+    assert_eq!(receiver.fixture_fix(40).unwrap().sequence, 3);
+    receiver
+        .source
+        .io_mut()
+        .input
+        .extend(frame(1, 7, &pvt(1_000)));
+    assert_eq!(receiver.fixture_fix(50), Err(DeviceError::InvalidData));
+
+    // Reconfiguration in a newly admitted lifetime explicitly resets ordering;
+    // receipt of a lower epoch in the old lifetime never does.
+    let mut stream = Stream::default();
+    stream.input.extend(frame(1, 7, &pvt(1_000)));
+    let mut replacement = Receiver::new(Driver::new(stream), 2);
+    let fix = replacement.fixture_fix(60).unwrap();
+    assert_eq!(
+        (fix.generation, fix.sequence, fix.source_epoch_ms),
+        (2, 1, 1_000)
+    );
+}
+
+#[test]
+fn no_fix_frames_require_a_valid_epoch_and_keep_future_fixes_admissible() {
+    let mut receiver = fixture_receiver(Driver::new(Stream::default()));
+    for epoch in [604_800_000, 100, 101] {
+        let mut payload = pvt(epoch);
+        payload[20] = 0;
+        receiver.source.io_mut().input.extend(frame(1, 7, &payload));
+    }
+    receiver
+        .source
+        .io_mut()
+        .input
+        .extend(frame(1, 7, &pvt(102)));
+    let mut events = Vec::new();
+    while !receiver.source.io().input.is_empty() {
+        receiver
+            .read_events(20, |event| events.push(event))
+            .unwrap();
+    }
+    assert_eq!(events.len(), 4);
+    assert_eq!(events[0], Err(DeviceError::InvalidData));
+    assert!(matches!(
+        events[1],
+        Ok(Event::NoFix(NoFix {
+            source_epoch_ms: Some(100),
+            ..
+        }))
+    ));
+    assert!(matches!(
+        events[2],
+        Ok(Event::NoFix(NoFix {
+            source_epoch_ms: Some(101),
+            ..
+        }))
+    ));
+    assert!(matches!(events[3], Ok(Event::Fix(fix)) if fix.sequence == 1));
 }

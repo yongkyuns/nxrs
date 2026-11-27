@@ -397,6 +397,7 @@ mod tests {
         let admitted = control.try_send(Event::Device(imu::Event::Sample(ImuSample {
             sequence: 1,
             timestamp_us: 0,
+            received_us: 0,
             is_capture_time: false,
             sample_interval_us: 10_000,
             accel_mps2: [0.0; 3],

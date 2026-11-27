@@ -38,6 +38,7 @@ fn imu(sequence: u64) -> imu::ImuSample {
     imu::ImuSample {
         sequence,
         timestamp_us: sequence * 10_000,
+        received_us: sequence * 10_000,
         is_capture_time: true,
         sample_interval_us: 10_000,
         accel_mps2: [1.0, -2.0, 3.0],
@@ -154,8 +155,11 @@ pub fn run() -> Outcome {
     drop((left, right, first));
 
     let fix = gnss::GnssFix {
+        generation: 1,
+        source_epoch_ms: 0,
         sequence: 5,
         timestamp_us: 700,
+        received_us: 700,
         is_capture_time: true,
         receiver_utc_ms: Some(1500),
         latitude_deg: 12.0,

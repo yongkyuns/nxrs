@@ -11,9 +11,12 @@ notification and cleanup. It can retain a device lease through sink destruction.
 The worker preserves its result for repeated joins.
 
 `stop_and_join` joins finished work even if the wake endpoint has failed.
-Interrupted wake writes retry. If a running worker cannot be woken, the
-operation returns an error and retains its handle so the caller can retry.
+Interrupted wake writes make at most three immediate attempts, including the
+first call. Persistent interruption returns to the supervisor with cancellation
+still set. If a running worker cannot be woken, the operation returns an error
+and retains its handle so the caller can schedule another bounded attempt.
 Resources held by the task remain with it until cleanup finishes.
+Drop requests cancellation with the same bounded wake policy and never joins.
 
 The NuttX poll/pipe ABI lives under `src/platform/nuttx/ffi/`; Rust owns the
 descriptors. Cancellation wins when a device and the cancel pipe are both

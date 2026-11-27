@@ -52,6 +52,7 @@ impl Endpoint {
     }
 }
 
+#[derive(Clone)]
 pub struct Config {
     pub apn: String,
     pub collector: Option<Collector>,
@@ -61,6 +62,93 @@ pub struct Config {
 pub struct Collector {
     pub endpoint: Endpoint,
     pub interval: Duration,
+}
+
+/// Resource admission is distinct from the HAL's managed network recovery.
+/// Busy/I/O gets two bounded retries within this owner lifetime; terminal
+/// configuration/quarantine failures remain visible while BLE keeps running.
+pub struct Cellular {
+    config: Option<Config>,
+    modem: Option<Modem>,
+    status: Option<Status>,
+    next: Option<Instant>,
+    attempts: u8,
+}
+
+impl Cellular {
+    pub fn new(config: Option<Config>) -> Self {
+        let requested = config.is_some();
+        Self {
+            config,
+            modem: None,
+            status: requested.then_some(Status::Connecting),
+            next: requested.then(Instant::now),
+            attempts: 0,
+        }
+    }
+
+    pub fn admit(&mut self, now: Instant) {
+        self.admit_with(now, Modem::start);
+    }
+
+    fn admit_with(
+        &mut self,
+        now: Instant,
+        start: impl FnOnce(Config) -> Result<Modem, cellular::Error>,
+    ) {
+        if self.next.is_none_or(|next| now < next) {
+            return;
+        }
+        self.next = None;
+        self.attempts += 1;
+        match start(self.config.as_ref().unwrap().clone()) {
+            Ok(modem) => {
+                self.modem = Some(modem);
+                self.config = None;
+            }
+            Err(error) => {
+                log::warn!(
+                    "motion-tracker cellular admission {}: {error}",
+                    self.attempts
+                );
+                self.status = Some(
+                    if matches!(error, cellular::Error::Busy | cellular::Error::Io)
+                        && self.attempts < 3
+                    {
+                        self.next = Some(now + Duration::from_secs(u64::from(self.attempts)));
+                        Status::Retrying(error)
+                    } else {
+                        self.config = None;
+                        Status::Failed(error)
+                    },
+                );
+            }
+        }
+    }
+
+    pub fn status(&self) -> Option<Status> {
+        self.modem.as_ref().map(Modem::status).or(self.status)
+    }
+
+    pub fn modem(&self) -> Option<&Modem> {
+        self.modem.as_ref()
+    }
+
+    pub fn next_admission(&self) -> Option<Instant> {
+        self.next
+    }
+
+    pub fn request_stop(&mut self) {
+        self.next = None;
+        if let Some(modem) = &mut self.modem {
+            modem.request_stop();
+        }
+    }
+
+    pub fn stop(&mut self) -> io::Result<()> {
+        self.request_stop();
+        self.modem.as_mut().map_or(Ok(()), Modem::stop)
+    }
 }
 
 pub struct Reports {
@@ -144,12 +232,9 @@ pub struct Modem {
 }
 
 impl Modem {
-    pub fn start(config: Config) -> io::Result<Self> {
+    pub fn start(config: Config) -> Result<Self, cellular::Error> {
         if config.collector.is_some() && !tls::Identity::SUPPORTS_PINNED_CLIENT {
-            return Err(io::Error::new(
-                io::ErrorKind::Unsupported,
-                "collector TLS is unavailable",
-            ));
+            return Err(cellular::Error::Unsupported);
         }
         let signals = Arc::new(Signals {
             link_worker: thread::current(),
@@ -162,10 +247,8 @@ impl Modem {
                 socket: None,
             }),
         });
-        let observer = signals.clone();
-        let link =
-            cellular::connect_managed(&config.apn, move |status| observer.link_changed(status))
-                .map_err(io::Error::other)?;
+        // Admit the dial worker first. If spawning fails, no modem has begun
+        // acquisition whose rollback could hold up the independent BLE owner.
         let task = if tls::Identity::SUPPORTS_PINNED_CLIENT {
             config
                 .collector
@@ -176,9 +259,24 @@ impl Modem {
                         .stack_size(4 * 1024)
                         .spawn(move || dial(collector.endpoint, &control))
                 })
-                .transpose()?
+                .transpose()
+                .map_err(|_| cellular::Error::Io)?
         } else {
             None
+        };
+        let observer = signals.clone();
+        let link = match cellular::connect_managed(&config.apn, move |status| {
+            observer.link_changed(status)
+        }) {
+            Ok(link) => link,
+            Err(error) => {
+                signals.stopping.store(true, Ordering::Release);
+                if let Some(task) = task {
+                    task.thread().unpark();
+                    let _ = task.join();
+                }
+                return Err(error);
+            }
         };
         Ok(Self {
             signals,
@@ -209,14 +307,23 @@ impl Modem {
         }
     }
 
-    pub fn stop(&mut self) -> io::Result<()> {
+    pub fn request_stop(&mut self) {
         self.signals.stopping.store(true, Ordering::Release);
-        let dial_result = self.task.take().map_or(Ok(()), |task| {
+        if let Some(task) = &self.task {
             task.thread().unpark();
+        }
+        // UART/PPP cancellation must begin before waiting for an in-flight
+        // TCP connect. Their independent budgets overlap during teardown.
+        self.link.request_stop();
+    }
+
+    pub fn stop(&mut self) -> io::Result<()> {
+        self.request_stop();
+        let dial_result = self.task.take().map_or(Ok(()), |task| {
             task.join()
                 .map_err(|_| io::Error::other("tracker collector dial task panicked"))
         });
-        let link_result = self.link.stop().map_err(io::Error::other);
+        let link_result = self.link.join().map_err(io::Error::other);
         dial_result.and(link_result)
     }
 }
@@ -348,6 +455,61 @@ mod tests {
     use crate::tracker::Reading;
 
     #[test]
+    fn admission_retries_are_finite_and_cancellation_prevents_another_acquisition() {
+        let mut cellular = Cellular::new(Some(Config {
+            apn: "test".into(),
+            collector: None,
+        }));
+        let now = Instant::now();
+        cellular.admit_with(now, |_| Err(cellular::Error::Busy));
+        assert_eq!(
+            cellular.status(),
+            Some(Status::Retrying(cellular::Error::Busy))
+        );
+        assert_eq!(
+            cellular.next_admission(),
+            Some(now + Duration::from_secs(1))
+        );
+        cellular.admit_with(now, |_| panic!("admission before retry budget"));
+        cellular.admit_with(now + Duration::from_secs(1), |_| Err(cellular::Error::Io));
+        assert_eq!(
+            cellular.next_admission(),
+            Some(now + Duration::from_secs(3))
+        );
+        cellular.admit_with(now + Duration::from_secs(3), |_| Err(cellular::Error::Busy));
+        assert_eq!(
+            cellular.status(),
+            Some(Status::Failed(cellular::Error::Busy))
+        );
+        assert_eq!(cellular.next_admission(), None);
+        cellular.admit_with(now + Duration::from_secs(60), |_| {
+            panic!("unbounded admission retry")
+        });
+
+        let mut cancelled = Cellular::new(Some(Config {
+            apn: "test".into(),
+            collector: None,
+        }));
+        cancelled.request_stop();
+        cancelled.admit_with(now + Duration::from_secs(60), |_| {
+            panic!("acquisition after stop")
+        });
+        for error in [
+            cellular::Error::Unsupported,
+            cellular::Error::InvalidApn,
+            cellular::Error::RecoveryRequired,
+        ] {
+            let mut refused = Cellular::new(Some(Config {
+                apn: "test".into(),
+                collector: None,
+            }));
+            refused.admit_with(Instant::now(), |_| Err(error));
+            assert_eq!(refused.status(), Some(Status::Failed(error)));
+            assert_eq!(refused.next_admission(), None);
+        }
+    }
+
+    #[test]
     fn report_budget_survives_an_interrupted_stream_and_skips_missed_intervals() {
         let now = Instant::now();
         let interval = Duration::from_secs(60);
@@ -356,6 +518,7 @@ mod tests {
             imu: [Reading::Waiting; 2],
             gnss: Reading::Waiting,
             clock: None,
+            output_faults: 0,
         };
         assert_eq!(
             reports
@@ -382,5 +545,53 @@ mod tests {
         assert!(reports
             .service(&mut output, later + interval, sample)
             .unwrap());
+    }
+
+    #[test]
+    fn modem_cancellation_precedes_the_collector_join() {
+        struct Link(Arc<AtomicBool>);
+        impl cellular::Session for Link {
+            fn status(&self) -> Status {
+                Status::Connecting
+            }
+            fn request_stop(&mut self) {
+                self.0.store(true, Ordering::Release);
+            }
+            fn is_finished(&self) -> bool {
+                self.0.load(Ordering::Acquire)
+            }
+            fn join(&mut self) -> Result<(), cellular::Error> {
+                assert!(self.is_finished());
+                Ok(())
+            }
+        }
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let observed = cancelled.clone();
+        let task = thread::spawn(move || {
+            let deadline = Instant::now() + Duration::from_secs(1);
+            while !observed.load(Ordering::Acquire) && Instant::now() < deadline {
+                thread::yield_now();
+            }
+            assert!(
+                observed.load(Ordering::Acquire),
+                "modem must be cancelled before joining the dial"
+            );
+        });
+        let mut modem = Modem {
+            signals: Arc::new(Signals {
+                link_worker: thread::current(),
+                dial_worker: OnceLock::new(),
+                stopping: AtomicBool::new(false),
+                exchange: Mutex::new(Exchange {
+                    status: Status::Connecting,
+                    generation: 0,
+                    requested: false,
+                    socket: None,
+                }),
+            }),
+            task: Some(task),
+            link: Box::new(Link(cancelled)),
+        };
+        modem.stop().unwrap();
     }
 }

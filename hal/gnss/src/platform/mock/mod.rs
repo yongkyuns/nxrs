@@ -8,6 +8,7 @@ use acquisition::mock::Timer;
 
 #[derive(Default)]
 struct SyntheticGnss {
+    generation: u32,
     sequence: u64,
     north_m: f32,
     east_m: f32,
@@ -19,9 +20,12 @@ impl SyntheticGnss {
         self.north_m += 0.05;
         self.east_m += 0.80;
         Ok(GnssFix {
+            generation: self.generation,
             sequence: self.sequence,
+            source_epoch_ms: now_us / 1_000,
             timestamp_us: now_us,
-            is_capture_time: false,
+            received_us: now_us,
+            is_capture_time: true,
             receiver_utc_ms: None,
             latitude_deg: f64::from(self.north_m) / 111_319.490_793,
             longitude_deg: f64::from(self.east_m) / 111_319.490_793,
@@ -35,7 +39,10 @@ impl SyntheticGnss {
 pub fn open<S: FnMut(Event) -> messaging::DeliveryResult<Event> + Send + 'static>(
     sink: S,
 ) -> Result<impl Session + Send + 'static, DeviceError> {
-    let mut model = SyntheticGnss::default();
+    let mut model = SyntheticGnss {
+        generation: session::next_generation()?,
+        ..SyntheticGnss::default()
+    };
     let timer = Timer::default();
     session::start(16_384, timer.clone(), (sink, ()), move |stop, emit| {
         timer

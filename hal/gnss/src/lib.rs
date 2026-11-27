@@ -3,7 +3,7 @@
 #![deny(unsafe_code)]
 mod api;
 pub use api::{
-    Constellation, Device, DeviceError, Event, FixQuality, GnssFix, SatelliteReport,
+    Constellation, Device, DeviceError, Event, FixQuality, GnssFix, NoFix, SatelliteReport,
     SatelliteSignal, SatelliteStatus, Session,
 };
 pub use messaging::{DeliveryError, Rejected};
