@@ -96,6 +96,7 @@ impl<S: Imu> Device<S> {
         emit: &mut dyn FnMut(Event) -> bool,
     ) -> Result<(), DeviceError> {
         let mut sequence = 0u64;
+        let delivery_period = Duration::from_micros(self.applied.delivery_interval_us.into());
         let sample_interval_us = 1_000_000_000u32.div_ceil(self.applied.rate_millihz);
         let result = (|| {
             while !stop.load(Ordering::Acquire) {
@@ -116,10 +117,16 @@ impl<S: Imu> Device<S> {
                     }))
                 });
                 self.trace.drain(matches!(&drained, Ok(Some(_))));
-                let Some(count) = drained? else {
-                    break;
-                };
-                self.signal.drained(count)?;
+                match drained {
+                    Ok(Some(count)) => self.signal.drained(count)?,
+                    Ok(None) => break,
+                    Err(Error::WouldBlock) => {
+                        if !self.signal.retry(wake, delivery_period)? {
+                            break;
+                        }
+                    }
+                    Err(error) => return Err(error.into()),
+                }
             }
             Ok(())
         })();
