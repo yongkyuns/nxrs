@@ -162,10 +162,13 @@ fn sensor_events(
     capture: Arc<Capture>,
 ) -> impl FnMut(Observation) -> Option<Event> {
     move |event| {
+        // Publish current availability before capture wakes communications. A
+        // higher-priority reader must not wake to the preceding live solution.
+        let published = output.record(&event);
         if let Some(status) = event.no_fix() {
             capture.gnss_unavailable(status);
         }
-        match output.record(&event) {
+        match published {
             Ok(sample) => {
                 if let Some(sample) = sample {
                     capture.record(sample);
