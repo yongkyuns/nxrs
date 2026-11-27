@@ -109,14 +109,14 @@ jobs:
           retention-days: 14
 
   mutex-qemu:
-    name: Publication and mutex native controls (${{ matrix.suite }})
+    name: Capture, publication and mutex native controls (${{ matrix.suite }})
     needs: host
     runs-on: ubuntu-24.04
     timeout-minutes: 35
     strategy:
       fail-fast: false
       matrix:
-        suite: [mutex-inherit, mutex-no-inherit, publication]
+        suite: [mutex-inherit, mutex-no-inherit, publication, capture]
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:

@@ -25,12 +25,13 @@ BUILD_ID = "a" * 64
 
 
 def suite_inputs(native, case="std-disconnect"):
-    suite = ("publication" if case == "publication-progress" else
+    suite = ("capture" if case == "capture-pool-progress" else
+             "publication" if case == "publication-progress" else
              "mutex-inherit" if case == "std-mutex-nested" else
              case.removeprefix("std-") if case in W.MUTEX_CASES else "owner") if native else "host-all"
     return {"kind": "nuttx-target" if native else "host-functional", "suite": suite,
             "cases": list(W.SUITES[suite]), "priority_inheritance": suite in W.SUITE_PROTOCOLS if native else None,
-            "sources": {path: "parser-control-source-marker" for path in (W.LATEST_SOURCE, W.NESTED_SOURCE, W.POLICY_SOURCE, W.PUBLICATION_SOURCE)},
+            "sources": {path: "parser-control-source-marker" for path in (W.LATEST_SOURCE, W.NESTED_SOURCE, W.POLICY_SOURCE, W.PUBLICATION_SOURCE, W.CAPTURE_SOURCE, *W.CAPTURE_SUPPORT)},
             "mutex_policy": W.mutex_policy("nuttx-target" if native else "host-functional", suite),
             "pthread_mutex_default_protocol": W.SUITE_PROTOCOLS.get(suite) if native else None}
 
@@ -137,6 +138,37 @@ def report(case, native=False, build_id=BUILD_ID):
             "comparison": {"rounds": 4096, "imu_sources": 2, "readers": 2, "gnss_enabled": False,
                            "scope": "same-image-instrumented-uncontended", "memory_scope": "requested-rust-global-allocator",
                            "mutex": cost(256, 1), "publication": cost(4096, 5)}}
+    if case == "capture-pool-progress":
+        def paused(role):
+            if not native:
+                return None
+            person = next(p for p in participants if p["role"] == role)
+            priority = person["requested_priority"]
+            return {"tid": person["start"]["tid"], "policy": 1, "base_priority": priority,
+                    "effective_priority": priority, "state": 6, "waiting_semaphore": True, "runnable": False}
+        def checkpoint(occupied, busy, free):
+            return {"occupied": occupied, "busy_sources": busy, "free_slots": free}
+        pointer_bytes = 4 if native else 8
+        observed["capture_pool"] = {
+            "scope": "fixture-pooled-scalar-transport",
+            "pause_stage": "after-slot-claim-before-payload",
+            "capacity": 512, "sources": 3, "other_source_records": 511, "restart_records": 2,
+            "rejected_full": 1, "rejected_stale": 1, "source_order": "per-source-fifo",
+            "complete_payloads": True, "sticky_terminal": True, "clean_restart": True, "pause_hits": 1,
+            "after_claim": checkpoint(1, 1, 511), "full": checkpoint(512, 1, 0),
+            "pending": checkpoint(1, 1, 511), "retired": checkpoint(0, 0, 512),
+            "restarted": checkpoint(0, 0, 512), "first_missing_source": 1, "first_missing_sequence": 511,
+            "atomic_16": True, "atomic_32": True, "pointer_bytes": pointer_bytes,
+            "storage": {"payload_heap_bytes": 18432, "index_heap_bytes": 3072, "bitmap_bytes": 64,
+                        "cursor_bytes": 24, "storage_inline_bytes": 88 + 8 * pointer_bytes,
+                        "raw_components_bytes": 21592,
+                        "scope": "storage-components-excludes-gate-arc-thread-and-allocator-overhead"},
+            "native_configuration": {"priority_inheritance": True, "default_prio_inherit": True,
+                                     "default_protocol": 1, "protocol_none": 0, "protocol_inherit": 1,
+                                     "holder_capacity": 0} if native else None,
+            "low_after_claim": paused("capture-producer-low"),
+            "low_after_other_progress": paused("capture-producer-low"),
+            "owner_waiting": paused("capture-owner-high")}
     return {"schema": "owner-qualification-v1", "case": case, "token": TOKEN, "build_id": build_id,
             "domain": "nuttx-target" if native else "host-functional", "pass": True,
             "native_scheduling": native, "fifo_policy": 1 if native else None,
@@ -204,6 +236,41 @@ class ParserControls(unittest.TestCase):
                 value = copy.deepcopy(base)
                 mutation(value["observations"]["publication"])
                 with self.assertRaises(ValueError): self.parse(value)
+
+    def test_capture_pool_requires_exact_capacity_retirement_and_native_pauses(self):
+        base = report("capture-pool-progress", True)
+        mutations = [
+            lambda p: p.update(capacity=511), lambda p: p.update(other_source_records=510),
+            lambda p: p.update(pause_stage="between-calls"), lambda p: p.update(pause_hits=0),
+            lambda p: p.update(source_order="global-reservation-fifo"),
+            lambda p: p["pending"].update(busy_sources=0),
+            lambda p: p["pending"].update(free_slots=512),
+            lambda p: p["retired"].update(occupied=1), lambda p: p["full"].update(free_slots=1),
+            lambda p: p.update(first_missing_sequence=512),
+            lambda p: p["low_after_other_progress"].update(effective_priority=180),
+            lambda p: p["owner_waiting"].update(waiting_semaphore=False),
+            lambda p: p["owner_waiting"].update(tid=99),
+            lambda p: p["native_configuration"].update(holder_capacity=8),
+            lambda p: p["storage"].update(index_heap_bytes=1024),
+            lambda p: p["storage"].update(scope="process-ram"),
+            lambda p: p.update(atomic_16=False), lambda p: p.update(pointer_bytes=8),
+        ]
+        for field in ("complete_payloads", "sticky_terminal", "clean_restart"):
+            mutations.append(lambda p, field=field: p.update({field: False}))
+        for index, mutation in enumerate(mutations):
+            with self.subTest(mutation=index):
+                value = copy.deepcopy(base)
+                mutation(value["observations"]["capture_pool"])
+                with self.assertRaises(ValueError): self.parse(value)
+
+    def test_capture_pool_cannot_fabricate_native_evidence_or_attach_to_other_case(self):
+        for field in ("native_configuration", "low_after_claim", "low_after_other_progress", "owner_waiting"):
+            value = report("capture-pool-progress")
+            value["observations"]["capture_pool"][field] = report("capture-pool-progress", True)["observations"]["capture_pool"][field]
+            with self.subTest(field=field), self.assertRaises(ValueError): self.parse(value)
+        value = report("std-disconnect")
+        value["observations"]["capture_pool"] = report("capture-pool-progress")["observations"]["capture_pool"]
+        with self.assertRaises(ValueError): self.parse(value)
 
     def test_publication_requires_zero_call_windows_and_complete_reclamation(self):
         base = report("publication-progress", True)
@@ -382,7 +449,7 @@ class ParserControls(unittest.TestCase):
 
 class BuildSuiteControls(unittest.TestCase):
     def test_config_requires_flat_single_core_and_both_protocol_settings(self):
-        for case in ("std-disconnect", *W.MUTEX_CASES, "publication-progress"):
+        for case in ("std-disconnect", *W.MUTEX_CASES, "publication-progress", "capture-pool-progress"):
             specification = suite_inputs(True, case)
             values = {"BUILD_FLAT": "y", **specification["mutex_policy"]["kconfig"]}
             def config(symbols): return "".join(f"CONFIG_{symbol}={value}\n" for symbol, value in symbols.items())
@@ -405,7 +472,7 @@ class BuildSuiteControls(unittest.TestCase):
                 W.validate_policy_receipt({"mutex_policy": value}, specification)
 
     def test_current_source_receipt_cannot_downgrade_to_legacy(self):
-        for source in (W.POLICY_SOURCE, W.NESTED_SOURCE, W.PUBLICATION_SOURCE):
+        for source in (W.POLICY_SOURCE, W.NESTED_SOURCE, W.PUBLICATION_SOURCE, W.CAPTURE_SOURCE):
             for removed in ("suite", "mutex_policy"):
                 specification = suite_inputs(True)
                 specification["sources"] = {source: "parser-control-source-marker"}
@@ -428,9 +495,11 @@ class RetainedEvidenceControls(unittest.TestCase):
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name)
 
-    def build(self, native=False, case="std-disconnect", profile=None, latest=True, nested=True, legacy=False, policy=True, publication=None):
+    def build(self, native=False, case="std-disconnect", profile=None, latest=True, nested=True, legacy=False, policy=True, publication=None, capture=None):
         if publication is None:
             publication = policy and not legacy
+        if capture is None:
+            capture = publication and policy and not legacy
         root = self.root / "input-build"
         root.mkdir()
         source = root / "retained/sources/tests/owner-qualification/src/main.rs"
@@ -456,10 +525,16 @@ class RetainedEvidenceControls(unittest.TestCase):
             publication_source.parent.mkdir(parents=True, exist_ok=True)
             publication_source.write_text("// synthetic publication source, never executed\n")
             sources[W.PUBLICATION_SOURCE] = W.digest(publication_source)
+        if capture:
+            for path in (W.CAPTURE_SOURCE, *W.CAPTURE_SUPPORT):
+                capture_source = root / "retained/sources" / path
+                capture_source.parent.mkdir(parents=True, exist_ok=True)
+                capture_source.write_text("// synthetic pooled capture source, never executed\n")
+                sources[path] = W.digest(capture_source)
         specification = {**suite_inputs(native, case),
                          "profile": (profile or "esp32s3-ram-footprint") if native else None,
                          "sources": sources}
-        omitted = ([] if latest else ["latest-value-progress"]) + ([] if nested else ["std-mutex-nested"]) + ([] if publication else ["publication-progress"])
+        omitted = ([] if latest else ["latest-value-progress"]) + ([] if nested else ["std-mutex-nested"]) + ([] if publication else ["publication-progress"]) + ([] if capture else ["capture-pool-progress"])
         specification["cases"] = [case for case in specification["cases"] if case not in omitted]
         if legacy:
             for key in ("suite", "cases", "pthread_mutex_default_protocol", "mutex_policy"):
@@ -575,6 +650,25 @@ class RetainedEvidenceControls(unittest.TestCase):
         specification["sources"].pop(W.PUBLICATION_SOURCE)
         specification["cases"] = ["std-mutex-inherit"]
         with self.assertRaises(ValueError): W.selected_cases(specification)
+
+    def test_prior_twelve_case_receipt_does_not_acquire_pooled_capture(self):
+        root, build = self.build(capture=False)
+        self.assertEqual(W.inspect(root)["case_count"], 12)
+        value = report("capture-pool-progress", False, build["build_id"])
+        with self.assertRaises(ValueError):
+            W.parse(transcript(value), build, value["case"], TOKEN)
+
+    def test_capture_suite_requires_scenario_shared_gate_and_pool_sources(self):
+        root, build = self.build(True, case="capture-pool-progress")
+        self.assertEqual(W.inspect(root)["cases"], ["capture-pool-progress", "std-mutex-inherit"])
+        for case in W.SUITES["capture"]:
+            value = report(case, True, build["build_id"])
+            self.assertEqual(W.parse(transcript(value), build, case, TOKEN), value)
+        for source in (W.CAPTURE_SOURCE, *W.CAPTURE_SUPPORT):
+            specification = copy.deepcopy(build["inputs"])
+            specification["sources"].pop(source)
+            with self.subTest(source=source), self.assertRaises(ValueError):
+                W.selected_cases(specification)
 
     def test_source_identity_and_symlink_containment(self):
         root, _ = self.build()

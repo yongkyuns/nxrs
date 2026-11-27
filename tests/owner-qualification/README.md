@@ -17,14 +17,16 @@ SDK callback lifetime, sensor I/O, network service, timing bounds and resource
 measurements retain their separate qualification obligations. In particular,
 these small functional witnesses are not a cross-RTOS RAM comparison.
 
-There are **twelve distinct cases**, split across four native build suites. The `owner`
+There are **thirteen distinct cases**, split across five native build suites. The `owner`
 suite contains eight channel, owner and latest-value cases. The
 `mutex-inherit` suite contains two cases; `mutex-no-inherit` contains one.
 The `publication` suite contains the production publication witness and repeats
 `std-mutex-inherit` in the same image as its native mutex control.
+The `capture` suite contains the fixture-only pooled scalar transport witness
+and the same native mutex control. It does not replace Motion Tracker capture.
 Each suite uses a separate image with the corresponding pthread mutex default.
-Full suite coverage uses four builds and thirteen fresh-boot captures per target.
-Host mode runs all twelve cases in fresh processes. Every case must complete with checked results
+Full suite coverage uses five builds and fifteen fresh-boot captures per target.
+Host mode runs all thirteen cases in fresh processes. Every case must complete with checked results
 and joined threads; a hang is a failed capture, never an expected pass.
 
 ## Case inventory
@@ -43,6 +45,7 @@ and joined threads; a hang is a failed capture, never an expected pass.
 | `std-mutex-nested` | A priority-120 owner holds nine ordinary Rust mutexes while nine waiters at priorities 140–180 block in turn. The owner releases them in reverse order, then repeats the complete cycle. | 18 checked handoffs, 48 native waits, 10 worker joins; tracked holders grow from zero to nine and return to zero each round, with donation and stepwise priority restoration. All nine final protected values are 22. |
 | `latest-value-progress` | Two fixed triple-buffer readers. A priority-120 writer pauses during record preparation and between the two publications. A priority-120 reader then holds a slot while the coordinator publishes to both readers. | 2 complete prior reads, 1 check for different complete versions across readers, 32 publications while the slow reader retains its slot, both peers joined. Separate from FIFO accounting. |
 | `publication-progress` | Actual navigation publication API with two readers. A priority-120 writer is paused while a priority-180 reader obtains 64 complete prior snapshots; a priority-120 reader is then paused while a priority-180 writer publishes 64 IMU updates. | 4 joins, 2 native waits, original timestamps/freshness, independent sources, sticky IMU/GNSS/satellite faults and late-sample suppression. Coalescing is separate from FIFO accounting. |
+| `capture-pool-progress` | A priority-120 producer pauses after claiming a shared slot and before writing its payload. The priority-180 owner publishes and drains 511 records from another source, observes overflow with an outstanding obligation, then parks until the low producer publishes and wakes it. | 514 admitted / handled across two epochs, 1 full and 1 stale-epoch rejection, 2 native waits, 2 joins, exact payloads and per-source FIFO, sticky terminal, complete slot/obligation retirement and restart across the index-ring wrap. |
 
 The latest-value case compares 4,096 uncontended rounds for IMU, GNSS fix and
 satellite values with reception stamps. A round publishes once and reads at
@@ -134,6 +137,53 @@ joins, counted only after successful return. The report’s quiescence basis is
 `all-fixture-workers-joined`; it does not claim a measured zero count for real
 SDK callbacks.
 
+### Pooled capture transport witness
+
+`capture-pool-progress` source-includes the fixture's shared
+[`capture_gate.rs`](../mpsc-comparison/rust/tests/support/capture_gate.rs) and
+[`capture_pool.rs`](../mpsc-comparison/rust/tests/support/capture_pool.rs).
+Both files enter the build inventory. The transport uses a 512-record scalar
+arena, a shared free-slot bitmap and three index-only SPSC lanes. Each source
+can use the whole shared capacity. Capture payloads do not use the desktop std
+MPSC adapter; the separate fixture bootstrap channel is disconnected before
+the transport experiment starts.
+
+The low producer pauses inside the real offer path, after claiming a physical
+slot and before writing any payload word. With that task still waiting at
+priority 120, the high worker fills and drains all 511 other slots, verifies
+complete records in per-source order, and observes the first rejected sequence.
+The closed epoch remains pending with one occupied credit, one busy source and
+511 free physical slots. Neither finish nor restart is allowed. The coordinator
+then observes the high worker actually waiting at priority 180 before releasing
+the low producer. This checks that the owner can block while an unpublished
+obligation remains, allowing its lower-priority producer to run.
+
+The low producer publishes before notifying. If the owner dequeues before the
+producer retires its busy obligation, it can park again and receive the retirement
+wake. The terminal remains sticky until explicit finish. A second epoch rejects
+the old epoch, transfers two records with fresh bits, and crosses the source's
+512-entry index-ring wrap before cancellation, finish and both worker joins.
+Rust owns these phases; the existing native observer is unchanged.
+
+Polling checks at most three source lanes per call. The allocator can repeat
+its fixed-size bitmap scan under concurrent claims and returns; these retries
+have no established per-call bound on SMP. An admitted producer must not invent
+a full result or drop its accepted record because one scan found no free bit.
+This finite single-core schedule does not qualify arbitrary instruction-level
+preemption, SMP wait-freedom, hardware timing or worst-case execution time.
+
+The report separates 18,432 payload bytes, 3,072 index bytes, 64 bitmap bytes and
+24 cursor bytes: 21,592 bytes of raw components. Its inline storage size includes
+the bitmap, cursors and four boxed-slice descriptors; adding that size to all
+four components would double-count the bitmap and cursors. These numbers exclude
+the lifecycle gate, Arc, retained thread handle, allocator overhead and stacks.
+The pool retains its arena while inactive, whereas production capture releases
+its record buffer after finish. Target atomic-width flags establish availability,
+not the compiler's exact instruction sequence; the retained ELF still needs
+inspection. Product adoption also requires the real owner batch/wake protocol,
+partial wire writes, lifecycle and memory-budget gates. Cross-source interleaving
+is a rotating merge, without a global reservation-order FIFO promise.
+
 ## Execution contract and limits
 
 Native runs require flat, single-core NuttX. The selected suite fixes the
@@ -146,6 +196,7 @@ runtime observations must agree.
 | `mutex-inherit` | Enabled | `INHERIT` | `std-mutex-inherit`, `std-mutex-nested` |
 | `mutex-no-inherit` | Enabled | `NONE` | `std-mutex-no-inherit` |
 | `publication` | Enabled | `INHERIT` | `publication-progress`, `std-mutex-inherit` |
+| `capture` | Enabled | `INHERIT` | `capture-pool-progress`, `std-mutex-inherit` |
 
 The mutex pair keeps kernel PI enabled and changes the pthread default rather
 than treating kernel support as proof that a mutex inherits. Native `nxmutex`
@@ -158,7 +209,7 @@ The frontend compares target libc and native pthread layouts after linking,
 before accepting the build. That ABI gate's `pthread_rwlock_t` coverage does
 not qualify Rust `RwLock` donation; these runtime cases exercise Rust mutexes.
 
-The inherit and publication suites use the normal
+The inherit, publication and capture suites use the normal
 [resource-mutex policy](../../docs/build-system.md#resource-mutex-policy), including
 `CONFIG_SEM_PREALLOCHOLDERS=0` for embedded holder records. The owner suite
 deliberately requests `kernel-pi-disabled` to preserve its scheduling baseline;
@@ -178,6 +229,8 @@ coordinator priority 220. The nested case uses owner priority 120, nine waiter
 priorities from 140 through 180 in steps of five, and coordinator priority 220.
 The production publication case uses two separate priority-120 paused peers,
 two priority-180 progress workers, and a priority-220 coordinator.
+The pooled capture case uses a priority-120 producer, a priority-180 owner and
+a priority-220 coordinator.
 Every participant records native thread ID, policy
 and priority before entry, at entry, before exit and after restoring its
 previous schedule. The parser checks the complete inventory and restoration.
@@ -232,6 +285,8 @@ fields, `native_waits: 0`, and `mutex.native: null` for the HML pair. Host neste
 runs also retain null native configuration and holder snapshots.
 Host publication reports retain null native configuration and paused-peer
 snapshots. Their progress, lifecycle and allocation observations remain host evidence.
+Host pooled capture reports likewise retain null native configuration and task
+snapshots; their accounting and lifecycle checks do not establish a NuttX schedule.
 Host runs cannot establish NuttX PI or fixed-priority progress. Frozen historical
 P1/P2 artifacts remain separate evidence for their exact source revisions.
 
@@ -301,6 +356,9 @@ eleven-case host receipts do not acquire the new claim. A publication-suite
 receipt without that source is rejected. Retained source inventories include
 navigation, Motion Tracker and the diagnostic allocator in addition to the
 fixture and its existing platform dependencies.
+`capture-pool-progress` requires its scenario plus both shared gate and pool
+sources. Earlier twelve-case host receipts retain their original inventory;
+a current capture receipt missing any of these three sources is rejected.
 Receipts that predate the policy field keep their historical configuration
 claims and are not relabeled as evidence for the new default.
 
@@ -310,6 +368,21 @@ attest the physical board or operator’s flashing action. All results retain
 `production_qualified: false`.
 
 ## ARM QEMU execution
+
+Build the capture candidate and its mutex control through the same normal
+frontend, then use the qualified emulator described below:
+
+```sh
+python3 tests/owner-qualification/workflow.py build \
+  --profile mps2-an521-mock --suite capture --out /tmp/capture-pool-build
+python3 tests/owner-qualification/qemu.py \
+  --build /tmp/capture-pool-build --out /tmp/capture-pool-qemu \
+  --qemu target/owner-qemu-tools/qemu-system-arm
+```
+
+Each selected case runs in a fresh boot and is independently replayed. Hardware
+profiles can build the same fixture; emulator execution does not qualify those
+physical boards.
 
 The MPS2 clock also needs the SDK's ARMv8-M SysTick correction in
 `0149-armv8m-systick-coherent-status.patch`. The pinned timer driver could pair
@@ -470,7 +543,7 @@ python3 -m unittest discover -s tests/owner-qualification -p 'test_*.py'
 ```
 
 The host command builds the current release source with a bound identity, runs
-all twelve cases in separate fresh processes and replays every retained result.
+all thirteen cases in separate fresh processes and replays every retained result.
 Parser controls use explicitly synthetic records to reject missing joins,
 incorrect priority/phase evidence, host-to-target relabeling, wrong image or
 source, late native failure, malformed sessions, duplicate output and altered
@@ -480,4 +553,7 @@ incomplete nested holder accounting, and missing second-round reuse.
 Publication controls reject missing paused peers, lost freshness or terminal
 state, changed comparison scope, allocator activity in a zero-call window,
 discontinuous allocation accounting and incomplete reclamation.
+Pooled capture controls reject changed capacity, slot/obligation checkpoints,
+missing or mismatched native pauses, stale-epoch or terminal claims, and
+unsupported storage layouts. Historical receipts cannot acquire the new case.
 They check evidence admission and do not create physical results.

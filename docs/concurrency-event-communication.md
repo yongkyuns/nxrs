@@ -191,6 +191,17 @@ rejected record's source and sequence on overflow. A wake tells communications
 to inspect that retained work. The admission, overflow and wake gates for a
 capture replacement are tracked in [#446](https://github.com/yongkyuns/nxrs/issues/446).
 
+The production capture's wake destination can be replaced after the previous
+communications worker has joined. Registration installs the new thread handle
+under a dedicated owner mutex and retires the old handle after unlocking.
+Acquisition retains fault/readiness flags before trying that mutex for a wake;
+it neither waits for this owner lock nor clones or retires a thread handle.
+Active communications has a bounded poll or service deadline, while starting
+work from idle has its own control wake. Queue allocation and retirement stay
+outside the payload mutex, and fault publication does not need that mutex.
+This repairs joined-owner reuse without changing the ordered payload transport
+or making the complete acquisition callback nonblocking.
+
 The [host capture comparison](../tests/mpsc-comparison/README.md#host-capture-admission-comparison)
 uses the actual export implementation and wire oracle. It compares equal total
 capacity with desktop std MPSC and fixed per-source SPSC queues. A nominal
@@ -201,22 +212,38 @@ admits all 404, then admits only 406 of a three-second, 606-record workload whil
 therefore changes admission behavior. The comparison retains non-Copy ownership,
 overflow/restart and epoch-boundary controls.
 
-A fixture-only concurrent protocol now uses one atomic word to reserve a shared
-credit, validate the captured epoch and retain each source's outstanding
-publication obligation. Its desktop std MPSC adapter still has 512 shared
-payload slots. A producer paused after admission or after closing for overflow
-keeps retirement Pending; an empty queue cannot authorize terminal delivery or
-restart. Cancelling an epoch accounts for discarded accepted work and waits for
-producer retirement before reuse. Terminal state remains available until the
-owner explicitly finishes the closed epoch. A forgotten permit keeps its source busy,
-and epoch exhaustion fails explicitly instead of wrapping.
+One fixture-only lifecycle gate now serves both the non-Copy desktop std MPSC
+reference and an actual pooled scalar adapter. Its atomic state reserves shared
+credits, validates the captured epoch and retains each source's publication
+obligation. An empty queue cannot authorize terminal delivery or restart while
+a producer is still entitled to publish. Cancellation accounts for accepted work
+before reuse, terminals remain available until explicit owner retirement, and
+epoch exhaustion fails instead of wrapping.
 
-The host fixture checks controlled concurrent schedules and per-source FIFO.
-It does not preserve a total order of cross-source credit reservations or
-qualify a NuttX payload transport. The actual pooled transport, communications
-owner wake protocol, partial writes, client compatibility, target memory budget
-and scheduling remain integration gates. Production capture retains its current
-pool until those requirements are met.
+The [pooled adapter and its 22 host controls](../tests/mpsc-comparison/README.md#shared-pooled-payload-transport)
+use 512 shared payload slots, three source-owned index rings and a free-slot
+bitmap. Release/acquire cursor publication exposes complete records; physical
+storage returns before logical credit, including during unwind. A paused source
+does not hide another source's published records. Owner drop closes admission,
+remaining endpoints retain in-flight storage, and opening rechecks last-source
+retirement. The original 24 reference lifecycle cases remain independent checks
+of the shared gate.
+
+The recorded host setup requests 21,712 B in five allocations. The raw payload,
+index, bitmap and cursor components occupy 18,432 + 3,072 + 64 + 24 B; these are
+included in that setup total. First use and 4,096 steady round trips make no Rust
+allocator calls. The candidate retains its whole arena while inactive and fully
+reclaims it at final endpoint teardown. Production releases its 20,480 B payload
+allocation on finish; those different allocation scopes and lifetimes are not a
+complete product heap comparison.
+
+These fixtures check controlled host schedules and per-source FIFO, not a total
+order of cross-source reservations. The native pool-progress scenario is
+prepared, but no successful native build or execution is included in this
+record. CAS and bitmap retries have no per-call SMP bound. Communications wake
+and batch-deadline integration, partial writes, client compatibility, target
+memory and scheduling remain gates. Production keeps its mutex-protected shared
+payload queue; the pooled candidate has not been integrated.
 
 #### ARM product build comparison
 
@@ -247,7 +274,9 @@ The later entry-task correction raises the `motion_tracker` reservation from
 14,848 B to 16,384 B, adding 1,536 B of requested task stack. This cost is
 separate from the retained 10,900 B static-SRAM measurements and was not present
 in those two measured images. The [coexistence fixture](../tests/nuttx-std/tracker-sim/README.md)
-records the observed peak, projected margin and required native rerun.
+records the later export run at `3e841457`: 3,448 of 15,864 usable bytes remained
+free (21.7%). Its separate map startup failed before the first frame; that
+export result does not qualify the map path or subsequent source changes.
 
 Both images completed two sequential four-frame runs in a fresh MPS2 QEMU
 8.2.7 boot using `motion_tracker --interval-ms 100 --frames 4 --stream-usb --ble`.
@@ -356,6 +385,12 @@ and both combined runs. During the 7 s acknowledgment hold, both IMUs kept
 sampling and the peer received all 1,103 admitted records before the expected
 overflow marker.
 
+The dual-IMU profile also runs NuttX LPWORK at 99 because it dispatches BLE
+callbacks. The physical comparison in [#467](https://github.com/yongkyuns/nxrs/pull/467)
+recorded 71 I²C transfers of at least 1.8 ms across the matched Mac control and
+combined-load runs, down from 257 with LPWORK at 100. These remain measurements
+of that fixed-reader product configuration.
+
 The matched fixed-reader build added 3,348 bytes of linked flash and 104 bytes to the boot
 image. Publication setup used 3,720 bytes of heap versus 480 bytes. Static RAM
 and task stack reservations were identical.
@@ -436,6 +471,14 @@ they do not make a finite important queue incapable of overflowing.
 Source rates, burst bounds, capacities, permitted retry storage and overflow
 visibility are part of the resource contract. HAL acquisition must not block
 indefinitely on the consumer and become unable to drain hardware or cancel.
+
+Assign task priorities using service deadlines and dependencies. A sensor
+drain should preempt bulk export and rendering when the device buffer requires
+it. Include the driver work that makes the acquisition task runnable. For
+example, GNSS UART service follows receive-buffer headroom at the configured
+baud rate. The fix cadence only describes when fixes are published. Verify
+effective priorities and measure worker wake latency and sample loss with slow
+or stalled consumers.
 
 Lifecycle meanings are separate:
 

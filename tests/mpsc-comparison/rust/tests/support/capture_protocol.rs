@@ -6,41 +6,15 @@ use std::cell::Cell;
 use std::collections::{BTreeMap, BTreeSet};
 use std::marker::PhantomData;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU32, AtomicUsize, Ordering::*};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering::*};
 use std::sync::mpsc::{self, Receiver, SyncSender, TryRecvError};
 use std::thread::{self, Thread};
 use std::time::{Duration, Instant};
 
-const CAPACITY: u32 = 512;
-const OCCUPIED_SHIFT: u32 = 2;
-const OCCUPIED_MASK: u32 = 1023 << OCCUPIED_SHIFT;
-const BUSY_SHIFT: u32 = 12;
-const BUSY_MASK: u32 = 7 << BUSY_SHIFT;
-const EPOCH_SHIFT: u32 = 15;
-const MAX_EPOCH: u32 = (1 << 17) - 1;
-const INACTIVE: u32 = 0;
-const OPEN: u32 = 1;
-const OVERFLOW: u32 = 2;
-const CANCELLED: u32 = 3;
-
-fn phase(word: u32) -> u32 {
-    word & 3
-}
-fn occupied(word: u32) -> u32 {
-    (word & OCCUPIED_MASK) >> OCCUPIED_SHIFT
-}
-fn epoch(word: u32) -> u32 {
-    word >> EPOCH_SHIFT
-}
-fn busy(source: u8) -> u32 {
-    1 << (BUSY_SHIFT + u32::from(source))
-}
-
-#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
-struct Key {
-    source: u8,
-    sequence: u32,
-}
+use super::capture_gate::{
+    CAPACITY, Claim as GateClaim, Closing as GateClosing, Credit, Gate as Shared, Key, MAX_EPOCH,
+    Phase, Rejection, StartError, Status,
+};
 
 // Deliberately neither Copy nor Clone. The external oracle retains its drop
 // witness; queue ownership and credit release are not inferred from Drop.
@@ -63,53 +37,6 @@ struct Envelope {
     payload: Payload,
 }
 
-struct Shared {
-    // phase:2, occupied credits:10, exclusive source busy bits:3, epoch:17.
-    // Busy and occupied are independent: a consumer can pop before the sender
-    // retires its busy obligation. A forgotten permit cannot overflow a count.
-    word: AtomicU32,
-    missing_sequence: AtomicU32,
-    missing_source: AtomicU8, // 0 unpublished; source + 1 after publication.
-    ready: AtomicBool,
-    owner: Thread,
-    wake_calls: AtomicUsize, // Test witness only; not admission state.
-}
-
-impl Shared {
-    fn retire(&self, source: u8, admitted_epoch: u32, release_credit: bool, cancel: bool) {
-        let mut before = self.word.load(Acquire);
-        loop {
-            assert_eq!(epoch(before), admitted_epoch);
-            assert_ne!(before & busy(source), 0);
-            let mut after = before & !busy(source);
-            if release_credit {
-                assert!(occupied(before) > 0);
-                after -= 1 << OCCUPIED_SHIFT;
-            }
-            if cancel {
-                after = (after & !3) | CANCELLED;
-            }
-            match self
-                .word
-                .compare_exchange_weak(before, after, AcqRel, Acquire)
-            {
-                Ok(_) => return,
-                Err(changed) => before = changed,
-            }
-        }
-    }
-
-    fn notify(&self) {
-        self.ready.store(true, Release);
-        self.wake_owner();
-    }
-
-    fn wake_owner(&self) {
-        self.owner.unpark();
-        self.wake_calls.fetch_add(1, SeqCst);
-    }
-}
-
 struct Publisher {
     source: u8,
     shared: Arc<Shared>,
@@ -122,12 +49,6 @@ struct Owner {
     receiver: Receiver<Envelope>,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum Rejection {
-    Full,
-    Closed,
-    Busy,
-}
 struct Rejected {
     reason: Rejection,
     payload: Payload,
@@ -139,31 +60,19 @@ enum Claim<'a> {
 }
 
 struct Permit<'a> {
-    publisher: &'a mut Publisher,
+    credit: Credit<'a>,
+    sender: &'a SyncSender<Envelope>,
     epoch: u32,
     payload: Option<Payload>,
-    published: bool,
-    active: bool,
-    notify_pending: bool,
 }
 
 struct Closing<'a> {
-    publisher: &'a mut Publisher,
-    epoch: u32,
+    closing: GateClosing<'a>,
     payload: Option<Payload>,
-    active: bool,
 }
 
 fn channel(initial_epoch: u32, owner: Thread) -> (Owner, [Publisher; 3]) {
-    assert!(initial_epoch <= MAX_EPOCH);
-    let shared = Arc::new(Shared {
-        word: AtomicU32::new(initial_epoch << EPOCH_SHIFT),
-        missing_sequence: AtomicU32::new(0),
-        missing_source: AtomicU8::new(0),
-        ready: AtomicBool::new(false),
-        owner,
-        wake_calls: AtomicUsize::new(0),
-    });
+    let shared = Arc::new(Shared::new(initial_epoch, owner));
     let (sender, receiver) = mpsc::sync_channel(CAPACITY as usize);
     let publishers = std::array::from_fn(|source| Publisher {
         source: source as u8,
@@ -176,7 +85,7 @@ fn channel(initial_epoch: u32, owner: Thread) -> (Owner, [Publisher; 3]) {
 
 impl Publisher {
     fn captured_epoch(&self) -> u32 {
-        epoch(self.shared.word.load(Acquire))
+        self.shared.captured_epoch()
     }
 
     fn reserve(&mut self, captured_epoch: u32, payload: Payload) -> Claim<'_> {
@@ -190,54 +99,23 @@ impl Publisher {
         before_compare: impl FnOnce(),
     ) -> Claim<'_> {
         assert_eq!(payload.key.source, self.source);
-        let mut before_compare = Some(before_compare);
-        let mut before = self.shared.word.load(Acquire);
-        loop {
-            assert!(occupied(before) <= CAPACITY);
-            let reason = if epoch(before) != captured_epoch || phase(before) != OPEN {
-                Some(Rejection::Closed)
-            } else if before & busy(self.source) != 0 {
-                Some(Rejection::Busy)
-            } else {
-                None
-            };
-            if let Some(reason) = reason {
-                return Claim::Rejected(Rejected { reason, payload });
-            }
-            let full = occupied(before) == CAPACITY;
-            let after = if full {
-                ((before & !3) | OVERFLOW) | busy(self.source)
-            } else {
-                (before + (1 << OCCUPIED_SHIFT)) | busy(self.source)
-            };
-            if let Some(hook) = before_compare.take() {
-                hook();
-            }
-            match self
-                .shared
-                .word
-                .compare_exchange_weak(before, after, AcqRel, Acquire)
-            {
-                Ok(_) if full => {
-                    return Claim::Full(Closing {
-                        publisher: self,
-                        epoch: captured_epoch,
-                        payload: Some(payload),
-                        active: true,
-                    });
-                }
-                Ok(_) => {
-                    return Claim::Accepted(Permit {
-                        publisher: self,
-                        epoch: captured_epoch,
-                        payload: Some(payload),
-                        published: false,
-                        active: true,
-                        notify_pending: false,
-                    });
-                }
-                Err(changed) => before = changed,
-            }
+        match self.shared.reserve_with(
+            self.source,
+            captured_epoch,
+            payload.key.sequence,
+            before_compare,
+        ) {
+            GateClaim::Accepted(credit) => Claim::Accepted(Permit {
+                credit,
+                sender: &self.sender,
+                epoch: captured_epoch,
+                payload: Some(payload),
+            }),
+            GateClaim::Full(closing) => Claim::Full(Closing {
+                closing,
+                payload: Some(payload),
+            }),
+            GateClaim::Rejected(reason) => Claim::Rejected(Rejected { reason, payload }),
         }
     }
 }
@@ -253,7 +131,7 @@ impl Permit<'_> {
             epoch: self.epoch,
             payload: self.payload.take().unwrap(),
         };
-        if let Err(error) = self.publisher.sender.try_send(envelope) {
+        if let Err(error) = self.sender.try_send(envelope) {
             self.payload = Some(match error {
                 mpsc::TrySendError::Full(value) | mpsc::TrySendError::Disconnected(value) => {
                     value.payload
@@ -261,55 +139,18 @@ impl Permit<'_> {
             });
             panic!("reserved pooled credit could not commit to its live payload adapter");
         }
-        // Once transport owns the value, unwinding must not release its credit:
-        // the owner might already have dequeued it while this source stays busy.
-        self.published = true;
+        // Storage owns the payload before any hook can unwind or the source
+        // obligation can retire. Only the consumer returns a published credit.
+        self.credit.mark_published();
         after_send();
-        self.publisher
-            .shared
-            .retire(self.publisher.source, self.epoch, false, false);
-        self.active = false;
-        self.notify_pending = true;
-        self.publisher.shared.ready.store(true, Release);
-        after_ready();
-        self.publisher.shared.wake_owner();
-        self.notify_pending = false;
-    }
-}
-
-impl Drop for Permit<'_> {
-    fn drop(&mut self) {
-        if self.active {
-            // Abandoning admitted work cancels the epoch, including when it was
-            // already overflow-closed. It cannot masquerade as a complete drain.
-            self.publisher
-                .shared
-                .retire(self.publisher.source, self.epoch, !self.published, true);
-            self.publisher.shared.notify();
-        } else if self.notify_pending {
-            // A fixture panic after readiness publication must not strand an
-            // already sleeping owner. The committed record remains admitted.
-            self.publisher.shared.notify();
-        }
+        self.credit.finish_with(after_ready);
     }
 }
 
 impl Closing<'_> {
     fn publish(mut self) -> Rejected {
         let payload = self.payload.take().unwrap();
-        self.publisher
-            .shared
-            .missing_sequence
-            .store(payload.key.sequence, Relaxed);
-        self.publisher
-            .shared
-            .missing_source
-            .store(self.publisher.source + 1, Release);
-        self.publisher
-            .shared
-            .retire(self.publisher.source, self.epoch, false, false);
-        self.active = false;
-        self.publisher.shared.notify();
+        self.closing.publish();
         Rejected {
             reason: Rejection::Full,
             payload,
@@ -317,39 +158,12 @@ impl Closing<'_> {
     }
 }
 
-impl Drop for Closing<'_> {
-    fn drop(&mut self) {
-        if self.active {
-            self.publisher
-                .shared
-                .retire(self.publisher.source, self.epoch, false, true);
-            self.publisher.shared.notify();
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum StartError {
-    Pending,
-    Exhausted,
-    Disconnected,
-}
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum Status {
-    Inactive,
-    Open,
-    Pending,
-    Overflow(Key),
-    Cancelled,
-}
-
 impl Owner {
     fn begin(&mut self) -> Result<u32, StartError> {
-        let before = self.shared.word.load(Acquire);
-        if phase(before) != INACTIVE || occupied(before) != 0 || before & BUSY_MASK != 0 {
+        if self.shared.phase() != Phase::Inactive || self.shared.obligations() != (0, 0) {
             return Err(StartError::Pending);
         }
-        if epoch(before) == MAX_EPOCH {
+        if self.shared.captured_epoch() == MAX_EPOCH {
             return Err(StartError::Exhausted);
         }
         match self.receiver.try_recv() {
@@ -357,38 +171,11 @@ impl Owner {
             Err(TryRecvError::Disconnected) => return Err(StartError::Disconnected),
             Ok(_) => panic!("new epoch would overwrite retained payload"),
         }
-        // Only this exclusive owner resets marker storage, before publishing
-        // the next epoch, after all prior participants have retired.
-        self.shared.missing_source.store(0, Relaxed);
-        self.shared.missing_sequence.store(0, Relaxed);
-        self.shared.ready.store(false, Relaxed);
-        let next = epoch(before) + 1;
-        self.shared
-            .word
-            .compare_exchange(before, (next << EPOCH_SHIFT) | OPEN, AcqRel, Acquire)
-            .unwrap();
-        Ok(next)
+        self.shared.begin()
     }
 
     fn cancel(&mut self) {
-        let mut before = self.shared.word.load(Acquire);
-        loop {
-            if matches!(phase(before), INACTIVE | CANCELLED) {
-                return;
-            }
-            match self.shared.word.compare_exchange_weak(
-                before,
-                (before & !3) | CANCELLED,
-                AcqRel,
-                Acquire,
-            ) {
-                Ok(_) => {
-                    self.shared.notify();
-                    return;
-                }
-                Err(changed) => before = changed,
-            }
-        }
+        self.shared.cancel();
     }
 
     fn drain(&mut self, limit: usize) -> Vec<Payload> {
@@ -396,83 +183,40 @@ impl Owner {
         for _ in 0..limit {
             let envelope = match self.receiver.try_recv() {
                 Ok(value) => value,
-                Err(TryRecvError::Empty) => break,
-                Err(TryRecvError::Disconnected) => break,
+                Err(TryRecvError::Empty | TryRecvError::Disconnected) => break,
             };
-            let mut before = self.shared.word.load(Acquire);
-            loop {
-                assert_eq!(
-                    epoch(before),
-                    envelope.epoch,
-                    "old payload crossed an epoch boundary"
-                );
-                assert!(occupied(before) > 0 && occupied(before) <= CAPACITY);
-                match self.shared.word.compare_exchange_weak(
-                    before,
-                    before - (1 << OCCUPIED_SHIFT),
-                    AcqRel,
-                    Acquire,
-                ) {
-                    Ok(_) => break,
-                    Err(changed) => before = changed,
-                }
-            }
+            assert_eq!(
+                self.shared.captured_epoch(),
+                envelope.epoch,
+                "old payload crossed an epoch boundary"
+            );
+            self.shared.release_credit();
             values.push(envelope.payload);
         }
         values
     }
 
     fn status(&mut self) -> Status {
-        let before = self.shared.word.load(Acquire);
-        assert!(occupied(before) <= CAPACITY);
-        match phase(before) {
-            INACTIVE => Status::Inactive,
-            OPEN => Status::Open,
-            _ if occupied(before) != 0 || before & BUSY_MASK != 0 => Status::Pending,
-            closing => {
-                assert!(matches!(
-                    self.receiver.try_recv(),
-                    Err(TryRecvError::Empty | TryRecvError::Disconnected)
-                ));
-                let result = if closing == OVERFLOW {
-                    let source = self.shared.missing_source.load(Acquire);
-                    assert!(
-                        (1..=3).contains(&source),
-                        "terminal before missing-marker publication"
-                    );
-                    Status::Overflow(Key {
-                        source: source - 1,
-                        sequence: self.shared.missing_sequence.load(Relaxed),
-                    })
-                } else {
-                    Status::Cancelled
-                };
-                result
-            }
+        let status = self.shared.status();
+        if matches!(status, Status::Overflow(_) | Status::Cancelled) {
+            assert!(matches!(
+                self.receiver.try_recv(),
+                Err(TryRecvError::Empty | TryRecvError::Disconnected)
+            ));
         }
+        status
     }
 
     fn finish(&mut self) -> Result<Status, StartError> {
-        let status = self.status();
-        if !matches!(status, Status::Overflow(_) | Status::Cancelled) {
-            return Err(StartError::Pending);
-        }
-        let before = self.shared.word.load(Acquire);
-        assert_eq!(occupied(before), 0);
-        assert_eq!(before & BUSY_MASK, 0);
-        self.shared
-            .word
-            .compare_exchange(before, before & !3, AcqRel, Acquire)
-            .unwrap();
-        Ok(status)
+        self.status();
+        self.shared.finish()
     }
 
     fn take_ready(&mut self) -> bool {
-        self.shared.ready.swap(false, AcqRel)
+        self.shared.take_ready()
     }
     fn obligations(&self) -> (u32, u32) {
-        let word = self.shared.word.load(Acquire);
-        (occupied(word), (word & BUSY_MASK) >> BUSY_SHIFT)
+        self.shared.obligations()
     }
 }
 
@@ -862,7 +606,7 @@ fn paused_marker() {
         wait(&observed);
         audit.received(owner.drain(512), false);
         assert_eq!(owner.obligations(), (0, 1));
-        assert_eq!(owner.shared.missing_source.load(Acquire), 0);
+        assert_eq!(owner.shared.marker(), None);
         assert_eq!(owner.status(), Status::Pending);
         assert_eq!(owner.begin(), Err(StartError::Pending));
         let payload = audit.payload(2, 0);
@@ -1034,13 +778,13 @@ fn abandoned_permits(closing: bool) {
         audit.accepted(key);
         let full = audit.payload(2, 0);
         audit.attempt(attempt(&mut closer, epoch, full));
-        assert_eq!(phase(owner.shared.word.load(Acquire)), OVERFLOW);
+        assert_eq!(owner.shared.phase(), Phase::Overflow);
         drop(permit);
         assert!(audit.discarded.insert(key));
     }
     // A lost accepted value or missing terminal identity cancels the export;
     // neither path is allowed to report a successful overflow drain.
-    assert_eq!(phase(owner.shared.word.load(Acquire)), CANCELLED);
+    assert_eq!(owner.shared.phase(), Phase::Cancelled);
     audit.received(owner.drain(512), true);
     completed(&mut owner, Status::Cancelled);
     report(
@@ -1120,7 +864,7 @@ fn published_unwind_after_dequeue() {
         worker.join().unwrap();
     });
     assert_eq!(owner.obligations(), (0, 0));
-    assert_eq!(owner.shared.wake_calls.load(SeqCst), 1);
+    assert_eq!(owner.shared.wake_count(), 1);
     completed(&mut owner, Status::Cancelled);
     report("published-unwind-after-dequeue", &audit, &[]);
 }
@@ -1290,11 +1034,11 @@ fn host_wake(schedule: WakeSchedule) {
         WakeSchedule::Delayed => permit.commit_with(
             || {},
             || {
-                assert_eq!(shared.wake_calls.load(SeqCst), 0);
+                assert_eq!(shared.wake_count(), 0);
                 wait(&observed_rx);
                 // Readiness/commit are already visible, but native notification
                 // has not happened. The owner's bounded poll permits progress.
-                assert_eq!(shared.wake_calls.load(SeqCst), 0);
+                assert_eq!(shared.wake_count(), 0);
             },
         ),
         WakeSchedule::Unwind => {
@@ -1302,7 +1046,7 @@ fn host_wake(schedule: WakeSchedule) {
                 permit.commit_with(
                     || {},
                     || {
-                        assert_eq!(shared.wake_calls.load(SeqCst), 0);
+                        assert_eq!(shared.wake_count(), 0);
                         // Intentional unwind without replacing the global panic
                         // hook or suppressing unrelated watchdog diagnostics.
                         std::panic::resume_unwind(Box::new("fixture after-ready unwind"));
@@ -1312,7 +1056,7 @@ fn host_wake(schedule: WakeSchedule) {
             assert!(result.is_err());
         }
     }
-    assert_eq!(shared.wake_calls.load(SeqCst), 1);
+    assert_eq!(shared.wake_count(), 1);
     let (mut owner, payloads) = worker.join().unwrap();
     assert_eq!(owner.obligations(), (0, 0));
     audit.received(payloads, false);

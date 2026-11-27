@@ -1,14 +1,17 @@
 import asyncio
 import contextlib
 import io
+import json
 from pathlib import Path
+import tempfile
 from types import SimpleNamespace
 import tomllib
 import unittest
+from unittest.mock import AsyncMock, call, patch
 
 from bumble.hci import HCI_Reset_Command
 from coexist import STACK_TASKS, check_stack_headroom
-from dashboard import Guest, H4Controller
+from dashboard import Guest, H4Controller, Qmp, resume_guest, retain_failure
 
 
 def snapshot(used, tracker_size=1000):
@@ -69,3 +72,106 @@ class StartupDiagnosticsTests(unittest.IsolatedAsyncioTestCase):
             RuntimeError, r'-5 \(register H4 controller\)\nH4 startup: command 0x0c03, complete 0x0c03'
         ):
             await reader
+
+
+class QmpWriter:
+    def __init__(self):
+        self.requests = []
+        self.closed = False
+
+    def write(self, value):
+        self.requests.append(json.loads(value))
+
+    async def drain(self):
+        pass
+
+    def close(self):
+        self.closed = True
+
+    async def wait_closed(self):
+        pass
+
+
+class QmpDiagnosticsTests(unittest.IsolatedAsyncioTestCase):
+    async def test_resume_retains_the_session_and_matches_response_ids(self):
+        reader, writer = asyncio.StreamReader(), QmpWriter()
+        for reply in [
+            {'QMP': {'version': {'qemu': {'major': 9, 'minor': 0, 'micro': 0}}}},
+            {'return': {}, 'id': 1},
+            {'event': 'RESUME'},
+            {'return': 'stale reply', 'id': 1},
+            {'return': {}, 'id': 2},
+        ]:
+            reader.feed_data(json.dumps(reply).encode() + b'\n')
+        with patch('dashboard.asyncio.open_unix_connection', AsyncMock(return_value=(reader, writer))):
+            monitor = await resume_guest(Path('unused'))
+        self.assertFalse(writer.closed)
+        self.assertEqual(writer.requests, [
+            {'execute': 'qmp_capabilities', 'id': 1},
+            {'execute': 'cont', 'id': 2},
+        ])
+        await monitor.close()
+        self.assertTrue(writer.closed)
+
+    async def test_command_rejects_errors_eof_and_an_unresponsive_monitor(self):
+        reader = asyncio.StreamReader()
+        monitor = Qmp(reader, QmpWriter(), {})
+        reader.feed_data(b'{"error":{"desc":"unsupported"},"id":1}\n')
+        with self.assertRaisesRegex(RuntimeError, 'unsupported'):
+            await monitor.command('stop')
+        reader.feed_eof()
+        with self.assertRaisesRegex(EOFError, 'QMP closed'):
+            await monitor.command('stop')
+        monitor = Qmp(asyncio.StreamReader(), QmpWriter(), {})
+        with self.assertRaises(TimeoutError):
+            await monitor.command('stop', timeout=0.01)
+
+    async def test_failure_stops_guest_and_retains_both_cores(self):
+        monitor = SimpleNamespace(
+            greeting={'version': {'qemu': {'major': 9}}},
+            command=AsyncMock(side_effect=[{}, 'EPC6=42001234 DEBUGCAUSE=00000008', 'PC=40000400']),
+        )
+        error = TimeoutError('complete panel frame')
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / 'tiles.log'
+            await retain_failure(monitor, error, path, Path('firmware/nuttx.merged.bin'))
+            report = json.loads(path.with_suffix('.failure.json').read_text())
+        self.assertEqual(report['failure'], {'type': 'TimeoutError', 'message': 'complete panel frame'})
+        self.assertTrue(report['stopped'])
+        self.assertEqual(report['elf'], 'firmware/nuttx')
+        self.assertEqual(report['registers'], {'0': 'EPC6=42001234 DEBUGCAUSE=00000008', '1': 'PC=40000400'})
+        self.assertEqual(report['diagnostic_errors'], [])
+        self.assertEqual(monitor.command.call_args_list, [
+            call('stop'),
+            call('human-monitor-command', {'command-line': 'info registers', 'cpu-index': 0}),
+            call('human-monitor-command', {'command-line': 'info registers', 'cpu-index': 1}),
+        ])
+        self.assertEqual(error.args, ('complete panel frame',))
+
+    async def test_partial_diagnostics_do_not_hide_the_original_failure(self):
+        monitor = SimpleNamespace(greeting={}, command=AsyncMock(side_effect=[
+            TimeoutError('stop response'), RuntimeError('core unavailable'), 'EPC6=42005678',
+        ]))
+        error = AssertionError('map sample missing')
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / 'tiles.log'
+            await retain_failure(monitor, error, path, Path('firmware/nuttx.merged.bin'))
+            report = json.loads(path.with_suffix('.failure.json').read_text())
+        self.assertFalse(report['stopped'])
+        self.assertEqual(report['registers'], {'1': 'EPC6=42005678'})
+        self.assertEqual(len(report['diagnostic_errors']), 2)
+        self.assertEqual(error.args, ('map sample missing',))
+
+    async def test_unavailable_session_and_artifact_write_keep_original_error(self):
+        error = TimeoutError('original startup failure')
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / 'tiles.log'
+            await retain_failure(None, error, path, Path('firmware/nuttx.merged.bin'))
+            report = json.loads(path.with_suffix('.failure.json').read_text())
+        self.assertIsNone(report['qmp'])
+        self.assertEqual(report['registers'], {})
+        self.assertTrue(report['diagnostic_errors'])
+        with patch.object(Path, 'write_text', side_effect=OSError('storage unavailable')):
+            await retain_failure(None, error, Path('tiles.log'), Path('firmware/nuttx.merged.bin'))
+        self.assertIn('storage unavailable', error.__notes__[-1])
+        self.assertEqual(error.args, ('original startup failure',))

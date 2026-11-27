@@ -26,7 +26,7 @@ benchmark Cargo feature is added.
 
 The serial, harness-free
 [capture fixture](rust/tests/capture.rs) source-includes Motion Tracker's
-unchanged `Capture` and clock implementation. It compares their observable
+current `Capture` and clock implementation. It compares their observable
 capture behavior with desktop `std::sync::mpsc` and pinned `heapless::spsc`
 0.9.4 queue models. This is a host contract and storage comparison. It does not
 measure timing, run the patched NuttX std backend, or replace production capture.
@@ -43,8 +43,9 @@ cargo test --manifest-path tests/mpsc-comparison/rust/Cargo.toml \
 ```
 
 The executable emits `CAPTURE_METADATA`, `CAPTURE_COMPARE`, `CAPTURE_CHECK`,
-`CAPTURE_PROTOCOL` and `CAPTURE_GATES` JSON records. Metadata hashes the
-compiled-in capture, clock, fixture, protocol module, manifest and lockfile
+`CAPTURE_PROTOCOL`, `CAPTURE_POOL`, `CAPTURE_POOL_MEMORY` and `CAPTURE_GATES`
+JSON records. Metadata hashes the compiled-in capture, clock, fixture, lifecycle
+gate, reference adapter, pooled adapter, pool checks, manifest and lockfile
 bytes using Git blob SHA-1. Retain the
 whole output and the command's exit status. The existing allocation probe
 observes requested Rust heap bytes, not process RAM or native allocator use.
@@ -113,13 +114,16 @@ atomic commit barrier.
 
 ### Concurrent capture lifecycle fixture
 
-The separate [protocol module](rust/tests/support/capture_protocol.rs) exercises
-shared admission and retirement with real host threads and a 512-slot desktop
-std MPSC payload adapter. It is fixture-only, uses safe Rust, and introduces no
-production dependency, worker or payload queue. The original serial comparisons
-and epoch-only negative control remain independent reference checks. Per-value
-ownership witnesses and event accounting run outside the original allocation
-windows; they are not a product memory measurement.
+The [shared lifecycle gate](rust/tests/support/capture_gate.rs) owns admission,
+overflow identity, cancellation and retirement for two fixture-only payload
+adapters. The [reference adapter](rust/tests/support/capture_protocol.rs) uses
+real host threads, non-Copy payloads and a 512-slot desktop std MPSC queue. The
+[pooled adapter](rust/tests/support/capture_pool.rs) supplies actual shared
+scalar storage without a payload channel. Both use safe Rust and add no
+production dependency, worker or queue. The original serial comparisons and
+epoch-only negative control remain independent reference checks. Reference
+ownership witnesses and event accounting run outside the allocation windows;
+they are not a product memory measurement.
 
 One `AtomicU32` coordinates the following state:
 
@@ -174,13 +178,70 @@ They do not qualify desktop std MPSC as a nonblocking NuttX transport, prove
 bounded compare-and-exchange retries, or measure acquisition latency. The epoch
 limit is a prototype constraint, not an accepted product lifetime budget.
 
-Production capture stays unchanged. Adoption still requires the actual pooled
-payload transport and communications-owner wake/clear/recheck/sleep integration,
-transport/client compatibility, declared product stall and memory budgets, and
-native atomic and scheduling qualification. The candidate must carry its
-admission, retirement and cancellation guarantees through that integration.
-A queue model's zero steady-state Rust allocator calls does not establish those
-properties or an acquisition-latency improvement. See
+### Shared pooled payload transport
+
+The pooled adapter preallocates 512 shared payload slots, a free-slot bitmap and
+three source-owned index rings. Any source can use all 512 payload slots; the
+index rings do not partition payload capacity. A record stores its 64-bit time,
+sequence and six payload words as nine atomic 32-bit words. A release/acquire
+cursor publishes the complete payload and its slot index. The sole owner checks
+at most three source lanes and skips a producer that has not published yet.
+This preserves per-source FIFO, without imposing the mutex queue's cross-source
+order or proving a bound on the entire poll operation.
+
+Physical slots return before logical credits, so an admitted producer has
+backing storage available. Unwind cleanup follows the same order. A published
+record belongs to the consumer even if its publisher later unwinds. Dropping
+the owner closes admission; outstanding producers keep storage alive until they
+retire. Dropping the last publisher closes an open epoch without replacing an
+overflow terminal. Opening rechecks source lifetime: an empty disconnected epoch
+rolls back, while accepted records remain available for explicit accounting.
+
+The [22 pooled controls](rust/tests/support/capture_pool_checks.rs) check complete
+payload bits, nominal and skewed admission, source FIFO, full-ring reuse,
+cancellation/restart, unwind, owner drop and last-publisher races around opening.
+Three controlled pauses occur after slot claim, midway through payload writes,
+and before cursor publication. In each case another source publishes and the
+owner drains 511 records while the paused producer retains one obligation.
+The original 20 comparison rows, four controls and 24 reference lifecycle cases
+remain in the same executable.
+
+The [recorded host run](https://github.com/yongkyuns/nxrs/issues/446) requested
+**21,712 B in five setup allocations**. Its first offer/read and 4,096 subsequent
+round trips made zero Rust allocator calls. The raw storage components are:
+
+| Component | Layout | Bytes |
+| --- | --- | ---: |
+| Shared payloads | 512 × 9 atomic 32-bit words | 18,432 |
+| Source indices | 3 × 512 atomic 16-bit indices | 3,072 |
+| Free-slot bitmap | 16 atomic 32-bit words | 64 |
+| Published/consumed cursors | 3 × 2 atomic 32-bit words | 24 |
+| Raw component total | Included in the measured setup allocation | 21,592 |
+
+The remaining 120 requested bytes contain host structure/control metadata and
+alignment. Native allocator overhead, process RAM and stack high-water are not
+measured here. All **21,712 B remain allocated while inactive**; normal final
+endpoint teardown reclaims them. Production `Capture` instead releases its
+recorded **20,480 B payload allocation** on finish. Its payload allocation and
+the candidate's complete retained allocation are different denominators and
+lifetime policies, so their subtraction is not a full product heap comparison.
+
+Production ordered capture has not migrated to this adapter. Its separate
+owner-registration repair replaces a joined worker's wake handle and retains
+fault/readiness flags before a non-waiting notification attempt; queue allocation
+and retirement remain outside the payload lock. The `CAPTURE_GATES` record
+therefore reports `production_capture_changed: true` and
+`candidate_integrated: false`.
+
+The native `capture-pool-progress` scenario is prepared in the
+[owner qualification fixture](../owner-qualification/README.md), but this host
+record includes no successful native build or execution for the pool. Adoption
+still requires communications-owner wake/clear/recheck/sleep and batch-deadline
+integration, partial transport writes and client compatibility, product stall
+and memory budgets, and target atomic and scheduling qualification. Bitmap scans
+and compare-and-exchange retries have no per-call SMP bound. These controlled
+host schedules and zero allocator-call windows do not establish WCET, ISR
+suitability, physical acquisition latency or a whole-product deadline. See
 [#446](https://github.com/yongkyuns/nxrs/issues/446) and the
 [capture contract](../../docs/concurrency-event-communication.md#motion-tracker-observations-and-capture).
 

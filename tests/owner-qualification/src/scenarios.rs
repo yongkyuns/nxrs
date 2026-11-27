@@ -10,6 +10,7 @@ use wifi::{
 };
 use wifi_scan_owner::{channels, OwnerError, OwnerReport};
 
+pub mod capture_pool;
 pub mod latest;
 pub mod publication;
 
@@ -78,6 +79,7 @@ pub fn run(case: &str) -> Outcome {
         "std-mutex-nested" => crate::mutex_nested::run(),
         "latest-value-progress" => latest::run(),
         "publication-progress" => publication::run(),
+        "capture-pool-progress" => capture_pool::run(),
         _ => unreachable!(),
     }
 }

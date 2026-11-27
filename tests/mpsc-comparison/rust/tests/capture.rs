@@ -10,6 +10,12 @@ mod capture;
 #[path = "../../../../app/motion-tracker/src/clock.rs"]
 mod clock;
 
+#[path = "support/capture_gate.rs"]
+mod capture_gate;
+#[path = "support/capture_pool.rs"]
+mod capture_pool;
+#[path = "support/capture_pool_checks.rs"]
+mod capture_pool_checks;
 #[path = "support/capture_protocol.rs"]
 mod capture_protocol;
 
@@ -686,7 +692,7 @@ fn blob(bytes: &[u8]) -> String {
 fn main() {
     allocation_probe::begin_measurement();
     println!(
-        "CAPTURE_METADATA {{\"schema\":\"capture-comparison-v1\",\"runtime\":\"host\",\"timing\":\"not-measured\",\"std_backend\":\"desktop-standard-library\",\"heapless_version\":\"0.9.4\",\"heapless_features\":[],\"source_hash\":\"git-blob-sha1\",\"capture_blob\":\"{}\",\"clock_blob\":\"{}\",\"fixture_blob\":\"{}\",\"protocol_blob\":\"{}\",\"manifest_blob\":\"{}\",\"lock_blob\":\"{}\"}}",
+        "CAPTURE_METADATA {{\"schema\":\"capture-comparison-v1\",\"runtime\":\"host\",\"timing\":\"not-measured\",\"std_backend\":\"desktop-standard-library\",\"heapless_version\":\"0.9.4\",\"heapless_features\":[],\"source_hash\":\"git-blob-sha1\",\"capture_blob\":\"{}\",\"clock_blob\":\"{}\",\"fixture_blob\":\"{}\",\"protocol_blob\":\"{}\",\"gate_blob\":\"{}\",\"pool_blob\":\"{}\",\"pool_checks_blob\":\"{}\",\"manifest_blob\":\"{}\",\"lock_blob\":\"{}\"}}",
         blob(include_bytes!(
             "../../../../app/motion-tracker/src/communications/export.rs"
         )),
@@ -695,6 +701,9 @@ fn main() {
         )),
         blob(include_bytes!("capture.rs")),
         blob(include_bytes!("support/capture_protocol.rs")),
+        blob(include_bytes!("support/capture_gate.rs")),
+        blob(include_bytes!("support/capture_pool.rs")),
+        blob(include_bytes!("support/capture_pool_checks.rs")),
         blob(include_bytes!("../Cargo.toml")),
         blob(include_bytes!("../Cargo.lock")),
     );
@@ -718,6 +727,7 @@ fn main() {
         .chain((0..4).map(|sequence| Record::new(3, sequence)))
         .collect::<Vec<_>>();
     compare("uneven-source-burst", &uneven);
+    capture_pool_checks::allocation_windows(|| ALLOCATOR.snapshot());
     // Start only after allocation windows; an assertion in one barrier
     // participant must fail the process instead of hanging a scoped join.
     let (done, finished) = mpsc::sync_channel(0);
@@ -732,9 +742,10 @@ fn main() {
     capture_concurrent_overflow_and_restart();
     epoch_check_is_not_a_commit_barrier();
     capture_protocol::run();
+    capture_pool_checks::run();
     done.send(()).unwrap();
     watchdog.join().unwrap();
     println!(
-        "CAPTURE_GATES {{\"production_capture_changed\":false,\"candidate_integrated\":false,\"host_protocol_checked\":true,\"unmet\":[\"pooled-native-payload-transport\",\"protocol-integration-with-production-capture\",\"actual-owner-wake-clear-recheck-sleep\",\"partial-transport-and-client-compatibility\",\"declared-product-stall-and-memory-budgets\",\"native-atomic-and-scheduling-qualification\"],\"success\":true}}"
+        "CAPTURE_GATES {{\"production_capture_changed\":true,\"candidate_integrated\":false,\"host_protocol_checked\":true,\"pooled_transport_host_checked\":true,\"native_progress_qualified\":false,\"unmet\":[\"protocol-integration-with-production-capture\",\"actual-owner-wake-clear-recheck-sleep\",\"partial-transport-and-client-compatibility\",\"declared-product-stall-and-memory-budgets\",\"product-target-atomic-and-scheduling-qualification\"],\"success\":true}}"
     );
 }
