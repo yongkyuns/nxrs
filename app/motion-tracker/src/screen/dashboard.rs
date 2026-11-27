@@ -284,6 +284,9 @@ impl<D: Display> Screen<D> {
         self.next_plot
     }
 
+    // Keep the presentation turn and its scratch in one call frame instead of
+    // flattening them into the acquisition and lifecycle loop.
+    #[inline(never)]
     pub fn draw(
         &mut self,
         link: BleStatus,
