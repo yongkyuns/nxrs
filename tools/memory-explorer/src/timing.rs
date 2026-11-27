@@ -23,6 +23,10 @@ fn category_filter(filter: &str) -> Option<&str> {
         .map(str::trim)
 }
 
+fn outcome_filter(filter: &str) -> Option<&str> {
+    filter.strip_prefix("outcome:").map(str::trim)
+}
+
 fn category_matches(category: &str, filter: &str) -> bool {
     !filter.is_empty()
         && category
@@ -89,6 +93,15 @@ impl TimingEvent {
             .or_else(|| self.args.get("begin_args").and_then(|args| args.get(name)))
     }
 
+    /// Terminal evidence takes precedence for result fields. The ordinary
+    /// argument accessor continues to preserve the original caller and input.
+    pub fn result_argument(&self, name: &str) -> Option<&Value> {
+        self.args
+            .get("end_args")
+            .and_then(|args| args.get(name))
+            .or_else(|| self.argument(name))
+    }
+
     pub fn is_irq(&self) -> bool {
         self.category
             .split(',')
@@ -97,6 +110,16 @@ impl TimingEvent {
 
     pub fn is_heap(&self) -> bool {
         self.category.split(',').any(|part| part.trim() == "heap")
+    }
+
+    pub fn is_heap_call(&self) -> bool {
+        self.is_heap()
+            && (self
+                .category
+                .split(',')
+                .any(|part| matches!(part.trim(), "request" | "result"))
+                || self.argument("requested_bytes").is_some()
+                || self.argument("request_id").is_some())
     }
 
     pub fn is_callback(&self) -> bool {
@@ -119,30 +142,70 @@ impl TimingEvent {
     }
 
     pub fn requested_bytes(&self) -> Option<u64> {
-        self.is_heap()
-            .then(|| self.argument("requested_bytes").and_then(Value::as_u64))
-            .flatten()
+        (self.is_heap()
+            && self.argument("request_observed").and_then(Value::as_bool) != Some(false))
+        .then(|| self.argument("requested_bytes").and_then(Value::as_u64))
+        .flatten()
     }
 
     /// Explicit allocator result, when reported. Paired B/E spans can record
     /// the result at E while retaining caller and request size from B.
     /// Neither a missing result nor an unrelated allocation implies success.
     pub fn request_failed(&self) -> Option<bool> {
-        self.is_heap()
+        if !self.is_heap()
+            || self.argument("request_observed").and_then(Value::as_bool) == Some(false)
+            || self.result_argument("incomplete_reason").is_some()
+        {
+            return None;
+        }
+        // An explicit terminal outcome owns the result, including an unknown
+        // or unsupported outcome. Do not let a conflicting legacy flag replace
+        // it, or promote an orphan result into a correlated call.
+        for args in [
+            self.args.get("end_args"),
+            Some(&self.args),
+            self.args.get("begin_args"),
+        ]
+        .into_iter()
+        .flatten()
+        {
+            if let Some(outcome) = args.get("outcome") {
+                return match outcome.as_str() {
+                    Some("succeeded") => Some(false),
+                    Some("failed") => Some(true),
+                    _ => None,
+                };
+            }
+            if let Some(failed) = args.get("failed") {
+                return failed.as_bool();
+            }
+        }
+        None
+    }
+
+    pub fn failure_reason(&self) -> Option<&str> {
+        (self.request_failed() == Some(true))
             .then(|| {
-                self.args
-                    .get("end_args")
-                    .and_then(|args| args.get("failed"))
-                    .or_else(|| self.argument("failed"))
-                    .and_then(Value::as_bool)
+                self.result_argument("failure_reason")
+                    .and_then(Value::as_str)
             })
             .flatten()
+            .filter(|reason| !reason.trim().is_empty())
     }
 
     pub fn matches(&self, filter: &str) -> bool {
         let filter = filter.trim().to_lowercase();
         if let Some(category) = category_filter(&filter) {
             return category_matches(&self.category, category);
+        }
+        if let Some(outcome) = outcome_filter(&filter) {
+            return self.is_heap_call()
+                && match outcome {
+                    "failed" => self.request_failed() == Some(true),
+                    "succeeded" => self.request_failed() == Some(false),
+                    "unknown" => self.request_failed().is_none(),
+                    _ => false,
+                };
         }
         filter.is_empty()
             || self.name.to_lowercase().contains(&filter)
@@ -246,12 +309,15 @@ pub struct TimingSourceStats {
     pub requested_bytes: u128,
     pub failed_requests: usize,
     pub unknown_outcomes: usize,
+    /// Result endpoints with no admitted matching request. They contribute no
+    /// requested bytes, request count, or correlated success/failure.
+    pub unpaired_results: usize,
 }
 
 impl TimingTrace {
     pub fn event_matches(&self, event: &TimingEvent, filter: &str) -> bool {
         let filter = filter.trim().to_lowercase();
-        if category_filter(&filter).is_some() {
+        if category_filter(&filter).is_some() || outcome_filter(&filter).is_some() {
             return event.matches(&filter);
         }
         let track = &self.tracks[event.track];
@@ -318,6 +384,11 @@ impl TimingTrace {
                     None => group.unknown_outcomes += 1,
                 }
             }
+            if event.is_heap_call()
+                && event.argument("request_observed").and_then(Value::as_bool) == Some(false)
+            {
+                group.unpaired_results += 1;
+            }
         }
         let mut groups: Vec<_> = groups.into_values().collect();
         groups.sort_by(|left, right| {
@@ -345,6 +416,9 @@ impl TimingTrace {
 
     pub fn counter_matches(&self, sample: &CounterSample, filter: &str) -> bool {
         let filter = filter.trim().to_lowercase();
+        if outcome_filter(&filter).is_some() {
+            return false;
+        }
         if let Some(category) = category_filter(&filter) {
             return category_matches(&sample.category, category);
         }
