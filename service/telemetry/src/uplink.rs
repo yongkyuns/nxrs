@@ -307,7 +307,7 @@ impl<'a> Upload<'a> {
     ) -> io::Result<Self> {
         let connection = identity
             .connect_pinned(socket, collector.pin, SESSION_LIFETIME)
-            .map_err(|error| io::Error::other(format!("collector TLS: {error:?}")))?;
+            .map_err(|error| super::TlsOperation::Collector.error(error))?;
         Ok(Self {
             connection,
             ready: false,
@@ -324,7 +324,7 @@ impl<'a> Upload<'a> {
             if !self
                 .connection
                 .poll()
-                .map_err(|error| io::Error::other(format!("collector TLS: {error:?}")))?
+                .map_err(|error| super::TlsOperation::Collector.error(error))?
             {
                 return Ok(false);
             }

@@ -322,9 +322,28 @@ impl Drop for Communications {
     }
 }
 
+enum TlsOperation {
+    Identity,
+    PairingKey,
+    Collector,
+}
+
+impl TlsOperation {
+    // Share formatting across generic callers while retaining literal prefixes
+    // and their allocation behavior.
+    #[inline(never)]
+    fn error(self, error: tls::Error) -> io::Error {
+        io::Error::other(match self {
+            Self::Identity => format!("TLS: {error:?}"),
+            Self::PairingKey => format!("Pairing key: {error:?}"),
+            Self::Collector => format!("collector TLS: {error:?}"),
+        })
+    }
+}
+
 fn tls_identity(slot: &OnceCell<tls::Identity>) -> io::Result<&tls::Identity> {
     if slot.get().is_none() {
-        let identity = tls::open().map_err(|error| io::Error::other(format!("TLS: {error:?}")))?;
+        let identity = tls::open().map_err(|error| TlsOperation::Identity.error(error))?;
         let _ = slot.set(identity);
     }
     Ok(slot.get().unwrap())

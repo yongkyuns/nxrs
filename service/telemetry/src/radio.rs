@@ -186,7 +186,7 @@ impl<'a, L: Listener> Output<'a, L> {
     ) -> io::Result<Self> {
         let key = identity
             .pairing_key()
-            .map_err(|error| io::Error::other(format!("Pairing key: {error:?}")))?;
+            .map_err(|error| super::TlsOperation::PairingKey.error(error))?;
         let now = Instant::now();
         Ok(Self {
             listener,
