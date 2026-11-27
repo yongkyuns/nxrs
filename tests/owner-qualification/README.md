@@ -177,12 +177,13 @@ The report separates 18,432 payload bytes, 3,072 index bytes, 64 bitmap bytes an
 the bitmap, cursors and four boxed-slice descriptors; adding that size to all
 four components would double-count the bitmap and cursors. These numbers exclude
 the lifecycle gate, Arc, retained thread handle, allocator overhead and stacks.
-The pool retains its arena while inactive, whereas production capture releases
-its record buffer after finish. Target atomic-width flags establish availability,
-not the compiler's exact instruction sequence; the retained ELF still needs
-inspection. Product adoption also requires the real owner batch/wake protocol,
-partial wire writes, lifecycle and memory-budget gates. Cross-source interleaving
-is a rotating merge, without a global reservation-order FIFO promise.
+The scenario checks that both finishes release the arena while the endpoints
+remain alive. A separate host allocator probe measures reclaimed bytes.
+Target atomic-width flags establish availability. The retained ELF still needs
+inspection for the emitted instructions. Product adoption also requires the
+real owner batch/wake protocol, partial wire writes, lifecycle and memory-budget
+gates. Cross-source interleaving is a rotating merge, without a global
+reservation-order FIFO promise.
 
 ## Execution contract and limits
 

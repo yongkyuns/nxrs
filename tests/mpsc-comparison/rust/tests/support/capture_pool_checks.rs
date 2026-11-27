@@ -40,7 +40,7 @@ fn finish(owner: &mut pool::Owner, expected: Status) {
     assert_eq!(owner.finish(), Ok(expected));
     assert_eq!(owner.status(), Status::Inactive);
     assert_eq!(owner.obligations(), (0, 0));
-    assert_eq!(owner.free_slots(), CAPACITY);
+    assert_eq!(owner.free_slots(), 0);
 }
 
 fn workload(case: &str, offers: &[(u8, Record)]) {
@@ -536,7 +536,7 @@ fn source_drop_during_open(stage: pool::OpenStage, publish: bool) {
         assert_eq!(opened, Err(pool::StartError::Disconnected));
         assert_eq!(owner.status(), Status::Inactive);
         assert_eq!(owner.obligations(), (0, 0));
-        assert_eq!(owner.free_slots(), CAPACITY);
+        assert_eq!(owner.free_slots(), 0);
     }
     assert_eq!(owner.begin(), Err(pool::StartError::Disconnected));
     report(
@@ -617,7 +617,16 @@ pub fn allocation_windows(snapshot: impl Fn() -> Snapshot) {
     let (mut owner, mut publishers) = pool::channel(wake);
     let setup = snapshot();
     setup.validate_after(before).unwrap();
+    assert_eq!(owner.free_slots(), 0);
     let epoch = owner.begin().unwrap();
+    let active = snapshot();
+    let storage = pool::storage_report();
+    active.validate_after(setup).unwrap();
+    assert_eq!(
+        active.live - setup.live,
+        storage.payload_heap_bytes + storage.index_heap_bytes
+    );
+    assert_eq!(active.blocks - setup.blocks, 4);
     publishers[0].offer(epoch, record(0, 0, 0)).unwrap();
     assert_eq!(
         owner.poll(),
@@ -627,7 +636,7 @@ pub fn allocation_windows(snapshot: impl Fn() -> Snapshot) {
         })
     );
     let first = snapshot();
-    first.no_allocator_calls_since(setup).unwrap();
+    first.no_allocator_calls_since(active).unwrap();
     for sequence in 1..4097_u32 {
         let source = (sequence % 3) as u8;
         publishers[usize::from(source)]
@@ -646,18 +655,14 @@ pub fn allocation_windows(snapshot: impl Fn() -> Snapshot) {
     owner.cancel();
     finish(&mut owner, Status::Cancelled);
     let inactive = snapshot();
-    inactive.no_allocator_calls_since(steady).unwrap();
-    assert_eq!(
-        inactive.live, setup.live,
-        "this fixture retains its arena while inactive"
-    );
+    inactive.reclaimed_since(setup).unwrap();
+    assert_eq!(inactive.dealloc - steady.dealloc, 4);
     drop(publishers);
     drop(owner);
     let teardown = snapshot();
     teardown.reclaimed_since(before).unwrap();
-    let storage = pool::storage_report();
     println!(
-        "CAPTURE_POOL_MEMORY {{\"runtime\":\"host\",\"payload_heap_bytes\":{},\"index_heap_bytes\":{},\"bitmap_bytes\":{},\"cursor_bytes\":{},\"storage_inline_bytes\":{},\"setup_requested_bytes\":{},\"setup_allocations\":{},\"first_use_allocator_calls\":0,\"steady_allocator_calls\":0,\"inactive_retained_bytes\":{},\"normal_teardown_reclaimed\":true,\"success\":true}}",
+        "CAPTURE_POOL_MEMORY {{\"runtime\":\"host\",\"payload_heap_bytes\":{},\"index_heap_bytes\":{},\"bitmap_bytes\":{},\"cursor_bytes\":{},\"storage_inline_bytes\":{},\"setup_requested_bytes\":{},\"setup_allocations\":{},\"active_requested_bytes\":{},\"first_use_allocator_calls\":0,\"steady_allocator_calls\":0,\"inactive_retained_bytes\":{},\"normal_teardown_reclaimed\":true,\"success\":true}}",
         storage.payload_heap_bytes,
         storage.index_heap_bytes,
         storage.bitmap_bytes,
@@ -665,6 +670,7 @@ pub fn allocation_windows(snapshot: impl Fn() -> Snapshot) {
         storage.storage_inline_bytes,
         setup.live - before.live,
         setup.alloc - before.alloc,
+        active.live - before.live,
         inactive.live - before.live,
     );
 }

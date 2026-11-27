@@ -226,6 +226,7 @@ fn progress(
     retired.check(0, 0, 512);
     assert_eq!(owner.finish().unwrap(), terminal);
     assert_eq!(owner.status(), Status::Inactive);
+    assert_eq!(owner.free_slots(), 0);
 
     let next_epoch = owner.begin().unwrap();
     assert_ne!(next_epoch, epoch);
@@ -243,9 +244,10 @@ fn progress(
     }
     owner.cancel();
     assert_eq!(owner.status(), Status::Cancelled);
-    assert_eq!(owner.finish().unwrap(), Status::Cancelled);
     let restarted = Checkpoint::read(&owner);
     restarted.check(0, 0, 512);
+    assert_eq!(owner.finish().unwrap(), Status::Cancelled);
+    assert_eq!(owner.free_slots(), 0);
 
     (
         owner,
@@ -346,7 +348,7 @@ pub fn run() -> Outcome {
     let low_publisher = join(low, &mut outcome);
     let (owner, high_publisher, progress) = join(high, &mut outcome);
     assert_eq!(owner.obligations(), (0, 0));
-    assert_eq!(owner.free_slots(), 512);
+    assert_eq!(owner.free_slots(), 0);
     drop((owner, low_publisher, high_publisher, spare_publisher));
 
     let storage = pool::storage_report();

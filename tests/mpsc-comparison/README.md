@@ -206,9 +206,12 @@ owner drains 511 records while the paused producer retains one obligation.
 The original 20 comparison rows, four controls and 24 reference lifecycle cases
 remain in the same executable.
 
-The [recorded host run](https://github.com/yongkyuns/nxrs/issues/446) requested
-**21,712 B in five setup allocations**. Its first offer/read and 4,096 subsequent
-round trips made zero Rust allocator calls. The raw storage components are:
+The host fixture requested **208 B** for the endpoints and **21,712 B** total
+while capture was active. Opening reserves the payload and index arrays in four
+fallible allocations. Finishing reclaims those **21,504 B** after outstanding
+publisher borrows and records retire. An allocator fault at any reservation
+leaves the epoch inactive and allows a retry. The first offer/read and 4,096
+subsequent round trips made zero Rust allocator calls.
 
 | Component | Layout | Bytes |
 | --- | --- | ---: |
@@ -216,15 +219,14 @@ round trips made zero Rust allocator calls. The raw storage components are:
 | Source indices | 3 × 512 atomic 16-bit indices | 3,072 |
 | Free-slot bitmap | 16 atomic 32-bit words | 64 |
 | Published/consumed cursors | 3 × 2 atomic 32-bit words | 24 |
-| Raw component total | Included in the measured setup allocation | 21,592 |
+| Raw component total | Included in the active allocation | 21,592 |
 
 The remaining 120 requested bytes contain host structure/control metadata and
 alignment. Native allocator overhead, process RAM and stack high-water are not
-measured here. All **21,712 B remain allocated while inactive**; normal final
-endpoint teardown reclaims them. Production `Capture` instead releases its
-recorded **20,480 B payload allocation** on finish. Its payload allocation and
-the candidate's complete retained allocation are different denominators and
-lifetime policies, so their subtraction is not a full product heap comparison.
+measured here. Normal final endpoint teardown reclaims the other **208 B**.
+The baseline host comparison measures production `Capture`'s per-export
+allocation after its persistent queue mutex is initialized. Whole-product
+memory still requires a matched target build and run.
 
 Production ordered capture has not migrated to this adapter. Its separate
 owner-registration repair replaces a joined worker's wake handle and retains

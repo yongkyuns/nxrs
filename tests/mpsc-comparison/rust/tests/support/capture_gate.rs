@@ -58,6 +58,7 @@ pub(crate) enum StartError {
     Pending,
     Exhausted,
     Disconnected,
+    OutOfMemory,
 }
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum Status {

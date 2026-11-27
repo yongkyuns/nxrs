@@ -1,9 +1,9 @@
 //! Fixture-only pooled scalar transport. No product migration or timing claim.
-#![forbid(unsafe_code)]
+#![deny(unsafe_op_in_unsafe_fn)]
 
 use super::capture_gate::{Claim, Gate};
 pub(crate) use super::capture_gate::{Key, Rejection, StartError, Status};
-use std::cell::Cell;
+use std::cell::{Cell, UnsafeCell};
 use std::marker::PhantomData;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU8, AtomicU16, AtomicU32, Ordering::*};
@@ -77,16 +77,19 @@ struct Lane {
 }
 
 impl Lane {
-    fn new() -> Self {
+    fn try_new() -> Result<Self, StartError> {
         // Allocate incrementally so setup never constructs a 21 KiB arena on
         // an acquisition/coordinator stack before copying it into the heap.
-        let mut indices = Vec::with_capacity(CAPACITY);
+        let mut indices = Vec::new();
+        indices
+            .try_reserve_exact(CAPACITY)
+            .map_err(|_| StartError::OutOfMemory)?;
         indices.extend((0..CAPACITY).map(|_| AtomicU16::new(0)));
-        Self {
+        Ok(Self {
             indices: indices.into_boxed_slice(),
             published: AtomicU32::new(0),
             consumed: AtomicU32::new(0),
-        }
+        })
     }
 
     fn prepare(&self, index: u16) -> u32 {
@@ -129,9 +132,15 @@ struct Storage {
 
 struct Shared {
     gate: Gate,
-    storage: Storage,
+    storage: UnsafeCell<Option<Storage>>,
     live_publishers: AtomicU8,
 }
+
+// SAFETY: The exclusive owner installs the arena before opening admission and
+// removes it only after the gate is inactive. Publishers borrow it only
+// between admission and retiring their busy bit. Gate release/acquire orders
+// the install and removal against those borrows. The active storage is atomic.
+unsafe impl Sync for Shared {}
 
 /// One source owns each publisher. Neither endpoint is Clone or Sync.
 pub struct Publisher {
@@ -155,7 +164,7 @@ pub struct Rejected {
 pub fn channel(owner: Thread) -> (Owner, [Publisher; SOURCES]) {
     let shared = Arc::new(Shared {
         gate: Gate::new(0, owner),
-        storage: Storage::new(),
+        storage: UnsafeCell::new(None),
         live_publishers: AtomicU8::new(SOURCES as u8),
     });
     let publishers = std::array::from_fn(|source| Publisher {
@@ -206,25 +215,27 @@ impl Publisher {
                 }
                 Claim::Rejected(reason) => return Err(Rejected { reason, record }),
             };
-        // Declaration/drop order matters: any unwind first releases physical
-        // storage, then Credit's Drop cancels and releases logical admission.
-        let mut slot = SlotGuard {
-            storage: &self.shared.storage,
-            index: Some(self.shared.storage.claim()),
-        };
-        let index = slot.index.unwrap();
-        hook(Stage::AfterSlotClaim);
-        self.shared.storage.write(index, record, &mut hook);
-        let lane = &self.shared.storage.lanes[usize::from(self.source)];
-        let next = lane.prepare(index);
-        hook(Stage::BeforePublication);
-        lane.publish(next);
-        // There is no user code, hook, allocation, or fallible operation in
-        // this transfer. Once cursor publication exposes the record, only the
-        // owner returns its physical slot and logical credit, even on unwind.
-        slot.index = None;
-        credit.mark_published();
-        hook(Stage::AfterPublication);
+        {
+            // SAFETY: Admission acquired the published arena and set this
+            // publisher's busy bit. The borrow and its slot guard end before
+            // Credit releases that bit, including when a hook unwinds.
+            let storage = unsafe { (*self.shared.storage.get()).as_ref().unwrap() };
+            let mut slot = SlotGuard {
+                storage,
+                index: Some(storage.claim()),
+            };
+            let index = slot.index.unwrap();
+            hook(Stage::AfterSlotClaim);
+            storage.write(index, record, &mut hook);
+            let lane = &storage.lanes[usize::from(self.source)];
+            let next = lane.prepare(index);
+            hook(Stage::BeforePublication);
+            lane.publish(next);
+            // The owner now returns this slot, including on unwind.
+            slot.index = None;
+            credit.mark_published();
+            hook(Stage::AfterPublication);
+        }
         credit.finish();
         Ok(())
     }
@@ -254,21 +265,38 @@ impl Drop for SlotGuard<'_> {
 }
 
 impl Owner {
+    fn storage(&self) -> Option<&Storage> {
+        // SAFETY: The owner is unique and only its mutable methods replace
+        // storage. Publishers have shared access to the active arena.
+        unsafe { (*self.shared.storage.get()).as_ref() }
+    }
+
+    fn set_storage(&mut self, storage: Option<Storage>) {
+        assert_eq!(self.shared.gate.status(), Status::Inactive);
+        // SAFETY: Inactive admission is closed and no publisher has a busy
+        // bit. The gate transition to Inactive acquired their retired borrows.
+        unsafe { *self.shared.storage.get() = storage };
+    }
+
     pub fn begin(&mut self) -> Result<u32, StartError> {
         self.begin_with_hooks(|_| {})
     }
 
     /// Fixture-only boundaries for racing final-source retirement with open.
     pub fn begin_with_hooks(&mut self, mut hook: impl FnMut(OpenStage)) -> Result<u32, StartError> {
-        if self.shared.gate.status() == Status::Inactive {
-            assert!(self.shared.storage.is_empty());
-            assert_eq!(self.free_slots(), CAPACITY);
-            if self.shared.live_publishers.load(Acquire) == 0 {
-                return Err(StartError::Disconnected);
-            }
-            hook(OpenStage::BeforeOpen);
+        if self.shared.gate.status() != Status::Inactive {
+            return Err(StartError::Pending);
         }
-        let epoch = self.shared.gate.begin()?;
+        assert!(self.storage().is_none());
+        if self.shared.live_publishers.load(Acquire) == 0 {
+            return Err(StartError::Disconnected);
+        }
+        if self.shared.gate.captured_epoch() == super::capture_gate::MAX_EPOCH {
+            return Err(StartError::Exhausted);
+        }
+        hook(OpenStage::BeforeOpen);
+        self.set_storage(Some(Storage::try_new()?));
+        let epoch = self.shared.gate.begin().unwrap();
         hook(OpenStage::AfterOpen);
         if self.shared.live_publishers.load(Acquire) == 0 {
             // Last-source retirement can race the opening CAS while inactive.
@@ -276,9 +304,7 @@ impl Owner {
             // work for the owner to account for; only an empty epoch rolls back.
             self.shared.gate.disconnect();
             if self.shared.gate.obligations() == (0, 0) {
-                assert!(self.shared.storage.is_empty());
-                assert_eq!(self.free_slots(), CAPACITY);
-                self.shared.gate.finish().unwrap();
+                self.finish().unwrap();
                 return Err(StartError::Disconnected);
             }
         }
@@ -287,13 +313,14 @@ impl Owner {
 
     /// Inspect at most three lanes, without waiting for unpublished payloads.
     pub fn poll(&mut self) -> Option<Captured> {
+        let storage = self.storage()?;
         for offset in 0..SOURCES {
             let source = (self.next_source + offset) % SOURCES;
-            if let Some(index) = self.shared.storage.lanes[source].pop() {
-                let record = self.shared.storage.read(index);
+            if let Some(index) = storage.lanes[source].pop() {
+                let record = storage.read(index);
                 // Physical availability precedes logical capacity. An accepted
                 // reservation therefore never has to await an occupied slot.
-                self.shared.storage.release(index);
+                storage.release(index);
                 self.shared.gate.release_credit();
                 self.next_source = (source + 1) % SOURCES;
                 return Some(Captured {
@@ -312,7 +339,7 @@ impl Owner {
     pub fn status(&mut self) -> Status {
         let status = self.shared.gate.status();
         if matches!(status, Status::Overflow(_) | Status::Cancelled) {
-            assert!(self.shared.storage.is_empty());
+            assert!(self.storage().unwrap().is_empty());
             assert_eq!(self.free_slots(), CAPACITY);
         }
         status
@@ -320,16 +347,19 @@ impl Owner {
 
     pub fn finish(&mut self) -> Result<Status, StartError> {
         self.status();
-        self.shared.gate.finish()
+        let terminal = self.shared.gate.finish()?;
+        self.set_storage(None);
+        Ok(terminal)
     }
 
     pub fn obligations(&self) -> (u32, u32) {
         self.shared.gate.obligations()
     }
 
-    /// A cross-word diagnostic; use a quiescent checkpoint for an exact count.
+    /// Physical capacity remaining; an inactive epoch has no allocated slots.
+    /// Use a quiescent checkpoint for an exact active count.
     pub fn free_slots(&self) -> usize {
-        self.shared.storage.free_slots()
+        self.storage().map_or(0, Storage::free_slots)
     }
 
     pub fn take_ready(&mut self) -> bool {
@@ -347,16 +377,19 @@ impl Drop for Owner {
 }
 
 impl Storage {
-    fn new() -> Self {
-        let mut slots = Vec::with_capacity(CAPACITY);
+    fn try_new() -> Result<Self, StartError> {
+        let mut slots = Vec::new();
+        slots
+            .try_reserve_exact(CAPACITY)
+            .map_err(|_| StartError::OutOfMemory)?;
         slots.extend((0..CAPACITY).map(|_| Slot {
             words: std::array::from_fn(|_| AtomicU32::new(0)),
         }));
-        Self {
+        Ok(Self {
             slots: slots.into_boxed_slice(),
             free: std::array::from_fn(|_| AtomicU32::new(u32::MAX)),
-            lanes: std::array::from_fn(|_| Lane::new()),
-        }
+            lanes: [Lane::try_new()?, Lane::try_new()?, Lane::try_new()?],
+        })
     }
 
     // Private: call only while holding an admitted, unpublished reservation.

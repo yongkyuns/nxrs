@@ -23,7 +23,7 @@ use allocation_probe::{Snapshot, Tracking};
 use capture::{Capture, MAX_BYTES, Version};
 use heapless::spsc::Queue;
 use navigation::observations::Measurement;
-use std::alloc::System;
+use std::alloc::{GlobalAlloc, Layout, System};
 use std::io::Write;
 use std::mem::size_of;
 use std::process::{Command, Stdio};
@@ -36,7 +36,35 @@ use std::thread;
 use std::time::Duration;
 
 #[global_allocator]
-static ALLOCATOR: Tracking<System> = Tracking::new(System);
+static ALLOCATOR: Tracking<FaultingSystem> = Tracking::new(FaultingSystem);
+static FAIL_ALLOCATION: AtomicUsize = AtomicUsize::new(0);
+
+struct FaultingSystem;
+
+// SAFETY: Forward live allocation pointers and their layouts to System.
+// The countdown only substitutes a null pointer for a failed allocation.
+unsafe impl GlobalAlloc for FaultingSystem {
+    unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+        if FAIL_ALLOCATION.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |n| n.checked_sub(1))
+            == Ok(1)
+        {
+            return std::ptr::null_mut();
+        }
+        unsafe { System.alloc(layout) }
+    }
+
+    unsafe fn dealloc(&self, pointer: *mut u8, layout: Layout) {
+        unsafe { System.dealloc(pointer, layout) };
+    }
+
+    unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
+        unsafe { System.alloc_zeroed(layout) }
+    }
+
+    unsafe fn realloc(&self, pointer: *mut u8, layout: Layout, size: usize) -> *mut u8 {
+        unsafe { System.realloc(pointer, layout, size) }
+    }
+}
 
 const CAPACITY: usize = 512;
 const BATCH: usize = 16;
@@ -224,7 +252,14 @@ struct ResultRow {
 impl ResultRow {
     fn verify(&self, offers: &[Record]) {
         self.steady.no_allocator_calls_since(self.ready).unwrap();
-        self.retired.reclaimed_since(self.setup).unwrap();
+        assert_eq!(
+            self.retired.reclaimed_since(self.setup),
+            Ok(()),
+            "{} setup={:?} retired={:?}",
+            self.backend,
+            self.setup,
+            self.retired
+        );
         let admitted = self.delivered.len();
         assert!(admitted <= CAPACITY);
         assert_eq!(
@@ -281,6 +316,8 @@ fn current_capture(offers: &[Record]) -> ResultRow {
     let mut delivered = Vec::with_capacity(CAPACITY);
     let capture = Capture::default();
     capture.register_owner();
+    // Initialize the persistent mutex before measuring an export's allocation.
+    assert_eq!(capture.finish(), 0);
     let setup = ALLOCATOR.snapshot();
     capture.enable().unwrap();
     let ready = ALLOCATOR.snapshot();
@@ -689,6 +726,38 @@ fn blob(bytes: &[u8]) -> String {
     value.into()
 }
 
+fn capture_pool_allocation_failure() {
+    let (mut owner, mut publishers) = capture_pool::channel(thread::current());
+    for allocation in 1..=4 {
+        let before = ALLOCATOR.snapshot();
+        FAIL_ALLOCATION.store(allocation, Ordering::Relaxed);
+        let result = owner.begin();
+        assert_eq!(FAIL_ALLOCATION.swap(0, Ordering::Relaxed), 0);
+        assert_eq!(result, Err(capture_pool::StartError::OutOfMemory));
+        let after = ALLOCATOR.snapshot();
+        assert_eq!(after.failed, before.failed + 1);
+        assert_eq!((after.live, after.blocks), (before.live, before.blocks));
+        assert_eq!(owner.status(), capture_pool::Status::Inactive);
+        assert_eq!(owner.free_slots(), 0);
+        assert_eq!(publishers[0].captured_epoch(), 0);
+    }
+    let before = ALLOCATOR.snapshot();
+    let epoch = owner.begin().unwrap();
+    let record = capture_pool::Record {
+        time_ms: 123,
+        sequence: 7,
+        values: [0; 6],
+    };
+    publishers[0].offer(epoch, record).unwrap();
+    assert_eq!(owner.poll().unwrap().record, record);
+    owner.cancel();
+    owner.finish().unwrap();
+    ALLOCATOR.snapshot().reclaimed_since(before).unwrap();
+    println!(
+        "CAPTURE_POOL_ALLOCATION_FAILURE {{\"reservations_denied\":4,\"retry_delivered\":1,\"success\":true}}"
+    );
+}
+
 fn main() {
     allocation_probe::begin_measurement();
     println!(
@@ -728,6 +797,7 @@ fn main() {
         .collect::<Vec<_>>();
     compare("uneven-source-burst", &uneven);
     capture_pool_checks::allocation_windows(|| ALLOCATOR.snapshot());
+    capture_pool_allocation_failure();
     // Start only after allocation windows; an assertion in one barrier
     // participant must fail the process instead of hanging a scoped join.
     let (done, finished) = mpsc::sync_channel(0);
