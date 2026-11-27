@@ -11,6 +11,31 @@ import native
 import replay
 
 
+def run_with_evidence(image, log, recording, evidence):
+    """Temporary diagnostic retention after the normal guest teardown finishes."""
+    if evidence is None:
+        return native.run(image, log, recording)
+    evidence.mkdir(parents=True, exist_ok=True)
+    console = evidence / "replay.log"
+    failure = evidence / "replay-failure.json"
+    console.unlink(missing_ok=True)
+    failure.unlink(missing_ok=True)
+    try:
+        return native.run(image, log, recording)
+    except Exception as error:
+        failure.write_text(json.dumps({
+            "schema": "nxrs-native-replay-failure-v1",
+            "error_type": type(error).__name__,
+            "error": str(error),
+            "replay_state": getattr(error, "replay_state", None),
+        }, indent=2) + "\n")
+        raise
+    finally:
+        # native.run has already stopped/joined the process, including failures.
+        # Keep every captured byte, including an unfinished final console line.
+        console.write_bytes(log.getvalue())
+
+
 def trace(path):
     """A dual IMU take with a FIFO batch, one missing sample, and a GNSS gap."""
     with path.open("w", encoding="utf-8") as stream:
@@ -84,7 +109,11 @@ class ReplayTests(unittest.TestCase):
             input_path = base / "take.ndjson"
             trace(input_path)
             log = io.BytesIO()
-            native.run(Path(os.environ["NXRS_TRACKER_REPLAY_IMAGE"]), log, input_path)
+            evidence = os.environ.get("NXRS_TRACKER_REPLAY_EVIDENCE")
+            run_with_evidence(
+                Path(os.environ["NXRS_TRACKER_REPLAY_IMAGE"]), log, input_path,
+                None if evidence is None else Path(evidence),
+            )
             # Replay stops the guest after the expected sensor counts. A final
             # console write may still be in progress when it stops.
             lines = log.getvalue().split(b'\n')[:-1]

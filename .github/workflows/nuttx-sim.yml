@@ -1,4 +1,4 @@
-name: NuttX simulator
+name: NuttX simulator (temporary replay diagnostics)
 
 on:
   push:
@@ -16,6 +16,8 @@ concurrency:
 
 jobs:
   simulator:
+    # Diagnostic branch only: the Linux job already passed on the frozen PR head.
+    if: false
     name: NuttX kernel, HAL and application execution
     runs-on: ubuntu-24.04
     timeout-minutes: 15
@@ -106,7 +108,9 @@ jobs:
       - name: Exercise tracker failure recovery and recorded sensor replay
         env:
           NXRS_TRACKER_REPLAY_IMAGE: target/nuttx-sim-tracker/nuttx/nuttx
+          NXRS_TRACKER_REPLAY_EVIDENCE: target/nuttx-sim-tracker
         run: |
+          python -m unittest discover -s tests/nuttx-std/tracker-sim -p test_replay_diagnostics.py
           python tests/nuttx-std/tracker-sim/native.py "$NXRS_TRACKER_REPLAY_IMAGE"
           python tests/nuttx-std/tracker-sim/test_replay.py
       - name: Retain the tracker ABI report and console
@@ -114,7 +118,18 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: nuttx-sim-tracker
+          include-hidden-files: true
           path: |
             target/nuttx-sim-tracker/abi-report.json
             target/nuttx-sim-tracker/provenance.txt
             target/nuttx-sim-tracker/console.log
+            target/nuttx-sim-tracker/replay.log
+            target/nuttx-sim-tracker/replay-failure.json
+            target/nuttx-sim-tracker/nuttx/nuttx
+            target/nuttx-sim-tracker/nuttx/nuttx.map
+            target/nuttx-sim-tracker/nuttx/.config
+            target/nuttx-sim-tracker/resolved-profile.json
+            target/nuttx-sim-tracker/native-context.json
+            target/nuttx-sim-tracker/std-source.json
+            target/nuttx-sim-tracker/std-patch.json
+            target/nuttx-sim-tracker/nuttx-patches.json

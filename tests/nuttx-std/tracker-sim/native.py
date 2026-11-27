@@ -217,7 +217,25 @@ class ReplayGuest(Guest):
                 if next_fix is None and len(self.imu_totals) == 2 and now >= end + 0.2:
                     break
                 if now >= end + 5:
-                    raise TimeoutError('the simulated IMUs did not drain the recording')
+                    error = TimeoutError('the simulated IMUs did not drain the recording')
+                    # Temporary diagnostics: snapshot existing state only after
+                    # the original deadline has failed. Do not alter replay pacing.
+                    error.replay_state = {
+                        'expected_counts': dict(self.recording.counts),
+                        'observed_imu_totals': dict(self.imu_totals),
+                        'sent_gnss_fixes': sent,
+                        'next_fix_stamp_ms': None if next_fix is None else next_fix[0],
+                        'elapsed_seconds': now - self.epoch,
+                        'recording_duration_seconds': self.recording.duration_ms / 1000,
+                        'drain_deadline_elapsed_seconds': end + 5 - self.epoch,
+                        'deadline_overrun_seconds': now - (end + 5),
+                        'receiver_rate': None if self.receiver is None else self.receiver.rate,
+                        'uart_open': self.uart is not None,
+                        'process_returncode': self.process.poll(),
+                        'pending_line': self.pending.decode(errors='replace'),
+                        'pending_line_hex': self.pending.hex(),
+                    }
+                    raise error
                 wake = next_deadline if next_fix is not None else end + (5 if now >= end + 0.2 else 0.2)
                 self.pump(max(0, wake - now))
                 if len(self.console) > 8192:
