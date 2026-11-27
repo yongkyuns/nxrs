@@ -11,6 +11,8 @@ upstream URLs, complete commit IDs, byte lengths and SHA-256 digests. Source fil
 are reference material; the viewer never compiles or executes them. CoreS3's BSP
 is an NXRS patch over the pinned NuttX common ESP32-S3 scripts, so that patch is
 retained with its original repository/commit identity as well.
+Git preserves these source bytes without host line-ending conversion, including
+on Windows. Changes to this directory run the viewer's catalogue checks in CI.
 
 ## Verify or restore
 
