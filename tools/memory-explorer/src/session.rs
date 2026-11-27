@@ -275,7 +275,10 @@ mod tests {
         fixture.write(&fixture.manifest());
         let input = load_session(&fixture.0).unwrap();
         assert_eq!(input.label, "fixture");
-        assert_eq!(input.elf, fixture.0.join("firmware.elf"));
+        assert_eq!(
+            input.elf,
+            fixture.0.join("firmware.elf").canonicalize().unwrap()
+        );
         assert!(input.trace.is_none());
         assert_eq!(
             load_session(&fixture.0.join("session.json")).unwrap().elf,

@@ -569,7 +569,7 @@ impl MemoryExplorer {
         }
     }
 
-    pub(super) fn replay_usage_chart(&mut self, ui: &mut egui::Ui) -> Option<u64> {
+    pub(super) fn replay_usage_chart(&mut self, ui: &mut egui::Ui, height: f32) -> Option<u64> {
         if self.history.replay.is_none() {
             if let Some(replay) = &self.replay {
                 self.history.install_replay(replay);
@@ -600,7 +600,7 @@ impl MemoryExplorer {
                 measured: true,
                 selected_time: self.time_ns,
                 selected_point: state.map(|sample| sample.index),
-                height: 98.0,
+                height,
                 metric: self.history.metric,
             },
         )

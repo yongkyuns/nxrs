@@ -53,7 +53,7 @@ GNU map has no cryptographic build identity of its own.
 
 An empty invocation opens a new recording tab. **+ New** and **Open recording**
 add a fresh input tab. Paste paths or drag an ELF, `.map`,
-and JSON files into the window, then select **Load evidence**. A
+and JSON files into the window, then select **Open evidence in tab**. A
 [prepared capture session](#package-and-reopen-a-diagnostic-session) loads
 matching inputs together with `--session session.json` or **Open session**.
 `--help` prints all command options without opening a window.
