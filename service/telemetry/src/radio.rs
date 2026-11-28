@@ -373,6 +373,24 @@ impl<'a, L: Listener> Output<'a, L> {
         None
     }
 
+    // TLS construction initializes a record buffer. Release that scratch before
+    // polling the handshake or publishing telemetry on the same service turn.
+    #[inline(never)]
+    fn accept_connection(&mut self) -> io::Result<()> {
+        if let Some(stream) = self
+            .listener
+            .accept()
+            .map_err(|_| io::ErrorKind::NotConnected)?
+        {
+            let conn = self
+                .identity
+                .accept_pairing(Bearer(stream), &self.key)
+                .map_err(|_| io::ErrorKind::PermissionDenied)?;
+            self.connection = Some(conn);
+        }
+        Ok(())
+    }
+
     fn poll(
         &mut self,
         capture: &mut Capture,
@@ -382,17 +400,7 @@ impl<'a, L: Listener> Output<'a, L> {
         let mut response = None;
         self.listener.service()?;
         if self.connection.is_none() {
-            if let Some(stream) = self
-                .listener
-                .accept()
-                .map_err(|_| io::ErrorKind::NotConnected)?
-            {
-                let conn = self
-                    .identity
-                    .accept_pairing(Bearer(stream), &self.key)
-                    .map_err(|_| io::ErrorKind::PermissionDenied)?;
-                self.connection = Some(conn);
-            }
+            self.accept_connection()?;
         }
         if let Some(conn) = self.connection.as_mut() {
             self.live = conn.poll().map_err(|_| io::ErrorKind::PermissionDenied)?;
