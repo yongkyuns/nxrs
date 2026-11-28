@@ -2234,6 +2234,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "nxrs-map-service"
+version = "0.1.0"
+dependencies = [
+ "log",
+]
+
+[[package]]
 name = "nxrs-memory-explorer"
 version = "0.1.0"
 dependencies = [
@@ -2267,11 +2274,15 @@ dependencies = [
  "nxrs-gnss",
  "nxrs-imu",
  "nxrs-log-router",
+ "nxrs-map-service",
  "nxrs-messaging",
  "nxrs-navigation-services",
  "nxrs-settings",
+ "nxrs-telemetry-service",
+ "nxrs-text",
  "nxrs-tls",
  "nxrs-touch",
+ "nxrs-ui-service",
  "nxrs-watchdog",
  "qrcodegen",
 ]
@@ -2541,6 +2552,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "nxrs-telemetry-service"
+version = "0.1.0"
+dependencies = [
+ "log",
+ "nxrs-ble",
+ "nxrs-gnss",
+ "nxrs-imu",
+ "nxrs-map-service",
+ "nxrs-messaging",
+ "nxrs-navigation-services",
+ "nxrs-text",
+ "nxrs-tls",
+]
+
+[[package]]
+name = "nxrs-text"
+version = "0.1.0"
+
+[[package]]
 name = "nxrs-tls"
 version = "0.1.0"
 dependencies = [
@@ -2589,6 +2619,14 @@ version = "0.1.0"
 dependencies = [
  "kinavis-ubx",
  "nxrs-peripheral",
+]
+
+[[package]]
+name = "nxrs-ui-service"
+version = "0.1.0"
+dependencies = [
+ "nxrs-display",
+ "nxrs-touch",
 ]
 
 [[package]]

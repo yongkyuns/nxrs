@@ -18,6 +18,15 @@ import signal
 import subprocess
 import time
 
+from build_timing_nuttx import validate_atomic_stack_patch
+from qemu_console import nsh_prompt_ready
+
+
+def capture_sources(repository):
+    return {path: hashlib.sha256((repository / path).read_bytes()).hexdigest() for path in (
+        "tools/memory-explorer/tests/qualify_timing_qemu.py",
+        "tools/memory-explorer/tests/qemu_console.py")}
+
 
 def evidence(console):
     text = console.decode("utf-8", errors="strict")
@@ -101,10 +110,16 @@ def run(args):
         raise RuntimeError("The QEMU timing qualification requires a POSIX host")
     if not 0 < args.timeout <= 120:
         raise ValueError("Timeout must be at most 120 s, below the dedicated timer's 214.7483648 s wrap period")
+    repository = Path(__file__).resolve().parents[3]
     qemu, image, config, output = [getattr(args, name).resolve() for name in ("qemu", "image", "config", "output")]
     for path in (qemu, image, config):
         if not path.is_file():
             raise FileNotFoundError(path)
+    build = json.loads((image.parent / "build.json").read_text())
+    validate_atomic_stack_patch(build, repository, image.parent)
+    if (build["elf_sha256"] != hashlib.sha256(image.read_bytes()).hexdigest() or
+            build["config_sha256"] != hashlib.sha256(config.read_bytes()).hexdigest()):
+        raise RuntimeError("Native timing image/configuration differ from the build receipt")
     configuration = config.read_text().splitlines()
     for symbol in ("EXAMPLES_MEMORY_TIMING", "DRIVERS_NOTERAM_DEFAULT_NOOVERWRITE", "ARCH_BOARD_MPS2_AN521"):
         if "CONFIG_" + symbol + "=y" not in configuration:
@@ -114,9 +129,11 @@ def run(args):
     output.mkdir(parents=True, exist_ok=False)
     command = [str(qemu), "-machine", "mps2-an521", "-kernel", str(image), "-display", "none",
                "-serial", "stdio", "-monitor", "none", "-nic", "none", "-no-reboot"]
+    sources = capture_sources(repository)
     report = {"schema_version": 1, "evidence": "real_nuttx_qemu_native_timing", "machine": "mps2-an521",
               "elf_sha256": hashlib.sha256(image.read_bytes()).hexdigest(),
               "config_sha256": hashlib.sha256(config.read_bytes()).hexdigest(),
+              "capture_sources_sha256": sources,
               "qemu_command": command,
               "qemu_version": subprocess.check_output([str(qemu), "--version"], text=True, timeout=10).splitlines()[0],
               "limits": ["Native NuttX qualification workload, not NXRS std-demo",
@@ -142,19 +159,21 @@ def run(args):
                 console.extend(data)
             if len(console) > 4 * 1024 * 1024:
                 raise RuntimeError("Timing console exceeded 4 MiB")
-            if not sent and b"nsh>" in console:
+            if not sent and nsh_prompt_ready(console):
                 time.sleep(0.02)
                 for byte in b"memory_timing\n":
                     process.stdin.write(bytes((byte,)))
                     process.stdin.flush()
                     time.sleep(0.01)
                 sent = True
-            if sent and b"NXRS_TIMING_WITNESS " in console and console.rstrip().endswith(b"nsh>"):
+            if sent and b"NXRS_TIMING_WITNESS " in console and nsh_prompt_ready(console):
                 break
         else:
             raise TimeoutError("QEMU timing qualification exceeded its deadline")
         report.update(evidence(console))
         report["acquisition_trace_bridge"] = acquisition_bridge_evidence(console)
+        if capture_sources(repository) != sources:
+            raise RuntimeError("Capture sources changed during qualification")
         (output / "report.json").write_text(json.dumps(report, indent=2) + "\n")
         print(json.dumps({"report": str(output / "report.json"), "clock": report["clock"],
                           "observed_records": report["observed_records"]}))

@@ -1,0 +1,11 @@
+[package]
+name = "nxrs-ui-service"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+name = "ui"
+
+[dependencies]
+nxrs-display = { path = "../../hal/display" }
+nxrs-touch = { path = "../../hal/touch" }

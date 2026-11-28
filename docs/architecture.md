@@ -149,12 +149,30 @@ contract, so gateway ingest can read it with the camera-side server disabled.
 `camera::capture::Session` owns frame validation, fixed history and stop.
 `wifi::Reconnector` owns station retry and rejoin; its caller supplies credentials
 and drives polling. Home-cam composes those APIs with streaming and detection.
-Motion Tracker's `communications` module owns the BLE and cellular sessions and
-their common bounded publisher. The cellular HAL owns PPP redial and publishes
-link changes. Communications owns collector TCP/TLS recovery and the product's
-cellular summary budget. Full-rate export stays on BLE. Map tiles use BLE or an
-unmetered IP relay on a build without cellular. Navigation
-publishes measurements and terminal faults to shared observation readers.
+The [telemetry service](../service/telemetry/README.md) owns the fixed navigation
+wire schema, bounded capture and publication, and synchronous delivery
+operations. Its default core includes `collector::Reports` over a caller-owned
+`Write`; independent `ble` and `collector-tls` features add paired BLE and TLS
+operations. The core retains the portable map codec used by its wire APIs, but
+no BLE, TLS, cellular or execution runtime. A one-IMU observation reader adapts
+to the fixed wire schema with the unused slot waiting.
+
+Motion Tracker owns the communications worker, shared TLS identity, modem
+startup, collector dial/retry and phone/IP map routing. The cellular HAL owns
+PPP redial and publishes link changes. The app supplies BLE UUIDs, source rates,
+capture budgets, summary cadence and permitted endpoints; it selects full-rate
+BLE export, limited cellular summaries, and map relay only on an unmetered route.
+
+The [map service](../service/map/README.md) owns the bounded tile protocol,
+projection, viewport selection and four-tile cache. It has no display, network
+or worker dependency. Motion Tracker supplies the fetch preference and its
+communications owner progresses phone/IP transfer, then moves completed tiles
+to the presentation owner. The [UI service](../service/ui/README.md) owns
+synchronous strip rendering, text,
+gesture recognition and bounded chart mechanics. The application supplies the
+display, page layout, colors, input actions and deadlines. It continues rendering
+on its existing event loop; extracting a service does not introduce a thread.
+Navigation publishes measurements and terminal faults to shared observation readers.
 Motion Tracker's single entry point requires a primary IMU and GNSS. The
 selected profile supplies processing capabilities and any optional display,
 touch or secondary IMU. The camera qualification's

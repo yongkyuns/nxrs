@@ -115,3 +115,16 @@ condition = "AND"
 paths = ['^\.github/workflows/mpsc-comparison\.yml$']
 regexTarget = "line"
 regexes = ['^[\r\n \t]*key:[ \t]*owner-arm-qemu-8\.2\.7-1f0604f296ab9acb4854c054764a1ba408643fc299bd54a6500cccfaaca65b55[ \t\r]*$']
+
+# Reviewed scanner source in 16d74ff uses a public cache-key prefix in two
+# checks. Admit only these complete code lines, never an added credential.
+[[allowlists]]
+description = "Historical scanner controls compare the public QEMU cache-key prefix"
+targetRules = ["generic-api-key"]
+condition = "AND"
+paths = ['^tools/scan-secrets\.py$']
+regexTarget = "line"
+regexes = [
+  '^[\r\n \t]*if line\.lstrip\(\)\.startswith\("key: owner-arm-qemu-8\.2\.7-"\)\), ""\)[ \t\r]*$',
+  '^[\r\n \t]*if not checksum or row\.strip\(\) != "key: owner-arm-qemu-8\.2\.7-" \+ checksum\[1\]:[ \t\r]*$',
+]

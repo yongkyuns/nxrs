@@ -1,15 +1,18 @@
-use super::{canvas, charts, gesture, map, quality};
-use crate::{
-    communications::{Key, LinkStatus, Tile, View, Zoom},
-    text::Text,
-    tracker::{Reading, Snapshot},
-};
+use super::{canvas, charts, map, quality};
+use crate::tracker::{Reading, Snapshot};
 use canvas::CanvasExt;
 use charts::{History, Metric, RoutePoint, ROUTE_POINTS, SAMPLE_INTERVAL};
 use display::graphics::{Area, Raster as Canvas};
-use display::{Display, Error, Rect, Size};
-use gesture::{Contact, Gesture};
-use map::{Position, View as MapView, Viewport};
+use display::{Display, Error};
+#[cfg(test)]
+use display::{Rect, Size};
+use maps::{Key, Position, Tile, View as MapView, Viewport, Zoom};
+use telemetry::{BleStatus, BleView};
+use text::Text;
+use ui::chart::{Columns, Point};
+use ui::gesture::{Gesture, Recognizer};
+use ui::{Surface, TextCanvas};
+type PlotPoint = Point<3>;
 use qrcodegen::{QrCode, QrCodeEcc};
 use std::{
     fmt::Write,
@@ -17,6 +20,7 @@ use std::{
 };
 
 const STRIP: u16 = 8;
+const TRACE_MARKER: u16 = 2;
 const CHART_INTERVAL: Duration = Duration::from_millis(100);
 const PLOT_LABEL_CAPACITY: usize = 20;
 const GRIP_HEIGHT: i32 = 8;
@@ -93,23 +97,34 @@ impl Layout {
     }
 }
 
-#[derive(Default)]
 struct Dashboard {
     page: Page,
     metric: Metric,
     code: Option<QrCode>,
     menu: bool,
-    contact: Option<Contact>,
+    gestures: Recognizer,
+}
+
+impl Default for Dashboard {
+    fn default() -> Self {
+        Self {
+            page: Page::default(),
+            metric: Metric::default(),
+            code: None,
+            menu: false,
+            gestures: Recognizer::new(14, 32),
+        }
+    }
 }
 
 impl Dashboard {
     fn map_position(
         &self,
-        link: LinkStatus,
+        link: BleStatus,
         snapshot: &Snapshot,
         zoom: Zoom,
     ) -> Option<(Position, f32)> {
-        if self.page != Page::Map || link == LinkStatus::Pairing {
+        if self.page != Page::Map || link == BleStatus::Pairing {
             return None;
         }
         match snapshot.gnss {
@@ -141,14 +156,14 @@ impl Dashboard {
 }
 
 pub struct Screen<D> {
-    display: D,
+    surface: Surface<D>,
     layout: Layout,
-    pixels: Box<[u16]>,
-    present: Option<(Page, Metric, LinkStatus, bool)>,
+    present: Option<(Page, Metric, BleStatus, bool)>,
     quality: Option<quality::View>,
     ui: Dashboard,
     history: History,
     map: MapView,
+    map_direction: map::DirectionHint,
     zoom: Zoom,
     next_plot: Instant,
     next_sample: Instant,
@@ -170,14 +185,14 @@ impl<D: Display> Screen<D> {
         };
         let bands = (layout.plot(GRIP_HEIGHT).h as usize).div_ceil(usize::from(STRIP));
         Ok(Self {
-            display,
+            surface: Surface::new(display, STRIP)?,
             layout,
-            pixels: vec![BG; usize::from(size.width) * usize::from(STRIP)].into_boxed_slice(),
             present: None,
             quality: None,
             ui: Dashboard::default(),
             history: History::new(zoom),
             map: MapView::default(),
+            map_direction: map::DirectionHint::default(),
             zoom,
             next_plot: now,
             next_sample: now,
@@ -187,12 +202,12 @@ impl<D: Display> Screen<D> {
         })
     }
 
-    pub fn update_link(&mut self, view: View) -> Result<(), Error> {
+    pub fn update_link(&mut self, view: BleView) -> Result<(), Error> {
         if let Some(key) = view.key {
             self.ui.show_code(&key)?;
         } else {
             self.ui.code = None;
-            if view.link == LinkStatus::Paired {
+            if view.link == BleStatus::Paired {
                 self.ui.menu = true;
             }
         }
@@ -201,17 +216,14 @@ impl<D: Display> Screen<D> {
 
     pub fn input(
         &mut self,
-        status: LinkStatus,
+        status: BleStatus,
         event: touch::Event,
         missed: bool,
     ) -> Option<Action> {
         let ui = &mut self.ui;
-        if missed {
-            ui.contact = None;
-        }
-        match gesture::recognize(&mut ui.contact, event)? {
+        match ui.gestures.observe(event, missed)? {
             Gesture::Tap(point) => Self::tap(&self.layout, ui, status, point),
-            Gesture::Down if !ui.menu && status != LinkStatus::Pairing => {
+            Gesture::Down if !ui.menu && status != BleStatus::Pairing => {
                 ui.menu = true;
                 Some(Action::Redraw)
             }
@@ -226,11 +238,11 @@ impl<D: Display> Screen<D> {
     fn tap(
         layout: &Layout,
         ui: &mut Dashboard,
-        status: LinkStatus,
+        status: BleStatus,
         point: touch::Point,
     ) -> Option<Action> {
         let (x, y) = (point.x.into(), point.y.into());
-        if status == LinkStatus::Pairing {
+        if status == BleStatus::Pairing {
             return layout
                 .tab(LINK_TAB)
                 .contains(x, y)
@@ -238,9 +250,7 @@ impl<D: Display> Screen<D> {
         }
         if ui.menu && layout.tab(LINK_TAB).contains(x, y) {
             return match status {
-                LinkStatus::Idle | LinkStatus::Paired | LinkStatus::Unavailable => {
-                    Some(Action::Pair)
-                }
+                BleStatus::Idle | BleStatus::Paired | BleStatus::Unavailable => Some(Action::Pair),
                 _ => None,
             };
         }
@@ -274,9 +284,12 @@ impl<D: Display> Screen<D> {
         self.next_plot
     }
 
+    // Keep the presentation turn and its scratch in one call frame instead of
+    // flattening them into the acquisition and lifecycle loop.
+    #[inline(never)]
     pub fn draw(
         &mut self,
-        link: LinkStatus,
+        link: BleStatus,
         snapshot: &Snapshot,
         now: Instant,
         satellites: impl FnOnce() -> Reading<gnss::SatelliteReport>,
@@ -288,7 +301,7 @@ impl<D: Display> Screen<D> {
         }
         if now >= self.next_plot {
             let interval =
-                if matches!(self.ui.page, Page::Map | Page::Gnss) || link == LinkStatus::Pairing {
+                if matches!(self.ui.page, Page::Map | Page::Gnss) || link == BleStatus::Pairing {
                     SAMPLE_INTERVAL
                 } else {
                     CHART_INTERVAL
@@ -298,14 +311,16 @@ impl<D: Display> Screen<D> {
                 self.next_plot = now + interval;
             }
         }
+        let fix = self.ui.map_position(link, snapshot, self.zoom);
+        let preferred = self.map_direction.observe(fix);
         let viewport = self
             .map
-            .select(self.ui.map_position(link, snapshot, self.zoom));
+            .select(fix.map(|(position, _)| position), preferred);
         let wanted = viewport.and_then(|viewport| self.map.wanted(viewport));
         if let (Some(tile), Some(viewport)) = (exchange_tile(wanted), viewport) {
             self.map.accept(viewport, tile);
         }
-        if self.ui.page == Page::Gnss && link != LinkStatus::Pairing {
+        if self.ui.page == Page::Gnss && link != BleStatus::Pairing {
             let view = quality::View::new(snapshot.gnss, satellites());
             self.render_quality(link, view)?;
         } else {
@@ -314,10 +329,9 @@ impl<D: Display> Screen<D> {
         Ok(())
     }
 
-    fn render_quality(&mut self, link: LinkStatus, view: quality::View) -> Result<(), Error> {
+    fn render_quality(&mut self, link: BleStatus, view: quality::View) -> Result<(), Error> {
         let Self {
-            display,
-            pixels,
+            surface,
             layout,
             ui,
             present,
@@ -338,7 +352,7 @@ impl<D: Display> Screen<D> {
             w: layout.width,
             h: layout.height - y,
         };
-        draw_strips(display, pixels, region, Some, |canvas| {
+        surface.draw(region, BG, Some, |canvas| {
             if full && canvas.area().y < top {
                 header(canvas, layout, ui, link);
             }
@@ -354,7 +368,7 @@ impl<D: Display> Screen<D> {
     /// Flush small strips to bound each synchronous display transaction.
     fn render(
         &mut self,
-        link: LinkStatus,
+        link: BleStatus,
         snapshot: &Snapshot,
         now: Instant,
         viewport: Option<Viewport>,
@@ -366,7 +380,7 @@ impl<D: Display> Screen<D> {
             .filter(|&(page, _, status, menu)| (page, status, menu) == (ui.page, link, ui.menu))
             .map(|(_, metric, _, _)| metric);
         let full = previous_metric.is_none();
-        if !full && link == LinkStatus::Pairing {
+        if !full && link == BleStatus::Pairing {
             return Ok(());
         }
         self.present = None;
@@ -384,13 +398,13 @@ impl<D: Display> Screen<D> {
             viewport.map(|viewport| (viewport, &self.map)),
             &mut route,
         );
-        let chart = link != LinkStatus::Pairing && matches!(&body, Body::Motion { .. });
+        let chart = link != BleStatus::Pairing && matches!(&body, Body::Motion { .. });
         if chart {
-            body.project_motion(plot, ui.metric, &mut self.projected);
-            chart_damage(plot, &self.projected, &mut self.damage);
+            body.project_motion(plot, ui.metric, &mut self.projected)?;
+            ui::chart::damage(plot, STRIP, TRACE_MARKER, &self.projected, &mut self.damage)?;
         }
         let paint = |canvas: &mut Canvas<'_>| {
-            if link == LinkStatus::Pairing {
+            if link == BleStatus::Pairing {
                 if let Some(code) = &ui.code {
                     pairing(canvas, layout, code);
                 }
@@ -413,7 +427,7 @@ impl<D: Display> Screen<D> {
                     w: gyro.x + gyro.w - accel.x,
                     ..accel
                 };
-                draw_strips(&mut self.display, &mut self.pixels, controls, whole, &paint)?;
+                self.surface.draw(controls, BG, whole, paint)?;
             }
             let label = (plot.y + 5, plot.y + 12);
             let changed = |strip: Area| {
@@ -432,31 +446,29 @@ impl<D: Display> Screen<D> {
                     ..strip
                 })
             };
-            draw_strips(&mut self.display, &mut self.pixels, plot, changed, &paint)?;
-            draw_strips(
-                &mut self.display,
-                &mut self.pixels,
+            self.surface.draw(plot, BG, changed, paint)?;
+            self.surface.draw(
                 Area {
                     x: 0,
                     y: layout.height - 24,
                     w: layout.width,
                     h: 7,
                 },
+                BG,
                 whole,
-                &paint,
+                paint,
             )?;
         } else {
-            draw_strips(
-                &mut self.display,
-                &mut self.pixels,
+            self.surface.draw(
                 Area {
                     x: 0,
                     y: top,
                     w: layout.width,
                     h: layout.height - top,
                 },
+                BG,
                 whole,
-                &paint,
+                paint,
             )?;
         }
         self.present = Some(key);
@@ -467,48 +479,7 @@ impl<D: Display> Screen<D> {
     }
 }
 
-fn rectangle(area: Area) -> Rect {
-    // The layout and dirty regions are bounded by the display dimensions.
-    Rect {
-        x: area.x as u16,
-        y: area.y as u16,
-        size: Size {
-            width: area.w as u16,
-            height: area.h as u16,
-        },
-    }
-}
-
-fn draw_strips(
-    display: &mut impl Display,
-    pixels: &mut [u16],
-    area: Area,
-    clip: impl Fn(Area) -> Option<Area>,
-    paint: impl Fn(&mut Canvas<'_>),
-) -> Result<(), Error> {
-    let end = area.y + area.h;
-    let mut y = area.y;
-    while y < end {
-        let height = i32::from(STRIP).min(end - y);
-        let strip = Area {
-            y,
-            h: height,
-            ..area
-        };
-        y += height;
-        let Some(strip) = clip(strip) else {
-            continue;
-        };
-        let rect = rectangle(strip);
-        let pixels = &mut pixels[..strip.w as usize * height as usize];
-        pixels.fill(BG);
-        paint(&mut Canvas::new(rect, pixels)?);
-        display.draw_strip(rect, pixels)?;
-    }
-    Ok(())
-}
-
-fn header(canvas: &mut Canvas<'_>, layout: &Layout, ui: &Dashboard, link: LinkStatus) {
+fn header(canvas: &mut Canvas<'_>, layout: &Layout, ui: &Dashboard, link: BleStatus) {
     if !ui.menu {
         canvas.fill(
             Area {
@@ -531,10 +502,10 @@ fn header(canvas: &mut Canvas<'_>, layout: &Layout, ui: &Dashboard, link: LinkSt
         PANEL,
     );
     let (label, color, clickable): (&[u8], _, _) = match link {
-        LinkStatus::Idle | LinkStatus::Paired => (b"PAIR", MINT, true),
-        LinkStatus::Unavailable => (b"RETRY", GOLD, true),
-        LinkStatus::Pairing => unreachable!(),
-        LinkStatus::Connected => (b"LINKED", MINT, false),
+        BleStatus::Idle | BleStatus::Paired => (b"PAIR", MINT, true),
+        BleStatus::Unavailable => (b"RETRY", GOLD, true),
+        BleStatus::Pairing => unreachable!(),
+        BleStatus::Connected => (b"LINKED", MINT, false),
     };
     chip(canvas, layout.tab(LINK_TAB), label, color, clickable);
     for (index, (page, label)) in TABS.into_iter().enumerate() {
@@ -621,69 +592,6 @@ fn pairing(canvas: &mut Canvas<'_>, layout: &Layout, code: &QrCode) {
     }
 }
 
-#[derive(Clone, Copy)]
-struct PlotPoint {
-    x: u16,
-    y: [u16; 3],
-}
-
-#[derive(Clone, Copy, Default)]
-struct Columns {
-    left: u16,
-    right: u16,
-}
-
-impl Columns {
-    fn include(&mut self, range: Self) {
-        if range.left < range.right {
-            self.left = if self.left == self.right {
-                range.left
-            } else {
-                self.left.min(range.left)
-            };
-            self.right = self.right.max(range.right);
-        }
-    }
-}
-
-fn chart_damage(plot: Area, points: &[Option<PlotPoint>], bands: &mut [Columns]) {
-    bands.fill(Columns::default());
-    let mut previous: Option<PlotPoint> = None;
-    let right = (plot.x + plot.w) as u16;
-    let first_row = plot.y as u16;
-    for point in points {
-        if let Some(point) = *point {
-            for (axis, y) in point.y.into_iter().enumerate() {
-                let (columns, top, bottom) = if let Some(from) = previous {
-                    (
-                        Columns {
-                            left: point.x.min(from.x),
-                            right: point.x.max(from.x) + 1,
-                        },
-                        y.min(from.y[axis]),
-                        y.max(from.y[axis]),
-                    )
-                } else {
-                    (
-                        Columns {
-                            left: point.x,
-                            right: (point.x + 2).min(right),
-                        },
-                        y,
-                        y + 1,
-                    )
-                };
-                let first = usize::from((top - first_row) / STRIP);
-                let last = usize::from((bottom - first_row) / STRIP);
-                for band in &mut bands[first..=last] {
-                    band.include(columns);
-                }
-            }
-        }
-        previous = *point;
-    }
-}
-
 enum Body<'a> {
     Motion {
         samples: &'a History,
@@ -705,8 +613,12 @@ enum Body<'a> {
 }
 
 impl<'a> Body<'a> {
-    fn project_motion(&self, plot: Area, metric: Metric, points: &mut Vec<Option<PlotPoint>>) {
-        points.clear();
+    fn project_motion(
+        &self,
+        plot: Area,
+        metric: Metric,
+        points: &mut Vec<Option<PlotPoint>>,
+    ) -> Result<(), Error> {
         let Self::Motion {
             samples,
             now,
@@ -714,20 +626,16 @@ impl<'a> Body<'a> {
             limit,
         } = self
         else {
-            return;
+            points.clear();
+            return Ok(());
         };
-        let center = plot.y + plot.h / 2;
-        for (fraction, signal) in samples.motion(*index, metric, *now) {
-            points.push(signal.map(|values| {
-                let y = values.map(|value| {
-                    center - ((value / limit).clamp(-1.0, 1.0) * (plot.h / 2 - 4) as f32) as i32
-                });
-                PlotPoint {
-                    x: (plot.x + (fraction * (plot.w - 1) as f32) as i32) as u16,
-                    y: y.map(|row| row as u16),
-                }
-            }));
-        }
+        ui::chart::project(
+            plot,
+            4,
+            *limit,
+            samples.motion(*index, metric, *now),
+            points,
+        )
     }
 
     fn new(
@@ -835,14 +743,21 @@ impl<'a> Body<'a> {
                 h: side,
             };
             canvas.fill(area, PANEL);
-            for key in viewport.keys().into_iter().flatten() {
-                if let Some(tile) = map.tile(key) {
-                    let [x, y] = viewport.origin(key);
-                    let origin = (
-                        area.x + (x * side as f32).round() as i32,
-                        area.y + (y * side as f32).round() as i32,
-                    );
-                    canvas.map(area, origin, tile);
+            let keys = viewport.keys();
+            if let Some(center) = keys[0] {
+                let anchor = viewport.origin(center);
+                let pixels = anchor.map(|offset| (offset * side as f32).round() as i32);
+                for key in keys.into_iter().flatten() {
+                    if let Some(tile) = map.tile(key) {
+                        let [x, y] = viewport.origin(key);
+                        // Round one anchor; whole-tile steps keep adjoining
+                        // edges together even at half-pixel coordinates.
+                        let origin = (
+                            area.x + pixels[0] + (x - anchor[0]).round() as i32 * side,
+                            area.y + pixels[1] + (y - anchor[1]).round() as i32 * side,
+                        );
+                        canvas.map(area, origin, tile);
+                    }
                 }
             }
             let locate = |east: f32, south: f32| {
@@ -936,8 +851,8 @@ impl<'a> Body<'a> {
                                         Area {
                                             x,
                                             y,
-                                            w: 2.min(right - x + 1),
-                                            h: 2,
+                                            w: i32::from(TRACE_MARKER).min(right - x + 1),
+                                            h: i32::from(TRACE_MARKER),
                                         },
                                         color,
                                     );
@@ -1110,6 +1025,82 @@ mod tests {
     }
 
     #[test]
+    fn partial_display_failure_invalidates_the_scene_until_a_full_retry_succeeds() {
+        struct Interrupted {
+            panel: Panel,
+            failed: bool,
+        }
+
+        impl Display for Interrupted {
+            fn size(&self) -> Size {
+                self.panel.size()
+            }
+
+            fn draw(&mut self, rect: Rect, pixels: &[u16]) -> Result<(), Error> {
+                self.panel.draw(rect, pixels)?;
+                if !self.failed && self.panel.1.len() == 2 {
+                    self.failed = true;
+                    return Err(Error::Io);
+                }
+                Ok(())
+            }
+        }
+
+        let display = Interrupted {
+            panel: Panel::new(),
+            failed: false,
+        };
+        let mut screen = Screen::new(display, Zoom::default()).unwrap();
+        let now = screen.deadline();
+        let snapshot = Snapshot {
+            clock: None,
+            imu: [Reading::Waiting; 2],
+            gnss: Reading::Waiting,
+        };
+        assert_eq!(
+            screen.draw(
+                BleStatus::Idle,
+                &snapshot,
+                now,
+                || Reading::Waiting,
+                |_| None
+            ),
+            Err(Error::Io)
+        );
+        assert!(screen.present.is_none());
+        screen.surface.display_mut().panel.1.clear();
+        screen
+            .draw(
+                BleStatus::Idle,
+                &snapshot,
+                now,
+                || Reading::Waiting,
+                |_| None,
+            )
+            .unwrap();
+        assert!(screen.present.is_some());
+        assert_eq!(screen.surface.display().panel.1[0].y, 0);
+        assert_eq!(
+            screen.surface.display().panel.1.len(),
+            240 / usize::from(STRIP)
+        );
+        let mut reference = Screen::new(Panel::new(), Zoom::default()).unwrap();
+        reference
+            .draw(
+                BleStatus::Idle,
+                &snapshot,
+                now,
+                || Reading::Waiting,
+                |_| None,
+            )
+            .unwrap();
+        assert_eq!(
+            screen.surface.display().panel.0,
+            reference.surface.display().0
+        );
+    }
+
+    #[test]
     fn steady_chart_writes_only_damaged_columns_and_erases_a_disappeared_trace() {
         let mut screen = Screen::new(Panel::new(), Zoom::default()).unwrap();
         let now = screen.deadline();
@@ -1120,7 +1111,7 @@ mod tests {
         };
         screen
             .draw(
-                LinkStatus::Idle,
+                BleStatus::Idle,
                 &snapshot,
                 now,
                 || Reading::Waiting,
@@ -1128,18 +1119,18 @@ mod tests {
             )
             .unwrap();
         assert_eq!(screen.deadline(), now + CHART_INTERVAL);
-        screen.display.1.clear();
+        screen.surface.display_mut().1.clear();
         screen.presented_damage[(98 - 38) / usize::from(STRIP)] = Columns {
             left: 24,
             right: 26,
         };
-        screen.display.0[98 * 320 + 24] = MINT;
+        screen.surface.display_mut().0[98 * 320 + 24] = MINT;
 
         snapshot.imu[0] = Reading::Fault;
         let next = now + CHART_INTERVAL + Duration::from_millis(10);
         screen
             .draw(
-                LinkStatus::Idle,
+                BleStatus::Idle,
                 &snapshot,
                 next,
                 || Reading::Waiting,
@@ -1147,7 +1138,7 @@ mod tests {
             )
             .unwrap();
         assert_eq!(screen.deadline(), now + CHART_INTERVAL * 2);
-        let writes = &screen.display.1;
+        let writes = &screen.surface.display_mut().1;
         assert_eq!(writes.last().unwrap().y, 216);
         assert_eq!((writes[0].x, writes[0].size.width), (17, 120));
         assert_eq!((writes[1].x, writes[1].size.width), (17, 120));
@@ -1162,23 +1153,23 @@ mod tests {
                 .sum::<u32>(),
             (120 * 2 + 2) * 8 + 320 * 7
         );
-        assert_ne!(screen.display.0[98 * 320 + 24], MINT);
+        assert_ne!(screen.surface.display_mut().0[98 * 320 + 24], MINT);
 
-        let partial = screen.display.0.clone();
+        let partial = screen.surface.display_mut().0.clone();
         screen.present = None;
         screen
             .draw(
-                LinkStatus::Idle,
+                BleStatus::Idle,
                 &snapshot,
                 next,
                 || Reading::Waiting,
                 |_| None,
             )
             .unwrap();
-        assert_eq!(screen.display.0, partial);
+        assert_eq!(screen.surface.display_mut().0, partial);
     }
 
-    fn tap(screen: &mut Screen<Panel>, link: LinkStatus, point: Point) -> Option<Action> {
+    fn tap(screen: &mut Screen<Panel>, link: BleStatus, point: Point) -> Option<Action> {
         assert_eq!(screen.input(link, Event::Pressed(point), false), None);
         screen.input(link, Event::Released, false)
     }
@@ -1189,7 +1180,7 @@ mod tests {
 
         let mut screen = Screen::new(Panel::new(), Zoom::default()).unwrap();
         screen.ui.menu = true;
-        let link = LinkStatus::Idle;
+        let link = BleStatus::Idle;
         let tab = screen.layout.tab(3);
         assert_eq!(
             tap(
@@ -1235,13 +1226,13 @@ mod tests {
         };
         draw(&mut screen, Reading::Live(report));
         let at = |x: usize, y: usize| y * 320 + x;
-        assert_eq!(screen.display.0[at(100, 150)], MINT);
+        assert_eq!(screen.surface.display_mut().0[at(100, 150)], MINT);
         // The 45 dB-Hz peak sets a 50 dB-Hz ceiling, so 25 is half-height.
-        assert_ne!(screen.display.0[at(238, 150)], 0x661f);
-        assert_eq!(screen.display.0[at(238, 151)], 0x661f);
-        screen.display.1.clear();
+        assert_ne!(screen.surface.display_mut().0[at(238, 150)], 0x661f);
+        assert_eq!(screen.surface.display_mut().0[at(238, 151)], 0x661f);
+        screen.surface.display_mut().1.clear();
         draw(&mut screen, Reading::Live(report));
-        assert!(screen.display.1.is_empty());
+        assert!(screen.surface.display_mut().1.is_empty());
         let dense = SatelliteReport::new(
             24,
             24,
@@ -1257,20 +1248,22 @@ mod tests {
         draw(&mut screen, Reading::Live(dense));
         let row = at(32, 196)..at(309, 196);
         assert_eq!(
-            screen.display.0[row.clone()]
+            screen.surface.display_mut().0[row.clone()]
                 .split(|&pixel| pixel == BG)
                 .filter(|bar| !bar.is_empty())
                 .count(),
             24,
         );
         draw(&mut screen, Reading::Stale);
-        assert!(screen.display.0[row].iter().all(|&pixel| pixel == BG));
+        assert!(screen.surface.display_mut().0[row]
+            .iter()
+            .all(|&pixel| pixel == BG));
     }
 
     #[test]
     fn metric_taps_repaint_controls_and_traces_without_resetting_the_chart_deadline() {
         let mut screen = Screen::new(Panel::new(), Zoom::default()).unwrap();
-        let link = LinkStatus::Connected;
+        let link = BleStatus::Connected;
         let start = screen.deadline();
         let now = start + SAMPLE_INTERVAL;
         let mut sample = imu::ImuSample {
@@ -1297,8 +1290,8 @@ mod tests {
         let deadline = screen.deadline();
 
         for x in [280, 230] {
-            screen.display.1.clear();
-            let before = screen.display.0.clone();
+            screen.surface.display_mut().1.clear();
+            let before = screen.surface.display_mut().0.clone();
             assert_eq!(
                 tap(&mut screen, link, Point { x, y: 20 }),
                 Some(Action::Redraw)
@@ -1308,23 +1301,23 @@ mod tests {
                 .unwrap();
             assert_eq!(screen.deadline(), deadline);
 
-            let (controls, body) = screen.display.1.split_at(3);
+            let (controls, body) = screen.surface.display_mut().1.split_at(3);
             assert!(controls.iter().all(|r| (r.x, r.size.width) == (214, 96)));
             assert_eq!(controls[0].y, 9);
             assert!(body.iter().all(|r| (38..208).contains(&r.y) || r.y == 216));
-            let partial = screen.display.0.clone();
+            let partial = screen.surface.display_mut().0.clone();
             assert_ne!(partial, before);
             screen.present = None;
             screen
                 .draw(link, &snapshot, now, || Reading::Waiting, |_| None)
                 .unwrap();
-            assert_eq!(screen.display.0, partial);
+            assert_eq!(screen.surface.display_mut().0, partial);
         }
     }
 
     fn swipe(
         screen: &mut Screen<Panel>,
-        link: LinkStatus,
+        link: BleStatus,
         from: Point,
         to: Point,
     ) -> Option<Action> {
@@ -1343,7 +1336,7 @@ mod tests {
         let below = Point { x: 275, y: 80 };
         let gyro = Point { x: 280, y: 20 };
         assert_eq!(
-            tap(&mut screen, LinkStatus::Idle, pair),
+            tap(&mut screen, BleStatus::Idle, pair),
             Some(Action::Redraw)
         );
         assert_eq!(screen.ui.metric, Metric::Rotation);
@@ -1355,52 +1348,52 @@ mod tests {
         };
         screen
             .draw(
-                LinkStatus::Idle,
+                BleStatus::Idle,
                 &snapshot,
                 now,
                 || Reading::Waiting,
                 |_| None,
             )
             .unwrap();
-        assert!(!screen.display.0.contains(&0xffff));
-        assert_eq!(screen.display.0[320 * 45 + 12], PANEL);
+        assert!(!screen.surface.display_mut().0.contains(&0xffff));
+        assert_eq!(screen.surface.display_mut().0[320 * 45 + 12], PANEL);
         assert_eq!(
-            swipe(&mut screen, LinkStatus::Idle, pair, below),
+            swipe(&mut screen, BleStatus::Idle, pair, below),
             Some(Action::Redraw)
         );
         assert!(screen.ui.menu);
         screen
             .draw(
-                LinkStatus::Idle,
+                BleStatus::Idle,
                 &snapshot,
                 now,
                 || Reading::Waiting,
                 |_| None,
             )
             .unwrap();
-        assert_eq!(screen.display.0[320 * 39], PANEL);
-        assert_eq!(screen.display.0[320 * 45 + 12], BG);
+        assert_eq!(screen.surface.display_mut().0[320 * 39], PANEL);
+        assert_eq!(screen.surface.display_mut().0[320 * 45 + 12], BG);
         assert_eq!(
-            tap(&mut screen, LinkStatus::Idle, module),
+            tap(&mut screen, BleStatus::Idle, module),
             Some(Action::Redraw)
         );
         assert_eq!(screen.ui.page, Page::Module);
         assert!(!screen.ui.menu);
         assert_eq!(
-            swipe(&mut screen, LinkStatus::Idle, pair, below),
+            swipe(&mut screen, BleStatus::Idle, pair, below),
             Some(Action::Redraw)
         );
-        assert_eq!(tap(&mut screen, LinkStatus::Idle, pair), Some(Action::Pair));
+        assert_eq!(tap(&mut screen, BleStatus::Idle, pair), Some(Action::Pair));
         screen
-            .update_link(View {
-                link: LinkStatus::Pairing,
+            .update_link(BleView {
+                link: BleStatus::Pairing,
                 key: Some([42; 32]),
             })
             .unwrap();
         assert!(!screen.ui.menu);
         screen
             .draw(
-                LinkStatus::Pairing,
+                BleStatus::Pairing,
                 &snapshot,
                 now,
                 || Reading::Waiting,
@@ -1419,38 +1412,38 @@ mod tests {
                     0xffff
                 };
                 assert_eq!(
-                    screen.display.0[((80 + y) * 320 + left + x) as usize],
+                    screen.surface.display_mut().0[((80 + y) * 320 + left + x) as usize],
                     color
                 );
             }
         }
-        assert_eq!(swipe(&mut screen, LinkStatus::Pairing, pair, below), None);
-        assert_eq!(tap(&mut screen, LinkStatus::Pairing, module), None);
+        assert_eq!(swipe(&mut screen, BleStatus::Pairing, pair, below), None);
+        assert_eq!(tap(&mut screen, BleStatus::Pairing, module), None);
         assert_eq!(
-            tap(&mut screen, LinkStatus::Pairing, pair),
+            tap(&mut screen, BleStatus::Pairing, pair),
             Some(Action::CancelPairing)
         );
         screen
-            .update_link(View {
-                link: LinkStatus::Connected,
+            .update_link(BleView {
+                link: BleStatus::Connected,
                 key: None,
             })
             .unwrap();
-        assert_eq!(tap(&mut screen, LinkStatus::Connected, gyro), None);
+        assert_eq!(tap(&mut screen, BleStatus::Connected, gyro), None);
         assert_eq!(
-            swipe(&mut screen, LinkStatus::Connected, pair, below),
+            swipe(&mut screen, BleStatus::Connected, pair, below),
             Some(Action::Redraw)
         );
-        assert_eq!(tap(&mut screen, LinkStatus::Connected, pair), None);
+        assert_eq!(tap(&mut screen, BleStatus::Connected, pair), None);
         assert_eq!(
-            tap(&mut screen, LinkStatus::Connected, map),
+            tap(&mut screen, BleStatus::Connected, map),
             Some(Action::Redraw)
         );
         assert!(!screen.ui.menu);
         assert_eq!(screen.ui.page, Page::Map);
         screen
             .draw(
-                LinkStatus::Connected,
+                BleStatus::Connected,
                 &snapshot,
                 now,
                 || Reading::Waiting,
@@ -1462,7 +1455,7 @@ mod tests {
     #[test]
     fn upward_swipe_dismisses_and_interrupted_contacts_cannot_activate_pairing() {
         let mut screen = Screen::new(Panel::new(), Zoom::default()).unwrap();
-        let status = LinkStatus::Idle;
+        let status = BleStatus::Idle;
         let pair = Point { x: 275, y: 20 };
         let below = Point { x: 275, y: 80 };
         assert_eq!(

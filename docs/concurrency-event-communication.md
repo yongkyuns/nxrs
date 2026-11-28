@@ -185,9 +185,10 @@ are wake hints, so full or missed notifications do not hide terminal state. A pu
 `ObservationService` cannot call the local service's `observe` method. A new
 acquisition lifetime requires new endpoints and fault state.
 
-Communications keeps its fixed reader while inactive. Startup transfers it
-through the existing control state; failed thread creation restores it for a
-later attempt. The running worker reads outside that control mutex. Exit or
+[Motion Tracker's communications owner](../app/motion-tracker/src/communications.rs)
+keeps its fixed reader while inactive. Startup transfers it through the existing
+control state; failed thread creation restores it for a later attempt. The
+running worker reads outside that control mutex. Exit or
 unwind returns the endpoint, and it can be recovered only after joining.
 This permits explicit reuse without adding subscribers. It does not add an
 automatic restart policy for a communications worker that has exited.
@@ -210,11 +211,12 @@ and worst-case latency remain qualification gates. Freshness thresholds describe
 which readings are usable; timing acceptance also needs a publication deadline
 and an acquisition jitter budget.
 
-Ordered capture belongs to Motion Tracker's export. The app uses the optional
+Motion Tracker composes the [telemetry capture API](../service/telemetry/src/export.rs)
+for ordered export. The service uses the optional
 [`messaging::pooled`](../shared/messaging/src/pooled.rs) transport: 512 shared
 scalar records, three exclusive source publishers and one exclusive consumer.
 Each acquisition callback receives its own publisher. The consumer moves with
-`Telemetry` into the existing communications worker, through failed-spawn
+the app's `Telemetry` into its communications worker, through failed-spawn
 rollback and joined reuse. A separate shared view carries clock, scales and
 fault state. No payload mutex, new worker or runtime dependency is added.
 
@@ -252,8 +254,10 @@ retirement contributes a deadline to the owner's single park. The scalar payload
 path avoids a mutex, but the callback and platform wake primitive are not a
 whole-system lock-free or deadline guarantee.
 
-The app's [capture policy](../app/motion-tracker/src/communications/export/policy.rs)
-checks storage and workload before sensor startup:
+The [telemetry service's capture admission](../service/telemetry/src/export/policy.rs)
+checks the application's storage and workload configuration before sensor startup.
+[Motion Tracker's configuration](../app/motion-tracker/src/communications.rs)
+supplies the following product budget:
 
 | Policy | Enforcement and scope |
 | --- | --- |

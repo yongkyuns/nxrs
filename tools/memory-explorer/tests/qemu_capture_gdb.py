@@ -190,6 +190,17 @@ def stop_at(symbol):
             "Not every reported thread is stopped")
 
 
+def terminate_remote():
+    # Call only after retaining the completed observations. The kill packet
+    # can race QEMU's pipe shutdown; its response is not workload evidence.
+    # Neither result proves process exit. The host owns process-group cleanup.
+    try:
+        gdb.execute("kill")
+    except gdb.error as exc:
+        return {"kill_packet": "unacknowledged", "kill_response": str(exc)}
+    return {"kill_packet": "acknowledged"}
+
+
 def run():
     settings = json.loads(Path(os.environ["NXRS_MEMORY_QEMU_RUN"]).read_text())
     output, image = Path(settings["output"]), Path(settings["image"])
@@ -227,7 +238,7 @@ def run():
                              "Coordinates are ordered observations, not measured elapsed time",
                              "The host launched this exact ELF; no separate device attestation is claimed"]}
         (output / "gdb-report.json").write_text(json.dumps(report, indent=2) + "\n")
-        gdb.execute("kill")
+        (output / "teardown.json").write_text(json.dumps(terminate_remote(), indent=2) + "\n")
         gdb.execute("quit 0")
     except Exception as exc:
         failure = {"error": str(exc), "traceback": traceback.format_exc()}

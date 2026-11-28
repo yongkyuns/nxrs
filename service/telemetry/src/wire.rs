@@ -1,11 +1,9 @@
 //! Transport-independent snapshots.
-use super::Key;
-use crate::{
-    text::Text,
-    tracker::{reading_status, Reading, Snapshot},
-};
+use crate::{reading_status, Reading, Snapshot};
+use maps::Key;
 use std::fmt::{self, Write};
 use std::io;
+use text::Text;
 
 fn utc_json(out: &mut dyn Write, utc_ms: Option<i64>) -> fmt::Result {
     match utc_ms {

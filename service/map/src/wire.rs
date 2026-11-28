@@ -1,6 +1,7 @@
 //! Bounded tile request and reply protocol for the phone and IP relay.
 use std::io::{self, Read};
 
+/// Width and height of a decoded tile, in pixels.
 pub const SIDE: usize = 170;
 const PALETTE_BYTES: usize = 32;
 const ROW_BYTES: usize = SIDE / 2;
@@ -9,20 +10,25 @@ const METADATA_BYTES: usize = PALETTE_BYTES + SIDE;
 const BLOCK_BYTES: usize = 1024;
 const BLOCKS: usize = PIXEL_BYTES.div_ceil(BLOCK_BYTES);
 const MAGIC: &[u8; 4] = b"NXM5";
+/// Length of an `NXM5` tile request and of a response's key prefix.
 pub const REQUEST_BYTES: usize = 13;
 
+/// Supported Web Mercator zoom level, from 15 through 18 inclusive.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Zoom(u8);
 
 impl Zoom {
+    /// Validate a zoom level supported by the tile protocol.
     pub fn new(level: u8) -> Option<Self> {
         (15..=18).contains(&level).then_some(Self(level))
     }
 
+    /// Return the numeric zoom level.
     pub fn level(self) -> u8 {
         self.0
     }
 
+    /// Number of tiles along either axis at this zoom.
     pub fn tiles(self) -> u32 {
         1 << self.level()
     }
@@ -34,6 +40,10 @@ impl Default for Zoom {
     }
 }
 
+/// Slippy-map tile coordinates, with x increasing east and y increasing south.
+///
+/// Each coordinate must be less than [`Zoom::tiles`]. Use [`Key::new`] when
+/// accepting coordinates from a caller; the wire receiver validates them too.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Key {
     pub zoom: Zoom,
@@ -42,6 +52,21 @@ pub struct Key {
 }
 
 impl Key {
+    /// Construct a key only when both coordinates lie in this zoom's world.
+    pub fn new(zoom: Zoom, x: u32, y: u32) -> Option<Self> {
+        let key = Self { zoom, x, y };
+        key.is_valid().then_some(key)
+    }
+
+    /// Check the coordinate bounds of a key constructed through its fields.
+    pub fn is_valid(self) -> bool {
+        self.x < self.zoom.tiles() && self.y < self.zoom.tiles()
+    }
+
+    /// Encode this key as an `NXM5` request without allocating.
+    ///
+    /// Use a valid key: this serializes the supplied coordinates verbatim, while
+    /// [`Receiver`] refuses out-of-range coordinates in a response.
     pub fn request(self) -> [u8; REQUEST_BYTES] {
         let mut request = [0; REQUEST_BYTES];
         request[..4].copy_from_slice(MAGIC);
@@ -52,6 +77,11 @@ impl Key {
     }
 }
 
+/// One complete, validated tile with an RGB565 palette and encoded scanlines.
+///
+/// Tile construction is private to the protocol receiver. Pixel storage is
+/// bounded by 14,450 bytes in blocks no larger than 1,024 bytes; row offsets and
+/// vector metadata are accounted separately. Decoding a row does not allocate.
 pub struct Tile {
     pub key: Key,
     pub palette: [u16; 16],
@@ -72,8 +102,16 @@ impl Tile {
         }
     }
 
-    pub fn row(&self, row: usize, colors: &mut [u8; SIDE]) {
+    /// Decode one row to palette indexes in `0..16`.
+    ///
+    /// Returns [`io::ErrorKind::InvalidInput`] for a row outside `0..SIDE`,
+    /// without changing the output buffer.
+    pub fn row(&self, row: usize, colors: &mut [u8; SIDE]) -> io::Result<()> {
+        if row >= SIDE {
+            return Err(io::ErrorKind::InvalidInput.into());
+        }
         self.pixels.row(row, colors);
+        Ok(())
     }
 }
 
@@ -169,7 +207,15 @@ impl Scanline {
     }
 }
 
-/// One response can be split at any byte. Fixed metadata bounds the payload.
+/// Incremental decoder for one response at a time, split at any byte boundary.
+///
+/// Fixed metadata bounds the payload. A poll performs at most one source read,
+/// processing at most 512 payload bytes. The caller must supply a nonblocking
+/// reader to keep polling nonblocking. No worker or additional queue is created.
+///
+/// A fatal I/O or protocol error releases partial tile storage and makes this
+/// receiver terminal. Replace it with [`Receiver::default`] for a fresh stream;
+/// it never guesses the next frame boundary after an error.
 pub struct Receiver {
     header: [u8; REQUEST_BYTES + 1],
     received: usize,
@@ -177,6 +223,7 @@ pub struct Receiver {
     pixels: Option<Pixels>,
     metadata: [u8; METADATA_BYTES],
     scanline: Scanline,
+    failed: Option<io::ErrorKind>,
 }
 
 impl Default for Receiver {
@@ -192,10 +239,12 @@ impl Default for Receiver {
                 row: 0,
                 filled: 0,
             },
+            failed: None,
         }
     }
 }
 
+/// A complete tile or an explicit unavailable reply from the peer.
 pub enum Response {
     Tile(Tile),
     Unavailable(Key),
@@ -210,7 +259,30 @@ impl Receiver {
         }
     }
 
+    /// Read one bounded portion of a response.
+    ///
+    /// Only a response whose key equals `wanted` retains pixel storage. An
+    /// obsolete reply is drained to preserve framing. `WouldBlock` and
+    /// `Interrupted` report no progress; end of stream is `UnexpectedEof`.
+    /// Allocation failure discards and drains that tile, logs a warning, and
+    /// leaves retry timing to the caller.
     pub fn poll(
+        &mut self,
+        source: &mut dyn Read,
+        wanted: Option<Key>,
+    ) -> io::Result<Option<Response>> {
+        if let Some(kind) = self.failed {
+            return Err(kind.into());
+        }
+        let result = self.receive(source, wanted);
+        if let Err(error) = &result {
+            self.pixels = None;
+            self.failed = Some(error.kind());
+        }
+        result
+    }
+
+    fn receive(
         &mut self,
         source: &mut dyn Read,
         wanted: Option<Key>,
@@ -230,9 +302,7 @@ impl Receiver {
                     self.scanline.filled = 0;
                     if wanted == Some(key) {
                         self.pixels = Pixels::allocate()
-                            .inspect_err(|_| {
-                                log::warn!("motion-tracker map: insufficient tile storage")
-                            })
+                            .inspect_err(|_| log::warn!("map: insufficient tile storage"))
                             .ok();
                     }
                     return Ok(None);
@@ -269,7 +339,7 @@ impl Receiver {
                 ) {
                     Ok(()) => {}
                     Err(error) if error.kind() == io::ErrorKind::OutOfMemory => {
-                        log::warn!("motion-tracker map: insufficient tile storage");
+                        log::warn!("map: insufficient tile storage");
                         self.pixels = None;
                     }
                     Err(error) => return Err(error),
@@ -298,13 +368,14 @@ impl Receiver {
         let zoom = Zoom::new(self.header[4])?;
         let x = u32::from_be_bytes(self.header[5..9].try_into().unwrap());
         let y = u32::from_be_bytes(self.header[9..13].try_into().unwrap());
-        (x < zoom.tiles() && y < zoom.tiles()).then_some(Key { zoom, x, y })
+        Key::new(zoom, x, y)
     }
 }
 
 fn read(source: &mut dyn Read, buffer: &mut [u8]) -> io::Result<usize> {
     match source.read(buffer) {
         Ok(0) => Err(io::ErrorKind::UnexpectedEof.into()),
+        Ok(count) if count > buffer.len() => Err(io::ErrorKind::InvalidData.into()),
         Err(error)
             if matches!(
                 error.kind(),
@@ -379,7 +450,7 @@ mod tests {
         assert_eq!(tile.palette, [0xabab; 16]);
         let mut row = [0; SIDE];
         for y in 0..SIDE {
-            tile.row(y, &mut row);
+            tile.row(y, &mut row).unwrap();
             assert!(row.chunks_exact(2).all(|pair| pair == [10, 11]));
         }
         let mut unavailable = key.request().to_vec();
@@ -442,5 +513,109 @@ mod tests {
         };
         assert!(matches!(response, Response::Unavailable(key) if key == new));
         assert!(data.is_empty());
+    }
+
+    #[test]
+    fn public_row_bounds_preserve_the_output_on_error() {
+        let tile = Tile::blank_for_test(tile_key(1, 2));
+        let mut colors = [9; SIDE];
+        for row in [SIDE, usize::MAX] {
+            assert_eq!(
+                tile.row(row, &mut colors).unwrap_err().kind(),
+                io::ErrorKind::InvalidInput
+            );
+            assert_eq!(colors, [9; SIDE]);
+        }
+        tile.row(SIDE - 1, &mut colors).unwrap();
+        assert_eq!(colors, [0; SIDE]);
+    }
+
+    #[test]
+    fn a_fatal_parse_error_releases_storage_and_does_not_guess_a_new_frame() {
+        let key = tile_key(1, 2);
+        let mut frame = key.request().to_vec();
+        frame.push(0);
+        frame.extend([0; METADATA_BYTES]); // Zero scanline lengths are invalid.
+        let mut input = frame.as_slice();
+        let mut receiver = Receiver::default();
+        assert!(receiver.poll(&mut input, Some(key)).unwrap().is_none());
+        assert!(receiver.pixels.is_some());
+        assert_eq!(
+            receiver.poll(&mut input, Some(key)).err().unwrap().kind(),
+            io::ErrorKind::InvalidData
+        );
+        assert!(receiver.pixels.is_none());
+
+        let mut next = key.request().to_vec();
+        next.push(1);
+        let mut input = next.as_slice();
+        assert_eq!(
+            receiver.poll(&mut input, Some(key)).err().unwrap().kind(),
+            io::ErrorKind::InvalidData
+        );
+        assert_eq!(input, next);
+        assert!(matches!(
+            Receiver::default().poll(&mut input, Some(key)).unwrap(),
+            Some(Response::Unavailable(received)) if received == key
+        ));
+    }
+
+    #[test]
+    fn invalid_reader_counts_cannot_overflow_receiver_offsets() {
+        struct InvalidReader;
+        impl Read for InvalidReader {
+            fn read(&mut self, _: &mut [u8]) -> io::Result<usize> {
+                Ok(usize::MAX)
+            }
+        }
+        let mut receiver = Receiver::default();
+        assert_eq!(
+            receiver
+                .poll(&mut InvalidReader, None)
+                .err()
+                .unwrap()
+                .kind(),
+            io::ErrorKind::InvalidData
+        );
+        assert_eq!(receiver.received, 0);
+    }
+
+    #[test]
+    fn nonblocking_reads_preserve_progress_but_eof_is_terminal() {
+        struct Unready(io::ErrorKind);
+        impl Read for Unready {
+            fn read(&mut self, _: &mut [u8]) -> io::Result<usize> {
+                Err(self.0.into())
+            }
+        }
+        let key = tile_key(1, 2);
+        let mut reply = key.request().to_vec();
+        reply.push(1);
+        let mut receiver = Receiver::default();
+        assert!(receiver
+            .poll(&mut &reply[..7], Some(key))
+            .unwrap()
+            .is_none());
+        for kind in [io::ErrorKind::WouldBlock, io::ErrorKind::Interrupted] {
+            assert!(receiver
+                .poll(&mut Unready(kind), Some(key))
+                .unwrap()
+                .is_none());
+            assert_eq!(receiver.received, 7);
+        }
+        assert!(matches!(
+            receiver.poll(&mut &reply[7..], Some(key)).unwrap(),
+            Some(Response::Unavailable(received)) if received == key
+        ));
+        assert_eq!(
+            receiver.poll(&mut &[][..], Some(key)).err().unwrap().kind(),
+            io::ErrorKind::UnexpectedEof
+        );
+        let mut next = reply.as_slice();
+        assert_eq!(
+            receiver.poll(&mut next, Some(key)).err().unwrap().kind(),
+            io::ErrorKind::UnexpectedEof
+        );
+        assert_eq!(next, reply);
     }
 }

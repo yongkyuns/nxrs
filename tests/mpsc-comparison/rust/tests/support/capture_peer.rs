@@ -143,7 +143,7 @@ fn emit(case: &str, version: Version, frame: &[u8], expected: &[Expected], termi
 }
 
 fn fixture() -> (Capture, [super::capture::CapturePublisher; 3]) {
-    Capture::new([Some(SCALE.map(f32::to_bits)); 2], [Some(100_000); 2], true).unwrap()
+    Capture::new(super::capture_config([Some(SCALE.map(f32::to_bits)); 2])).unwrap()
 }
 
 fn mixed(version: Version) {

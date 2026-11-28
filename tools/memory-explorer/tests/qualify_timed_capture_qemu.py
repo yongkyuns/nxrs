@@ -23,11 +23,16 @@ import subprocess
 import time
 
 from build_timed_capture_nuttx import SYSTICK_PATCH, SYSTICK_SOURCE
-from build_timing_nuttx import APPS_REVISION, NUTTX_REVISION
+from build_timing_nuttx import APPS_REVISION, NUTTX_REVISION, validate_atomic_stack_patch
+from qemu_console import nsh_prompt_ready
 
 
 FREQUENCY = 20_000_000
 TICK_NS = 50
+MAX_CONSOLE_BYTES = 4 * 1024 * 1024
+# Retain a fatal diagnostic's following chunks for at most one second, within
+# the original host deadline. This grace never changes qualification outcome.
+FATAL_DIAGNOSTIC_SECONDS = 1.0
 ABI = {"common_bytes": 16, "clock_offset": 8, "clock_bytes": 8,
        "pid_offset": 4, "pid_bytes": 4, "event_bytes": 32, "data_offset": 24,
        "begin_type": 31, "end_type": 32, "mark_type": 33, "word_bytes": 4}
@@ -246,17 +251,33 @@ def capture(qemu, image, command, output, timeout):
                 if not data:
                     raise RuntimeError("QEMU exited before the timed capture witness completed")
                 console.extend(data)
-            if len(console) > 4 * 1024 * 1024:
+            if len(console) > MAX_CONSOLE_BYTES:
                 raise RuntimeError("Timed capture console exceeded 4 MiB")
             if b"Assertion failed" in console or b"NXRS_TIMED_WITNESS FAIL" in console:
-                raise RuntimeError("Native boot/workload failed; inspect the retained console.log")
-            if not sent and b"nsh>" in console:
+                # The failure is terminal before draining: a later prompt or
+                # PASS cannot admit a command or turn this capture into success.
+                fatal = RuntimeError("Native boot/workload failed; inspect the retained console.log")
+                tail_deadline = min(deadline, time.monotonic() + FATAL_DIAGNOSTIC_SECONDS)
+                try:
+                    while len(console) < MAX_CONSOLE_BYTES:
+                        remaining = tail_deadline - time.monotonic()
+                        if remaining <= 0:
+                            break
+                        if select.select([process.stdout], [], [], min(0.05, remaining))[0]:
+                            data = os.read(process.stdout.fileno(), min(65536, MAX_CONSOLE_BYTES - len(console)))
+                            if not data:
+                                break
+                            console.extend(data)
+                except OSError as error:
+                    fatal.add_note(f"Could not retain the remaining native diagnostic: {error}")
+                raise fatal
+            if not sent and nsh_prompt_ready(console):
                 for byte in (command + "\n").encode("ascii"):
                     process.stdin.write(bytes((byte,)))
                     process.stdin.flush()
                     time.sleep(0.01)
                 sent = True
-            if sent and b"NXRS_TIMED_WITNESS " in console and console.rstrip().endswith(b"nsh>"):
+            if sent and b"NXRS_TIMED_WITNESS " in console and nsh_prompt_ready(console):
                 return bytes(console)
         raise TimeoutError("Native timed capture exceeded its bounded host deadline")
     finally:
@@ -271,10 +292,12 @@ def capture(qemu, image, command, output, timeout):
 
 def capture_sources(repository):
     return {path: sha256(repository / path) for path in (
-        "tools/memory-explorer/tests/qualify_timed_capture_qemu.py", "tools/nuttx-trace-to-perfetto.py")}
+        "tools/memory-explorer/tests/qualify_timed_capture_qemu.py",
+        "tools/memory-explorer/tests/qemu_console.py", "tools/nuttx-trace-to-perfetto.py")}
 
 
-def validate_build_sources(build, repository):
+def validate_build_sources(build, repository, build_dir=None):
+    validate_atomic_stack_patch(build, repository, build_dir)
     patch = build["production_patch"]
     if patch["path"] != "upstream/nuttx-apps/patches/0007-trace-capture-window.patch" or \
        patch["sha256"] != sha256(repository / patch["path"]):
@@ -315,7 +338,7 @@ def run(args):
         raise RuntimeError("Native build source pins differ")
     if build["elf_sha256"] != sha256(image) or build["config_sha256"] != sha256(build_dir / "resolved.config"):
         raise RuntimeError("Native build ELF/config identity differs")
-    validate_build_sources(build, repository)
+    validate_build_sources(build, repository, build_dir)
     if sha256(build_dir / "systick.patch") != build["systick_patch"]["sha256"]:
         raise RuntimeError("Retained native SysTick patch differs from the build receipt")
     output.mkdir(parents=True, exist_ok=False)

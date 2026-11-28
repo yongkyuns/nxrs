@@ -1,6 +1,5 @@
-use super::map::{Position, Viewport};
-use crate::communications::Zoom;
 use crate::tracker::{Reading, Snapshot};
+use maps::{Position, Viewport, Zoom};
 use std::{
     collections::VecDeque,
     time::{Duration, Instant},
@@ -35,11 +34,6 @@ impl Metric {
     }
 }
 
-struct Motion {
-    time: Instant,
-    sensors: [Option<imu::ImuSample>; 2],
-}
-
 struct Fix {
     latitude: f64,
     longitude: f64,
@@ -55,7 +49,7 @@ pub struct RoutePoint {
 }
 
 pub struct History {
-    motion: VecDeque<Motion>,
+    motion: ui::History<[Option<imu::ImuSample>; 2], MOTION_POINTS>,
     fixes: VecDeque<Fix>,
     fix_sequence: Option<u64>,
     last_fix: Option<Instant>,
@@ -65,7 +59,7 @@ pub struct History {
 impl History {
     pub fn new(zoom: Zoom) -> Self {
         Self {
-            motion: VecDeque::with_capacity(MOTION_POINTS),
+            motion: ui::History::new(),
             fixes: VecDeque::with_capacity(ROUTE_POINTS),
             fix_sequence: None,
             last_fix: None,
@@ -74,16 +68,13 @@ impl History {
     }
 
     pub fn record(&mut self, snapshot: &Snapshot, now: Instant) {
-        if self.motion.len() == MOTION_POINTS {
-            self.motion.pop_front();
-        }
-        self.motion.push_back(Motion {
-            time: now,
-            sensors: snapshot.imu.map(|reading| match reading {
+        self.motion.record(
+            now,
+            snapshot.imu.map(|reading| match reading {
                 Reading::Live(sample) => Some(sample),
                 _ => None,
             }),
-        });
+        );
         let Reading::Live(fix) = snapshot.gnss else {
             self.last_fix = None;
             return;
@@ -112,15 +103,11 @@ impl History {
         metric: Metric,
         now: Instant,
     ) -> impl Iterator<Item = (f32, Option<[f32; 3]>)> + '_ {
-        self.motion.iter().filter_map(move |point| {
-            let age = now.saturating_duration_since(point.time);
-            (age <= WINDOW).then(|| {
-                (
-                    1.0 - age.as_secs_f32() / WINDOW.as_secs_f32(),
-                    point.sensors[imu].map(|sample| metric.read(sample)),
-                )
+        self.motion
+            .window(now, WINDOW)
+            .map(move |(fraction, sensors)| {
+                (fraction, sensors[imu].map(|sample| metric.read(sample)))
             })
-        })
     }
 
     pub fn project_viewport(

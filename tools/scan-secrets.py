@@ -295,6 +295,53 @@ def reviewed_qemu_cache_control(scanner, source, config, alphabet):
     path.unlink()
 
 
+def reviewed_qemu_source_controls(scanner, source, config, token, alphabet):
+    # Derive the two reviewed rows from their immutable historical source,
+    # without introducing another cache-prefix literal into scanner history.
+    result = subprocess.run(["git", "cat-file", "blob",
+                             "f0676421fba505c510528d6f0dbdf9f736986cae"],
+                            cwd=ROOT, capture_output=True, check=False, timeout=10)
+    rows = result.stdout.decode("ascii").splitlines()
+    if result.returncode or len(rows) < 282:
+        raise ControlFailure("qemu-source-object")
+    rows = rows[280:282]
+    match = re.fullmatch(
+        r'[ \t]*if line\.lstrip\(\)\.startswith\("(key: [^"]+)"\)\), ""\)', rows[0])
+    if not match or rows[1].strip() != (
+        'if not checksum or row.strip() != "' + match[1] + '" + checksum[1]:'
+    ):
+        raise ControlFailure("qemu-source-rows")
+    prefix = match[1]
+    changed_prefix = prefix.replace("8.2.7", "8.2.8")
+    synthetic = alphabet * 4
+    path = source / "tools/scan-secrets.py"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    for index, row in enumerate(rows):
+        for variant, contents in enumerate((row + "\n", "\n\t" + row.lstrip() + "\n",
+                                            "\r\n" + row + "\r\n")):
+            path.write_bytes(contents.encode("ascii"))
+            findings, _ = execute(scanner, "dir", source, config)
+            if findings:
+                raise ControlFailure(f"qemu-source-allow-{index}-{variant}")
+        for control, (contents, rule, secret) in enumerate([
+                (row.replace(prefix, changed_prefix), "generic-api-key", changed_prefix[5:]),
+                (row + ' api_key = "' + synthetic + '"', "generic-api-key", synthetic),
+                (row + '\napi_key = "' + synthetic + '"', "generic-api-key", synthetic),
+                (row + ' access_token = "' + token + '"', "github-pat", token),
+                (row + '\naccess_token = "' + token + '"', "github-pat", token)]):
+            path.write_text(contents + "\n")
+            findings, output = execute(scanner, "dir", source, config)
+            if not any(item.get("RuleID") == rule for item in findings) or secret in output:
+                raise ControlFailure(f"qemu-source-reject-{index}-{control}")
+        path.unlink()
+        outside = source / "tools/unreviewed.py"
+        outside.write_text(row + "\n")
+        findings, output = execute(scanner, "dir", source, config)
+        if not any(item.get("RuleID") == "generic-api-key" for item in findings) or prefix[5:] in output:
+            raise ControlFailure(f"qemu-source-path-{index}")
+        outside.unlink()
+
+
 def self_test(scanner):
     config = ROOT / "security/gitleaks.toml"
     with tempfile.TemporaryDirectory(prefix="nxrs-secret-control-") as directory:
@@ -329,6 +376,7 @@ def self_test(scanner):
         reviewed_prose_controls(scanner, source, config, token, alphabet)
         reviewed_dropbear_history_controls(scanner, source, config, alphabet)
         reviewed_qemu_cache_control(scanner, source, config, alphabet)
+        reviewed_qemu_source_controls(scanner, source, config, token, alphabet)
         findings, _ = execute(scanner, "dir", source, config)
         if findings:
             raise ValueError("clean-input control failed")

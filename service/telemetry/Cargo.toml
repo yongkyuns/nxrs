@@ -1,0 +1,27 @@
+[package]
+name = "nxrs-telemetry-service"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+name = "telemetry"
+
+[features]
+default = []
+ble = ["dep:nxrs-ble", "dep:nxrs-tls", "nxrs-tls/pairing", "dep:log"]
+collector-tls = ["dep:nxrs-tls", "dep:log"]
+probe = ["nxrs-messaging/probe"]
+
+[dependencies]
+log = { version = "0.4", optional = true }
+nxrs-ble = { path = "../../hal/ble", features = ["peripheral"], optional = true }
+nxrs-gnss = { path = "../../hal/gnss" }
+nxrs-imu = { path = "../../hal/imu" }
+nxrs-tls = { path = "../../hal/tls", optional = true }
+nxrs-map-service = { path = "../map" }
+nxrs-navigation-services = { path = "../navigation" }
+nxrs-messaging = { path = "../../shared/messaging", features = ["pooled"] }
+nxrs-text = { path = "../../shared/text" }
+
+[dev-dependencies]
+nxrs-messaging = { path = "../../shared/messaging", features = ["pooled", "probe"] }

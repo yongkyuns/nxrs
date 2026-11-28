@@ -25,12 +25,12 @@ benchmark Cargo feature is added.
 ## Host capture admission comparison
 
 The serial, harness-free
-[capture fixture](rust/tests/capture.rs) source-includes Motion Tracker's
-current `Capture` and clock implementation. It compares their observable
+[capture fixture](rust/tests/capture.rs) source-includes the telemetry service's
+current `Capture` and clock implementation used by Motion Tracker. It compares their observable
 capture behavior with desktop `std::sync::mpsc` and pinned `heapless::spsc`
 0.9.4 queue models. This is a host contract and storage comparison. It does not
-measure timing or run the patched NuttX std backend. The source-included app
-now uses the same shared scalar transport exercised by the pool controls.
+measure timing or run the patched NuttX std backend. The source-included service
+uses the same shared scalar transport exercised by the pool controls.
 
 Run it from the repository root:
 
@@ -50,17 +50,17 @@ The executable emits `CAPTURE_METADATA`, `CAPTURE_COMPARE`, `CAPTURE_CHECK`,
 JSON records. Metadata hashes the compiled-in capture, clock, fixture, lifecycle
 gate, reference adapter, pool facade, pool checks, manifest and lockfile
 bytes using Git blob SHA-1. Separate fields bind the actual shared production
-gate, pool implementation and app budget policy; facade hashes alone would not
+gate, pool implementation and capture budget policy; facade hashes alone would not
 identify the compiled transport. Retain the
 whole output and the command's exit status. The existing allocation probe
 observes requested Rust heap bytes, not process RAM or native allocator use.
 The harness is disabled because an ordinary libtest harness can allocate
 concurrently with an allocation window. The source-included module's own
 `#[test]` functions are not executed by this harness; they remain in the
-Motion Tracker test suite.
+telemetry service test suite.
 
 The peer checker executes the unchanged `dashboard.py::decode_batch` function
-against eight vectors emitted by the real app encoder, including mixed-source
+against eight vectors emitted by the production telemetry encoder, including mixed-source
 v1/v2/v3 batches, count encoding and float fallback, UTC, wrapping sequences and
 timestamps, and overflow framing. It binds both compiled source blobs and the
 current decoder source, and rejects six deliberately damaged controls. It loads
@@ -137,9 +137,11 @@ admission, overflow identity, cancellation and retirement. Its explicit `probe`
 feature exposes qualification boundaries to two independent payload paths. The [reference adapter](rust/tests/support/capture_protocol.rs) uses
 real host threads, non-Copy payloads and a 512-slot desktop std MPSC queue. The
 [pool facade](rust/tests/support/capture_pool.rs) calls `messaging::pooled`
-without implementing storage or lifecycle again. Both use safe Rust. The app
-uses the optional `pooled` feature of its existing messaging dependency; this
-adds no worker or separate runtime. The original serial comparisons and
+without implementing storage or lifecycle again. Both use safe Rust. The
+telemetry service uses messaging's `pooled` feature and receives the application's
+traffic and storage budgets. The comparison compiles that service's production
+capture and clock sources and binds their current paths and hashes to its output;
+it adds no worker or separate runtime. The original serial comparisons and
 epoch-only negative control remain independent reference checks. Reference
 ownership witnesses and event accounting run outside the allocation windows;
 they are not a product memory measurement.

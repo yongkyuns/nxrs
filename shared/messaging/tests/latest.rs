@@ -69,6 +69,10 @@ fn setup_publication_and_read_use_copy_without_calling_user_clone() {
     #[derive(Copy, Debug, PartialEq, Eq)]
     struct CopyOnly(u32);
 
+    #[allow(
+        clippy::non_canonical_clone_impl,
+        reason = "the witness must panic if publication calls Clone instead of Copy"
+    )]
     impl Clone for CopyOnly {
         fn clone(&self) -> Self {
             panic!("the Copy publication contract must not call user Clone");

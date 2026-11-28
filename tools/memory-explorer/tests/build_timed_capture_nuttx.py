@@ -17,7 +17,8 @@ import shutil
 import subprocess
 
 from build_timing_nuttx import (
-    APPS_REVISION, NUTTX_REVISION, source_identity, validate_apps_directory, validate_configuration,
+    APPS_REVISION, NUTTX_REVISION, ATOMIC_STACK_SOURCE, atomic_stack_transition,
+    source_identity, validate_apps_directory, validate_configuration,
 )
 
 
@@ -116,6 +117,7 @@ def run(args):
 
     with (output / "patch.log").open("w") as patch_log:
         with ExitStack() as restore:
+            atomic_stack = restore.enter_context(atomic_stack_transition(nuttx, repository, output, commands))
             # The production trace command uses CLOCK_MONOTONIC for its watchdog.
             # Keep its existing clock checks on the corrected Cortex-M SysTick.
             for source, retained in ((nuttx, systick), (apps, patch)):
@@ -124,8 +126,8 @@ def run(args):
                 restore.callback(reverse_patch, source, retained, patch_log)
             kernel_changes = subprocess.check_output(
                 ["git", "-C", str(nuttx), "diff", "--name-only", "HEAD", "--"], text=True).splitlines()
-            if kernel_changes != [SYSTICK_SOURCE]:
-                raise RuntimeError("Native kernel changes differ from the exact SysTick patch")
+            if sorted(kernel_changes) != sorted([SYSTICK_SOURCE, ATOMIC_STACK_SOURCE]):
+                raise RuntimeError("Native kernel changes differ from the exact startup and SysTick patches")
             patched_systick = sha256(nuttx / SYSTICK_SOURCE)
             changed = set(subprocess.check_output(
                 ["git", "-C", str(apps), "diff", "--name-only", "HEAD", "--"], text=True).splitlines())
@@ -192,6 +194,7 @@ def run(args):
         "source_identity_before_patch": identities,
         "apps_tracked_sources_restored": restored["tracked_sources_clean"],
         "nuttx_tracked_sources_restored": restored_nuttx["tracked_sources_clean"],
+        "atomic_stack_patch": atomic_stack,
         "systick_patch": {"path": SYSTICK_PATCH, "sha256": sha256(systick),
                           "source": SYSTICK_SOURCE, "before": original_systick,
                           "after": patched_systick},

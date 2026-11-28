@@ -2,8 +2,6 @@
 mod canvas;
 mod charts;
 mod dashboard;
-mod font;
-mod gesture;
 mod map;
 mod quality;
 

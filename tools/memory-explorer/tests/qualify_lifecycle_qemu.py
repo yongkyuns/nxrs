@@ -22,6 +22,7 @@ import subprocess
 import sys
 import time
 
+from build_timing_nuttx import validate_atomic_stack_patch
 from qualify_qemu import drain_console, version
 from qualify_timing_qemu import evidence
 
@@ -177,6 +178,11 @@ def run(args):
     for path in (qemu, debugger, image, config, pynuttx / "gdbinit.py"):
         if not path.is_file():
             raise FileNotFoundError(path)
+    repository = Path(__file__).resolve().parents[3]
+    build = json.loads((image.parent / "build.json").read_text())
+    validate_atomic_stack_patch(build, repository, image.parent)
+    if build["elf_sha256"] != sha256(image) or build["config_sha256"] != sha256(config):
+        raise RuntimeError("Native lifecycle image/configuration differ from the build receipt")
     configuration = config.read_text().splitlines()
     for symbol in ("ARCH_BOARD_MPS2_AN521", "DEBUG_SYMBOLS", "EXAMPLES_MEMORY_TIMING",
                    "EXAMPLES_MEMORY_TIMING_CMSDK_CLOCK", "DRIVERS_NOTERAM_DEFAULT_NOOVERWRITE",

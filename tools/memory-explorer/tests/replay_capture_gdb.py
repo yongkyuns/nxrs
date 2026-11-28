@@ -144,7 +144,7 @@ def run():
     output = Path(settings["output"])
     try:
         sys.path.insert(0, settings["test_tools"])
-        from qemu_capture_gdb import raw_snapshot, stop_at
+        from qemu_capture_gdb import raw_snapshot, stop_at, terminate_remote
         gdb.execute("set pagination off")
         gdb.execute("set confirm off")
         gdb.execute("set non-stop off")
@@ -184,14 +184,7 @@ def run():
                   "recording_id": settings["recording_id"], "header_layout": layout, "events": events,
                   "target_function_calls": False}
         (output / "raw-events.json").write_text(json.dumps(report, indent=2) + "\n")
-        # A kill packet may race the QEMU pipe shutdown. This cleanup result
-        # does not contribute evidence: the host still requires the complete
-        # native footer and every retained observation, and owns the process
-        # group even if the debugger cannot acknowledge emulator termination.
-        try:
-            gdb.execute("kill")
-        except gdb.error as exc:
-            (output / "teardown.json").write_text(json.dumps({"kill_response": str(exc)}) + "\n")
+        (output / "teardown.json").write_text(json.dumps(terminate_remote(), indent=2) + "\n")
         gdb.execute("quit 0")
     except Exception as exc:
         failure = {"error": str(exc), "traceback": traceback.format_exc()}

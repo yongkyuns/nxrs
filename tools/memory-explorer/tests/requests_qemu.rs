@@ -1,6 +1,9 @@
 //! Compare actual native request/result notes with independent call-return rows
 //! and the imported viewer events. Never derive the oracle from the converter.
 
+#[path = "support/atomic_stack.rs"]
+mod atomic_stack;
+
 use nxrs_memory_explorer::{load_inputs, load_timing, TimingEventKind};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -115,7 +118,26 @@ fn actual_native_calls_match_return_rows_and_imported_outcomes() {
     let capture_dir = PathBuf::from(std::env::var_os("NXRS_HEAP_REQUEST_EVIDENCE").unwrap());
     let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let build = json(&build_dir.join("build.json"));
+    atomic_stack::validate(
+        &build,
+        &build_dir,
+        &repo,
+        "tools/memory-explorer/tests/build_requests_nuttx.py",
+    );
     let report = json(&capture_dir.join("report.json"));
+    let sources = &report["capture_sources_sha256"];
+    assert_eq!(sources.as_object().unwrap().len(), 3);
+    for source in [
+        "tools/memory-explorer/tests/qualify_requests_qemu.py",
+        "tools/memory-explorer/tests/qemu_console.py",
+        "tools/nuttx-trace-to-perfetto.py",
+    ] {
+        assert_eq!(
+            sources[source],
+            sha256(&repo.join(source)),
+            "capture source differs"
+        );
+    }
     let console = fs::read_to_string(capture_dir.join("console.log")).unwrap();
     assert!(!console.contains("NXRS_HEAP_REQUESTS FAIL"));
     assert_eq!(

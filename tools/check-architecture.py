@@ -59,6 +59,10 @@ PORTABLE_EXTERNAL_BY_PACKAGE = {
     'nxrs-detection-service': {'serde', 'serde_json'},
     # QR encoding and the log facade have no native dependencies.
     'nxrs-motion-tracker': {'log', 'qrcodegen'},
+    # The extracted telemetry owner and bounded map receiver retain the existing
+    # portable log facade; this introduces no native or scheduler dependency.
+    'nxrs-telemetry-service': {'log'},
+    'nxrs-map-service': {'log'},
     # Fixed-buffer PPP framing and negotiation with no host/native runtime.
     'nxrs-cellular': {'ppproto'},
     # Navigation uses the portable log facade; latest storage belongs to messaging.

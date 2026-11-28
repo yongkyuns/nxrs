@@ -1,5 +1,8 @@
 //! Compare production finite captures with native bytes and independent work.
 
+#[path = "support/atomic_stack.rs"]
+mod atomic_stack;
+
 use nxrs_memory_explorer::{load_inputs, load_timing, TimingEventKind, TimingRange};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -162,6 +165,12 @@ fn ascii_notes(console: &str) -> Vec<NativeNote> {
 }
 
 fn validate_build(build: &Value, report: &Value, build_dir: &Path, repo: &Path) {
+    atomic_stack::validate(
+        build,
+        build_dir,
+        repo,
+        "tools/memory-explorer/tests/build_timed_capture_nuttx.py",
+    );
     assert_eq!(
         build["nuttx_revision"],
         "2b5c0de5e933281c209f954a63b99cf10c132346"
@@ -250,17 +259,18 @@ fn validate_build(build: &Value, report: &Value, build_dir: &Path, repo: &Path) 
     for (container, expected) in [
         (
             &build["build_sources_sha256"],
-            [
+            &[
                 "tools/memory-explorer/tests/build_timed_capture_nuttx.py",
                 "tools/memory-explorer/tests/build_timing_nuttx.py",
-            ],
+            ][..],
         ),
         (
             &report["capture_sources_sha256"],
-            [
+            &[
                 "tools/memory-explorer/tests/qualify_timed_capture_qemu.py",
+                "tools/memory-explorer/tests/qemu_console.py",
                 "tools/nuttx-trace-to-perfetto.py",
-            ],
+            ][..],
         ),
     ] {
         assert_eq!(
@@ -270,7 +280,7 @@ fn validate_build(build: &Value, report: &Value, build_dir: &Path, repo: &Path) 
                 .keys()
                 .map(String::as_str)
                 .collect::<BTreeSet<_>>(),
-            BTreeSet::from(expected)
+            expected.iter().copied().collect::<BTreeSet<_>>()
         );
         for (source, hash) in container.as_object().unwrap() {
             assert_eq!(hash, &Value::String(sha256(&repo.join(source))));

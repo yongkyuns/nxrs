@@ -21,6 +21,9 @@ import subprocess
 import sys
 import time
 
+from build_timing_nuttx import validate_atomic_stack_patch
+from qemu_console import nsh_prompt_ready
+
 
 CLOCK = "qemu-an521-cmsdk-timer1-20mhz"
 CASES = (
@@ -246,11 +249,19 @@ def controls(console, report):
     return result
 
 
+def capture_sources(repository):
+    return {path: hashlib.sha256((repository / path).read_bytes()).hexdigest() for path in (
+        "tools/memory-explorer/tests/qualify_requests_qemu.py",
+        "tools/memory-explorer/tests/qemu_console.py", "tools/nuttx-trace-to-perfetto.py")}
+
+
 def run(args):
     require(os.name == "posix", "Native QEMU request qualification needs a POSIX host")
     require(0 < args.timeout <= 120, "Timeout must be at most 120 seconds")
+    repository = Path(__file__).resolve().parents[3]
     qemu, build_path, output = [getattr(args, name).resolve() for name in ("qemu", "build", "output")]
     build = json.loads(build_path.read_text())
+    validate_atomic_stack_patch(build, repository, build_path.parent)
     image, config = build_path.parent / "nuttx", build_path.parent / "resolved.config"
     digest = lambda path: hashlib.sha256(path.read_bytes()).hexdigest()
     require(digest(image) == build["elf_sha256"] and digest(config) == build["config_sha256"],
@@ -265,8 +276,9 @@ def run(args):
     recording = secrets.token_hex(16)
     command = [str(qemu), "-machine", "mps2-an521", "-kernel", str(image), "-display", "none",
                "-serial", "stdio", "-monitor", "none", "-nic", "none", "-no-reboot"]
+    sources = capture_sources(repository)
     settings = {"recording_id": recording, "elf_sha256": digest(image), "config_sha256": digest(config),
-                "build_sha256": digest(build_path), "qemu_command": command,
+                "build_sha256": digest(build_path), "capture_sources_sha256": sources, "qemu_command": command,
                 "qemu_version": subprocess.check_output([str(qemu), "--version"], text=True, timeout=10).splitlines()[0]}
     (output / "run.json").write_text(json.dumps(settings, indent=2) + "\n")
     process, console, sent = None, bytearray(), False
@@ -280,13 +292,13 @@ def run(args):
                 require(data, "QEMU exited before the allocator witness completed")
                 console.extend(data)
             require(len(console) <= 4 * 1024 * 1024, "Native console exceeded 4 MiB")
-            if not sent and b"nsh>" in console:
+            if not sent and nsh_prompt_ready(console):
                 for byte in ("heap_requests " + recording + "\n").encode():
                     process.stdin.write(bytes((byte,)))
                     process.stdin.flush()
                     time.sleep(0.01)
                 sent = True
-            if sent and b"NXRS_HEAP_REQUESTS " in console and console.rstrip().endswith(b"nsh>"):
+            if sent and b"NXRS_HEAP_REQUESTS " in console and nsh_prompt_ready(console):
                 break
         else:
             raise TimeoutError("Native allocator witness exceeded its deadline")
@@ -305,6 +317,7 @@ def run(args):
             destination = "timing.json" if name == "console" else name + ".json"
             subprocess.run([sys.executable, str(converter), str(output / (name + ".log")),
                             str(output / destination), "--source", "qemu-mps2-an521", "--elf", str(image)], check=True)
+        require(capture_sources(repository) == sources, "Capture/converter sources changed during qualification")
         (output / "report.json").write_text(json.dumps(report, indent=2) + "\n")
         print(json.dumps({"report": str(output / "report.json"), "calls": report["calls"],
                           "nested_calls": report["nested_calls"], "disabled_rows": report["disabled_rows"]}))

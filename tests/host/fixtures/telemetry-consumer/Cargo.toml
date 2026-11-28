@@ -1,0 +1,17 @@
+[package]
+name = "telemetry-consumer"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[workspace]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+reports = { package = "nxrs-telemetry-service", path = "deps/service/telemetry", default-features = false }
+navigation_state = { package = "nxrs-navigation-services", path = "deps/service/navigation" }
+inertial = { package = "nxrs-imu", path = "deps/hal/imu" }

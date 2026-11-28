@@ -2,6 +2,9 @@
 //! The small oracle understands this single-core qualification fixture only; it
 //! does not call the converter or manufacture target observations.
 
+#[path = "support/atomic_stack.rs"]
+mod atomic_stack;
+
 use nxrs_memory_explorer::{load_inputs, load_timing, TimingEventKind};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -99,6 +102,25 @@ fn imports_real_timing_and_matches_independent_uart_endpoints() {
     let build_dir = elf.parent().unwrap();
     let build = json(&build_dir.join("build.json"));
     let report = json(&evidence.join("report.json"));
+    let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    atomic_stack::validate(
+        &build,
+        build_dir,
+        &repo,
+        "tools/memory-explorer/tests/build_timing_nuttx.py",
+    );
+    let sources = &report["capture_sources_sha256"];
+    assert_eq!(sources.as_object().unwrap().len(), 2);
+    for source in [
+        "tools/memory-explorer/tests/qualify_timing_qemu.py",
+        "tools/memory-explorer/tests/qemu_console.py",
+    ] {
+        assert_eq!(
+            sources[source],
+            sha256(&repo.join(source)),
+            "capture source differs"
+        );
+    }
     let console = fs::read_to_string(evidence.join("console.log")).unwrap();
     let (raw, begin, end) = notes(&console);
     assert!(

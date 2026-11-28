@@ -113,6 +113,8 @@ impl<Sample, Frame: AsRef<[u8]>> Publisher<Sample, Frame> {
     }
 }
 
+// Keep the small retry predicate available to cross-crate publisher instances.
+#[inline]
 fn blocked(error: &io::Error) -> bool {
     matches!(
         error.kind(),
