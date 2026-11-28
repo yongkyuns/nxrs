@@ -36,7 +36,9 @@ The dashboard samples the latest observation from each sensor when it redraws
 or publishes telemetry. Touch events and sensor faults have their own inbox.
 The BLE export receives the full stream before the dashboard downsamples it.
 The tracker expires IMU readings after 500 ms and GNSS fixes after three
-seconds.
+seconds. These display freshness limits do not stop acquisition. An explicit
+GNSS no-fix report marks the position stale immediately; the next valid fix
+restores it.
 
 ## GNSS street map
 
@@ -230,6 +232,9 @@ starts with each authenticated connection. A 512-sample buffer covers about
 up. If the buffer fills, the tracker delivers queued samples and reports an
 incomplete export. Sensor acquisition and the display continue. The phone
 also marks an export incomplete if it detects a sequence gap.
+A terminal sensor failure closes the export connection and prevents a new
+export until the tracker restarts. The phone records the interruption using
+the existing format. Loss of GNSS fix alone does not end export.
 
 Pairing is opt-in for each run. The TLS 1.2 PSK cipher is
 `TLS_PSK_WITH_AES_128_GCM_SHA256` and the PSK identity is `nxrs-tracker-v1`.
@@ -363,9 +368,20 @@ waits for acknowledgments even on a nonblocking socket, which can delay BLE
 when TCP retransmits. The buffered sender queues writes in a fixed kernel pool.
 A modem that cannot recover command mode reports the fault and stops redialing.
 
-The CoreS3 tracker profiles enable an eight-second hardware watchdog. The tracker
-feeds it after completing a report iteration and disarms it after its workers
-stop. Missing GNSS fixes and cellular retries leave that health check active.
+Returned display, touch, USB diagnostic and communications-start errors disable
+the affected output and leave acquisition running. An unavailable modem does
+not prevent BLE pairing. Errors are logged; there is no automatic output restart.
+
+The BMI270 retries an ambiguous FIFO snapshot on up to three later delivery
+periods (about 30 ms at 100 Hz). Persistent ambiguity, overflow and device I/O
+errors still stop that sensor; the FIFO is not silently reset.
+
+The CoreS3 tracker uses a 30-second hardware watchdog. The previous eight-second
+timeout was shorter than the modem's roughly 10.2-second cleanup sequence. The
+tracker feeds after a report iteration and once before blocking cleanup, then
+disarms only after its workers finish. This leaves cleanup margin at the cost of
+a longer reset delay for a genuine stall. Missing GNSS fixes and cellular
+retries leave the watchdog fed. Blocking native calls still rely on this timer.
 The interactive image boots to NSH after a reset. The next tracker launch logs
 the hardware reset cause and can start a fresh BLE pairing session.
 

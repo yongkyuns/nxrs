@@ -30,8 +30,10 @@ struct Fake {
     fail_stop: bool,
     fail_reference: bool,
     irq_asserted: bool,
+    irq_wake: bool,
     periodic_wake: bool,
     repeat_periodic: bool,
+    ambiguous_lengths: u8,
     registrations: usize,
     unregisters: usize,
     transfers: usize,
@@ -57,8 +59,10 @@ impl Fake {
             fail_stop: false,
             fail_reference: false,
             irq_asserted: true,
+            irq_wake: false,
             periodic_wake: false,
             repeat_periodic: false,
+            ambiguous_lengths: 0,
             registrations: 0,
             unregisters: 0,
             transfers: 0,
@@ -119,7 +123,17 @@ pub(super) mod ffi {
                 0x03 => r.fill(0xc0),
                 0x21 => r.fill(if f.bad_init { 2 } else { 1 }),
                 0x1d => r.fill(f.regs[0x1d]),
-                0x24 => r.copy_from_slice(&(f.fifo.len() as u16).to_le_bytes()),
+                0x24 => {
+                    r.copy_from_slice(&(f.fifo.len() as u16).to_le_bytes());
+                    if f.ambiguous_lengths != 0 {
+                        f.ambiguous_lengths -= 1;
+                        let ticks =
+                            u32::from_le_bytes([f.regs[0x18], f.regs[0x19], f.regs[0x1a], 0]);
+                        f.regs[0x18..=0x1a]
+                            .copy_from_slice(&ticks.wrapping_add(256).to_le_bytes()[..3]);
+                        f.fifo.extend_from_slice(&[0; 12]);
+                    }
+                }
                 0x25 => r.fill(0),
                 0x3a if address == 0x6a => {
                     r.copy_from_slice(&((f.fifo.len() / 7) as u16).to_le_bytes())
@@ -137,7 +151,10 @@ pub(super) mod ffi {
     }
 
     pub(crate) fn wait(_: i32, _: i32) -> io::Result<bool> {
-        Ok(false)
+        let mut fake = FAKE.lock().unwrap();
+        let wake = std::mem::take(&mut fake.irq_wake);
+        fake.irq_asserted |= wake;
+        Ok(wake)
     }
     pub(crate) fn tick(_: i32, timeout: i32) -> io::Result<bool> {
         let wake = {
@@ -677,6 +694,72 @@ fn hal_adds_stream_metadata_and_preserves_device_overflow() {
         }
         assert_eq!(FAKE.lock().unwrap().ops, [Op::Stop, Op::Detach]);
         assert_state(State::Available);
+    }
+}
+
+#[test]
+fn ambiguous_bmi_snapshots_retry_at_the_delivery_cadence_and_remain_cancellable() {
+    let _serial = SERIAL.lock().unwrap();
+    let file = DeviceFile::new();
+    for (edges, timer, expected) in [
+        (3, true, Ok(())),
+        (12, true, Err(DeviceError::Timeout)),
+        (3, false, Ok(())),
+    ] {
+        for irq in [None, Some(file.path())] {
+            // With no IRQ the first timer wait must be permitted before
+            // cancellation is injected at the deferred retry.
+            reset();
+            let device = acquire_bmi270(binding(file.path(), irq), default_config()).unwrap();
+            std::thread::sleep(std::time::Duration::from_millis(35));
+            {
+                let mut fake = FAKE.lock().unwrap();
+                fake.fifo.extend_from_slice(&[0; 12]);
+                fake.ambiguous_lengths = edges;
+                // The GPIO starts low and provides one edge. Further drains
+                // must work while the acknowledged watermark remains high.
+                fake.irq_asserted = false;
+                fake.irq_wake = irq.is_some();
+                fake.periodic_wake = irq.is_none();
+                fake.repeat_periodic = timer;
+            }
+            let mut samples = Vec::new();
+            let result = run(
+                device,
+                &AtomicBool::new(false),
+                &File::open(file.path()).unwrap(),
+                &mut |event| {
+                    let crate::Event::Sample(sample) = event else {
+                        panic!("unexpected event")
+                    };
+                    samples.push(sample);
+                    samples.len() < 4
+                },
+            );
+            assert_eq!(result, expected);
+            let fake = FAKE.lock().unwrap();
+            if edges == 3 && timer {
+                assert_eq!(samples.len(), 4);
+                assert_eq!(
+                    samples.iter().map(|s| s.sequence).collect::<Vec<_>>(),
+                    [1, 2, 3, 4]
+                );
+                assert!(fake.fifo.is_empty());
+            } else {
+                assert!(samples.is_empty());
+                assert_eq!(fake.fifo.len(), (usize::from(edges) + 1) * 12);
+            }
+            assert!(!fake.irq_wake);
+            assert_eq!(fake.ambiguous_lengths, 0);
+            assert_eq!(
+                fake.ops,
+                if irq.is_some() {
+                    vec![Op::Stop, Op::Detach]
+                } else {
+                    vec![Op::Stop]
+                }
+            );
+        }
     }
 }
 

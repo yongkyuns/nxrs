@@ -145,8 +145,10 @@ class NativeCaptureCompletion(unittest.TestCase):
 
     def test_plain_combined_and_fragmented_prompt_preserve_received_bytes(self):
         for chunks in (
+            [b"\r\nNXRS_TIMED_WITNESS PASS\r\nnsh>"],
             [b"\r\nNXRS_TIMED_WITNESS PASS\r\nnsh> "],
             [b"\r\nNXRS_TIMED_WITNESS PASS\r\nnsh> \x1b[K"],
+            [b"\r\nNXRS_TIMED_WITNESS PASS\r\nnsh> \x1b[K\r\n"],
             [b"\r\nNXRS_TIMED_WIT", b"NESS PASS\r\nns", b"h> \x1b", b"[", b"K"],
         ):
             with self.subTest(chunks=chunks):
@@ -156,6 +158,8 @@ class NativeCaptureCompletion(unittest.TestCase):
         for ending in (
             b"nsh> \x1b[K",
             b"NXRS_TIMED_WITNESS PASS\r\n",
+            b"NXRS_TIMED_WITNESS PASS\r\nnsh",
+            b"NXRS_TIMED_WITNESS PASS\r\nnot-nsh>",
             b"NXRS_TIMED_WITNESS PASS\r\nnsh> \x1b",
             b"NXRS_TIMED_WITNESS PASS\r\nnsh> \x1b[",
             b"NXRS_TIMED_WITNESS PASS\r\nnsh> \x1b[2K",

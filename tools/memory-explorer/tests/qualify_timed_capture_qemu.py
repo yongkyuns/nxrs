@@ -229,9 +229,9 @@ def native_evidence(console, seconds, overflow, recording_id):
 
 
 def at_nsh_prompt(console):
-    # NSH may erase the rest of the line after printing its prompt. Inspect
-    # only that known suffix; keep the retained native evidence unchanged.
-    return console.rstrip().removesuffix(b"\x1b[K").rstrip().endswith(b"nsh>")
+    # Accept only a full prompt line and NSH's known erase-line suffix.
+    # Keep the retained native evidence byte-for-byte unchanged.
+    return re.search(rb"(?:^|\n)nsh>[ \t]*(?:\x1b\[K)?[ \t\r\n]*\Z", console) is not None
 
 
 def capture(qemu, image, command, output, timeout):
