@@ -126,6 +126,8 @@ impl SatelliteReport {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Event {
     Fix(GnssFix),
+    /// The receiver has no current solution; acquisition continues normally.
+    NoFix,
     Satellites(SatelliteReport),
     /// Recoverable rejected wire frame; parsing continues at the next frame.
     InvalidFrame,

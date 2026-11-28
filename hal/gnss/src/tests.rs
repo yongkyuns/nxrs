@@ -541,3 +541,26 @@ fn corrupt_event_frame_is_reported_then_next_valid_fix_is_delivered() {
     assert_eq!(events[0], Err(DeviceError::InvalidData));
     assert!(matches!(events[1], Ok(Event::Fix(fix)) if fix.sequence == 1));
 }
+
+#[test]
+fn no_fix_is_delivered_without_ending_acquisition() {
+    let mut receiver = receiver_with(&pvt(1));
+    let mut unavailable = pvt(2);
+    unavailable[21] = 0;
+    receiver
+        .source
+        .io_mut()
+        .input
+        .extend(frame(1, 7, &unavailable));
+    receiver.source.io_mut().input.extend(frame(1, 7, &pvt(3)));
+    let mut events = Vec::new();
+    while !receiver.source.io().input.is_empty() {
+        receiver
+            .read_events(123, |event| events.push(event))
+            .unwrap();
+    }
+    assert_eq!(events.len(), 3);
+    assert!(matches!(events[0], Ok(Event::Fix(fix)) if fix.sequence == 1));
+    assert_eq!(events[1], Ok(Event::NoFix));
+    assert!(matches!(events[2], Ok(Event::Fix(fix)) if fix.sequence == 2));
+}

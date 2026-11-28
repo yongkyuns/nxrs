@@ -134,6 +134,11 @@ ppproto = { path = "vendor/ppproto" }
 [profile.release.package.nxrs-detector]
 opt-level = 3
 
+# Observation constructors are instantiated in this app. With the pinned
+# Xtensa compiler, z creates an unsafe aligned stack temporary; s avoids it.
+[profile.release.package.nxrs-motion-tracker]
+opt-level = "s"
+
 # Image preparation is part of the real-time detector workload. Optimizing only
 # its caller leaves the decoder's non-inlined loops at the workspace size level.
 [profile.release.package.zune-jpeg]
