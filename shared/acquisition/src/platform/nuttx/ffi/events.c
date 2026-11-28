@@ -18,10 +18,10 @@ int acquisition_event_pipe(int descriptors[2])
 {
   return pipe2(descriptors, O_NONBLOCK | O_CLOEXEC);
 }
-int acquisition_event_poll(int device, int cancel, int timeout_ms)
+int acquisition_event_poll_io(int device, int cancel, int writable, int timeout_ms)
 {
   struct pollfd fds[2] = {
-    { .fd = device, .events = POLLIN },
+    { .fd = device, .events = POLLIN | (writable ? POLLOUT : 0) },
     { .fd = cancel, .events = POLLIN }
   };
   int result = poll(fds, 2, timeout_ms);
@@ -29,10 +29,15 @@ int acquisition_event_poll(int device, int cancel, int timeout_ms)
   if (fds[1].revents & POLLIN) return 0;
   if ((fds[0].revents | fds[1].revents) & (POLLERR | POLLHUP | POLLNVAL))
     { errno = EIO; return -1; }
-  if (fds[0].revents & POLLIN) return 1;
+  if (fds[0].revents & (POLLIN | POLLOUT)) return 1;
   if (result == 0) return 2;
   errno = EINTR;
   return -1;
+}
+
+int acquisition_event_poll(int device, int cancel, int timeout_ms)
+{
+  return acquisition_event_poll_io(device, cancel, 0, timeout_ms);
 }
 
 int acquisition_event_wait(int device, int cancel)

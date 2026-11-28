@@ -1,6 +1,7 @@
 //! M9 navigation reports and RAM message configuration over an injected
 //! nonblocking byte stream. Device/session policy belongs to the caller.
 
+mod aiding;
 mod framing;
 mod ubx;
 
@@ -50,6 +51,7 @@ pub struct Driver<R> {
     saved_pulse_rate: Option<u8>,
     navigation_period_ms: Option<u16>,
     saved_navigation: Option<(u16, u16)>,
+    aiding: aiding::Aiding,
 }
 
 impl<R: Read + Write> Driver<R> {
@@ -64,6 +66,7 @@ impl<R: Read + Write> Driver<R> {
             saved_pulse_rate: None,
             navigation_period_ms: None,
             saved_navigation: None,
+            aiding: aiding::Aiding::default(),
         }
     }
 
@@ -73,7 +76,8 @@ impl<R: Read + Write> Driver<R> {
         self
     }
 
-    /// Use the selected UART's baud rate when budgeting satellite reports.
+    /// Use the UART's actual baud when budgeting satellite reports and aiding
+    /// delivery. Aiding assumes sole ownership of an unthrottled 8N1 stream.
     pub fn with_uart_baud(mut self, baud: u32) -> Self {
         self.uart_baud = baud;
         self
@@ -273,7 +277,34 @@ impl<R> AsMut<R> for Driver<R> {
     }
 }
 impl<R: Read + Write> peripheral::gnss::Receiver for Driver<R> {
+    fn aiding_capabilities(&self) -> peripheral::gnss::aiding::Capabilities {
+        peripheral::gnss::aiding::Capabilities {
+            time: true,
+            position: true,
+        }
+    }
+    fn begin_aiding(
+        &mut self,
+        aid: peripheral::gnss::aiding::Aid,
+        now_us: u64,
+        deadline: Instant,
+    ) -> Result<(), peripheral::gnss::aiding::SubmitError> {
+        self.aiding.begin(aid, now_us, deadline)
+    }
+    fn advance_aiding(
+        &mut self,
+        now: Instant,
+        now_us: u64,
+    ) -> Result<peripheral::gnss::aiding::Progress, DriverError> {
+        self.aiding
+            .advance(&mut self.io, self.uart_baud, now, now_us)
+    }
+    fn cancel_aiding(&mut self) -> Result<(), DriverError> {
+        self.aiding.cancel()
+    }
     fn configure(&mut self, deadline: Instant) -> Result<(), DriverError> {
+        self.aiding.cancel()?;
+        self.aiding = aiding::Aiding::default();
         self.decoder.set_satellite_interval(0);
         self.saved_rate = Some(self.query_nav_pvt_uart1_rate(deadline)?);
         let current = self.query_navigation(deadline)?;
@@ -305,6 +336,7 @@ impl<R: Read + Write> peripheral::gnss::Receiver for Driver<R> {
         Ok(())
     }
     fn restore(&mut self, deadline: Instant) -> Result<(), DriverError> {
+        self.aiding.cancel()?;
         let satellites = self.saved_satellite_rate.map_or(Ok(()), |rate| {
             self.set_and_verify_rate(ConfigKey::MSGOUT_NAV_SAT_UART1, rate, deadline)?;
             self.saved_satellite_rate = None;

@@ -1,6 +1,8 @@
 use super::*;
 use std::{collections::VecDeque, vec::Vec};
 
+mod aiding;
+
 // Independent M9 SPG4.04/protocol32.01 wire fixtures; no codec packet builders.
 fn frame(class: u8, id: u8, payload: &[u8]) -> Vec<u8> {
     let mut out = std::vec![0xb5, 0x62, class, id];

@@ -46,10 +46,18 @@ pub(crate) mod events {
             return Err(io::Error::other("injected cancellation setup failure"));
         }
         let (a, b) = UnixStream::pair()?;
+        a.set_nonblocking(true)?;
+        b.set_nonblocking(true)?;
         Ok((File::from(OwnedFd::from(a)), File::from(OwnedFd::from(b))))
     }
-    pub fn wait(_: i32, _: i32) -> io::Result<bool> {
+    #[allow(dead_code)]
+    pub enum Readiness {
+        Device,
+        Cancelled,
+        Timeout,
+    }
+    pub fn poll_io(_: i32, _: i32, _: bool, _: i32) -> io::Result<Readiness> {
         std::thread::sleep(std::time::Duration::from_millis(1));
-        Ok(true)
+        Ok(Readiness::Device)
     }
 }

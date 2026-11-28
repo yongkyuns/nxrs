@@ -1,6 +1,8 @@
 //! Synchronous GNSS receiver protocol, without acquisition or host timestamps.
 use std::time::Instant;
 
+pub mod aiding;
+
 /// Accuracy estimates and satellite usage at the solution epoch.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct FixQuality {
@@ -92,6 +94,29 @@ pub enum Report<'a> {
 /// Bounded, synchronous operations on an already opened byte stream.
 /// Failed configuration must retain enough state for `restore` to roll back.
 pub trait Receiver {
+    fn aiding_capabilities(&self) -> aiding::Capabilities {
+        aiding::Capabilities::default()
+    }
+    /// Admit one hint without waiting for the transport. `now_us` uses the
+    /// same caller-supplied monotonic clock as the hint's observation.
+    fn begin_aiding(
+        &mut self,
+        _: aiding::Aid,
+        _: u64,
+        _: Instant,
+    ) -> Result<(), aiding::SubmitError> {
+        Err(aiding::SubmitError::Unsupported)
+    }
+    /// At most one bounded write; incoming replies are demultiplexed by
+    /// read_available. Complete is returned once. No nested receive/wait loop.
+    fn advance_aiding(&mut self, _: Instant, _: u64) -> Result<aiding::Progress, Error> {
+        Ok(aiding::Progress::Idle)
+    }
+    /// Retire the operation. An incomplete frame that cannot be safely
+    /// completed is a transport error, not an ordinary aiding rejection.
+    fn cancel_aiding(&mut self) -> Result<(), Error> {
+        Ok(())
+    }
     fn configure(&mut self, deadline: Instant) -> Result<(), Error>;
     fn enable_time_pulse(&mut self, _: Instant) -> Result<(), Error> {
         Err(Error::InvalidData)

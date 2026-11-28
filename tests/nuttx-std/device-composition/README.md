@@ -83,7 +83,12 @@ The IMU consumer holds both named references, compares their identities, and
 calls each device's `open_default` while retaining the first acquisition result.
 It requests cancellation for both successful sessions before joining either and
 continues cleanup if one operation fails. The GNSS consumer similarly calls
-`open`, `request_stop` and `join`. These reachable calls retain real acquisition,
+`open`, takes its optional aiding handle, rejects a deliberately invalid lifetime,
+checks for a completion, then calls `request_stop` and `join`. The invalid hint
+keeps admission and reconciliation reachable without inventing a clock source or
+writing a seed to hardware. This is a link and nonadmission witness; valid aiding
+delivery still requires the driver tests and physical qualification.
+These reachable calls retain real acquisition,
 driver and cleanup paths; a descriptor-only reference would provide weaker link
 evidence. `black_box` keeps the qualification identity observations visible to
 the optimizer without introducing production instrumentation.

@@ -196,6 +196,11 @@ impl<S> Client<S> {
 }
 
 impl<S, W: FnMut()> Replies<S, W> {
+    /// Signal another retained result sharing this owner's notification path.
+    pub(super) fn notify(&mut self) {
+        self.wake.notify();
+    }
+
     pub fn complete(&mut self, ticket: Ticket, status: S) {
         let completion = ControlCompletion {
             id: ticket.id,

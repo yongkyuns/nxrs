@@ -25,6 +25,25 @@ fn main() -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
+    if let Some(mut aiding) = session.aiding() {
+        // Retain the public admission/reconciliation path in the target image.
+        // An invalid lifetime exercises nonadmission without seeding a receiver
+        // from an invented time. black_box prevents constant-folding the input.
+        let invalid = gnss::aiding::Aid::Time(gnss::aiding::TimeAid {
+            unix_time_ms: 0,
+            observed_at_us: gnss::monotonic_us(),
+            uncertainty: std::time::Duration::from_secs(1),
+            max_age: std::time::Duration::ZERO,
+            drift_ppm: 100,
+        });
+        if aiding.capabilities().time {
+            assert_eq!(
+                aiding.try_submit(black_box(invalid)),
+                Err(gnss::aiding::SubmitError::InvalidInput)
+            );
+            assert!(aiding.try_completion().is_none());
+        }
+    }
     let stopped = session.request_stop();
     let joined = session.join();
     if let Err(error) = stopped {

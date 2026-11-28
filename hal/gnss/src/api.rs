@@ -129,6 +129,8 @@ pub enum Event {
     Satellites(SatelliteReport),
     /// Recoverable rejected wire frame; parsing continues at the next frame.
     InvalidFrame,
+    /// A retained aiding result is ready. Reconcile the session's aiding handle.
+    AidingReady,
     Failed(DeviceError),
 }
 
@@ -137,6 +139,13 @@ pub enum Event {
 /// Request cancellation, then explicitly join.
 /// Drop requests cancellation without blocking; the worker retains resources.
 pub trait Session {
+    /// Take this session's exclusive aiding client, if supported. Returned at
+    /// most once. Closing the session retires the client without affecting a
+    /// replacement session's requests.
+    #[cfg(not(target_os = "none"))]
+    fn aiding(&mut self) -> Option<crate::AidingHandle> {
+        None
+    }
     fn request_stop(&mut self) -> Result<(), DeviceError>;
     fn join(&mut self) -> Result<(), DeviceError>;
     fn is_finished(&self) -> bool;

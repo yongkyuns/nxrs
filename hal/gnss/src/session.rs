@@ -8,7 +8,7 @@ use std::{
     time::Duration,
 };
 
-type SessionWorker<C> = Worker<C, DeviceError, AtomicU32>;
+pub(crate) type SessionWorker<C> = Worker<C, DeviceError, AtomicU32>;
 
 pub(crate) fn start<C: Wake>(
     stack_bytes: usize,

@@ -50,6 +50,16 @@ class HalBoundariesTests(unittest.TestCase):
         self.write('hal/demo/src/api.rs', '#[cfg(test)] fn platform() {}')
         self.assertEqual(self.errors(), [])
 
+    def test_core_only_contract_gate_does_not_allow_runtime_platform_selection(self):
+        gate = '#[cfg(not(target_os = "none"))]'
+        path = self.write('hal/demo/src/api.rs', gate + ' fn handle() {}')
+        self.assertEqual(self.errors(), [])
+        path.write_text(gate + ' fn handle() { let _ = cfg!(target_os = "linux"); }')
+        self.assertTrue(self.errors())
+        path.unlink()
+        self.write('hal/demo/src/worker.rs', gate + ' fn run() {}')
+        self.assertTrue(self.errors())
+
     def test_radio_selection_stays_in_the_selector(self):
         self.write('hal/wifi/src/lib.rs', '#![cfg_attr(target_os = "none", no_std)]\nmod platform;')
         selector = self.write('hal/wifi/src/platform/mod.rs', '''

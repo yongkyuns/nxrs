@@ -193,6 +193,7 @@ def run(out, capabilities=CAPABILITIES):
             # GNSS retains a core-only contract; IMU's contract also uses std.
             if capability in {"imu", "gnss"} and target != "thumbv6m-none-eabi":
                 expected.add("nxrs-acquisition")
+                expected.add("nxrs-peripheral")
             if capability in {"imu", "gnss"} and target is None:
                 expected.add("nxrs-simulation")
             expected = {workspace[name] for name in expected}

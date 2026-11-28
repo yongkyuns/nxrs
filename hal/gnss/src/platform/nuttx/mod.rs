@@ -5,11 +5,11 @@ use crate::test_support::{events, ffi};
 use crate::{receiver::Receiver, DeviceError, Event, Session};
 #[cfg(not(test))]
 use acquisition::nuttx as events;
-use acquisition::readiness;
+use acquisition::Wake;
 use core::sync::atomic::{AtomicU8, Ordering};
-use pps_line::PpsLine;
 use peripheral::gnss::Receiver as Protocol;
-use std::sync::Mutex;
+use pps_line::PpsLine;
+use std::sync::{Arc, Mutex};
 use std::{
     fs::{File, OpenOptions},
     io::{self, Read, Write},
@@ -23,6 +23,89 @@ mod pps_line;
 const TRANSACTION_BUDGET: std::time::Duration = std::time::Duration::from_secs(1);
 fn deadline() -> std::time::Instant {
     std::time::Instant::now() + TRANSACTION_BUDGET
+}
+
+struct CommandPipe {
+    reader: File,
+    writer: File,
+}
+impl Wake for CommandPipe {
+    fn wake(&self) -> io::Result<()> {
+        loop {
+            match (&self.writer).write(&[1]) {
+                Ok(1) => return Ok(()),
+                Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
+                Err(error) if error.kind() == io::ErrorKind::WouldBlock => return Ok(()),
+                Err(error) => return Err(error),
+                _ => return Err(io::Error::from(io::ErrorKind::WriteZero)),
+            }
+        }
+    }
+}
+impl CommandPipe {
+    fn drain(&self) -> io::Result<()> {
+        let mut bytes = [0; 32];
+        loop {
+            match (&self.reader).read(&mut bytes) {
+                Ok(0) => return Err(io::Error::from(io::ErrorKind::UnexpectedEof)),
+                Ok(_) => return Ok(()),
+                Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
+                Err(error) if error.kind() == io::ErrorKind::WouldBlock => return Ok(()),
+                Err(error) => return Err(error),
+            }
+        }
+    }
+}
+struct CommandWake(Arc<CommandPipe>);
+impl Wake for CommandWake {
+    fn wake(&self) -> io::Result<()> {
+        self.0.wake()
+    }
+}
+struct ControlledSession {
+    worker: session::SessionWorker<CommandWake>,
+    aiding: Option<crate::AidingHandle>,
+    control: Option<crate::aiding::Stop>,
+}
+impl Session for ControlledSession {
+    fn aiding(&mut self) -> Option<crate::AidingHandle> {
+        self.aiding.take()
+    }
+    fn request_stop(&mut self) -> Result<(), DeviceError> {
+        if let Some(control) = &self.control {
+            control.request();
+        }
+        Session::request_stop(&mut self.worker)
+    }
+    fn join(&mut self) -> Result<(), DeviceError> {
+        if let Some(control) = &self.control {
+            control.request();
+        }
+        Session::join(&mut self.worker)
+    }
+    fn is_finished(&self) -> bool {
+        self.worker.is_finished()
+    }
+    fn dropped(&self) -> u32 {
+        self.worker.dropped()
+    }
+}
+impl Drop for ControlledSession {
+    fn drop(&mut self) {
+        if let Some(control) = &self.control {
+            control.request();
+        }
+    }
+}
+
+fn timeout_ms(deadline: Option<std::time::Instant>) -> i32 {
+    deadline.map_or(-1, |deadline| {
+        deadline
+            .saturating_duration_since(std::time::Instant::now())
+            .as_micros()
+            .div_ceil(1_000)
+            .min(i32::MAX as u128) as i32
+    })
 }
 
 struct UseGuard(&'static AtomicU8);
@@ -241,27 +324,43 @@ impl<R: Protocol + AsRef<Serial> + AsMut<Serial> + Send + 'static> crate::Device
             self.pps_path,
             self.construct,
         )?;
+        let capabilities = device.receiver.source.aiding_capabilities();
         *self.storage.lock().map_err(|_| {
             self.state.store(2, Ordering::Release);
             DeviceError::Io
         })? = Some(device);
         // Keep ownership through terminal delivery, sink destruction and cleanup.
         let delivery = (sink, Retained(self));
-        let cancel = readiness::Cancel::new(events::pipe).map_err(|_| DeviceError::Io)?;
-        let wake = cancel.reader.clone();
-        session::start(self.stack_bytes, cancel, delivery, move |stop, emit| {
+        let (reader, writer) = events::pipe().map_err(|_| DeviceError::Io)?;
+        let wake = Arc::new(CommandPipe { reader, writer });
+        let (aiding, mut control) = if capabilities.time || capabilities.position {
+            let (client, owner) = crate::aiding::channel(capabilities, wake.clone());
+            (Some(client), Some(owner))
+        } else {
+            (None, None)
+        };
+        let stopping = control.as_ref().map(crate::aiding::Owner::stop_handle);
+        let cancel = CommandWake(wake.clone());
+        let worker = session::start(self.stack_bytes, cancel, delivery, move |stop, emit| {
             let trace = acquisition::probe::Trace::for_source("gnss", self.id);
             let mut storage = self.storage.lock().map_err(|_| DeviceError::Io)?;
             let device = storage.as_mut().ok_or(DeviceError::Io)?;
             let result = (|| {
                 while !stop.load(Ordering::Acquire) {
-                    if !readiness::wait(
-                        &device.receiver.source.as_ref().port.file,
-                        &wake,
-                        events::wait,
-                    )
-                    .map_err(|_| DeviceError::Io)?
-                    {
+                    match events::poll_io(
+                        device.receiver.source.as_ref().port.file.as_raw_fd(),
+                        wake.reader.as_raw_fd(),
+                        control.as_ref().is_some_and(crate::aiding::Owner::writable),
+                        timeout_ms(control.as_ref().and_then(crate::aiding::Owner::deadline)),
+                    ) {
+                        Ok(events::Readiness::Cancelled) => {
+                            wake.drain().map_err(|_| DeviceError::Io)?
+                        }
+                        Ok(events::Readiness::Device | events::Readiness::Timeout) => {}
+                        Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
+                        Err(_) => return Err(DeviceError::Io),
+                    }
+                    if stop.load(Ordering::Acquire) {
                         break;
                     }
                     let mut connected = true;
@@ -274,32 +373,67 @@ impl<R: Protocol + AsRef<Serial> + AsMut<Serial> + Send + 'static> crate::Device
                         }
                     }
                     let now = acquisition::monotonic_us();
-                    let read = trace.scope("read_parse_deliver", || device.receiver.read_events(now, |event| {
-                        if connected {
-                            connected = match event {
-                                Ok(event) => {
-                                    // Count decoded fix reports independently of UART batches.
-                                    // This precedes delivery; it does not assert sink acceptance.
-                                    if matches!(&event, Event::Fix(_)) {
-                                        trace.instant("fix_received");
+                    let read = trace.scope("read_parse_deliver", || {
+                        device.receiver.read_events(now, |event| {
+                            if connected {
+                                connected = match event {
+                                    Ok(event) => {
+                                        // Count decoded fix reports independently of UART batches.
+                                        // This precedes delivery; it does not assert sink acceptance.
+                                        if matches!(&event, Event::Fix(_)) {
+                                            trace.instant("fix_received");
+                                        }
+                                        emit(event)
                                     }
-                                    emit(event)
-                                },
-                                Err(DeviceError::Busy) => true,
-                                Err(_) => emit(Event::InvalidFrame),
-                            };
-                        }
-                    }));
+                                    Err(DeviceError::Busy) => true,
+                                    Err(_) => emit(Event::InvalidFrame),
+                                };
+                            }
+                        })
+                    });
                     trace.drain(read.is_ok() && connected);
                     read?;
                     if !connected {
                         break;
                     }
+                    if let Some(control) = &mut control {
+                        if control
+                            .advance(
+                                &mut device.receiver.source,
+                                std::time::Instant::now(),
+                                acquisition::monotonic_us(),
+                            )
+                            .map_err(crate::receiver::map_error)?
+                            && !emit(Event::AidingReady)
+                        {
+                            break;
+                        }
+                    }
                 }
                 Ok(())
             })();
-            device.cleanup().and(result)
+            let cancelled = device
+                .receiver
+                .source
+                .cancel_aiding()
+                .map_err(crate::receiver::map_error);
+            if let Some(control) = &mut control {
+                let completion = if result.is_err() || cancelled.is_err() {
+                    Err(crate::aiding::SubmitError::Io)
+                } else {
+                    Ok(crate::aiding::Outcome::Cancelled)
+                };
+                if control.close(completion) {
+                    let _ = emit(Event::AidingReady);
+                }
+            }
+            device.cleanup().and(cancelled).and(result)
         })
-        .map_err(|_| DeviceError::Io)
+        .map_err(|_| DeviceError::Io)?;
+        Ok(ControlledSession {
+            worker,
+            aiding,
+            control: stopping,
+        })
     }
 }
