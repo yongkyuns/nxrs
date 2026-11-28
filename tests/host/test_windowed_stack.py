@@ -11,11 +11,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'nuttx-std/tracker-
 import check_windowed_stack as guard
 
 
-TRACKER = '''42056c74 <nxrs_motion_tracker::runtime::track>:
+TRACKER = '''42056c74 l     F .flash.text 00000005 nxrs_motion_tracker::runtime::track
+42056c74 <nxrs_motion_tracker::runtime::track>:
 42056c74: 186136 entry a1, 0xc30
 42056c77: f01d retw.n
 '''
-CONSTRUCTOR = '''42043614 <triple_buffer::triple_buffer::<core::option::Option<Sample<GnssFix>>>>:
+CONSTRUCTOR = '''42043614 l     F .flash.text 000000ac triple_buffer::triple_buffer::<core::option::Option<Sample<GnssFix>>>
+42043614 <triple_buffer::triple_buffer::<core::option::Option<Sample<GnssFix>>>>:
 42043614: 074136 entry a1, 0x3a0
 42043617: f83c movi.n a8, 63
 42043619: 094c movi.n a9, 64
@@ -35,6 +37,18 @@ class WindowedStack(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'windowed entry was absent'):
             guard.check_windowed_stack('')
 
+    def test_literal_data_after_function_does_not_extend_its_range(self):
+        # The linked font data decoded as addi.n after Debug::fmt had ended.
+        # It had no intervening symbol, so objdump associated it with fmt.
+        guard.check_windowed_stack(TRACKER + '42056c80: 111b addi.n a1, a1, 1\n')
+
+    def test_windowed_entry_requires_nonempty_function_bounds(self):
+        for constructor in (CONSTRUCTOR.split('\n', 1)[1],
+                            CONSTRUCTOR.replace('000000ac', '00000000')):
+            with self.subTest(constructor=constructor), \
+                    self.assertRaisesRegex(ValueError, 'no STT_FUNC range'):
+                guard.check_windowed_stack(TRACKER + constructor)
+
     def test_property_records_cannot_hide_constructor_in_cli(self):
         with tempfile.TemporaryDirectory() as directory:
             elf = Path(directory) / 'original.elf'
@@ -51,11 +65,11 @@ class WindowedStack(unittest.TestCase):
 
             def disassemble(command, *, text):
                 self.assertTrue(text)
-                self.assertEqual(command[:3], ['xtensa-esp32s3-elf-objdump', '-d', '-C'])
+                self.assertEqual(command[:4], ['xtensa-esp32s3-elf-objdump', '-d', '-C', '-t'])
                 # Ordinary disassembly of the failed firmware hid the whole
                 # constructor as hex words while still decoding runtime::track.
-                if b'.xt.prop' in command[3].read_bytes():
-                    return TRACKER + '42043614: 3c074136\n42043618: 80094cf8\n'
+                if b'.xt.prop' in command[4].read_bytes():
+                    return TRACKER + CONSTRUCTOR.split('42043614:')[0] + '42043614: 3c074136\n'
                 return TRACKER + CONSTRUCTOR
 
             errors = StringIO()

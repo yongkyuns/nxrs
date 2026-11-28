@@ -7,7 +7,9 @@ import subprocess
 import tempfile
 
 
-SYMBOL = re.compile(r'^[0-9a-f]+ <(.+)>:$')
+FUNCTION = re.compile(r'^([0-9a-f]+)\s+\S+\s+F\s+\S+\s+([0-9a-f]+)\s')
+SYMBOL = re.compile(r'^([0-9a-f]+) <(.+)>:$')
+ADDRESS = re.compile(r'^\s*([0-9a-f]+):')
 ENTRY = re.compile(r'^\s*[0-9a-f]+:\s+[0-9a-f]+\s+entry\s+a1,')
 SP_ARITHMETIC = re.compile(
     r'^\s*[0-9a-f]+:\s+[0-9a-f]+\s+(?:add(?:i|mi)?|sub|and)(?:\.n)?\s+a1,'
@@ -15,6 +17,12 @@ SP_ARITHMETIC = re.compile(
 
 
 def check_windowed_stack(disassembly):
+    functions = {}
+    for line in disassembly.splitlines():
+        function = FUNCTION.match(line)
+        if function:
+            start, size = (int(value, 16) for value in function.groups())
+            functions[start] = max(functions.get(start, start), start + size)
     # ENTRY proves the function uses the windowed ABI. Arithmetic writes to a1
     # bypass MOVSP's register-window spill handling.
     rust_symbol = None
@@ -23,13 +31,24 @@ def check_windowed_stack(disassembly):
     for line in disassembly.splitlines():
         symbol = SYMBOL.fullmatch(line)
         if symbol:
-            rust_symbol = symbol[1] if '::' in symbol[1] else None
+            rust_symbol = symbol[2] if '::' in symbol[2] else None
+            start = int(symbol[1], 16)
+            end = functions.get(start, start)
             windowed = False
-        elif rust_symbol and ENTRY.match(line):
-            windowed = True
-            found_tracker |= rust_symbol == 'nxrs_motion_tracker::runtime::track'
-        elif windowed and SP_ARITHMETIC.match(line):
-            raise ValueError(f'{rust_symbol} changes a1 without MOVSP: {line.strip()}')
+        elif rust_symbol:
+            address = ADDRESS.match(line)
+            entry = ENTRY.match(line)
+            if entry and end == start:
+                raise ValueError(f'{rust_symbol} has no STT_FUNC range for its windowed entry')
+            # objdump labels gaps with the preceding function. Only STT_FUNC
+            # bytes belong to it; later literal/font data is not executable.
+            if not address or not start <= int(address[1], 16) < end:
+                continue
+            if entry:
+                windowed = True
+                found_tracker |= rust_symbol == 'nxrs_motion_tracker::runtime::track'
+            elif windowed and SP_ARITHMETIC.match(line):
+                raise ValueError(f'{rust_symbol} changes a1 without MOVSP: {line.strip()}')
     if not found_tracker:
         raise ValueError('Motion Tracker windowed entry was absent from the disassembly')
 
@@ -41,7 +60,7 @@ def disassemble(elf, objdump, objcopy):
     with tempfile.TemporaryDirectory() as directory:
         checked = Path(directory) / 'firmware.elf'
         subprocess.check_call([objcopy, '--remove-section=.xt.prop', elf, checked])
-        return subprocess.check_output([objdump, '-d', '-C', checked], text=True)
+        return subprocess.check_output([objdump, '-d', '-C', '-t', checked], text=True)
 
 
 def main():
