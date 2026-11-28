@@ -81,6 +81,9 @@ and retired investigation tools are not silently renumbered.
 | Espressif I²S receive and GDMA | 0126 | Roll back failed receive submissions and terminate a short ESP32-S3 descriptor list within its capacity |
 | ESP32-S3 I²S receive interrupt | 0127 | Keep the RX interrupt on its registering CPU and serialize DMA completion with task-context queue operations |
 | ESP32-S3 I²S receive stop | 0128 | Keep active buffers until GDMA is parked and submissions and callbacks have retired, then cancel and release the queued buffers |
+| ESP32-S3 BLE entropy source | 0130 | Admit an active BLE controller through the existing guarded RF entropy path; CoreS3 board wiring is maintained outside the patch |
+| FT5x06 poll ownership | 0132 | Start and stop polling with open consumers and bound its interval; CoreS3 registration is maintained outside the patch |
+| GPIO edge timestamps | 0145 | Retain the generic GPIO timestamp interface; CoreS3 pin registration is maintained outside the patch |
 | Host task debugging | 0151 | Read current native mutex owners, map ARM/Xtensa saved contexts correctly, and restore live debugger registers and selected frame after task inspection, including command errors |
 
 Patch `0151` changes only the Python `pynuttx` host helpers. Use the helpers from
@@ -104,13 +107,11 @@ all-task inspection, and physical-register/selected-frame restoration after
 injected command failures. These checks concern stopped flat single-core
 targets; they do not qualify physical hardware, SMP inspection, arbitrary
 deadlocks, or every debugger/ABI combination.
+
 The original QEMU qualification used NuttX `2b5c0de5`; the current 13.1.1 pin has
 byte-identical helper preimages, but fresh runtime qualification is required.
 Retire this patch when the selected compatible upstream revision contains the
 repair and the focused host and QEMU controls pass without the backport.
-| ESP32-S3 BLE entropy source | 0130 | Admit an active BLE controller through the existing guarded RF entropy path; CoreS3 board wiring is maintained outside the patch |
-| FT5x06 poll ownership | 0132 | Start and stop polling with open consumers and bound its interval; CoreS3 registration is maintained outside the patch |
-| GPIO edge timestamps | 0145 | Retain the generic GPIO timestamp interface; CoreS3 pin registration is maintained outside the patch |
 
 Patch 0090 bounds each RP2350 TRNG block's polling and health-rejection retries,
 including startup. Failure disables the source, clears partial output and keeps
