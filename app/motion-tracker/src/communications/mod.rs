@@ -204,7 +204,13 @@ fn run(
     }
     telemetry.capture.register_owner();
     let collector = cellular.as_ref().and_then(|config| config.collector);
-    let mut modem = cellular.map(uplink::Modem::start).transpose()?;
+    let mut modem = cellular.and_then(|config| match uplink::Modem::start(config) {
+        Ok(modem) => Some(modem),
+        Err(error) => {
+            log::warn!("motion-tracker cellular disabled: {error}");
+            None
+        }
+    });
     let mut readings = telemetry.readings.lock().unwrap();
     serve(
         shared,
@@ -249,6 +255,7 @@ fn serve(
         })
     });
     let mut cellular_status = None;
+    let mut reported_failure = false;
 
     loop {
         let (pair, tile) = {
@@ -292,7 +299,8 @@ fn serve(
             }
         }
         let reporting = radio.as_ref().is_some_and(radio::Output::live);
-        let fault = telemetry.capture.take_sensor_failed();
+        let fault = !reported_failure && telemetry.capture.failed();
+        reported_failure |= fault;
         let sample = (reporting && (fault || now >= next_report)).then(|| {
             next_report = now + telemetry.interval;
             telemetry.snapshot(readings, now)
@@ -389,12 +397,18 @@ fn serve(
         if radio.is_some() && !active_radio {
             wake = Some(wake.map_or(next_radio, |deadline| deadline.min(next_radio)));
         }
-        if active_radio || upload.is_some() || tiles.busy() {
+        if active_radio || upload.is_some() {
             let poll = Instant::now() + ACTIVE_POLL;
             wake = Some(wake.map_or(poll, |deadline| deadline.min(poll)));
         }
         if retry_pending {
             wake = Some(wake.map_or(retry.next, |deadline| deadline.min(retry.next)));
+        }
+        if let Some(deadline) = tiles.next_service(
+            Instant::now() + ACTIVE_POLL,
+            view.link == LinkStatus::Connected,
+        ) {
+            wake = Some(wake.map_or(deadline, |wake| wake.min(deadline)));
         }
         match wake {
             Some(deadline) => {

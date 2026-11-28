@@ -11,6 +11,8 @@ pub enum Error {
     InvalidData,
     Io,
     Timeout,
+    /// No measurements were consumed or offered; retry at the delivery cadence.
+    WouldBlock,
     Overflow,
 }
 

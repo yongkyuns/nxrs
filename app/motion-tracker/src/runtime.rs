@@ -150,7 +150,7 @@ pub(super) fn run(args: impl Iterator<Item = String>) -> io::Result<()> {
     if options.battery {
         return report_battery();
     }
-    crate::health::run(|timer| track(options, timer))
+    crate::health::run(|timer, quiescent| track(options, timer, quiescent))
 }
 
 fn sensor_events(
@@ -174,14 +174,18 @@ fn sensor_events(
 fn track(
     options: Options,
     mut timer: Option<&mut dyn watchdog::RuntimeWatchdog>,
+    quiescent: &mut bool,
 ) -> io::Result<()> {
     let interval = crate::preferences(options.reports.interval)?.duration();
-    let mut screen = match display::open() {
-        Ok(display) => {
-            Some(Screen::new(display, options.zoom.unwrap_or_default()).map_err(display_error)?)
-        }
+    let mut screen = match display::open()
+        .and_then(|display| Screen::new(display, options.zoom.unwrap_or_default()))
+    {
+        Ok(screen) => Some(screen),
         Err(display::Error::Unsupported) => None,
-        Err(error) => return Err(display_error(error)),
+        Err(error) => {
+            log::warn!("motion-tracker display disabled: {error:?}");
+            None
+        }
     };
     let (events, inbox) = bounded(32);
     let notify_links = {
@@ -208,6 +212,7 @@ fn track(
     let ([primary_output, secondary_output], gnss_output, [mut dashboard, links]) =
         fixed_readers(IMU_FRESH, FIX_FRESH);
     let telemetry = Telemetry::new(links, capture.clone(), interval);
+    *quiescent = false;
     let mut communications =
         (options.ble || options.cellular.is_some() || options.tile_relay.is_some())
             .then(|| {
@@ -219,7 +224,13 @@ fn track(
                     notify_links.clone(),
                 )
             })
-            .transpose()?;
+            .and_then(|result| match result {
+                Ok(links) => Some(links),
+                Err(error) => {
+                    log::warn!("motion-tracker communications unavailable: {error}");
+                    None
+                }
+            });
     let mut view = View::default();
     let mut required = Ok(());
     for result in [
@@ -237,6 +248,7 @@ fn track(
     ] {
         if let Err(fault) = result {
             dashboard.fail(fault);
+            capture.sensor_failed();
             report_fault(fault);
             required = Err(io::Error::other(format!("open required sensor: {fault:?}")));
         }
@@ -249,6 +261,7 @@ fn track(
             sensor_events(secondary_output, capture.clone()),
         ) {
             dashboard.fail(fault);
+            capture.sensor_failed();
             report_fault(fault);
         }
     }
@@ -290,9 +303,8 @@ fn track(
         {
             None | Some(Ok(()) | Err(execution::Error::Unsupported)) => {}
             Some(Err(error)) => {
-                return Err(io::Error::other(format!(
-                    "tracker display priority: {error:?}"
-                )));
+                log::warn!("motion-tracker display disabled; priority setup: {error:?}");
+                screen = None;
             }
         }
         loop {
@@ -306,8 +318,11 @@ fn track(
                 if let Some(links) = &communications {
                     let update = links.view(view);
                     if update != view {
-                        if let Some(screen) = &mut screen {
-                            screen.update_link(update).map_err(display_error)?;
+                        if let Some(active) = &mut screen {
+                            if let Err(error) = active.update_link(update) {
+                                log::warn!("motion-tracker display disabled: {error:?}");
+                                screen = None;
+                            }
                             redraw = true;
                         }
                     }
@@ -330,6 +345,7 @@ fn track(
                 }
                 sensors.reap_finished(|fault| {
                     dashboard.fail(fault);
+                    capture.sensor_failed();
                     report_fault(fault);
                 });
                 if touch.as_ref().is_some_and(touch::Session::is_finished) {
@@ -341,8 +357,11 @@ fn track(
             if report_due {
                 let mut snapshot = Snapshot::from(dashboard.snapshot(now));
                 snapshot.clock = capture.clock();
-                if let Some(serial) = &mut serial {
-                    communications::write_usb(&mut serial.lock(), &snapshot)?;
+                if let Some(output) = &mut serial {
+                    if let Err(error) = communications::write_usb(&mut output.lock(), &snapshot) {
+                        log::warn!("motion-tracker USB stream disabled: {error}");
+                        serial = None;
+                    }
                 }
                 if options.reports.frames.is_some() {
                     rendered += 1;
@@ -371,17 +390,18 @@ fn track(
                 }
                 next = now + interval;
             }
-            if let Some(screen) = screen.as_mut().filter(|_| plot_due || redraw) {
+            if let Some(active) = screen.as_mut().filter(|_| plot_due || redraw) {
                 let snapshot = Snapshot::from(dashboard.snapshot(now));
-                screen
-                    .draw(
-                        view.link,
-                        &snapshot,
-                        now,
-                        || dashboard.satellites(now),
-                        |wanted| communications.as_ref().and_then(|links| links.map(wanted)),
-                    )
-                    .map_err(display_error)?;
+                if let Err(error) = active.draw(
+                    view.link,
+                    &snapshot,
+                    now,
+                    || dashboard.satellites(now),
+                    |wanted| communications.as_ref().and_then(|links| links.map(wanted)),
+                ) {
+                    log::warn!("motion-tracker display disabled: {error:?}");
+                    screen = None;
+                }
                 redraw = false;
             }
             if report_due {
@@ -433,7 +453,9 @@ fn track(
         }
     })();
 
-    // Ask all workers to stop before waiting for any one join.
+    // Give blocking cleanup the full watchdog budget; a stuck join gets no feeds.
+    let refresh_watchdog = crate::health::progress(&mut timer);
+    // Ask sensor and touch workers to stop before waiting for either join.
     let mut sensor_failed = false;
     let mut report = |fault| {
         sensor_failed = true;
@@ -444,7 +466,16 @@ fn track(
     sensors.join(report);
     let join_touch = touch.as_mut().map(touch::Session::join);
     let stop_links = communications.as_mut().map(Communications::stop);
+    let touch_finished = touch.as_ref().is_none_or(touch::Session::is_finished);
+    if touch_finished && join_touch.as_ref().is_some_and(Result::is_err) {
+        // A failed wake may race completion; join that finished handle as well.
+        let _ = touch.as_mut().map(touch::Session::join);
+    }
+    // Communications::stop always joins. A failed sensor/touch wake can return
+    // before its worker finishes, whereas a joined terminal error is quiescent.
+    *quiescent = sensors.is_quiescent() && touch_finished;
     for (operation, failed) in [
+        ("refresh watchdog before cleanup", refresh_watchdog.is_err()),
         ("stop touch", failed(stop_touch)),
         ("join touch", failed(join_touch)),
         ("stop communications", failed(stop_links)),
@@ -464,10 +495,6 @@ fn track(
 
 fn failed<T>(result: Option<Result<(), T>>) -> bool {
     result.is_some_and(|result| result.is_err())
-}
-
-fn display_error(error: display::Error) -> io::Error {
-    io::Error::other(format!("tracker display: {error:?}"))
 }
 
 fn report_battery() -> io::Result<()> {

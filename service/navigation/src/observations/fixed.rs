@@ -32,7 +32,9 @@ struct Sample<T> {
 // Keep freshness at the reader and initialize the shared storage with None.
 // Copying the initialized Source into the padded buffers triggered Xtensa
 // stack realignment when the pinned compiler inlined tracker startup.
-type Slot<T> = Option<Sample<T>>;
+// None is Waiting, Some(Err(())) is explicit Stale, and Some(Ok(sample))
+// carries a sample whose freshness is evaluated by each reader.
+type Slot<T> = Option<Result<Sample<T>, ()>>;
 
 struct Pair<T: Copy + Send>([WriteSlot<Slot<T>>; 2]);
 
@@ -45,10 +47,16 @@ impl<T: Copy + Send> Pair<T> {
 
     fn publish(&mut self, sample: T, received: Instant) {
         for input in &mut self.0 {
-            input.write(Some(Sample {
+            input.write(Some(Ok(Sample {
                 value: sample,
                 received,
-            }));
+            })));
+        }
+    }
+
+    fn stale(&mut self) {
+        for input in &mut self.0 {
+            input.write(Some(Err(())));
         }
     }
 }
@@ -88,11 +96,15 @@ impl<const IMUS: usize> Publisher<IMUS> {
                     fixes.publish(value, received);
                     return Ok(observation.measurement());
                 }
+                gnss::Event::NoFix => {
+                    fixes.stale();
+                    return Ok(None);
+                }
                 gnss::Event::Satellites(report) => {
-                    satellites.write(Some(Sample {
+                    satellites.write(Some(Ok(Sample {
                         value: report,
                         received,
-                    }));
+                    })));
                     return Ok(None);
                 }
                 gnss::Event::InvalidFrame => return Ok(None),
@@ -159,7 +171,7 @@ fn read<T: Copy + Send>(
     }
     match sample {
         None => Reading::Waiting,
-        Some(Sample { value, received })
+        Some(Ok(Sample { value, received }))
             if now.saturating_duration_since(received) < fresh_for(&value) =>
         {
             Reading::Live(value)
