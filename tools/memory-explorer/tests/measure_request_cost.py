@@ -130,7 +130,8 @@ class Commands:
             (self.output / "commands.json").write_text(json.dumps(self.commands, indent=2) + "\n")
 
     def apply_patch(self, directory, patch, *, reverse=False):
-        command = ["git", "apply"]
+        # The patch ledger identifies raw source bytes across host platforms.
+        command = ["git", "-c", "core.autocrlf=false", "apply"]
         if reverse:
             command.append("--reverse")
         # Git otherwise discovers the enclosing checkout and skips paths

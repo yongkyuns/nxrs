@@ -222,7 +222,7 @@ class CostTests(unittest.TestCase):
         self.assertEqual((self.root / "commands/000.stdout").read_bytes(), b"partial")
         self.assertTrue(json.loads((self.root / "commands.json").read_text())[0]["timed_out"])
 
-    def test_scratch_patch_applies_inside_an_enclosing_checkout(self):
+    def test_scratch_patch_applies_inside_a_checkout_without_converting_bytes(self):
         subprocess.run(["git", "init", "--quiet", self.root], check=True)
         (self.root / "commands").mkdir()
         native = self.file("target/overlay/unit.c", b"candidate\n")
@@ -230,6 +230,8 @@ class CostTests(unittest.TestCase):
                           b"--- a/unit.c\n+++ b/unit.c\n@@ -1 +1 @@\n"
                           b"-original\n+candidate\n")
         commands = cost.Commands(self.root)
+        config = self.file("gitconfig", "[core]\n    autocrlf = true\n")
+        commands.environment["GIT_CONFIG_GLOBAL"] = str(config)
         commands.apply_patch(native.parent, patch, reverse=True)
         self.assertEqual(native.read_bytes(), b"original\n")
         commands.apply_patch(native.parent, patch)
