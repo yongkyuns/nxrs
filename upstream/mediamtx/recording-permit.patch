@@ -442,3 +442,83 @@
  	Ready                bool                `json:"ready" deprecated:"true"`
  	ReadyTime            *time.Time          `json:"readyTime" deprecated:"true"`
  	Available            bool                `json:"available"`
+--- /dev/null
++++ b/mediamtx/internal/core/nxrs_recording_permit_test.go
+@@ -0,0 +1,77 @@
++package core
++
++import (
++	"context"
++	"errors"
++	"testing"
++	"time"
++
++	"github.com/bluenviron/mediamtx/internal/conf"
++	"github.com/bluenviron/mediamtx/internal/defs"
++	"github.com/google/uuid"
++)
++
++func TestRecordingPermitRevisionAndExpiry(t *testing.T) {
++	timer := time.NewTimer(time.Hour)
++	timer.Stop()
++	defer timer.Stop()
++	pa := &path{conf: &conf.Path{Record: true}, recordingPermit: recordingPermit{
++		state: defs.APIRecordingPermit{PathID: uuid.New()}, timer: timer,
++	}}
++	request := func(expected defs.APIRecordingPermit, enable bool) recordingPermitResult {
++		reply := make(chan recordingPermitResult, 1)
++		pa.doRecordingPermit(recordingPermitRequest{ctx: context.Background(), expected: expected,
++			enable: enable, reply: reply})
++		return <-reply
++	}
++	initial := pa.recordingPermit.state
++	if pa.recordingAllowed() {
++		t.Fatal("new incarnation admitted recording")
++	}
++	admitted := request(initial, true)
++	if admitted.err != nil || admitted.state.Revision != 1 || !pa.recordingAllowed() {
++		t.Fatal("current permit did not admit recording", admitted)
++	}
++	if result := request(initial, true); !errors.Is(result.err, defs.ErrRecordingPermitConflict) {
++		t.Fatal("stale revision was accepted", result)
++	}
++	other := admitted.state
++	other.PathID = uuid.New()
++	if result := request(other, false); !errors.Is(result.err, defs.ErrRecordingPermitConflict) {
++		t.Fatal("other incarnation was accepted", result)
++	}
++	retired := request(admitted.state, false)
++	if retired.err != nil || retired.state.Revision != 2 || pa.recordingAllowed() {
++		t.Fatal("denial did not retire permit", retired)
++	}
++	renewed := request(retired.state, true)
++	if renewed.err != nil {
++		t.Fatal(renewed.err)
++	}
++	pa.recordingPermit.until = time.Now().Add(-time.Second)
++	if pa.recordingAllowed() {
++		t.Fatal("expired permit still admits recording")
++	}
++	if result := request(renewed.state, true); !errors.Is(result.err, defs.ErrRecordingPermitConflict) {
++		t.Fatal("expired revision resurrected recording", result)
++	}
++	if pa.recordingAllowed() || pa.recordingPermit.state.Revision != renewed.state.Revision+1 {
++		t.Fatal("expiry did not retire the old generation")
++	}
++}
++
++func TestRecordingPermitCancellationDoesNotMutate(t *testing.T) {
++	timer := time.NewTimer(time.Hour)
++	timer.Stop()
++	defer timer.Stop()
++	initial := defs.APIRecordingPermit{PathID: uuid.New()}
++	pa := &path{conf: &conf.Path{Record: true}, recordingPermit: recordingPermit{state: initial, timer: timer}}
++	ctx, cancel := context.WithCancel(context.Background())
++	cancel()
++	reply := make(chan recordingPermitResult, 1)
++	pa.doRecordingPermit(recordingPermitRequest{ctx: ctx, expected: initial, enable: true, reply: reply})
++	result := <-reply
++	if !errors.Is(result.err, context.Canceled) || pa.recordingPermit.state != initial || pa.recordingAllowed() {
++		t.Fatal("cancelled request mutated permission", result)
++	}
++}

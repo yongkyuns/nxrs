@@ -8,6 +8,6 @@ case "${BROWSER_STD_TLS_FIX:-0}" in
   1) ;;
   *) echo 'BROWSER_STD_TLS_FIX must be 0 or 1' >&2; exit 1 ;;
 esac
-exec cargo +1.90.0 nxrs build --manifest-path tests/browser-threads/Cargo.toml \
+exec cargo +1.100.0 nxrs build --manifest-path tests/browser-threads/Cargo.toml \
   --platform web --out target/browser-threads --html tests/browser-threads/index.html \
   ${args[@]+"${args[@]}"}

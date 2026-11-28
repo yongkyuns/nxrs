@@ -2,7 +2,7 @@
 use crate::{profile::Profile, Result};
 use serde_json::Value;
 use std::{collections::BTreeMap, path::Path};
-pub const MCUBOOT_REVISION: &str = "8a07053d42e592c85cb35b79c4de1b7749943387";
+pub const MCUBOOT_REVISION: &str = "6d3b3d2c38ab20c242e5b9abb04d050086383eb2";
 pub const HAL_REVISION: &str = "911dbec8e4a92e70056b58a3d2b0d965b8b7bcc9";
 #[derive(Clone, Debug)]
 pub struct Layout {
@@ -430,8 +430,8 @@ impl Signing {
                 return Err("signed image output must not replace an input or key".into());
             }
         }
-        if crate::output(Command::new("imgtool").arg("version"))?.trim() != "2.2.0" {
-            return Err("MCUboot requires pinned imgtool 2.2.0".into());
+        if crate::output(Command::new("imgtool").arg("version"))?.trim() != "2.4.0" {
+            return Err("MCUboot requires pinned imgtool 2.4.0".into());
         }
         let temporary = crate::TempDir::new(&parent)?;
         let candidate = temporary.0.join("image.bin");
@@ -582,10 +582,7 @@ pub fn build_loader(
             ),
         ]);
     }
-    selected.extend([
-        ("mcuboot", "mcuboot", "0006-espressif-image-class.patch"),
-        ("mcuboot", "mcuboot", "0007-espressif-watchdog-budget.patch"),
-    ]);
+    selected.push(("mcuboot", "mcuboot", "0007-espressif-watchdog-budget.patch"));
     for (component, folder, name) in selected {
         let patch = root
             .join("upstream")
@@ -594,6 +591,17 @@ pub fn build_loader(
             .join(name);
         source::patch(&out.join(folder), &patch)?;
         patches.push(json!({"component":component,"patch":name,"sha256":hash(&patch)?}));
+    }
+    let integration = out.join("integration");
+    fs::create_dir(&integration).map_err(|e| e.to_string())?;
+    let mut integration_inputs = vec![];
+    for source in [
+        "tools/build/src/ffi/mcuboot_image_class.c",
+        "tools/build/mcuboot/image_class.cmake",
+    ] {
+        let destination = integration.join(Path::new(source).file_name().unwrap());
+        fs::copy(root.join(source), &destination).map_err(|e| e.to_string())?;
+        integration_inputs.push(json!({"source":source,"sha256":hash(&destination)?}));
     }
     fs::write(out.join("root.pem"), public.pem).map_err(|e| e.to_string())?;
     fs::write(
@@ -612,6 +620,10 @@ pub fn build_loader(
             out.join("bootloader.conf").display()
         ))
         .arg(format!("-DESP_HAL_PATH={}", out.join("hal").display()))
+        .arg(format!(
+            "-DCMAKE_PROJECT_mcuboot_esp32s3_INCLUDE={}",
+            integration.join("image_class.cmake").display()
+        ))
         .args([
             "-DCONFIG_ESP_FLASH_SIZE=16MB",
             "-DESP_FLASH_MODE=dio",
@@ -627,6 +639,7 @@ pub fn build_loader(
         return Err("bootloader exceeds reserved region".into());
     }
     let mut metadata = json!({"mcuboot":MCUBOOT_REVISION,"esp-hal-3rdparty":HAL_REVISION,"platform":p.name(),"layout":p.data["mcuboot"],"image_class":p.data["image-class"],"boot_watchdog_ms":watchdog_timeout(p)?,"application_signature":"ecdsa-p256-sha256","public_root_sha256":hash(&out.join("root.pem"))?,"hardware_secure_boot":protected,"flash_encryption":protected,"patches":patches});
+    metadata["integration"] = json!(integration_inputs);
     if let Some((key, root)) = rom {
         let cache = crate::read(&out.join("build/CMakeCache.txt"))?;
         let nm = cache

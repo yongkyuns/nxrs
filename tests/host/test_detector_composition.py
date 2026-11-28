@@ -19,13 +19,17 @@ class DetectorCompositionTests(unittest.TestCase):
         result = subprocess.run(['cargo', 'build', '--locked', '-p', 'nxrs-build-support', '-p', 'nxrs-detector-build-support', '--lib',
                                  '--message-format=json', '--target-dir', str(cls.directory / 'cargo')], cwd=ROOT, check=True,
                                 capture_output=True, text=True, timeout=120)
-        libraries = {record['target']['name']: Path(path) for line in result.stdout.splitlines()
-                     if (record := json.loads(line)).get('reason') == 'compiler-artifact'
-                     and record['target']['name'] in ('nxrs_build_support', 'nxrs_detector_build_support')
+        artifacts = [record for line in result.stdout.splitlines()
+                     if (record := json.loads(line)).get('reason') == 'compiler-artifact']
+        libraries = {record['target']['name']: Path(path) for record in artifacts
+                     if record['target']['name'] in ('nxrs_build_support', 'nxrs_detector_build_support')
                      for path in record['filenames'] if path.endswith('.rlib')}
-        library = libraries['nxrs_build_support']
         externs = [argument for name, path in libraries.items()
                    for argument in ('--extern', name + '=' + str(path))]
+        # Cargo may place each crate and its full metadata in a separate output
+        # directory; use its records instead of assuming target/debug/deps.
+        directories = sorted({Path(path).parent for record in artifacts for path in record['filenames']})
+        search = [argument for path in directories for argument in ('-L', 'dependency=' + str(path))]
         # Use the frontend's receipt writer without invoking a target toolchain.
         receipt_writer = cls.directory / 'write_receipt.rs'
         receipt_writer.write_text('''
@@ -44,7 +48,7 @@ fn main() {
                            ('receipt', receipt_writer)]:
             executable = cls.directory / (name + ('.exe' if os.name == 'nt' else ''))
             subprocess.run(['rustc', '--edition=2024', str(path), '-o', str(executable),
-                            *externs, '-L', 'dependency=' + str(library.parent / 'deps'), '-Cpanic=abort'],
+                            *externs, *search, '-Cpanic=abort'],
                            cwd=ROOT, check=True, capture_output=True, text=True, timeout=60)
             cls.executables[name] = executable
 

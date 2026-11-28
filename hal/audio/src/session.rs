@@ -14,7 +14,7 @@ pub(crate) fn decode_slots(
         return Err(DeviceError::InvalidData);
     }
     let high = slot * 4 + 2;
-    for (sample, slots) in samples.iter_mut().zip(bytes.chunks_exact(8)) {
+    for (sample, slots) in samples.iter_mut().zip(bytes.as_chunks::<8>().0.iter()) {
         *sample = i16::from_le_bytes([slots[high], slots[high + 1]]);
     }
     Ok(())

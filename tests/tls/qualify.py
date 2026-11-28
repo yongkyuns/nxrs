@@ -1,5 +1,6 @@
 """Actual host SDK, native sanitizer and independent CSR controls; no device claim."""
 import argparse
+import json
 import os
 from pathlib import Path
 import shlex
@@ -64,6 +65,7 @@ def qualify(platform, archive):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--platform', required=True, choices=['linux', 'macos'])
-    parser.add_argument('--archive', type=Path, default=ROOT/'target/mbedtls-4.2.0.tar.bz2')
+    version = json.loads((ROOT/'upstream/mbedtls/source.json').read_text())['version']
+    parser.add_argument('--archive', type=Path, default=ROOT/'target'/f'mbedtls-{version}.tar.bz2')
     args = parser.parse_args()
     qualify(args.platform, args.archive)

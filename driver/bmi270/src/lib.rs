@@ -437,7 +437,7 @@ impl<T: Registers, D: DelayNs> Device<T, D> {
         while remaining != 0 {
             let n = remaining.min(bytes.len());
             self.io.read(0x26, &mut bytes[..n])?;
-            for frame in bytes[..n].chunks_exact(12) {
+            for frame in bytes[..n].as_chunks::<12>().0 {
                 let axis = |i| f32::from(i16::from_le_bytes([frame[i], frame[i + 1]]));
                 self.last_sample = Some((sample_ticks, capture_us));
                 if !emit(Sample {

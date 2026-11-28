@@ -182,7 +182,7 @@ fn build_context_follows_relocated_hash_receipts_and_rejects_changed_configurati
     fs::write(fixture.path("resolved.config"), config).unwrap();
     fs::write(
         fixture.path("provenance.txt"),
-        "board=mps2-an521:nsh\nnuttx=2b5c0de5e933281c209f954a63b99cf10c132346\n",
+        "board=mps2-an521:nsh\nnuttx=4268617f28ad0ed7e900a081ea1b33c9347458b3\n",
     )
     .unwrap();
     fs::write(

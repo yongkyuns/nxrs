@@ -19,7 +19,7 @@ follow-up work in that issue.
 
 ## Open the viewer
 
-Run from the NXRS repository root with its pinned Rust 1.90 toolchain:
+Run from the NXRS repository root with its pinned Rust 1.100 toolchain:
 
 ```sh
 cargo run --locked -p nxrs-memory-explorer --features gui -- --demo
@@ -376,11 +376,14 @@ durations.
 ## Capture a NuttX lifecycle point
 
 The [GDB exporter](gdb_export.py) reads the default NuttX allocator and task
-metadata. Its supported layout is the repository's pinned NuttX revision
-`2b5c0de5e933281c209f954a63b99cf10c132346`. Use a Python-enabled target GDB,
-the pinned NuttX `pynuttx` dependencies, and the exact final ELF with allocator
-and task debug types. Follow the target's debugger procedure to connect and
-halt every relevant CPU at a known quiescent lifecycle point.
+metadata. Its original layout qualification used NuttX
+`2b5c0de5e933281c209f954a63b99cf10c132346`. For current captures, use the
+revision selected by the [release manifest](../../upstream/nuttx/release.json)
+and repository gitlink, that revision's `pynuttx` dependencies, and the exact
+final ELF with allocator and task debug types. The native QEMU qualification
+checks the exporter against that final ELF. Use a Python-enabled target GDB
+and follow the target's debugger procedure to connect and halt every relevant
+CPU at a known quiescent lifecycle point.
 
 In that GDB session, with the repository root as the working directory:
 
@@ -493,7 +496,7 @@ it through the normal frontend. Run these commands from the repository root:
 firmware="$PWD/target/build/std-demo/mps2-an521-mock"
 capture="$PWD/target/memory-explorer-qemu/qualification-001"
 
-NXRS_NUTTX_DIAGNOSTIC_UNWIND=1 cargo +1.90.0 nxrs build \
+NXRS_NUTTX_DIAGNOSTIC_UNWIND=1 cargo +1.100.0 nxrs build \
   --app std-demo --profile mps2-an521-mock --out "$firmware"
 
 python3 tools/memory-explorer/tests/qualify_qemu.py \
@@ -506,7 +509,7 @@ python3 tools/memory-explorer/tests/qualify_qemu.py \
 
 NXRS_MEMORY_QEMU_EVIDENCE="$capture" \
 NXRS_MEMORY_QEMU_ELF="$firmware/nuttx/nuttx" \
-  cargo +1.90.0 test --locked -p nxrs-memory-explorer \
+  cargo +1.100.0 test --locked -p nxrs-memory-explorer \
     --test qemu_capture --test board_projection -- --ignored --nocapture
 ```
 

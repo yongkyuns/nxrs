@@ -144,7 +144,7 @@ fn bounds<E>(
 }
 
 fn encode(pixels: &[u16], bytes: &mut [u8]) {
-    for (value, output) in pixels.iter().zip(bytes.chunks_exact_mut(2)) {
+    for (value, output) in pixels.iter().zip(bytes.as_chunks_mut::<2>().0.iter_mut()) {
         output.copy_from_slice(&value.to_be_bytes());
     }
 }

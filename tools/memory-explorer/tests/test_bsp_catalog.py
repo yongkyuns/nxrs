@@ -56,8 +56,8 @@ class CatalogGeometryTests(unittest.TestCase):
         self.assertLess(result["bytes"], 512 * 1024)
         manifest = read_json(REFERENCES / "sources.json")
         expected = subprocess.check_output(
-            ["git", "ls-tree", "HEAD", "--", "external/nuttx"],
-            cwd=REPOSITORY, text=True).split()[2]
+            ["git", "rev-parse", ":external/nuttx"],
+            cwd=REPOSITORY, text=True).strip()
         self.assertEqual(manifest["pins"]["nuttx"]["revision"], expected)
         for local in manifest["license_files"].values():
             self.assertIn(local, {item["local"] for item in manifest["sources"]})
@@ -115,7 +115,17 @@ class CatalogGeometryTests(unittest.TestCase):
         selected = re.search(r"ESP_HAL_3RDPARTY_VERSION\s*=\s*([0-9a-f]{40})", make).group(1)
         self.assertEqual(manifest["pins"]["esp-hal-3rdparty"]["revision"], selected)
         patch = "upstream/nuttx/patches/0104-esp32s3-m5-cores3-raw-resources.patch"
-        self.assertEqual((REPOSITORY / patch).read_bytes(), (REFERENCES / "sources/nxrs" / patch).read_bytes())
+        retained = (REFERENCES / "sources/nxrs" / patch).read_text()
+        native = "boards/xtensa/esp32s3/esp32s3-m5-cores3/scripts/Make.defs"
+        addition = retained.split("+++ b/" + native + "\n", 1)[1].split("\ndiff --git ", 1)[0]
+        original = "".join(line[1:] + "\n" for line in addition.splitlines() if line.startswith("+"))
+        board = REPOSITORY / "platform/cores3/board"
+        self.assertEqual((board / "scripts/Make.defs").read_text(), original)
+        config = (board / "configs/nsh/defconfig").read_text().splitlines()
+        for setting in ("CONFIG_ARCH_BOARD_CUSTOM=y",
+                        'CONFIG_ARCH_BOARD_CUSTOM_NAME="esp32s3-m5-cores3"',
+                        "CONFIG_ARCH_BOARD_COMMON=y"):
+            self.assertIn(setting, config)
 
     def test_pico_extents_match_all_three_bsp_linker_modes_and_both_defconfigs(self):
         base = REFERENCES / "sources/nuttx/boards/arm/rp23xx/raspberrypi-pico-2"

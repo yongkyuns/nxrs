@@ -10,6 +10,9 @@ use sha2::{Digest, Sha256};
 use std::fs;
 use std::path::{Path, PathBuf};
 
+mod support;
+use support::source_pins;
+
 fn json(path: &Path) -> Value {
     serde_json::from_slice(&fs::read(path).unwrap()).unwrap()
 }
@@ -29,9 +32,9 @@ fn text<'a>(value: &'a Value, key: &str) -> &'a str {
 fn decode_hex(value: &Value) -> Vec<u8> {
     let value = value.as_str().unwrap();
     assert_eq!(value.len() % 2, 0);
-    value
-        .as_bytes()
-        .chunks_exact(2)
+    let (pairs, _) = value.as_bytes().as_chunks::<2>();
+    pairs
+        .iter()
         .map(|pair| u8::from_str_radix(std::str::from_utf8(pair).unwrap(), 16).unwrap())
         .collect()
 }
@@ -55,14 +58,9 @@ fn stack_depth_and_coloration_match_independent_stopped_bytes() {
     assert_eq!(build["config_sha256"], config_hash);
     assert_eq!(report["config_sha256"], config_hash);
     assert_eq!(sha256(&evidence.join("resolved.config")), config_hash);
-    assert_eq!(
-        build["nuttx_revision"],
-        "2b5c0de5e933281c209f954a63b99cf10c132346"
-    );
-    assert_eq!(
-        build["apps_revision"],
-        "3c772ea35b9245972e18999828f7b533e6fc57cc"
-    );
+    let pins = source_pins();
+    assert_eq!(build["nuttx_revision"], pins["nuttx"]);
+    assert_eq!(build["apps_revision"], pins["apps"]);
     assert_eq!(
         build["configuration_checks"]["DEBUG_SYMBOLS_LEVEL"]["effective"],
         "\"-g3\""
@@ -211,11 +209,10 @@ fn stack_depth_and_coloration_match_independent_stopped_bytes() {
                     format!("{:x}", Sha256::digest(&data)),
                     text(bytes, "bytes_sha256")
                 );
-                let untouched_words = data
-                    .chunks_exact(4)
-                    .take_while(|word| {
-                        u32::from_le_bytes((*word).try_into().unwrap()) == 0xdeadbeef
-                    })
+                let (words, _) = data.as_chunks::<4>();
+                let untouched_words = words
+                    .iter()
+                    .take_while(|word| u32::from_le_bytes(**word) == 0xdeadbeef)
                     .count();
                 let untouched = untouched_words as u64 * 4;
                 assert_eq!(used_bytes, scan_size - untouched);

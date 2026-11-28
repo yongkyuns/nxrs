@@ -65,7 +65,8 @@ class DeviceClosureFixture(unittest.TestCase):
         self.outputs = {case: self.root / "builds" / case for case in ("bmi270", "lsm6dso")}
         self.elf_output = {}
         self.sources = ["Cargo.toml", "app/event-demo/Cargo.toml", "platform/Cargo.toml",
-                        "platform/cores3/profile.toml", "platform/nuttx/resources/esp32s3-m5-cores3.toml"]
+                        "platform/cores3/profile.toml", *CHECK.BOARD_SOURCES,
+                        "platform/nuttx/resources/esp32s3-m5-cores3.toml"]
         self.sources += [f"driver/{driver}/{name}" for driver in ("bmi270", "lsm6dso", "ubx")
                          for name in ("Cargo.toml", "bindings.toml")]
         for name in self.sources + ["tests/host/fixtures/lsm6dso-overlay.toml"]:
@@ -236,22 +237,24 @@ class DeviceClosureFixture(unittest.TestCase):
         selection = {"app_manifest": manifest, "app_package": app_package, "platform": "m5stack-cores3-gnss",
                      "target_os": "nuttx", "nuttx-build-mode": "flat", "configuration": str(old / handoff_name),
                      "providers": [{"capability": c, "implementation": "nuttx", "package": "nxrs-" + c} for c in ("gnss", "imu")],
-                     "profiles": [self.source_hash(n) for n in ("platform/cores3/profile.toml", "platform/nuttx/resources/esp32s3-m5-cores3.toml", *overlay)],
+                     "profiles": [self.source_hash(n) for n in ("platform/cores3/profile.toml", *CHECK.BOARD_SOURCES,
+                                                               *overlay, "platform/nuttx/resources/esp32s3-m5-cores3.toml")],
                      "driver_features": features, "model_features": [], "native-resources": native,
                      "dependency_resolution": {"status": "resolved", "packages": sorted(packages.values()),
                                                "driver_features": features, "model_features": []},
                      "resolved-composition": {"graph": graph, "semantic-digest": semantic,
                                               "input-fingerprint": receipt["raw_fingerprint"], "binding-inputs": binding_inputs}}
         write_json(out / "provider-selection.json", selection)
-        self.put(case, "resolved.config", "CONFIG_ARCH_BOARD_ESP32S3_M5_CORES3=y\n")
+        self.put(case, "resolved.config", "CONFIG_ARCH_BOARD_CUSTOM=y\n"
+                 'CONFIG_ARCH_BOARD_CUSTOM_NAME="esp32s3-m5-cores3"\n')
         write_json(out / (TARGET + ".json"), {"arch": "xtensa", "os": "nuttx", "target-pointer-width": "32"})
         provenance = {"nxrs": REVISION, "nxrs_dirty": "no", "nuttx": "b" * 40, "apps": "c" * 40,
                       "app_package": app_package, "app_bin": app_bin, "platform": "m5stack-cores3-gnss",
                       "target": TARGET, "board": "esp32s3-m5-cores3:nsh", "nuttx_build_mode": "flat",
                       "size_optimized": "1", "app_command": app_bin.replace("-", "_")}
-        compiler = ["rustc 1.90.0-nightly (fixture)", "commit-hash: " + "d" * 40, "commit-date: 2025-09-16",
-                    "host: x86_64-unknown-linux-gnu", "release: 1.90.0-nightly", "LLVM version: 20.1.1",
-                    "xtensa-esp-elf-gcc (crosstool-NG esp-14.2.0_20241119) 14.2.0"]
+        compiler = ["rustc 1.100.0-nightly (fixture)", "commit-hash: " + "d" * 40, "commit-date: 2025-09-16",
+                    "host: x86_64-unknown-linux-gnu", "release: 1.100.0-nightly", "LLVM version: 20.1.1",
+                    "xtensa-esp-elf-gcc (crosstool-NG esp-16.2.0_20261109) 16.2.0"]
         self.put(case, "provenance.txt", "\n".join([*(k + "=" + v for k, v in provenance.items()), *compiler]) + "\n")
         rust = self.put(case, "rust-input.elf", b"\x7fELF Rust fixture " + case.encode())
         final = self.put(case, "nuttx/nuttx", b"\x7fELF final fixture " + case.encode())
@@ -451,6 +454,28 @@ class DeviceClosureTests(DeviceClosureFixture):
             before = path.read_bytes()
             with self.subTest(name=name):
                 path.write_bytes((self.outputs["lsm6dso"] / name).read_bytes())
+                with self.assertRaisesRegex(ValueError, "stale or mismatched"):
+                    self.check()
+            path.write_bytes(before)
+
+    def test_board_sources_are_required_and_content_bound(self):
+        selection_path = self.outputs["bmi270"] / "provider-selection.json"
+        original = selection_path.read_bytes()
+        for name in CHECK.BOARD_SOURCES:
+            with self.subTest(name=name, mutation="omitted"):
+                selection = json.loads(original)
+                selection["profiles"] = [row for row in selection["profiles"]
+                                          if row["path"] != str(RECORDED / name)]
+                write_json(selection_path, selection)
+                self.refresh_hash("bmi270", "provider-selection.json")
+                with self.assertRaisesRegex(ValueError, "wrong profile source order"):
+                    self.check()
+            selection_path.write_bytes(original)
+            self.refresh_hash("bmi270", "provider-selection.json")
+            path = self.root / name
+            before = path.read_bytes()
+            with self.subTest(name=name, mutation="changed"):
+                path.write_bytes(before + b"changed board source\n")
                 with self.assertRaisesRegex(ValueError, "stale or mismatched"):
                     self.check()
             path.write_bytes(before)

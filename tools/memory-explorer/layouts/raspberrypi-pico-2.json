@@ -2,14 +2,14 @@
   "schema_version": 1,
   "qualification": {
     "name": "Pico 2 / Pico 2 W RP2350 SRAM and BSP flash window",
-    "nuttx_revision": "2b5c0de5e933281c209f954a63b99cf10c132346",
+    "nuttx_revision": "4268617f28ad0ed7e900a081ea1b33c9347458b3",
     "scope": "Pinned Raspberry Pi Pico 2 BSP address geometry used by NXRS Pico 2 and Pico 2 W profiles. The linear resource uses the normal striped CPU coordinate view; individual main-SRAM hardware bank interleaving and alternate mappings are not modeled.",
     "sources": [
-      "https://github.com/apache/nuttx/blob/2b5c0de5e933281c209f954a63b99cf10c132346/boards/arm/rp23xx/raspberrypi-pico-2/scripts/memmap_default.ld",
-      "https://github.com/apache/nuttx/blob/2b5c0de5e933281c209f954a63b99cf10c132346/boards/arm/rp23xx/raspberrypi-pico-2/scripts/memmap_copy_to_ram.ld",
-      "https://github.com/apache/nuttx/blob/2b5c0de5e933281c209f954a63b99cf10c132346/boards/arm/rp23xx/raspberrypi-pico-2/scripts/memmap_no_flash.ld",
-      "https://github.com/apache/nuttx/blob/2b5c0de5e933281c209f954a63b99cf10c132346/boards/arm/rp23xx/raspberrypi-pico-2/configs/nsh/defconfig",
-      "https://github.com/apache/nuttx/blob/2b5c0de5e933281c209f954a63b99cf10c132346/arch/arm/src/rp23xx/hardware/rp23xx_memorymap.h"
+      "https://github.com/apache/nuttx/blob/4268617f28ad0ed7e900a081ea1b33c9347458b3/boards/arm/rp23xx/raspberrypi-pico-2/scripts/memmap_default.ld",
+      "https://github.com/apache/nuttx/blob/4268617f28ad0ed7e900a081ea1b33c9347458b3/boards/arm/rp23xx/raspberrypi-pico-2/scripts/memmap_copy_to_ram.ld",
+      "https://github.com/apache/nuttx/blob/4268617f28ad0ed7e900a081ea1b33c9347458b3/boards/arm/rp23xx/raspberrypi-pico-2/scripts/memmap_no_flash.ld",
+      "https://github.com/apache/nuttx/blob/4268617f28ad0ed7e900a081ea1b33c9347458b3/boards/arm/rp23xx/raspberrypi-pico-2/configs/nsh/defconfig",
+      "https://github.com/apache/nuttx/blob/4268617f28ad0ed7e900a081ea1b33c9347458b3/arch/arm/src/rp23xx/hardware/rp23xx_memorymap.h"
     ]
   },
   "warnings": [

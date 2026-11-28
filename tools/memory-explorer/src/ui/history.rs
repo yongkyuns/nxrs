@@ -267,7 +267,7 @@ fn draw_usage(ui: &mut egui::Ui, series: &Series, options: UsagePlot) -> Option<
                 Pos2::new(plot.left(), axis_y),
                 Pos2::new(plot.right(), axis_y),
             ],
-            Stroke::new(1.0, LINE),
+            Stroke::new(1.0_f32, LINE),
         );
         painter.text(
             Pos2::new(plot.left() - 8.0, axis_y),
@@ -309,7 +309,7 @@ fn draw_usage(ui: &mut egui::Ui, series: &Series, options: UsagePlot) -> Option<
                         Pos2::new(at(range.fraction(*start)), y(bytes)),
                         Pos2::new(at(range.fraction(*end)), y(bytes)),
                     ],
-                    Stroke::new(1.8, color),
+                    Stroke::new(1.8_f32, color),
                 );
             }
         }
@@ -342,7 +342,7 @@ fn draw_usage(ui: &mut egui::Ui, series: &Series, options: UsagePlot) -> Option<
         if selected {
             painter.line_segment(
                 [Pos2::new(x, plot.top()), Pos2::new(x, plot.bottom())],
-                Stroke::new(1.0, TEXT.gamma_multiply(0.65)),
+                Stroke::new(1.0_f32, TEXT.gamma_multiply(0.65)),
             );
         }
         for (bytes, color) in plot_values(sample.usage, metric) {

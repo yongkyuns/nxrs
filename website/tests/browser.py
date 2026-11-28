@@ -240,6 +240,8 @@ def run(site: Path, prefix: str, output: Path) -> dict:
             report['checks'].append('cross-crate chip implementations load into the peripheral contract')
 
             page.goto(url + 'api/imu/index.html', wait_until='networkidle')
+            # Current rustdoc creates its search form when search is opened.
+            page.keyboard.press('/')
             symbol_search = page.get_by_role('searchbox', name='Run search in the documentation')
             symbol_search.click()
             page.wait_for_function("() => typeof document.querySelector('.search-form')?.onsubmit === 'function'")

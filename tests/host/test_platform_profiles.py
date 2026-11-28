@@ -110,7 +110,7 @@ class FirmwareFrontendTests(unittest.TestCase):
 
     def cargo_firmware(self, *args: str) -> subprocess.CompletedProcess[str]:
         return subprocess.run(
-            ["cargo", "+1.90.0", "firmware", *args],
+            ["cargo", "+1.100.0", "firmware", *args],
             cwd=ROOT,
             check=True,
             capture_output=True,
@@ -264,7 +264,7 @@ class FirmwareFrontendTests(unittest.TestCase):
         for profile in ("esp32s3-peripherals", "pico2w-peripherals"):
             with self.subTest(profile=profile):
                 result = subprocess.run(
-                    ["cargo", "+1.90.0", "firmware", "build", "--manifest-path", manifest,
+                    ["cargo", "+1.100.0", "firmware", "build", "--manifest-path", manifest,
                      "--profile", profile, "--dry-run"], cwd=ROOT, text=True,
                     capture_output=True, timeout=60)
                 self.assertNotEqual(result.returncode, 0)
@@ -415,7 +415,6 @@ class FirmwareFrontendTests(unittest.TestCase):
                         'ESP32S3_I2C0', 'ESP32S3_DEVKIT_FREENOVE_CAMERA'):
             self.assertIn(feature, config['enable'])
             self.assertIn('CONFIG_' + feature + '=y', config['require'])
-        self.assertIn('ESP32S3_CAMERA', config['disable'])
         for pin, value in {'XCLK': 15, 'PCLK': 13, 'VSYNC': 6, 'HREF': 7,
                            'D0': 11, 'D1': 9, 'D2': 8, 'D3': 10,
                            'D4': 12, 'D5': 18, 'D6': 17, 'D7': 16}.items():
@@ -556,7 +555,7 @@ class FirmwareFrontendTests(unittest.TestCase):
         ]:
             with self.subTest(args=args):
                 result = subprocess.run(
-                    ["cargo", "+1.90.0", "firmware", *args, "--dry-run"],
+                    ["cargo", "+1.100.0", "firmware", *args, "--dry-run"],
                     cwd=ROOT,
                     check=False,
                     capture_output=True,

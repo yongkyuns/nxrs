@@ -104,14 +104,17 @@ class Commands:
                      "SUNPRO_DEPENDENCIES"):
             self.environment.pop(name, None)
 
-    def run(self, command, cwd, timeout=60):
+    def run(self, command, cwd, timeout=60, *, environment=None):
         command = list(map(str, command))
         index = len(self.commands)
         record = {"argv": command, "cwd": str(cwd), "timeout_seconds": timeout,
                   "stdout": f"commands/{index:03}.stdout", "stderr": f"commands/{index:03}.stderr"}
+        if environment:
+            record["environment_overrides"] = environment
         self.commands.append(record)
         try:
-            result = subprocess.run(command, cwd=cwd, env=self.environment, capture_output=True,
+            result = subprocess.run(command, cwd=cwd, env=self.environment | (environment or {}),
+                                    capture_output=True,
                                     timeout=timeout, check=False)
             record["returncode"] = result.returncode
             (self.output / record["stdout"]).write_bytes(result.stdout)
@@ -125,6 +128,18 @@ class Commands:
             raise RuntimeError(f"Command {index} exceeded {timeout} seconds") from error
         finally:
             (self.output / "commands.json").write_text(json.dumps(self.commands, indent=2) + "\n")
+
+    def apply_patch(self, directory, patch, *, reverse=False, ignore_space_change=False):
+        command = ["git", "-c", "core.autocrlf=false", "apply"]
+        if reverse:
+            command.append("--reverse")
+        if ignore_space_change:
+            command.append("--ignore-space-change")
+        # Git otherwise discovers the enclosing checkout and skips paths
+        # outside the scratch directory's repository-relative prefix.
+        environment = {"GIT_CEILING_DIRECTORIES": str(directory.parent)}
+        self.run([*command, "--check", patch], directory, 30, environment=environment)
+        self.run([*command, patch], directory, 30, environment=environment)
 
 
 def read_patch(commands, repo, ref):
@@ -346,8 +361,7 @@ def measure(args, commands):
     for path in PATHS:
         (pristine / path).parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(context / path, pristine / path)
-    commands.run(["git", "apply", "--reverse", "--check", patch_files[selected]], pristine, 30)
-    commands.run(["git", "apply", "--reverse", patch_files[selected]], pristine, 30)
+    commands.apply_patch(pristine, patch_files[selected], reverse=True)
     require(all(digest(pristine / path) == identity["before"] for path, identity in context_patch["files"].items()),
             "Reconstructed original source differs from the context patch ledger")
     original = {path: digest(pristine / path) for path in PATHS}
@@ -379,8 +393,9 @@ def measure(args, commands):
             directory = output / name
             overlay = directory / "nuttx"
             shutil.copytree(pristine, overlay)
-            commands.run(["git", "apply", "--check", patch_files[family]], overlay, 30)
-            commands.run(["git", "apply", patch_files[family]], overlay, 30)
+            # The frozen entry patch predates NuttX 13.1.1 context indentation.
+            legacy_entry = family == "entry" and patches[family]["revision"] == BASELINE
+            commands.apply_patch(overlay, patch_files[family], ignore_space_change=legacy_entry)
             configuration = cost_configuration(args.config.read_text(), enabled)
             (overlay / ".config").write_text(configuration)
             config_header = overlay / "include/nuttx/config.h"

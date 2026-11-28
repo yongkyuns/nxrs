@@ -65,7 +65,7 @@ The camera qualification's packet summary uses its existing 28-byte encoding.
 Run all native tests under unset, mock and host profiles:
 
 ```sh
-RUSTUP_TOOLCHAIN=1.90.0 python3 tests/native/qualify.py
+RUSTUP_TOOLCHAIN=1.100.0 python3 tests/native/qualify.py
 ```
 
 For one profile, use `cargo test --locked -p nxrs-native-integration` directly.

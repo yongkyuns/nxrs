@@ -2,13 +2,13 @@
   "schema_version": 1,
   "qualification": {
     "name": "ESP32-S3 internal storage and external address windows",
-    "nuttx_revision": "2b5c0de5e933281c209f954a63b99cf10c132346",
+    "nuttx_revision": "4268617f28ad0ed7e900a081ea1b33c9347458b3",
     "esp_hal_revision": "b90b1837cb5ad24747deb4c895246037cc206ce5",
     "scope": "Fixed on-chip storage and CPU alias relationship from pinned vendor definitions. Runtime cache reservations, MPU access, external MMU translations and physical device identity are not observed.",
     "sources": [
-      "https://github.com/apache/nuttx/blob/2b5c0de5e933281c209f954a63b99cf10c132346/boards/xtensa/esp32s3/common/scripts/flat_memory.ld",
-      "https://github.com/apache/nuttx/blob/2b5c0de5e933281c209f954a63b99cf10c132346/arch/xtensa/src/esp32s3/Kconfig",
-      "https://github.com/apache/nuttx/blob/2b5c0de5e933281c209f954a63b99cf10c132346/arch/xtensa/src/esp32s3/Make.defs",
+      "https://github.com/apache/nuttx/blob/4268617f28ad0ed7e900a081ea1b33c9347458b3/boards/xtensa/esp32s3/common/scripts/flat_memory.ld",
+      "https://github.com/apache/nuttx/blob/4268617f28ad0ed7e900a081ea1b33c9347458b3/arch/xtensa/src/esp32s3/Kconfig",
+      "https://github.com/apache/nuttx/blob/4268617f28ad0ed7e900a081ea1b33c9347458b3/arch/xtensa/src/esp32s3/Make.defs",
       "https://github.com/espressif/esp-hal-3rdparty/blob/b90b1837cb5ad24747deb4c895246037cc206ce5/components/soc/esp32s3/include/soc/soc.h",
       "https://github.com/espressif/esp-hal-3rdparty/blob/b90b1837cb5ad24747deb4c895246037cc206ce5/components/heap/port/esp32s3/memory_layout.c"
     ]
@@ -19,7 +19,7 @@
     "The 32 MiB external data and instruction windows are address apertures, not installed flash or PSRAM capacity. Flash and PSRAM can share the data aperture; no linear physical mapping or duplicate storage is inferred.",
     "Configured flash and PSRAM capacities are added only from matching effective build configuration. They remain unmapped and unobserved: runtime probing, MMU page tables, image headers and partition offsets are not supplied by this descriptor.",
     "RTC fast RAM has one shared instruction/data address window and is counted once. RTC slow RAM can reserve space for the ULP; ownership and deep-sleep retention are not observed.",
-    "CoreS3 and ESP32-S3 DevKit use this common SoC layout. CoreS3 BSP registration comes from the retained NXRS patch listed in upstream/memory-layouts/sources.json. Neither a board name nor an ELF alone attests a connected physical device."
+    "CoreS3 and ESP32-S3 DevKit use this common SoC layout. CoreS3 uses the owned custom board with the unchanged common linker selection verified against the historical NXRS patch in upstream/memory-layouts/sources.json. Neither a board name nor an ELF alone attests a connected physical device."
   ],
   "physical_resources": [
     {

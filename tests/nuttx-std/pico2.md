@@ -15,7 +15,7 @@ stack high-water marks, interrupt behavior or timing.
 
 ## Reproduce
 
-Install `nightly-2025-09-15` with `rust-src`, GNU `arm-none-eabi` compiler/binutils,
+Install `nightly-2026-11-26` with `rust-src`, GNU `arm-none-eabi` compiler/binutils,
 and the existing NuttX build prerequisites. Initialize the pinned submodules.
 Then, from the repository root:
 
@@ -43,8 +43,9 @@ only inside std's SIGPIPE startup
 path; raw libc SIG_IGN and general signal APIs remain unqualified.
 The separate Emscripten TLS cleanup fix is not part of this target.
 
-The 77 C/Rust ABI witnesses compile separately for RV32, ARM or Xtensa, using
-the exact libc/core/compiler_builtins consumed by that target's std build. They must not
+The 130 C/Rust ABI witnesses compile separately for RV32 and ARM, with an
+additional `wchar_t` signedness observation on Xtensa, using the exact
+libc/core/compiler_builtins consumed by that target's std build. They must not
 reuse another architecture's table. Rust `poll` is allowed only when the full
 native 24-byte pollfd layout, fields, mask types and constants match the exact
 Cargo libc artifact. Old SDKs without that fix do not qualify Rust poll.
@@ -53,9 +54,9 @@ uses its native layout. Raw `SIG_IGN` remains mismatched and contained by the
 existing startup correction; descriptor sanitization retains the `fcntl`
 fallback.
 
-A clean Pico radio build passed all 77 ABI observations. This is build-only
-evidence: physical Pico execution is still required. The earlier Pico 2
-build/link result at `3b4df480639ccaccc4c7c05a9732b754d91f430b` is historical
+An earlier clean Pico radio build passed all 77 observations in its ABI gate.
+This is build-only evidence: physical Pico execution is still required. The
+earlier Pico 2 build/link result at `3b4df480639ccaccc4c7c05a9732b754d91f430b` is historical
 and used the 47-observation gate.
 
 No upstream approval, stock-SDK compatibility, hardware execution or production

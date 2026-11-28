@@ -63,8 +63,8 @@ jobs:
           fi
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
           export PATH="$HOME/.cargo/bin:$PATH"
-          rustup toolchain install 1.90.0 --profile minimal --component clippy
-          rustup target add --toolchain 1.90.0 thumbv6m-none-eabi wasm32-unknown-unknown
+          rustup toolchain install 1.100.0 --profile minimal --component clippy
+          rustup target add --toolchain 1.100.0 thumbv6m-none-eabi wasm32-unknown-unknown
 
       - name: Enforce architecture and deployment boundaries
         run: |
@@ -80,16 +80,16 @@ jobs:
       - name: Run portable/native qualification
         run: |
           # Exact-head gate for the app -> HAL platform provider-boundary migration.
-          cargo +1.90.0 test --locked
-          cargo +1.90.0 test --locked -p nxrs-build-support -p nxrs-detector-build-support -p nxrs-build
-          NXRS_PLATFORM=mock cargo +1.90.0 test --locked -p nxrs-simulator
-          NXRS_PLATFORM=mock cargo +1.90.0 run --locked -p nxrs-simulator --bin nxrs-simulator
+          cargo +1.100.0 test --locked
+          cargo +1.100.0 test --locked -p nxrs-build-support -p nxrs-detector-build-support -p nxrs-build
+          NXRS_PLATFORM=mock cargo +1.100.0 test --locked -p nxrs-simulator
+          NXRS_PLATFORM=mock cargo +1.100.0 run --locked -p nxrs-simulator --bin nxrs-simulator
           python3 tests/native/qualify.py
 
       - name: Qualify explicit recording and UDP software
         run: |
-          cargo +1.90.0 test --locked -p nxrs-storage --features recording
-          cargo +1.90.0 run --locked -p nxrs-std-udp -- pass
+          cargo +1.100.0 test --locked -p nxrs-storage --features recording
+          cargo +1.100.0 run --locked -p nxrs-std-udp -- pass
 
       - name: Qualify isolated storage ownership and bytes
         run: |
@@ -98,13 +98,13 @@ jobs:
 
       - name: Compile no-std and wasm profiles
         run: |
-          cargo +1.90.0 check --locked -p nxrs-camera-test-support --lib --target thumbv6m-none-eabi
-          NXRS_PLATFORM=mock cargo +1.90.0 build --locked --release --lib -p nxrs-simulator --target wasm32-unknown-unknown
+          cargo +1.100.0 check --locked -p nxrs-camera-test-support --lib --target thumbv6m-none-eabi
+          NXRS_PLATFORM=mock cargo +1.100.0 build --locked --release --lib -p nxrs-simulator --target wasm32-unknown-unknown
 
       - name: Lint capability APIs, services and test composition
         run: |
           export NXRS_PLATFORM=linux
-          cargo +1.90.0 clippy --locked \
+          cargo +1.100.0 clippy --locked \
             -p nxrs-camera -p nxrs-storage \
             -p nxrs-camera-test-support -p nxrs-native-integration \
             --lib -- -D warnings

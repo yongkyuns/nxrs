@@ -189,14 +189,14 @@ not required unless another concrete use needs it.
 
 ## Running and CI
 
-The root toolchain is pinned to Rust 1.90.0. Current portable commands are:
+The root toolchain is pinned to Rust 1.100.0. Current portable commands are:
 
 ```sh
-NXRS_PLATFORM=mock cargo +1.90.0 test --locked -p nxrs-simulator
-NXRS_PLATFORM=mock cargo +1.90.0 run --locked -p nxrs-simulator
-rustup target add --toolchain 1.90.0 thumbv6m-none-eabi wasm32-unknown-unknown
-cargo +1.90.0 check --locked -p nxrs-camera-test-support --target thumbv6m-none-eabi
-NXRS_PLATFORM=mock cargo +1.90.0 build --locked --release --lib -p nxrs-simulator --target wasm32-unknown-unknown
+NXRS_PLATFORM=mock cargo +1.100.0 test --locked -p nxrs-simulator
+NXRS_PLATFORM=mock cargo +1.100.0 run --locked -p nxrs-simulator
+rustup target add --toolchain 1.100.0 thumbv6m-none-eabi wasm32-unknown-unknown
+cargo +1.100.0 check --locked -p nxrs-camera-test-support --target thumbv6m-none-eabi
+NXRS_PLATFORM=mock cargo +1.100.0 build --locked --release --lib -p nxrs-simulator --target wasm32-unknown-unknown
 node tests/browser/run-wasm-scenarios.mjs target/wasm32-unknown-unknown/release/nxrs_simulator.wasm
 ```
 

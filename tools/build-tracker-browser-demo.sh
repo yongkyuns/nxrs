@@ -19,7 +19,9 @@ out=$(cd "$6" && pwd)
 build=$(mktemp -d)
 trap 'rm -rf "$build"' EXIT
 
-tls_hash=2bed9d713b4668f76553b097e72b8aa30bc8f112a940d7ae228d524bbde6ffea
+tls_pin="$root/upstream/mbedtls/source.json"
+tls_version=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["version"])' "$tls_pin")
+tls_hash=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["sha256"])' "$tls_pin")
 qr_hash=b5299b37917a1fe7a8cab9dd5cc6b8accf82663add80abe5bf7761a921cc6602
 for input in "$tls_archive" "$qr_archive"; do
   actual=$(shasum -a 256 "$input" | cut -d ' ' -f 1)
@@ -46,7 +48,7 @@ awk '
 ' "$build/symbols" > "$out/symbols.mjs"
 
 tar -xjf "$tls_archive" -C "$build"
-sdk="$build/mbedtls-4.2.0"
+sdk="$build/mbedtls-$tls_version"
 emcmake cmake -S "$sdk" -B "$build/sdk" -DCMAKE_BUILD_TYPE=MinSizeRel \
   -DENABLE_TESTING=OFF -DENABLE_PROGRAMS=OFF -DGEN_FILES=OFF \
   "-DTF_PSA_CRYPTO_USER_CONFIG_FILE=$src/crypto-config.h"

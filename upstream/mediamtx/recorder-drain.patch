@@ -58,7 +58,7 @@
 +		r.buffer.Close()
 +	}
  	r.outboundFramesDiscarded.Stop()
- 	<-r.err
+ 	<-r.err //nolint:errcheck
  }
 --- a/mediamtx/internal/recorder/recorder_instance.go
 +++ b/mediamtx/internal/recorder/recorder_instance.go
@@ -70,3 +70,70 @@
  		SkipOutboundBytes: true,
  		Parent:            ri,
  	}
+--- /dev/null
++++ b/gortsplib/pkg/ringbuffer/nxrs_drain_test.go
+@@ -0,0 +1,64 @@
++package ringbuffer
++
++import (
++	"testing"
++	"time"
++)
++
++func TestCloseAndDrainQueuedSamples(t *testing.T) {
++	r, err := New(4)
++	if err != nil {
++		t.Fatal(err)
++	}
++	for i := 1; i <= 3; i++ {
++		if !r.Push(i) {
++			t.Fatal("enqueue failed", i)
++		}
++	}
++	r.CloseAndDrain()
++	if r.Push(4) {
++		t.Fatal("accepted a sample after drain began")
++	}
++	for i := 1; i <= 3; i++ {
++		value, ok := r.Pull()
++		if !ok || value != i {
++			t.Fatal("lost or reordered sample", i, value, ok)
++		}
++	}
++	if value, ok := r.Pull(); ok || value != nil {
++		t.Fatal("did not terminate after draining", value, ok)
++	}
++}
++
++func TestCloseAndDrainWakesEmptyReader(t *testing.T) {
++	r, err := New(4)
++	if err != nil {
++		t.Fatal(err)
++	}
++	done := make(chan bool, 1)
++	go func() { _, ok := r.Pull(); done <- ok }()
++	r.CloseAndDrain()
++	select {
++	case ok := <-done:
++		if ok {
++			t.Fatal("empty buffer returned a sample")
++		}
++	case <-time.After(time.Second):
++		t.Fatal("reader did not wake on drain")
++	}
++}
++
++func TestImmediateCloseStillDiscards(t *testing.T) {
++	r, err := New(4)
++	if err != nil {
++		t.Fatal(err)
++	}
++	r.Push(1)
++	r.Close()
++	if value, ok := r.Pull(); ok || value != nil {
++		t.Fatal("immediate close retained a sample", value, ok)
++	}
++	if r.Push(2) {
++		t.Fatal("accepted a sample after immediate close")
++	}
++}

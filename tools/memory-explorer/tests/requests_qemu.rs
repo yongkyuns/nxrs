@@ -8,6 +8,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
+mod support;
+use support::source_pins;
+
 fn json(path: &Path) -> Value {
     serde_json::from_slice(&fs::read(path).unwrap()).unwrap()
 }
@@ -118,14 +121,9 @@ fn actual_native_calls_match_return_rows_and_imported_outcomes() {
     let report = json(&capture_dir.join("report.json"));
     let console = fs::read_to_string(capture_dir.join("console.log")).unwrap();
     assert!(!console.contains("NXRS_HEAP_REQUESTS FAIL"));
-    assert_eq!(
-        build["nuttx_revision"],
-        "2b5c0de5e933281c209f954a63b99cf10c132346"
-    );
-    assert_eq!(
-        build["apps_revision"],
-        "3c772ea35b9245972e18999828f7b533e6fc57cc"
-    );
+    let pins = source_pins();
+    assert_eq!(build["nuttx_revision"], pins["nuttx"]);
+    assert_eq!(build["apps_revision"], pins["apps"]);
     for source in ["nuttx", "apps"] {
         assert_eq!(
             build["source_identity_before_patch"][source]["tracked_sources_clean"],
@@ -150,7 +148,7 @@ fn actual_native_calls_match_return_rows_and_imported_outcomes() {
         ),
         (
             "drivers/note/noteram_driver.c",
-            "090ccc10efc40fea992f6b40cfd2b37a94aea69ebb46488c1d3ede43a2ad7e78",
+            "f3d338a1069df52278173d6ad53f5583d738326c155e094895996c6a8843e6e7",
         ),
     ] {
         assert_eq!(source_hashes[path], hash, "pinned note ABI/source differs");

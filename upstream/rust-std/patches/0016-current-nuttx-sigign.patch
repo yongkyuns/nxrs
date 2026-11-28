@@ -1,0 +1,21 @@
+--- a/lib/rustlib/src/rust/library/std/src/sys/pal/unix/mod.rs
++++ b/lib/rustlib/src/rust/library/std/src/sys/pal/unix/mod.rs
+@@ -164,10 +164,16 @@
+                 pub const SIG_DFL: u8 = 3;
+             }
+ 
++            // NuttX SIG_IGN is NULL; the native ABI gate measures this.
++            #[cfg(target_os = "nuttx")]
++            const IGNORE: libc::sighandler_t = 0;
++            #[cfg(not(target_os = "nuttx"))]
++            const IGNORE: libc::sighandler_t = libc::SIG_IGN;
++
+             let (on_broken_pipe_used, handler) = match sigpipe {
+-                sigpipe::DEFAULT => (false, Some(libc::SIG_IGN)),
++                sigpipe::DEFAULT => (false, Some(IGNORE)),
+                 sigpipe::INHERIT => (true, None),
+-                sigpipe::SIG_IGN => (true, Some(libc::SIG_IGN)),
++                sigpipe::SIG_IGN => (true, Some(IGNORE)),
+                 sigpipe::SIG_DFL => (true, Some(libc::SIG_DFL)),
+                 _ => unreachable!(),
+             };

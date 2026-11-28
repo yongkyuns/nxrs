@@ -30,7 +30,7 @@ impl Pending {
             .try_into()
             .map_err(|_| ::tls::Error::Time)?;
         let mut pcm = [0; BLOCK_BYTES];
-        for (out, sample) in pcm.chunks_exact_mut(2).zip(block.samples) {
+        for (out, sample) in pcm.as_chunks_mut::<2>().0.iter_mut().zip(block.samples) {
             out.copy_from_slice(&sample.to_le_bytes());
         }
         Ok(Self {

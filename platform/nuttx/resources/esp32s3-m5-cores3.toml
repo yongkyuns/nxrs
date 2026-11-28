@@ -3,7 +3,8 @@
 pin-namespace = "esp32s3-gpio"
 
 [kconfig]
-ARCH_BOARD_ESP32S3_M5_CORES3 = "y"
+ARCH_BOARD_CUSTOM = "y"
+ARCH_BOARD_CUSTOM_NAME = '"esp32s3-m5-cores3"'
 
 [resources.gpio10]
 kind = "gpio-interrupt"
