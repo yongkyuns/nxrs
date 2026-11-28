@@ -11,6 +11,7 @@ publish = false
 qualification-only = true
 
 [dependencies]
+lock_order = { package = "nxrs-lock-order", path = "../../shared/lock-order" }
 messaging = { package = "nxrs-messaging", path = "../../shared/messaging" }
 imu = { package = "nxrs-imu", path = "../../hal/imu" }
 gnss = { package = "nxrs-gnss", path = "../../hal/gnss" }

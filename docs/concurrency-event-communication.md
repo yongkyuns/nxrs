@@ -20,11 +20,17 @@ is a legitimate asynchronous boundary even when measurements are periodic.
 | Multi-queue implementation | Pinned Crossbeam bounded channels as the preferred qualification candidate |
 | Simple single-queue cases | Existing std bounded channels remain valid; no automatic migration |
 | Data inside an owner | Direct calls and borrows |
+| Nested shared task locks | Optional std-backed `shared/lock-order` with a declared strict rank order |
 | Bulk data across a justified boundary | Explicit bounded buffers/rings with a tested notification contract |
 | Acceptance | Functionality, allocations, latency, linked binary size and RAM all matter |
 
 This is an in-process Rust application model. Neither availability of `std` nor
 an upstream crate's desktop support qualifies a NuttX or browser target.
+
+The [Wi-Fi scan owner contract](../tests/nuttx-std/wifi/CONCURRENCY.md) applies
+these rules to an existing owner: execution contexts, queue capacities, wait
+dependencies, deadline meaning, and shutdown boundaries. It separates source
+invariants from the timing and resource limits a product still has to qualify.
 
 The [std channel performance analysis](std-channel-performance.md) connects
 these requirements to the bounded inbox implementation and its reported
@@ -172,6 +178,31 @@ and faults when the wake target is busy, and active export checks them on its
 existing poll. The admission, overflow and wake gates for a
 capture replacement are tracked in [#446](https://github.com/yongkyuns/nxrs/issues/446).
 
+The production capture's wake destination can be replaced after the previous
+communications worker has joined. Registration installs the new thread handle
+under a dedicated owner mutex and retires the old handle after unlocking.
+Acquisition retains fault/readiness flags before trying that mutex for a wake;
+it neither waits for this owner lock nor clones or retires a thread handle.
+Active communications has a bounded poll or service deadline, while starting
+work from idle has its own control wake. Queue allocation and retirement stay
+outside the payload mutex, and fault publication does not need that mutex.
+This repairs joined-owner reuse without changing the ordered payload transport
+or making the complete acquisition callback nonblocking.
+
+The separate pooled-capture work in [#452](https://github.com/yongkyuns/nxrs/pull/452)
+remains a fixture-only candidate. Its shared lifecycle gate and scalar-storage
+host checks do not replace this product's mutex-protected 512-record queue or
+qualify the production wake, batch deadline and transport path.
+
+The entry/display task now reserves 16 KiB, adding 1,536 B of requested stack
+without changing the other worker budgets. The [coexistence fixture](../tests/nuttx-std/tracker-sim/README.md)
+records 3,448 of 15,864 usable bytes free (21.7%) during export at `3e841457`.
+The same CI run's separate map startup failed before the first frame with
+repeated Xtensa debug-cause `0x8` messages. New failure-register retention
+prepares its diagnosis; it does not establish a fix or a passing map run.
+Neither this task reservation nor that later export run changes the identities
+of the earlier product measurements below.
+
 #### CoreS3 product-path baseline
 
 A physical CoreS3 and M135 ran the `m5stack-cores3-dual-imu` product profile
@@ -203,6 +234,10 @@ isolating the timeout and checking hardware FIFO continuity.
 
 #### CoreS3 fixed-reader comparison
 
+The seven-mailbox implementation merged in
+[#451](https://github.com/yongkyuns/nxrs/pull/451) was measured before this
+PI-enabled mutex integration. Keep its physical results tied to that image.
+
 With the original profile priorities, the display retained an IMU reader
 slot through a 120 ms forced pause. Both IMUs kept publishing, with 15 and 12
 publications during the pause, and the longest callback was 2.41 ms. In a
@@ -223,7 +258,9 @@ first 112 retained slow reads, and `tracker-links` was the most frequent
 running task at completion.
 
 The dual-IMU profile gives communications priority 99 and keeps acquisition
-at 100. In the matched control with the Mac BLE peer, the longest retained
+at 100. The physical control in [#461](https://github.com/yongkyuns/nxrs/pull/461),
+head `c50d939a` based on `5511a6c`, used the seven-mailbox fixed-reader image
+before this PI integration. With the Mac BLE peer, the longest retained
 post-interrupt delay fell to 4.38 ms. Both IMUs maintained continuous 100 Hz
 timestamps in the control, forced display pause, 0.95 s acknowledgment hold,
 and both combined runs. During the 7 s acknowledgment hold, both IMUs kept
@@ -231,8 +268,10 @@ sampling and the peer received all 1,103 admitted records before the expected
 overflow marker.
 
 The dual-IMU profile also runs NuttX LPWORK at 99 because it dispatches BLE
-callbacks. The matched Mac control and combined-load runs recorded 71 I²C
-transfers of at least 1.8 ms, down from 257 with LPWORK at 100.
+callbacks. The physical comparison in [#467](https://github.com/yongkyuns/nxrs/pull/467)
+recorded 71 I²C transfers of at least 1.8 ms across the matched Mac control and
+combined-load runs, down from 257 with LPWORK at 100. These remain measurements
+of that fixed-reader product configuration.
 
 The matched fixed-reader build added 3,348 bytes of linked flash and 104 bytes to the boot
 image. Publication setup used 3,720 bytes of heap versus 480 bytes. Static RAM
@@ -353,6 +392,81 @@ queue. The single-wait rule applies to normal dispatch; explicit joins belong to
 teardown after progress dependencies are resolved. Do not hide a blocking join
 in `Drop`. A retained HAL session whose worker retains a sender cannot rely on
 automatic inbox closure to start shutdown. [Join semantics][join]
+
+## Compile-time ordering for shared locks
+
+Keep state with its execution owner when possible. When an operation must hold
+several shared task-context mutexes, `shared/lock-order` provides an optional,
+dependency-free `nxrs-lock-order` crate, imported as `lock_order`. It wraps the
+ordinary std mutex; it does not add a thread, queue, executor or async API.
+Existing locks are not automatically migrated or covered by its checks.
+
+Declare one consistent acquisition order with type aliases. `Next<Unlocked>`
+is the first rank, `Next<State>` is the next rank, and further ranks follow the
+same pattern. The relation is strict and transitive: callers may skip ranks,
+but cannot acquire an equal or lower rank while holding a higher one. Two
+different mutex values at the same rank cannot be held together. Rank aliases
+describe positions in this order, not independently extensible lock classes;
+downstream code cannot implement additional ranks or ordering edges.
+
+```rust
+use lock_order::{scope, Mutex, Next, Unlocked};
+
+type State = Next<Unlocked>;
+type Statistics = Next<State>;
+
+let state = Mutex::<_, State>::new(Vec::<u32>::new());
+let statistics = Mutex::<_, Statistics>::new(0_u32);
+scope(|root| {
+    state.with_lock(root, |held, samples| {
+        samples.push(42);
+        statistics.with_lock(held, |_, count| *count += 1)
+    })
+})
+.expect("one root scope per thread")
+.expect("state is not poisoned")
+.expect("statistics are not poisoned");
+```
+
+Pass the current `&mut LockContext<Level>` to every helper that acquires these
+locks. Helpers can use `Level: Before<RequiredRank>` instead of naming every
+caller rank. Each acquisition exclusively borrows its parent context for the
+entire call, so a closure cannot bypass its current rank by reusing an earlier
+context. The native guard stays private inside `with_lock`; only borrowed data
+and a borrowed higher-rank context reach the closure. Their lifetimes prevent
+them from escaping, including through a returned future. There is no public
+guard to retain with `mem::forget` and no unranked native-mutex accessor.
+Exclusive ownership still permits `get_mut` and `into_inner` without locking.
+
+Start `scope` at an ordinary thread entry or at the outer boundary of a bounded
+synchronous operation, then pass its context through the call tree. Contexts
+cannot be constructed, cloned, sent or shared across threads. Each thread has
+an independent root. A nested call to `scope`, including one from a callback,
+returns `ScopeError::AlreadyActive` before invoking its closure. This small
+thread-local runtime check closes the fresh-root bypass; root uniqueness is
+not a compile-time claim. Its flag clears on normal return and unwinding.
+Poisoned mutexes return `Poisoned` without running the data closure or silently
+recovering state. Exclusive owners can explicitly inspect std's poison result
+through `get_mut` or `into_inner`.
+
+The compile-time contract excludes lock-order cycles among acquisitions made
+through this API. It does not establish global deadlock freedom: channel waits,
+joins, callbacks waiting for other threads, unmanaged locks and foreign code
+can still form cycles. Do not hold these locks across rendering, device I/O,
+queue waits or worker joins. Acquisition remains std's blocking operation;
+fairness, bounded waiting, ISR safety and timing are separate qualification
+work. Priority inheritance comes from the target's normal std backend and
+[NuttX configuration policy](build-system.md). It limits one scheduling source
+of inversion; it does not replace lock ordering or prove a deadline.
+
+Run `cargo test --locked -p nxrs-lock-order` for real downstream `cargo check`
+controls covering reversed/equal ranks, reacquisition, parent-context reuse,
+escaping borrows, thread transfer, forged ranks/contexts and native access.
+The same command checks valid nested/helper calls, independent ordinary
+threads, callback reentry, poisoning and unwind cleanup, and compiles the
+example above. The crate is host-checked with Rust 1.90 and the pinned NuttX
+nightly. Target TLS initialization, native mutex initialization, allocations
+and linked footprint still require qualification before production adoption.
 
 ## Memory budgets for deadline-sensitive work
 

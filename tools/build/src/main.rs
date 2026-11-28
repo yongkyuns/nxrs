@@ -117,6 +117,10 @@ NuttX qualification:
   --kconfig-enable <symbol>   Enable a Kconfig symbol; repeat as needed
   --kconfig-disable <symbol>  Disable a Kconfig symbol; repeat as needed
   --kconfig-set NAME=VALUE    Set a literal Kconfig value; repeat as needed
+  --qualification-mutex-policy <control>
+                              no-inherit or kernel-pi-disabled; qualification-only entry
+  --qualification-mutex-reason <reason>
+                              Required explanation retained with the control
   --abi-profile <profile>     Select active or minimal ABI checks
   --size-optimized            Enable size qualification settings
   --panic-diagnostics        Enable formatted panic reports and full backtraces
@@ -265,6 +269,26 @@ fn project_command(root: &Path, args: &[String], operation: Operation<'_>) -> Re
             "--kconfig-set" => options
                 .set
                 .push(args.next().ok_or("missing Kconfig assignment")?.clone()),
+            "--qualification-mutex-policy" => {
+                if options.qualification_mutex_policy.is_some() {
+                    return Err("duplicate --qualification-mutex-policy".into());
+                }
+                options.qualification_mutex_policy = Some(
+                    args.next()
+                        .ok_or("missing mutex qualification control")?
+                        .parse()?,
+                );
+            }
+            "--qualification-mutex-reason" => {
+                if options.qualification_mutex_reason.is_some() {
+                    return Err("duplicate --qualification-mutex-reason".into());
+                }
+                options.qualification_mutex_reason = Some(
+                    args.next()
+                        .ok_or("missing mutex qualification reason")?
+                        .clone(),
+                );
+            }
             "--abi-profile" => {
                 options.abi = Some(args.next().ok_or("missing ABI profile")?.clone())
             }
@@ -391,7 +415,10 @@ fn project_command(root: &Path, args: &[String], operation: Operation<'_>) -> Re
     if os != "emscripten" && (html.is_some() || !web_fix) {
         return Err("browser switches require a web profile".into());
     }
-    let evidence = nxrs_build::deployment::validate(root, &app.manifest, &profile, os)?;
+    let mut evidence = nxrs_build::deployment::validate(root, &app.manifest, &profile, os)?;
+    if os == "nuttx" {
+        evidence["mutex_policy"] = nxrs_build::mutex_policy::evidence(&app, &options)?;
+    }
     let out = out.unwrap_or_else(|| {
         root.join("target/build")
             .join(&app.bin)
@@ -445,7 +472,7 @@ fn project_command(root: &Path, args: &[String], operation: Operation<'_>) -> Re
         return Ok(ExitCode::SUCCESS);
     }
     if dry {
-        println!("{}",serde_json::to_string_pretty(&serde_json::json!({"deployment":evidence,"output":out,"backend":os,"bin":app.bin,"command":app.command,"kconfig_overrides":options.kconfig()?})).unwrap());
+        println!("{}",serde_json::to_string_pretty(&serde_json::json!({"mutex_policy":evidence.get("mutex_policy"),"deployment":evidence,"output":out,"backend":os,"bin":app.bin,"command":app.command,"kconfig_overrides":options.kconfig()?})).unwrap());
         return Ok(ExitCode::SUCCESS);
     }
     match os {

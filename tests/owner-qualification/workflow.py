@@ -29,6 +29,21 @@ CASES = {
     "owner-failure-recovery": (2, 1, 1, 0, 1, 1, 0),
     "latest-value-progress": (0, 0, 0, 0, 0, 2, 0),
 }
+OWNER_CASES = tuple(CASES)
+LATEST_SOURCE = "tests/owner-qualification/src/scenarios/latest.rs"
+NESTED_SOURCE = "tests/owner-qualification/src/mutex_nested.rs"
+POLICY_SOURCE = "tools/build/src/mutex_policy.rs"
+MUTEX_CASES = ("std-mutex-inherit", "std-mutex-no-inherit")
+CASES.update({case: (0, 0, 0, 0, 0, 3, 3) for case in MUTEX_CASES})
+CASES["std-mutex-nested"] = (18, 18, 0, 18, 0, 10, 48)
+SUITES = {"owner": OWNER_CASES,
+          "mutex-inherit": (MUTEX_CASES[0], "std-mutex-nested"),
+          "mutex-no-inherit": (MUTEX_CASES[1],),
+          "host-all": tuple(CASES)}
+MUTEX_CONTROLS = {
+    "owner": ("kernel-pi-disabled", "Preserve the owner and channel progress baseline without priority inheritance."),
+    "mutex-no-inherit": ("no-inherit", "Negative control for ordinary std::sync::Mutex priority inheritance."),
+}
 ROLES = {
     "std-blocked-delivery": [("std-producer", 120), ("std-receiver", 180), ("coordinator", 220)],
     "std-full-progress": [("std-producer", 180), ("std-receiver", 120), ("coordinator", 220)],
@@ -39,6 +54,11 @@ ROLES = {
     "owner-failure-recovery": [("selected-owner", 180), ("coordinator", 180)],
     "latest-value-progress": [("paused-writer", 120), ("paused-reader", 120), ("coordinator", 220)],
 }
+ROLES.update({case: [("mutex-low", 120), ("mutex-medium", 150),
+                    ("mutex-high", 180), ("coordinator", 220)] for case in MUTEX_CASES})
+ROLES["std-mutex-nested"] = [("mutex-nested-owner", 120),
+                            *[(f"mutex-nested-waiter-{index}", 140 + 5 * index) for index in range(9)],
+                            ("coordinator", 220)]
 FIELDS = ("attempted", "admitted", "rejected", "handled", "discarded", "joined", "required_waits")
 FAULT = re.compile(r"\b(panic|panicked|assertion|hardfault|dump_assert|watchdog expired|segmentation fault|aborted|fatal error)\b", re.I)
 
@@ -84,22 +104,95 @@ def inventory():
     # are exact build inputs, not a claim that every one links into the image.
     paths = []
     for directory in (HERE, ROOT / "tests/nuttx-std", ROOT / "hal", ROOT / "shared",
-                      ROOT / "driver", ROOT / "platform", ROOT / "upstream"):
+                      ROOT / "driver", ROOT / "platform", ROOT / "upstream",
+                      ROOT / "tools/build", ROOT / "tools/build-support", ROOT / "tools/detector-build-support"):
         paths.extend(p for p in directory.rglob("*") if p.is_file() and not p.is_symlink()
                      and not any(part in ("target", "__pycache__", "results") for part in p.relative_to(ROOT).parts)
-                     and (p.suffix in (".rs", ".c", ".h", ".toml", ".lock", ".py", ".sh", ".json", ".ld", ".patch", ".defs")
+                     and (p.suffix in (".rs", ".c", ".h", ".toml", ".lock", ".py", ".sh", ".json", ".ld", ".patch", ".defs", ".conf")
                           or p.name in ("Makefile", "Kconfig")))
     paths += [ROOT / name for name in ("Cargo.toml", "Cargo.lock", "rust-toolchain.toml", ".cargo/config.toml")]
     paths.append(ROOT / "tests/rtos_harness/console.py")
     return {str(p.relative_to(ROOT)): digest(p) for p in sorted(set(paths))}
 
 
-def inputs(kind, profile=None):
-    return {"kind": kind, "profile": profile, "build_nonce": secrets.token_hex(16),
+def selected_cases(specification):
+    # Receipts without explicit suites never acquire mutex claims. The latest
+    # case is admitted only when its source is part of the retained build;
+    # earlier seven-owner/nine-host receipts keep their original inventories.
+    sources = specification.get("sources", {})
+    if (POLICY_SOURCE in sources or NESTED_SOURCE in sources) and ("mutex_policy" not in specification or "suite" not in specification):
+        raise ValueError("current retained sources require an explicit suite and resource mutex policy")
+    suite = specification.get("suite", "owner")
+    if suite not in SUITES or (specification["kind"] == "nuttx-target" and suite == "host-all"):
+        raise ValueError("unsupported build suite")
+    cases = SUITES[suite]
+    if LATEST_SOURCE not in sources:
+        cases = tuple(case for case in cases if case != "latest-value-progress")
+    if NESTED_SOURCE not in sources:
+        cases = tuple(case for case in cases if case != "std-mutex-nested")
+    if "suite" in specification:
+        if specification.get("cases") != list(cases):
+            raise ValueError("case inventory disagrees with build suite")
+        target = specification["kind"] == "nuttx-target"
+        inheritance = suite.startswith("mutex-") if target else None
+        protocol = suite.removeprefix("mutex-") if target and inheritance else None
+        if protocol == "no-inherit":
+            protocol = "none"
+        if specification.get("priority_inheritance") is not inheritance or specification.get("pthread_mutex_default_protocol") != protocol:
+            raise ValueError("mutex protocol disagrees with build suite")
+        if "mutex_policy" in specification and canonical(specification["mutex_policy"]) != canonical(mutex_policy(specification["kind"], suite)):
+            raise ValueError("resource mutex policy disagrees with build suite")
+    return cases
+
+
+def mutex_policy(kind, suite):
+    if kind != "nuttx-target":
+        return None
+    mode, reason = MUTEX_CONTROLS.get(suite, ("inherit", None))
+    inheritance = mode != "kernel-pi-disabled"
+    protocol = "inherit" if mode == "inherit" else "none"
+    kconfig = {"PRIORITY_INHERITANCE": "y" if inheritance else "n",
+               "PTHREAD_MUTEX_DEFAULT_PRIO_INHERIT": "y" if protocol == "inherit" else "n",
+               "PTHREAD_MUTEX_DEFAULT_PRIO_NONE": "n" if protocol == "inherit" else "y"}
+    if inheritance:
+        kconfig["SEM_PREALLOCHOLDERS"] = "0"
+    return {"version": 1, "mode": mode, "source": "default" if reason is None else "qualification-control",
+            "reason": reason, "default_pthread_mutex_protocol": protocol, "priority_inheritance": inheritance,
+            "holder_tracking": "embedded-single-holder" if inheritance else "disabled", "kconfig": kconfig}
+
+
+def inputs(kind, profile=None, suite=None):
+    suite = suite or ("host-all" if kind == "host-functional" else "owner")
+    target = kind == "nuttx-target"
+    protocol = {"mutex-inherit": "inherit", "mutex-no-inherit": "none"}.get(suite) if target else None
+    return {"kind": kind, "profile": profile, "suite": suite, "cases": list(SUITES[suite]),
+            "build_nonce": secrets.token_hex(16),
             "sources": inventory(), "command": "owner_qualification", "main_stack": 16384,
             "worker_stack": 16384 if kind == "nuttx-target" else 131072,
-            "priority_inheritance": False if kind == "nuttx-target" else None,
+            "priority_inheritance": protocol is not None if target else None,
+            "pthread_mutex_default_protocol": protocol,
+            "mutex_policy": mutex_policy(kind, suite),
             "gitlinks": subprocess.check_output(["git", "ls-files", "--stage", "external/nuttx", "external/nuttx-apps"], cwd=ROOT, text=True)}
+
+
+def validate_config(config, specification):
+    enabled = set(re.findall(r"^CONFIG_([A-Z0-9_]+)=y$", config, re.M))
+    if "BUILD_FLAT" not in enabled or "SMP" in enabled:
+        raise ValueError("unsupported resolved execution mode")
+    if ("PRIORITY_INHERITANCE" in enabled) != specification["priority_inheritance"]:
+        raise ValueError("resolved priority inheritance disagrees with selected suite")
+    if ("PTHREAD_MUTEX_DEFAULT_PRIO_INHERIT" in enabled) != (specification["pthread_mutex_default_protocol"] == "inherit"):
+        raise ValueError("resolved pthread mutex default disagrees with selected suite")
+    if "mutex_policy" in specification:
+        values = dict(re.findall(r"^CONFIG_([A-Z0-9_]+)=(.*)$", config, re.M))
+        for name, expected in specification["mutex_policy"]["kconfig"].items():
+            if values.get(name, "n") != expected:
+                raise ValueError(f"resolved CONFIG_{name} disagrees with resource mutex policy")
+
+
+def validate_policy_receipt(document, specification):
+    if canonical(document.get("mutex_policy")) != canonical(specification["mutex_policy"]):
+        raise ValueError("frontend resource mutex policy disagrees with qualification inputs")
 
 
 def identity(value):
@@ -167,6 +260,7 @@ def validate_build(root):
         raise ValueError("build receipt cannot establish physical execution")
     if report["inputs"]["kind"] not in ("host-functional", "nuttx-target") or not report["inputs"]["sources"]:
         raise ValueError("unknown build domain or empty source identity")
+    selected_cases(report["inputs"])
     if not report.get("executable") or (report["inputs"]["kind"] == "nuttx-target" and not report.get("image")):
         raise ValueError("selected executable/image missing")
     for relative, expected in report["inputs"]["sources"].items():
@@ -181,6 +275,16 @@ def validate_build(root):
             path = contained(root, report[field])
             if report[field] not in report["artifacts"] or not contains_runtime_identity(path, report["build_id"]):
                 raise ValueError("runtime identity is not in the selected image/executable")
+    if report["inputs"]["kind"] == "nuttx-target" and "suite" in report["inputs"]:
+        config = "retained/artifacts/frontend/resolved.config"
+        if config not in report["artifacts"]:
+            raise ValueError("resolved configuration is not retained")
+        validate_config(contained(root, config).read_text(), report["inputs"])
+        if "mutex_policy" in report["inputs"]:
+            policy = "retained/artifacts/frontend/kconfig-requests.json"
+            if policy not in report["artifacts"]:
+                raise ValueError("resource mutex policy evidence is not retained")
+            validate_policy_receipt(unique_json(contained(root, policy).read_text()), report["inputs"])
     return report
 
 
@@ -197,13 +301,148 @@ def inspect(build_root):
             "source_manifest_sha256": identity(build["inputs"]["sources"]),
             "executable": artifact("executable"),
             "elf": artifact("executable") if build["inputs"]["kind"] == "nuttx-target" else None,
-            "image": artifact("image"), "cases": list(CASES), "case_count": len(CASES),
+            "image": artifact("image"), "suite": build["inputs"].get("suite", "owner"),
+            "cases": list(selected_cases(build["inputs"])), "case_count": len(selected_cases(build["inputs"])),
             "requires_fresh_boot": build["inputs"]["kind"] == "nuttx-target",
             "physical_execution_verified": False, "timing_qualified": False, "production_qualified": False}
 
 
+def validate_mutex_configuration(config, inherit, embedded):
+    if type(config) is not dict or config.get("priority_inheritance") is not True or config.get("default_prio_inherit") is not inherit:
+        raise ValueError("kernel/default mutex protocol mismatch")
+    for key in ("default_protocol", "protocol_none", "protocol_inherit"):
+        if type(config.get(key)) is not int:
+            raise ValueError("invalid native protocol readback")
+    if config["protocol_none"] == config["protocol_inherit"] or config["default_protocol"] != config["protocol_inherit" if inherit else "protocol_none"]:
+        raise ValueError("default pthread attribute did not select the expected protocol")
+    if embedded and (type(config.get("holder_capacity")) is not int or config["holder_capacity"] != 0):
+        raise ValueError("native mutex holder tracking is not embedded")
+
+
+def validate_mutex(observed, report, specification):
+    case = report["case"]
+    if case not in MUTEX_CASES:
+        if "mutex" in observed:
+            raise ValueError("unrelated case cannot carry mutex evidence")
+        return
+    mutex = observed["mutex"]
+    inherit = case == "std-mutex-inherit"
+    if mutex["expected_inheritance"] is not inherit or mutex["final_value"] != 42 or type(mutex["final_value"]) is not int:
+        raise ValueError("wrong mutex expectation or protected value")
+    order = mutex["order"]
+    keys = ("low_unlock", "high_acquire", "medium_start", "medium_finish")
+    if set(order) != set(keys) or any(type(order[key]) is not int for key in keys) or sorted(order.values()) != [1, 2, 3, 4]:
+        raise ValueError("incomplete mutex event order")
+    if order["low_unlock"] >= order["high_acquire"] or order["medium_start"] >= order["medium_finish"]:
+        raise ValueError("impossible mutex event order")
+    for key in ("high_wait_us", "medium_window_us", "medium_elapsed_us", "medium_iterations"):
+        if type(mutex[key]) is not int or mutex[key] < 0:
+            raise ValueError("invalid mutex observation")
+    if mutex["medium_window_us"] != 25_000 or mutex["medium_elapsed_us"] < mutex["medium_window_us"] or mutex["medium_iterations"] == 0:
+        raise ValueError("finite medium interference was not exercised")
+    for key in ("high_completed_at_medium_start", "high_completed_at_medium_finish"):
+        if type(mutex[key]) is not bool:
+            raise ValueError("invalid mutex completion observation")
+    native = mutex["native"]
+    if report["domain"] == "host-functional":
+        if native is not None:
+            raise ValueError("host run fabricated native mutex evidence")
+        return
+    if specification.get("suite") != ("mutex-inherit" if inherit else "mutex-no-inherit"):
+        raise ValueError("mutex case does not match its configured firmware")
+    validate_mutex_configuration(native["configuration"], inherit, "mutex_policy" in specification)
+    people = {p["role"]: p for p in observed["participants"]}
+    low_priority = 180 if inherit else 120
+    snapshots = (("low_before_high", "mutex-low", 120, True, False),
+                 ("medium_before_high", "mutex-medium", 150, True, False),
+                 ("high_wait", "mutex-high", 180, True, False),
+                 ("low_while_high_waits", "mutex-low", low_priority, True, False),
+                 ("low_ready", "mutex-low", low_priority, False, True),
+                 ("medium_ready", "mutex-medium", 150, False, True),
+                 ("low_before_unlock", "mutex-low", low_priority, False, True),
+                 ("low_after_unlock", "mutex-low", 120, False, True))
+    for name, role, effective, waiting, runnable in snapshots:
+        state = native[name]
+        person = people[role]
+        expected = {"tid": person["start"]["tid"], "policy": report["fifo_policy"],
+                    "base_priority": person["requested_priority"], "effective_priority": effective,
+                    "waiting_semaphore": waiting, "runnable": runnable}
+        if any(type(state.get(key)) is not type(value) or state.get(key) != value for key, value in expected.items()):
+            raise ValueError(f"mutex native phase/priority mismatch: {name}")
+        if type(state["state"]) is not int or state["state"] < 0:
+            raise ValueError("invalid native thread state")
+    expected_order = (1, 2, 3, 4) if inherit else (3, 4, 1, 2)
+    if tuple(order[key] for key in keys) != expected_order or any(mutex[key] is not inherit for key in ("high_completed_at_medium_start", "high_completed_at_medium_finish")):
+        raise ValueError("mutex did not show the expected fixed-priority behavior")
+
+
+def validate_nested_mutex(observed, report, specification):
+    if report["case"] != "std-mutex-nested":
+        if "mutex_nested" in observed:
+            raise ValueError("unrelated case cannot carry nested mutex evidence")
+        return
+    nested = observed["mutex_nested"]
+    if type(nested.get("lock_count")) is not int or nested["lock_count"] != 9 or type(nested.get("handoffs")) is not int or nested["handoffs"] != 18:
+        raise ValueError("nested mutex workload is incomplete")
+    values = nested.get("final_values")
+    if type(values) is not list or len(values) != 9 or any(type(value) is not int or value != 22 for value in values):
+        raise ValueError("nested mutex protected values are incomplete")
+    rounds = nested.get("rounds")
+    if type(rounds) is not list or len(rounds) != 2:
+        raise ValueError("nested mutex holder reuse was not exercised")
+    native = report["domain"] == "nuttx-target"
+    if native:
+        if specification.get("suite") != "mutex-inherit":
+            raise ValueError("nested mutex case requires the inheritance suite")
+        validate_mutex_configuration(nested.get("native_configuration"), True, True)
+    elif nested.get("native_configuration") is not None:
+        raise ValueError("host run fabricated nested mutex configuration")
+    people = {person["role"]: person for person in observed["participants"]}
+
+    def state(value, role, effective):
+        if not native:
+            if value is not None:
+                raise ValueError("host run fabricated nested mutex thread state")
+            return
+        person = people[role]
+        expected = {"tid": person["start"]["tid"], "policy": report["fifo_policy"],
+                    "base_priority": person["requested_priority"], "effective_priority": effective,
+                    "waiting_semaphore": True, "runnable": False}
+        if type(value) is not dict or any(type(value.get(key)) is not type(expected_value) or value.get(key) != expected_value
+                                         for key, expected_value in expected.items()):
+            raise ValueError("nested mutex native phase/priority mismatch")
+        if type(value.get("state")) is not int or value["state"] < 0:
+            raise ValueError("invalid nested mutex thread state")
+
+    def owner(value, effective, holders):
+        if not native:
+            if value is not None:
+                raise ValueError("host run fabricated nested mutex holder state")
+            return
+        if type(value) is not dict or type(value.get("tracked_holders")) is not int or value["tracked_holders"] != holders:
+            raise ValueError("nested mutex holder accounting is incomplete")
+        state(value.get("state"), "mutex-nested-owner", effective)
+
+    for number, round_value in enumerate(rounds, 1):
+        if type(round_value) is not dict or type(round_value.get("round")) is not int or round_value["round"] != number:
+            raise ValueError("nested mutex round order is invalid")
+        owner(round_value.get("initial"), 120, 0)
+        for field in ("contended", "released"):
+            if type(round_value.get(field)) is not list or len(round_value[field]) != 9:
+                raise ValueError("nested mutex stages are incomplete")
+        for index, stage in enumerate(round_value["contended"]):
+            if type(stage) is not dict or type(stage.get("lock_index")) is not int or stage["lock_index"] != index:
+                raise ValueError("nested mutex contention order is invalid")
+            state(stage.get("waiter"), f"mutex-nested-waiter-{index}", 140 + 5 * index)
+            owner(stage.get("owner"), 140 + 5 * index, index + 1)
+        for index, stage in zip(reversed(range(9)), round_value["released"]):
+            if type(stage) is not dict or type(stage.get("lock_index")) is not int or stage["lock_index"] != index:
+                raise ValueError("nested mutex release order is invalid")
+            owner(stage.get("owner"), 140 + 5 * (index - 1) if index else 120, index)
+
+
 def parse(text, build, case, token, physical=False):
-    if case not in CASES or not re.fullmatch(r"[A-Za-z0-9-]{8,64}", token):
+    if case not in selected_cases(build["inputs"]) or not re.fullmatch(r"[A-Za-z0-9-]{8,64}", token):
         raise ValueError("unknown case or invalid token")
     if FAULT.search(text):
         raise ValueError("native/fixture failure in retained console")
@@ -231,7 +470,7 @@ def parse(text, build, case, token, physical=False):
         raise ValueError("incorrect domain, identity or unsupported qualification")
     observed = report["observations"]
     if any(type(value) is not int or value < 0 for key, value in observed.items()
-           if key not in ("participants", "endpoints_closed", "latest")):
+           if key not in ("participants", "endpoints_closed", "mutex", "mutex_nested", "latest")):
         raise ValueError("invalid observation count")
     if any(type(observed[field]) is not int for field in FIELDS) or tuple(observed[field] for field in FIELDS) != CASES[case]:
         raise ValueError("incomplete work, wait or joined cleanup")
@@ -256,6 +495,8 @@ def parse(text, build, case, token, physical=False):
         raise ValueError("fairness/deadline control failed")
     if case == "owner-failure-recovery" and (observed["failure_observations"], observed["stop_requests"]) != (3, 2):
         raise ValueError("failure/retry witnesses missing")
+    validate_mutex(observed, report, build["inputs"])
+    validate_nested_mutex(observed, report, build["inputs"])
     if case == "latest-value-progress":
         latest = observed.get("latest")
         expected = {"paused_writer_reads": 2, "paused_reader_publications": 32, "fanout_skew_checks": 1, "rounds": 4096}
@@ -289,19 +530,22 @@ def parse(text, build, case, token, physical=False):
 def build_target(args):
     out = args.out.resolve()
     out.mkdir(parents=True, exist_ok=False)
-    specification = inputs("nuttx-target", args.profile)
+    specification = inputs("nuttx-target", args.profile, args.suite)
     environment = os.environ.copy()
     environment["OWNER_QUALIFICATION_BUILD_ID"] = identity(specification)
     command = [args.cargo, "nxrs", "build", "--manifest-path", str(HERE / "Cargo.toml"),
                "--profile", args.profile, "--command", "owner_qualification", "--stack-size", "16384",
-               "--target-c-source", str(HERE / "native.c"), "--kconfig-disable", "PRIORITY_INHERITANCE",
+               "--target-c-source", str(HERE / "native.c"),
                "--out", str(out / "firmware")]
+    if args.suite in MUTEX_CONTROLS:
+        mode, reason = MUTEX_CONTROLS[args.suite]
+        command += ["--qualification-mutex-policy", mode, "--qualification-mutex-reason", reason]
     with (out / "build.log").open("w") as log:
         subprocess.run(command, cwd=ROOT, env=environment, stdout=log, stderr=subprocess.STDOUT, check=True)
     firmware = out / "firmware"
     config = (firmware / "resolved.config").read_text()
-    if "CONFIG_BUILD_FLAT=y\n" not in config or re.search(r"^CONFIG_(SMP|PRIORITY_INHERITANCE)=y$", config, re.M):
-        raise ValueError("unsupported resolved execution mode")
+    validate_config(config, specification)
+    validate_policy_receipt(unique_json((firmware / "kconfig-requests.json").read_text()), specification)
     selected = []
     for line in (firmware / "binaries.sha256").read_text().splitlines()[:2]:
         expected, path = line.split("  ", 1)
@@ -332,7 +576,7 @@ def host(args):
         subprocess.run(command, cwd=ROOT, env=environment, stdout=log, stderr=subprocess.STDOUT, check=True)
     binary = out / "target/release/nxrs-owner-qualification"
     build = retain_build(out, specification, {"owner-qualification": binary}, executable="owner-qualification")
-    for case in CASES:
+    for case in selected_cases(specification):
         run = out / "runs" / case
         run.mkdir(parents=True)
         token = secrets.token_hex(12)
@@ -359,7 +603,7 @@ def host(args):
         receipt["capture_complete"] = True
         save(run / "capture.json", receipt)
         replay(run, out)
-    print(f"Passed {len(CASES)} fresh-process host cases; {out}")
+    print(f"Passed {len(selected_cases(specification))} fresh-process host cases; {out}")
 
 
 def capture(args):
@@ -368,6 +612,8 @@ def capture(args):
     build = validate_build(build_root)
     if build["inputs"]["kind"] != "nuttx-target":
         raise ValueError("physical capture requires a NuttX build")
+    if args.case not in selected_cases(build["inputs"]):
+        raise ValueError("case is not supported by the selected firmware suite")
     raw_session = args.session.read_bytes()
     session = unique_json(raw_session.decode())
     expected = {"schema": "owner-qualification-session-v1", "case": args.case, "build_id": build["build_id"],
@@ -467,7 +713,7 @@ def replay(run, artifact_root=None):
         raise ValueError("invalid capture identity or qualification")
     if capture_record.get("build_directory") == "../..":
         if artifact_root is None or run.parent.parent != artifact_root.resolve():
-            raise ValueError("host corpus requires its explicit --artifact-root")
+            raise ValueError("run corpus requires its explicit --artifact-root")
         build_root = artifact_root.resolve()
     elif capture_record.get("build_directory") == "build":
         build_root = run / "build"
@@ -491,9 +737,14 @@ def replay(run, artifact_root=None):
                     "fresh_boot": True, "flash_verified": True}
         if any(session.get(key) != value for key, value in expected.items()) or not session.get("measurement_session"):
             raise ValueError("session/build/capture mismatch")
+    elif capture_record["runtime"] == "qemu":
+        if build["inputs"]["kind"] != "nuttx-target" or build["inputs"]["profile"] != "mps2-an521-mock" or capture_record.get("machine") != "mps2-an521":
+            raise ValueError("QEMU capture requires its selected ARM NuttX image")
+        if type(capture_record.get("exit_code")) is not int or capture_record["exit_code"] != 0 or not capture_record.get("qemu_version") or not re.fullmatch(r"[0-9a-f]{64}", capture_record.get("qemu_sha256", "")):
+            raise ValueError("missing QEMU provenance or clean process exit")
     elif capture_record["runtime"] != "host" or type(capture_record.get("exit_code")) is not int or capture_record.get("exit_code") != 0 or build["inputs"]["kind"] != "host-functional":
         raise ValueError("invalid host process exit")
-    result = parse(console.read_text(), build, capture_record["case"], capture_record["token"], physical)
+    result = parse(console.read_text(), build, capture_record["case"], capture_record["token"], physical or capture_record["runtime"] == "qemu")
     if result != unique_json(contained(run, "analysis.json").read_text()):
         raise ValueError("saved analysis differs from fresh replay")
     return result
@@ -506,6 +757,8 @@ def main():
     b.add_argument("--profile", required=True)
     b.add_argument("--out", type=Path, required=True)
     b.add_argument("--cargo", default="cargo")
+    b.add_argument("--suite", choices=("owner", "mutex-inherit", "mutex-no-inherit"), default="owner",
+                   help="build a separate firmware for each mutex protocol; owner preserves its PI-disabled baseline")
     h = sub.add_parser("host")
     h.add_argument("--out", type=Path, required=True)
     h.add_argument("--cargo", default="cargo")

@@ -13,6 +13,7 @@ import os
 from pathlib import Path
 import struct
 import subprocess
+import tempfile
 
 TARGET = 'riscv32imac-unknown-nuttx-elf'
 SIM_TARGET = 'aarch64-nuttx-sim-darwin'
@@ -24,7 +25,8 @@ TARGETS = {
 }
 SCALARS = ['int', 'long', 'size_t', 'time_t', 'off_t', 'nfds_t', 'pthread_t', 'pthread_key_t', 'ino_t', 'blksize_t']
 OPAQUE = ['pthread_attr_t', 'pthread_mutex_t', 'pthread_mutexattr_t',
-          'pthread_cond_t', 'pthread_condattr_t', 'sem_t']
+          'pthread_cond_t', 'pthread_condattr_t', 'pthread_rwlock_t',
+          'pthread_rwlockattr_t', 'sem_t']
 # This libc target does not export PTHREAD_MUTEX_RECURSIVE; do not fabricate it.
 CONSTANTS = ['CLOCK_MONOTONIC', 'CLOCK_REALTIME', 'ETIMEDOUT', 'EINTR', 'EBADF',
              'F_GETFD', 'PTHREAD_MUTEX_NORMAL', 'SIGPIPE']
@@ -122,6 +124,13 @@ def compare(c_values, rust_values, fixes, poll_fixed=False):
                 scope='listed layouts/constants; trailing filesystem storage may be larger only with exact public offsets/widths; opaque capacity is not initializer equivalence; raw SIG_IGN remains wrong')
 
 
+def require_compatible(out, result):
+    # Retain measured native/Rust values and provenance before rejecting a
+    # layout. Failed CI builds must not leave a missing or stale success report.
+    (out / 'abi-report.json').write_text(json.dumps(result, indent=2) + '\n')
+    assert result['probe_abi_compatible'], f'ABI gate rejected: {result["errors"]}'
+
+
 def self_test():
     c = {row[0]: 4 for row in fields()}
     c.update(SIGPIPE=13, SIG_DFL=0, SIG_ERR=0xffffffff, SEM_PRIO_NONE=0)
@@ -129,11 +138,53 @@ def self_test():
     for key, (cv, rv) in {**KNOWN_POLLFDS, 'SIG_IGN': (0, 1)}.items():
         c[key], rust[key] = cv, rv
     assert compare(c, rust, True)['probe_abi_compatible']
-    larger = dict(rust, **{'pthread_mutex_t.size': 64, 'sem_t.size': 32})
+    larger = dict(rust, **{'pthread_mutex_t.size': 64, 'sem_t.size': 32,
+                          'pthread_rwlock_t.size': 96})
     assert compare(c, larger, True)['probe_abi_compatible']
+    # Header-compiled 32-bit embedded-holder layouts reject the previous libc
+    # capacities together, including the rwlock's mutex and condition variable.
+    # These sizes have no semaphore max-value, priority-protect or mutex
+    # backtrace fields. The target gate still checks each effective configuration.
+    embedded = dict(c, **{'sem_t.size': 32, 'pthread_mutex_t.size': 40,
+                         'pthread_cond_t.size': 40, 'pthread_rwlock_t.size': 92})
+    old_storage = dict(rust, **{'sem_t.size': 24, 'pthread_mutex_t.size': 36,
+                              'pthread_cond_t.size': 28, 'pthread_rwlock_t.size': 68})
+    assert set(compare(embedded, old_storage, True)['errors']) == {
+        'sem_t.size', 'pthread_mutex_t.size', 'pthread_cond_t.size', 'pthread_rwlock_t.size'}
+    first_pi_storage = dict(rust, **{'sem_t.size': 36, 'pthread_mutex_t.size': 48,
+                                   'pthread_cond_t.size': 40, 'pthread_rwlock_t.size': 92})
+    assert compare(embedded, first_pi_storage, True)['probe_abi_compatible']
+    # CONFIG_PTHREAD_MUTEX_TYPES adds a recursive count to the embedded mutex.
+    # BOTH retains the robust prefix even with DEFAULT_UNSAFE. The retained
+    # Pico controller configuration compiles to mutex44 + cond40 + fields12;
+    # the TLS configuration without TYPES compiles to mutex40 + cond40 + fields12.
+    recursive = dict(embedded, **{'pthread_mutex_t.size': 44,
+                                 'pthread_rwlock_t.size': 96})
+    assert compare(recursive, first_pi_storage, True)['errors'] == ['pthread_rwlock_t.size']
+    enlarged = dict(first_pi_storage, **{'pthread_rwlock_t.size': 96})
+    for native in (embedded, recursive):
+        assert compare(native, enlarged, True)['probe_abi_compatible']
+    with tempfile.TemporaryDirectory(prefix='nxrs-abi-report-') as directory:
+        out = Path(directory)
+        require_compatible(out, compare(recursive, enlarged, True))
+        rejected = compare(recursive, first_pi_storage, True)
+        rejected.update(target='thumbv8m.main-nuttx-eabi', config_sha256='fixture-config')
+        try:
+            require_compatible(out, rejected)
+        except AssertionError as error:
+            assert "ABI gate rejected: ['pthread_rwlock_t.size']" == str(error)
+        else:
+            raise AssertionError('accepted undersized recursive rwlock storage')
+        retained = json.loads((out / 'abi-report.json').read_text())
+        assert retained == rejected, 'failed comparison did not replace the previous success report'
+        rwlock = next(row for row in retained['checks'] if row['name'] == 'pthread_rwlock_t.size')
+        assert (rwlock['native'], rwlock['rust'], rwlock['status']) == (96, 92, 'incompatible')
     bad_cases = [(c, rust, False), (c, dict(rust, **{'timespec.size': 8}), True),
                  (c, dict(rust, **{'pthread_attr_t.size': 1}), True),
                  (c, dict(rust, **{'pthread_cond_t.align': 1}), True),
+                 (c, dict(rust, **{'pthread_rwlock_t.size': 1}), True),
+                 (c, dict(rust, **{'pthread_rwlock_t.align': 1}), True),
+                 (c, dict(rust, **{'pthread_rwlockattr_t.size': 1}), True),
                  (c, dict(rust, **{'sem_t.size': 1}), True),
                  (c, dict(rust, **{'sem_t.align': 1}), True),
                  (c, dict(rust, **{'SEM_PRIO_NONE': 1}), True),
@@ -158,6 +209,9 @@ def self_test():
     else:
         raise AssertionError('accepted missing evidence')
     print(f'PASS: {len(bad_cases) + 1} ABI rejection controls; opaque overprovisioning accepted')
+    print('PASS: embedded PI holder storage rejects all four old opaque capacities')
+    print('PASS: recursive embedded PI mutex layout rejects 92-byte rwlock storage; 96 bytes covers both layouts')
+    print('PASS: failed ABI reports replace stale success and retain native/Rust sizes and provenance')
     print(f'PASS: {len(OPEN_FLAGS)} open-flag ABI rejection controls')
     assert check_imports('00000000 T main\n         U pthread_create\n') == ['pthread_create']
     assert check_imports('00000000 T poll\n         U poll_notify\n') == ['poll_notify']
@@ -288,9 +342,7 @@ def run(out, target=TARGET, target_spec=None, require_finalized_context=False):
         and patch.get('libc_sockaddr_storage_alignment') == 8
     )
     result = compare(values['native'], values['rust'], fixes, poll_fixed)
-    assert result['probe_abi_compatible'], f'ABI gate rejected: {result["errors"]}'
-    imports = check_imports((out / 'rust-symbols.txt').read_text(), result['poll_abi_compatible'])
-    result.update(target=target, rust_imports=imports,
+    result.update(target=target,
                   libc_package=libs[0]['package_id'], libc_source=str(src),
                   libc_rlib_sha256=hashlib.sha256(library.read_bytes()).hexdigest(),
                   config_sha256=config_hash,
@@ -299,6 +351,8 @@ def run(out, target=TARGET, target_spec=None, require_finalized_context=False):
         result.update(config_header_sha256=config_header_hash, headers_sha256=context['headers_sha256'])
     if target_spec is not None:
         result['target_spec_sha256'] = hashlib.sha256(target_spec.read_bytes()).hexdigest()
+    require_compatible(out, result)
+    result['rust_imports'] = check_imports((out / 'rust-symbols.txt').read_text(), result['poll_abi_compatible'])
     (out / 'abi-report.json').write_text(json.dumps(result, indent=2) + '\n')
     poll_status = 'poll layout compatible' if result['poll_abi_compatible'] else 'raw poll remains unsupported'
     print(f'PASS: {len(rows)} ABI witnesses checked for {target}; {poll_status}; raw SIG_IGN remains unsupported')

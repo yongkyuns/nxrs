@@ -148,6 +148,9 @@ impl Capture {
     }
 
     pub fn register_owner(&self) {
+        // A communications task owns several exports, but a joined task can
+        // return its telemetry to a later worker. Replace its wake destination
+        // at that handoff, and retire the old handle outside the lock.
         let current = thread::current();
         let owner = self.owner.get_or_init(|| {
             let owner = Mutex::new(current.clone());
@@ -161,8 +164,10 @@ impl Capture {
     }
 
     fn notify_owner(&self) {
-        // Readiness and faults are retained if registration or another
-        // notification holds the lock. Active export also has a poll deadline.
+        // Acquisition never waits for owner replacement or another notifier,
+        // and never clones or retires a Thread handle. Readiness and faults
+        // remain retained if this wake is skipped. Active communications has
+        // a bounded poll/deadline; starting work from idle has its own wake.
         if let Some(owner) = self.owner.get() {
             if let Ok(owner) = owner.try_lock() {
                 owner.unpark();
@@ -381,8 +386,11 @@ fn header(output: &mut [u8; MAX_BYTES], version: Version, len: usize) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::time::Instant;
-    use std::{sync::mpsc, thread, time::Duration};
+    use std::{
+        sync::mpsc,
+        thread,
+        time::{Duration, Instant},
+    };
 
     fn fix(sequence: u64) -> Measurement {
         Measurement::Gnss(gnss::GnssFix {
@@ -430,56 +438,90 @@ mod tests {
     }
 
     #[test]
-    fn sensor_fault_wakes_each_joined_owner_while_the_queue_is_locked() {
+    fn sensor_fault_is_retained_while_export_owns_the_queue() {
         let capture = Capture::default();
+        let (finished, complete) = mpsc::channel();
+        thread::scope(|scope| {
+            let notified = {
+                let _queue = capture.samples.lock().unwrap();
+                scope.spawn(|| {
+                    capture.sensor_failed();
+                    finished.send(()).unwrap();
+                });
+                complete.recv_timeout(Duration::from_secs(1))
+            };
+            assert_eq!(notified, Ok(()));
+        });
+        assert!(capture.take_sensor_failed());
+        assert!(!capture.take_sensor_failed());
+    }
+
+    #[test]
+    fn joined_owner_replacement_wakes_the_new_worker_while_the_queue_is_locked() {
+        let capture = Capture::default();
+        let mut previous = None;
         for _ in 0..2 {
             thread::scope(|scope| {
                 let (registered, attached) = mpsc::channel();
                 let (notified, observed) = mpsc::channel();
                 let capture = &capture;
-                scope.spawn(move || {
+                let worker = scope.spawn(move || {
                     capture.register_owner();
-                    registered.send(()).unwrap();
+                    registered.send(thread::current()).unwrap();
                     let deadline = Instant::now() + Duration::from_secs(2);
-                    while Instant::now() < deadline {
+                    loop {
+                        // A wake arriving before park must leave a token too.
                         thread::park_timeout(deadline.saturating_duration_since(Instant::now()));
                         if capture.take_sensor_failed() {
                             notified.send(()).unwrap();
                             break;
                         }
+                        if Instant::now() >= deadline {
+                            break;
+                        }
                     }
                 });
-                attached.recv_timeout(Duration::from_secs(1)).unwrap();
+                let owner = attached.recv_timeout(Duration::from_secs(1)).unwrap();
+                assert_ne!(previous, Some(owner.id()));
+                assert_eq!(
+                    capture.owner.get().unwrap().lock().unwrap().id(),
+                    owner.id()
+                );
                 let result = {
                     let _queue = capture.samples.lock().unwrap();
-                    scope.spawn(move || capture.sensor_failed());
+                    capture.sensor_failed();
                     observed.recv_timeout(Duration::from_secs(1))
                 };
+                // Also release a worker on the failure path before joining it.
+                owner.unpark();
+                worker.join().unwrap();
                 assert_eq!(result, Ok(()));
+                assert!(!capture.take_sensor_failed());
+                previous = Some(owner.id());
             });
         }
     }
 
     #[test]
-    fn skipped_wake_retains_fault_and_batch_readiness() {
+    fn skipped_owner_wakes_retain_fault_and_batch_readiness_without_waiting() {
         let capture = Capture::default();
         capture.register_owner();
         capture.enable().unwrap();
         thread::scope(|scope| {
             let (finished, complete) = mpsc::channel();
             let capture = &capture;
-            let notified = {
+            let result = {
                 let _owner = capture.owner.get().unwrap().lock().unwrap();
                 scope.spawn(move || {
                     capture.sensor_failed();
-                    for sequence in 0..BATCH as u64 {
-                        capture.record(fix(sequence));
+                    for sequence in 0..BATCH {
+                        capture.record(fix(sequence as u64));
                     }
                     finished.send(()).unwrap();
                 });
                 complete.recv_timeout(Duration::from_secs(1))
             };
-            assert_eq!(notified, Ok(()));
+            assert_eq!(result, Ok(()));
         });
         assert!(capture.take_sensor_failed());
         assert!(!capture.take_sensor_failed());

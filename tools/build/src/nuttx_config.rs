@@ -3,6 +3,7 @@ use crate::{
     boot,
     build::{kconfig_value, App, Options},
     hash, hash_bytes,
+    mutex_policy::MutexPolicy,
     profile::Profile,
     read, reuse, Result,
 };
@@ -306,14 +307,26 @@ fn diagnostics(profile: &Profile) -> Result<Vec<(&'static str, String)>> {
 /// Reject qualification requests that contradict native wiring or required build settings.
 /// This is also used by dry runs, before preparing an output directory or an SDK.
 pub fn validate_overrides(profile: &Profile, app: &App, options: &Options) -> Result<()> {
-    check_ownership(profile, app, &explicit_requests(profile, options)?)
+    check_ownership(
+        profile,
+        app,
+        &explicit_requests(profile, options)?,
+        &MutexPolicy::resolve(app, options)?,
+    )
 }
 
 fn check_ownership(
     profile: &Profile,
     app: &App,
     requested: &BTreeMap<String, Vec<Request>>,
+    policy: &MutexPolicy,
 ) -> Result<()> {
+    policy.check_profile(profile)?;
+    for (key, entries) in requested {
+        for request in entries {
+            policy.check_request(key, &request.value, &request.source)?;
+        }
+    }
     let diagnostic_settings = diagnostics(profile)?;
     if requested.is_empty() {
         return Ok(());
@@ -429,12 +442,14 @@ pub(crate) struct Configuration {
     requirements: Vec<String>,
     forbid: String,
     protected: bool,
+    pub mutex_policy: MutexPolicy,
 }
 
 impl Configuration {
     pub fn assemble(p: &Profile, app: &App, protected: bool, options: &Options) -> Result<Self> {
         let requests = explicit_requests(p, options)?;
-        check_ownership(p, app, &requests)?;
+        let mutex_policy = MutexPolicy::resolve(app, options)?;
+        check_ownership(p, app, &requests, &mutex_policy)?;
         let signed = p.data.get("mcuboot").is_some();
         let mut values = BTreeMap::new();
         for key in [
@@ -507,6 +522,7 @@ impl Configuration {
             requirements.push("CONFIG_BUILD_FLAT=y".into());
         }
         values.extend(standard);
+        values.extend(mutex_policy.values());
         let forbid = match k.get("forbid-regex") {
             None => String::new(),
             Some(v) => v.as_str().ok_or("forbid-regex must be a string")?.into(),
@@ -520,10 +536,13 @@ impl Configuration {
             requirements,
             forbid,
             protected,
+            mutex_policy,
         })
     }
 
     pub fn add_provenance(&self, profile: &Profile, report: &mut Value) -> Result<()> {
+        report["mutex_policy"] = self.mutex_policy.evidence();
+        let policy_values = self.mutex_policy.values();
         let symbols = report["symbols"]
             .as_object_mut()
             .ok_or("missing Kconfig catalog")?;
@@ -557,7 +576,19 @@ impl Configuration {
                 .filter_map(|line| assignment(line))
                 .find(|(key, _)| key == name)
                 .map(|(_, value)| value);
-            if preparation_owned(name) {
+            if let Some(value) = policy_values.get(name) {
+                symbol["ownership"] = json!({
+                    "owner":"NXRS resource-mutex policy",
+                    "mode":self.mutex_policy.name(),
+                    "value":value,
+                });
+                provenance.push(json!({
+                    "kind":"resource-mutex policy",
+                    "source":self.mutex_policy.evidence()["source"],
+                    "reason":self.mutex_policy.evidence()["reason"],
+                    "value":value,
+                }));
+            } else if preparation_owned(name) {
                 symbol["ownership"] = json!({"owner":"NuttX board preparation"});
             } else if bsp_owned {
                 let resource = selections
@@ -602,6 +633,7 @@ impl Configuration {
     }
 
     pub fn validate(&self, profile: &Profile, config: &str) -> Result<()> {
+        self.mutex_policy.validate_config(config)?;
         required(config, &self.requirements, &self.forbid)?;
         nxrs_build_support::nuttx_resources::validate_config(&profile.data, config)?;
         if self.protected
@@ -625,7 +657,7 @@ impl Configuration {
             let history = entries.iter().map(Request::json).collect::<Vec<_>>();
             (name.clone(), json!({"history":history,"effective":effective.get(name.as_str()).copied().unwrap_or("n")}))
         }).collect();
-        json!({"effective_config_sha256":config.effective_config_sha256,"requests":requests})
+        json!({"effective_config_sha256":config.effective_config_sha256,"mutex_policy":self.mutex_policy.evidence(),"requests":requests})
     }
 
     pub fn validate_context(&self, initial: &str, prepared: &str) -> Result<()> {
@@ -831,6 +863,55 @@ mod tests {
     use super::*;
 
     #[test]
+    fn mutex_policy_is_required_after_resolution_and_owned_in_the_editor() {
+        let app = App {
+            manifest: std::path::PathBuf::new(),
+            package: "fixture".into(),
+            bin: "fixture".into(),
+            command: "fixture".into(),
+            priority: 100,
+            stack: 8192,
+        };
+        let profile = Profile::from_data(json!({"kconfig":{}}), vec![]);
+        let configuration =
+            Configuration::assemble(&profile, &app, false, &Options::default()).unwrap();
+        let config = configuration
+            .values
+            .iter()
+            .map(|(key, value)| line(key, value) + "\n")
+            .collect::<String>()
+            + "CONFIG_BUILD_FLAT=y\n";
+        configuration.validate(&profile, &config).unwrap();
+        let changed = config.replace(
+            "CONFIG_SEM_PREALLOCHOLDERS=0",
+            "CONFIG_SEM_PREALLOCHOLDERS=8",
+        );
+        assert!(configuration
+            .validate(&profile, &changed)
+            .unwrap_err()
+            .contains("resource-mutex policy"));
+        let mut report = json!({"symbols":{
+            "PRIORITY_INHERITANCE":{}, "PTHREAD_MUTEX_DEFAULT_PRIO_INHERIT":{},
+            "PTHREAD_MUTEX_DEFAULT_PRIO_NONE":{}, "SEM_PREALLOCHOLDERS":{}, "DEBUG_ASSERTIONS":{}
+        }});
+        configuration.add_provenance(&profile, &mut report).unwrap();
+        for (name, value) in configuration.mutex_policy.values() {
+            assert_eq!(
+                report["symbols"][&name]["ownership"]["owner"],
+                "NXRS resource-mutex policy"
+            );
+            assert_eq!(report["symbols"][&name]["ownership"]["value"], value);
+        }
+        assert!(report["symbols"]["DEBUG_ASSERTIONS"]
+            .get("ownership")
+            .is_none());
+        assert_eq!(
+            report["mutex_policy"]["holder_tracking"],
+            "embedded-single-holder"
+        );
+    }
+
+    #[test]
     fn native_overlays_are_applied_after_the_profile_config() {
         let temp = crate::TempDir::new(&std::env::temp_dir()).unwrap();
         let root = temp.0.canonicalize().unwrap();
@@ -843,8 +924,14 @@ mod tests {
         )
         .unwrap();
         for (path, contents) in [
-            (profile_dir.join("base.conf"), "CONFIG_MODE=1\nCONFIG_Z_BASE=y\n"),
-            (profile_dir.join("declared.conf"), "CONFIG_MODE=2\nCONFIG_Y_DECLARED=y\n"),
+            (
+                profile_dir.join("base.conf"),
+                "CONFIG_MODE=1\nCONFIG_Z_BASE=y\n",
+            ),
+            (
+                profile_dir.join("declared.conf"),
+                "CONFIG_MODE=2\nCONFIG_Y_DECLARED=y\n",
+            ),
             (root.join("extra.conf"), "CONFIG_MODE=3\nCONFIG_X_EXTRA=y\n"),
         ] {
             fs::write(path, contents).unwrap();
@@ -879,7 +966,10 @@ mod tests {
 
         fs::write(root.join("extra.conf"), "CONFIG_MODE=3\nCONFIG_MODE=4\n").unwrap();
         let error = explicit_requests(&resolve(), &Options::default()).unwrap_err();
-        assert!(error.contains("extra.conf:2: contradictory CONFIG_MODE"), "{error}");
+        assert!(
+            error.contains("extra.conf:2: contradictory CONFIG_MODE"),
+            "{error}"
+        );
     }
 
     #[test]
@@ -964,7 +1054,10 @@ mod tests {
             assert_eq!(configuration.values["SMP"], "y", "preserve the product's SMP request");
             let other_requirements = configuration.requirements.iter()
                 .filter(|line| assignment(line).map(|(key, _)| key) != Some("SMP"))
-                .cloned().collect::<Vec<_>>().join("\n");
+                .cloned()
+                .chain(configuration.mutex_policy.values().into_iter()
+                    .map(|(key, value)| line(&key, &value)))
+                .collect::<Vec<_>>().join("\n");
             let smp = format!("{other_requirements}\nCONFIG_SMP=y\n");
             if restricted {
                 let error = configuration.validate(&profile, &smp).unwrap_err();

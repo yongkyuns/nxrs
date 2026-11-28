@@ -141,6 +141,8 @@ pub struct Options {
     pub enable: Vec<String>,
     pub disable: Vec<String>,
     pub set: Vec<String>,
+    pub qualification_mutex_policy: Option<crate::mutex_policy::QualificationMutexPolicy>,
+    pub qualification_mutex_reason: Option<String>,
     pub abi: Option<String>,
     pub size: bool,
     pub trace: bool,
@@ -193,6 +195,7 @@ impl Options {
 
     pub fn validate(&self) -> Result<()> {
         self.kconfig()?;
+        crate::mutex_policy::validate_control(self)?;
         for feature in &self.features {
             if feature
                 .split('/')
@@ -236,6 +239,8 @@ impl Options {
                 || !self.enable.is_empty()
                 || !self.disable.is_empty()
                 || !self.set.is_empty()
+                || self.qualification_mutex_policy.is_some()
+                || self.qualification_mutex_reason.is_some()
                 || self.abi.is_some()
                 || self.size
                 || self.trace

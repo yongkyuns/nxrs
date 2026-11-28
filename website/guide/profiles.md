@@ -44,6 +44,39 @@ Tab switches between Settings and Detail; the active pane is emphasized. Escape 
 
 The Changed filter tracks your draft requests. Review also shows effective native changes caused by dependency resolution, so it can contain additional settings. During resolution, the UI labels any displayed values from the last resolved configuration; wait for completion before making another edit or saving.
 
+### Resource mutex defaults
+
+Normal NuttX builds enable kernel priority inheritance and select `INHERIT` for
+default pthread mutexes, including the pinned implementation used by ordinary
+`std::sync::Mutex`. These settings are owned by the build policy and stay
+read-only in the editor. `CONFIG_SEM_PREALLOCHOLDERS=0` gives each resource mutex
+an embedded holder record; it does not disable tracking. Notification and
+counting semaphores keep the `NONE` protocol.
+
+You can inspect the policy alongside the selected profile:
+
+```sh
+cargo nxrs config explain CONFIG_PTHREAD_MUTEX_DEFAULT_PRIO_INHERIT --app event-demo --platform cores3
+cargo nxrs build --app event-demo --platform cores3 --dry-run
+```
+
+The dry-run report includes `mutex_policy`. A real build retains the effective
+configuration and policy in `resolved.config` and `kconfig-requests.json`.
+Conflicting `.conf`, overlay or raw Kconfig requests fail instead of changing
+the normal policy.
+
+Deliberate negative controls use `--qualification-mutex-policy no-inherit` or
+`kernel-pi-disabled`, paired with `--qualification-mutex-reason`. They require a
+package explicitly marked `qualification-only = true`; selecting a test profile
+alone does not grant an exception. `no-inherit` selects `NONE` for default
+pthread/std mutexes while native `nxmutex` locks retain kernel PI. Use the
+[owner qualification workflow](../../tests/owner-qualification/README.md) for
+the maintained mutex controls, and the
+[build-system reference](../../docs/build-system.md#resource-mutex-policy) for
+the exact settings and evidence. Priority inheritance helps a mutex holder run
+when a higher-priority thread waits; lock ordering, bounded work and shutdown still need their
+own design and qualification.
+
 ### Where settings are saved
 
 Ordinary settings go into a native `.conf` fragment referenced by the profile:
