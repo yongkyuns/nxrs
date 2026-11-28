@@ -15,7 +15,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  RUSTUP_TOOLCHAIN: 1.90.0
+  RUSTUP_TOOLCHAIN: 1.100.0
 
 jobs:
   esp32s3:
@@ -29,7 +29,7 @@ jobs:
           submodules: true
       - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
         with:
-          toolchain: 1.90.0
+          toolchain: 1.100.0
       - name: Install build and emulator dependencies
         run: |
           bash .github/scripts/install-ubuntu-packages.sh \
@@ -42,7 +42,7 @@ jobs:
       - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: target/qemu-tools/*.tar.xz
-          key: qemu-linux-x64-9.0.0-20240606-gcc14.2-20241119-rust1.90.0.0-v1
+          key: qemu-linux-x64-9.2.2-20261109-gcc16.2-20261109-rust1.100.0.0-v1
       - name: Install and verify pinned compiler and QEMU archives
         run: bash tools/install-qemu-tools.sh
       - name: Build the ESP32-S3 firmware and verify target linkage
@@ -148,6 +148,7 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: nuttx-esp32s3-qemu-qualification
+          include-hidden-files: true
           path: |
             target/nuttx-qemu/nuttx/nuttx
             target/nuttx-qemu/nuttx/nuttx.merged.bin
@@ -156,6 +157,7 @@ jobs:
             target/nuttx-qemu/*.config
             target/nuttx-qemu/*.sha256
             target/nuttx-qemu/*.log
+            target/nuttx-qemu/esp-hal-patches.json
             target/imu-qemu/*.log
             target/imu-qemu/abi-report.json
             target/imu-qemu/results.json
@@ -175,6 +177,13 @@ jobs:
             target/tracker-upload-sim/abi-report.json
             target/tracker-upload-sim/provenance.txt
             target/tracker-coexist-build.log
+            target/tracker-coexist-sim/nuttx/nuttx
+            target/tracker-coexist-sim/nuttx/nuttx.map
+            target/tracker-coexist-sim/nuttx/nuttx.merged.bin
+            target/tracker-coexist-sim/nuttx/.config
+            target/tracker-coexist-sim/abi-report.json
+            target/tracker-coexist-sim/resolved-profile.json
+            target/tracker-coexist-sim/provenance.txt
             target/tracker-coexist-sim/*tiles*.log
             target/tracker-coexist-sim/coexist.log
             target/tracker-coexist-sim/*.failure.json

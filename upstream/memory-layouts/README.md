@@ -9,8 +9,12 @@ Each descriptor cites the exact source revision from which its geometry was
 reviewed. This directory's `sources.json` inventories compact, **verbatim reference files**, their
 upstream URLs, complete commit IDs, byte lengths and SHA-256 digests. Source files
 are reference material; the viewer never compiles or executes them. CoreS3's BSP
-is an NXRS patch over the pinned NuttX common ESP32-S3 scripts, so that patch is
-retained with its original repository/commit identity as well.
+now lives in `platform/cores3/board`. Its original patch remains as historical
+source evidence with its original repository/commit identity; the catalogue
+test compares its complete linker selection with the owned board and checks
+the custom-board configuration. The NuttX 13.1.1 BSP reference files are
+byte-identical to the previously retained 13.1.0 inputs; their source identities
+and the catalogue are updated together.
 Git preserves these source bytes without host line-ending conversion, including
 on Windows. Changes to this directory run the viewer's catalogue checks in CI.
 

@@ -50,7 +50,7 @@ concurrency:
 
 env:
   SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
-  RUSTUP_TOOLCHAIN: '1.90.0'
+  RUSTUP_TOOLCHAIN: '1.100.0'
   NUTTX_STD_COMPAT_FIXES: '1'
 
 jobs:
@@ -66,7 +66,7 @@ jobs:
           submodules: true
       - name: Install pinned host tools
         run: |
-          rustup toolchain install 1.90.0 --profile minimal --component rustfmt
+          rustup toolchain install 1.100.0 --profile minimal --component rustfmt
           python3 -m pip install --break-system-packages pyelftools==0.32 pyserial==3.5
       - name: Check formatting and evidence admission controls
         run: |
@@ -114,8 +114,8 @@ jobs:
           submodules: true
       - name: Install pinned Rust and ARM native tools
         run: |
-          rustup toolchain install 1.90.0 --profile minimal
-          rustup toolchain install nightly-2025-09-15 --profile minimal --component rust-src
+          rustup toolchain install 1.100.0 --profile minimal
+          rustup toolchain install nightly-2026-11-26 --profile minimal --component rust-src
           bash .github/scripts/install-ubuntu-packages.sh gcc-arm-none-eabi binutils-arm-none-eabi libnewlib-arm-none-eabi bison flex gperf kconfig-frontends genromfs xxd libncurses-dev build-essential ninja-build pkg-config libglib2.0-dev libpixman-1-dev libfdt-dev zlib1g-dev
           python3 -m venv target/owner-venv
           target/owner-venv/bin/pip install kconfiglib==14.1.0 pyelftools==0.32 distlib==0.3.8
@@ -186,7 +186,7 @@ jobs:
           submodules: true
       - name: Install common build tools
         run: |
-          rustup toolchain install 1.90.0 --profile minimal
+          rustup toolchain install 1.100.0 --profile minimal
           bash .github/scripts/install-ubuntu-packages.sh bison flex gperf kconfig-frontends genromfs xxd cmake ninja-build device-tree-compiler libncurses-dev zlib1g-dev
           python3 -m venv target/mpsc-venv
           target/mpsc-venv/bin/pip install kconfiglib==14.1.0 esptool==4.8.1 pyelftools==0.32
@@ -237,7 +237,7 @@ jobs:
         if: matrix.board == 'esp32s3'
         with:
           path: target/qemu-tools/*.tar.xz
-          key: qemu-linux-x64-9.0.0-20240606-gcc14.2-20241119-rust1.90.0.0-v1
+          key: qemu-linux-x64-9.2.2-20261109-gcc16.2-20261109-rust1.100.0.0-v1
       - name: Install pinned Xtensa tools
         if: matrix.board == 'esp32s3'
         run: |
@@ -246,7 +246,7 @@ jobs:
       - name: Install pinned ARM Rust and cross compiler
         if: matrix.board == 'pico2w'
         run: |
-          rustup toolchain install nightly-2025-09-15 --profile minimal --component rust-src
+          rustup toolchain install nightly-2026-11-26 --profile minimal --component rust-src
           bash .github/scripts/install-ubuntu-packages.sh gcc-arm-none-eabi binutils-arm-none-eabi libnewlib-arm-none-eabi
       - name: Resolve private tool paths
         shell: bash
@@ -274,7 +274,7 @@ jobs:
               compiler = shutil.which('xtensa-esp32s3-elf-gcc')
           else:
               tools['rustc'] = subprocess.check_output(
-                  ['rustup', 'which', '--toolchain', 'nightly-2025-09-15', 'rustc'], text=True).strip()
+                  ['rustup', 'which', '--toolchain', 'nightly-2026-11-26', 'rustc'], text=True).strip()
               compiler = shutil.which('arm-none-eabi-gcc')
           if compiler is None:
               raise SystemExit('missing native cross compiler')
@@ -344,8 +344,12 @@ jobs:
                       retain(source, target / name)
               for source in build.glob('*.log'):
                   retain(source, target / source.name)
+              # Placement can fail before its hashes reach the build receipt.
+              for source in build.glob('hot-*.json'):
+                  retain(source, target / source.name)
               for relative in ('firmware/resolved.config', 'firmware/provenance.txt',
-                               'firmware/native-context.json', 'firmware/nuttx/nuttx.map',
+                               'firmware/native-context.json', 'firmware/nuttx/nuttx',
+                               'firmware/zephyr/zephyr.elf', 'firmware/nuttx/nuttx.map',
                                'firmware/nuttx/System.map', 'firmware/zephyr/zephyr.map',
                                'firmware/zephyr/.config'):
                   retain(build / relative, target / relative)

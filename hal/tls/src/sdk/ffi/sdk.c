@@ -14,8 +14,8 @@
 #include <psa/crypto.h>
 #include <psa/crypto_extra.h>
 
-#if MBEDTLS_VERSION_NUMBER != 0x04020000 || TF_PSA_CRYPTO_VERSION_NUMBER != 0x01020000
-#error "Requires official Mbed TLS 4.2.0 / TF-PSA-Crypto 1.2.0"
+#if MBEDTLS_VERSION_NUMBER != 0x04030000 || TF_PSA_CRYPTO_VERSION_NUMBER != 0x01030000
+#error "Requires official Mbed TLS 4.3.0 / TF-PSA-Crypto 1.3.0"
 #endif
 #if !defined(MBEDTLS_HMAC_DRBG_C) || defined(MBEDTLS_CTR_DRBG_C) || \
     !defined(MBEDTLS_PSA_DRIVER_GET_ENTROPY) || defined(MBEDTLS_PSA_BUILTIN_GET_ENTROPY) || \

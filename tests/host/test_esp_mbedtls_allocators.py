@@ -2,6 +2,7 @@
 
 from pathlib import Path
 import hashlib
+import json
 import re
 import shutil
 import subprocess
@@ -215,6 +216,12 @@ class EspMbedtlsAllocatorTests(unittest.TestCase):
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(contents)
             originals.append(path)
+        atomic_patch = (patch_dir / "0009-c23-static-atomic-initializers.patch").read_text()
+        for relative in re.findall(r"^\+\+\+ b/(.+)$", atomic_patch, re.MULTILINE):
+            path = self.source_root / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(source_preimage(atomic_patch, relative, expected_lines=None))
+            originals.append(path)
         self.original_sources = {path: path.read_bytes() for path in originals}
         for name, contents in STUBS.items():
             path = self.root / "include" / name
@@ -312,6 +319,48 @@ class EspMbedtlsAllocatorTests(unittest.TestCase):
 
     def test_custom_allocator_configuration_compiles_out_port_functions(self):
         self.compile_and_run("custom", ["CONFIG_MBEDTLS_CUSTOM_MEM_ALLOC"])
+
+    @unittest.skipIf(sys.platform == "win32", "directory symlink control requires Unix")
+    def test_context_hal_patching_keeps_external_cache_unchanged(self):
+        for path, contents in self.original_sources.items():
+            path.write_bytes(contents)
+        def git(*args):
+            return subprocess.check_output(["git", "-C", str(self.source_root), *args], text=True).strip()
+        git("init", "-q")
+        git("add", ".")
+        git("-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid",
+            "commit", "-qm", "fixture")
+        revision = git("rev-parse", "HEAD")
+        nuttx = self.root / "nuttx"
+        chip = nuttx / "arch/xtensa/src/esp32s3"
+        chip.mkdir(parents=True)
+        (chip.parent / "chip").symlink_to("esp32s3", target_is_directory=True)
+        hal = chip / "esp-hal-3rdparty"
+        record = self.root / "context-hal-patches.json"
+        command = [str(ROOT / "target/debug/nxrs-build"), "--workspace-root", str(ROOT),
+                   "patch-esp-hal", "--nuttx", str(nuttx), "--record", str(record)]
+        hal.symlink_to(self.source_root, target_is_directory=True)
+        result = subprocess.run(command, capture_output=True, text=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("escapes the isolated NuttX build", result.stderr)
+        self.assertFalse(record.exists())
+        self.assertEqual({path: path.read_bytes() for path in self.original_sources}, self.original_sources)
+        hal.unlink()
+        shutil.copytree(self.source_root, hal)
+        result = subprocess.run(command, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        evidence = json.loads(record.read_text())
+        series = json.loads((ROOT / "upstream/build-patches.json").read_text())["esp-hal-3rdparty"]
+        self.assertEqual(evidence["upstream_revision"], revision)
+        self.assertEqual([entry["name"] for entry in evidence["patches"]], series["patches"])
+        self.assertNotIn("ATOMIC_VAR_INIT", (hal / "components/esp_hw_support/esp_gpio_reserve.c").read_text())
+        self.assertEqual({path: path.read_bytes() for path in self.original_sources}, self.original_sources)
+        patched = {path.relative_to(self.source_root): (hal / path.relative_to(self.source_root)).read_bytes()
+                   for path in self.original_sources}
+        result = subprocess.run(command, capture_output=True, text=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual({path: (hal / path).read_bytes() for path in patched}, patched)
+        self.assertEqual(json.loads(record.read_text()), evidence)
 
 
 if __name__ == "__main__":

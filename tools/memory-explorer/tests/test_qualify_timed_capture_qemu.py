@@ -2,11 +2,13 @@
 
 from copy import deepcopy
 import hashlib
+import io
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
+from unittest.mock import Mock, patch
 
-from qualify_timed_capture_qemu import native_evidence, validate_build_sources
+from qualify_timed_capture_qemu import capture, native_evidence, validate_build_sources
 
 
 RECORDING_ID = "1234567890abcdef1234567890abcdef"
@@ -105,6 +107,71 @@ def synthetic_console(duplicate_operation=False):
         "NXRS_TIMED_WITNESS PASS",
     ])
     return ("\n".join(rows) + "\n").encode("ascii")
+
+
+class NativeCaptureCompletion(unittest.TestCase):
+    def exercise_capture(self, chunks, error=None):
+        boot = b"NuttShell (NSH)\r\nnsh> \x1b[K"
+        expected = boot + b"".join(chunks)
+        incoming = [boot, *chunks]
+        process = Mock(pid=42)
+        process.stdin = io.BytesIO()
+        command = "timed_capture 2 1234567890abcdef1234567890abcdef overflow"
+        with (
+            TemporaryDirectory() as temporary,
+            patch("qualify_timed_capture_qemu.subprocess.Popen", return_value=process),
+            patch("qualify_timed_capture_qemu.select.select",
+                  side_effect=lambda *_: ([process.stdout] if incoming else [], [], [])),
+            patch("qualify_timed_capture_qemu.os.read", side_effect=lambda *_: incoming.pop(0)),
+            patch("qualify_timed_capture_qemu.time.monotonic", side_effect=range(120)),
+            patch("qualify_timed_capture_qemu.time.sleep"),
+            # Mock the POSIX process boundary so these pipe controls also run
+            # on hosts where killpg/SIGKILL are unavailable.
+            patch("qualify_timed_capture_qemu.os.killpg", create=True) as killpg,
+            patch("qualify_timed_capture_qemu.signal.SIGKILL", 9, create=True),
+        ):
+            output = Path(temporary)
+            if error is None:
+                self.assertEqual(capture(Path("qemu"), Path("nuttx"), command, output, 60), expected)
+            else:
+                exception, message = error
+                with self.assertRaisesRegex(exception, message):
+                    capture(Path("qemu"), Path("nuttx"), command, output, 60)
+            self.assertEqual((output / "console.log").read_bytes(), expected)
+            self.assertEqual(process.stdin.getvalue(), (command + "\n").encode("ascii"))
+            self.assertEqual(incoming, [])
+            killpg.assert_called_once_with(process.pid, 9)
+            process.wait.assert_called_once_with(timeout=5)
+
+    def test_plain_combined_and_fragmented_prompt_preserve_received_bytes(self):
+        for chunks in (
+            [b"\r\nNXRS_TIMED_WITNESS PASS\r\nnsh> "],
+            [b"\r\nNXRS_TIMED_WITNESS PASS\r\nnsh> \x1b[K"],
+            [b"\r\nNXRS_TIMED_WIT", b"NESS PASS\r\nns", b"h> \x1b", b"[", b"K"],
+        ):
+            with self.subTest(chunks=chunks):
+                self.exercise_capture(chunks)
+
+    def test_witness_and_complete_supported_prompt_are_required(self):
+        for ending in (
+            b"nsh> \x1b[K",
+            b"NXRS_TIMED_WITNESS PASS\r\n",
+            b"NXRS_TIMED_WITNESS PASS\r\nnsh> \x1b",
+            b"NXRS_TIMED_WITNESS PASS\r\nnsh> \x1b[",
+            b"NXRS_TIMED_WITNESS PASS\r\nnsh> \x1b[2K",
+            b"NXRS_TIMED_WITNESS PASS\r\nnsh> \x1b[Kmore output",
+        ):
+            with self.subTest(ending=ending):
+                self.exercise_capture(
+                    [b"\r\n" + ending],
+                    (TimeoutError, "Native timed capture exceeded its bounded host deadline"),
+                )
+
+    def test_failed_native_witness_is_not_accepted_at_a_completed_prompt(self):
+        self.exercise_capture(
+            [b"\r\nNXRS_TIMED_WITNESS FAIL reason=control\r\nnsh> \x1b[K"],
+            (RuntimeError, "Native boot/workload failed"),
+        )
 
 
 class NativeMarkerAdmission(unittest.TestCase):

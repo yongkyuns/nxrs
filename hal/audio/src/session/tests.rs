@@ -154,7 +154,7 @@ fn retires_a_partial_start_and_quarantines_an_unfinished_drop() {
 #[test]
 fn extracts_signed_pcm_from_only_the_selected_slot() {
     let mut bytes = [0; SAMPLES_PER_BLOCK * 8];
-    for slots in bytes.chunks_exact_mut(8) {
+    for slots in bytes.as_chunks_mut::<8>().0.iter_mut() {
         slots.copy_from_slice(&[0, 251, 0, 128, 0, 32, 255, 127]);
     }
     let mut samples = [0; SAMPLES_PER_BLOCK];

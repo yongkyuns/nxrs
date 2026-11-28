@@ -23,7 +23,7 @@ python3 tools/init_reference.py /tmp/nxrs-monitor-reference --media-origin https
 ./target/debug/nxrs-gateway-control /tmp/nxrs-monitor-reference/config.json
 ```
 
-Rust 1.90.0 and the separate Cargo.lock pin the host build. Initialization refuses
+Rust 1.100.0 and the separate Cargo.lock pin the host build. Initialization refuses
 an existing destination, creates a 0700 directory and 0600 files, and generates
 separate 256-bit viewer/publisher tokens. Configuration stores their SHA-256
 hashes, not plaintext. Tokens must be generated, not human passwords. Never
@@ -121,7 +121,7 @@ The dedicated workflows separate different kinds of evidence:
 | `monitoring-systemd.yml` | Strict deployment generation and one-time state; real service-manager permissions, active video, selective revocation, controller-crash fail-stop and persistent recovery |
 | `monitoring-ios.yml` | Native Swift/WebRTC application playback/build qualification, with its separately scoped test transport |
 
-MediaMTX 1.21.2 archives are checksum-pinned in `deploy/dependencies.json`.
+MediaMTX 1.21.4 archives are checksum-pinned in `deploy/dependencies.json`.
 Run the non-privileged Linux references with an already verified binary:
 
 ```sh

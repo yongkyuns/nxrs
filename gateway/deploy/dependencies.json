@@ -1,8 +1,8 @@
 {
   "mediamtx": {
-    "version": "1.21.2",
-    "linux_amd64_url": "https://github.com/bluenviron/mediamtx/releases/download/v1.21.2/mediamtx_v1.21.2_linux_amd64.tar.gz",
-    "linux_amd64_sha256": "121be6e00397e473a95d83c75f4fcd3819a6af3b0e1a50889cba43ab4fab6a27"
+    "version": "1.21.4",
+    "linux_amd64_url": "https://github.com/bluenviron/mediamtx/releases/download/v1.21.4/mediamtx_v1.21.4_linux_amd64.tar.gz",
+    "linux_amd64_sha256": "be0c05d9c8af8338116977e7f1c3fcb409fbf882075e5ab075cf8baad76a59d2"
   },
   "qualification": "Single-host synthetic integration only; no physical camera, iOS, VPN or production deployment qualification."
 }

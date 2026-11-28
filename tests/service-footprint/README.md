@@ -33,10 +33,10 @@ require fresh device measurements before making size or timing claims.
 
 ## Host checks
 
-Requires Rust 1.90.0, Python 3.11 or later, and a C compiler:
+Requires Rust 1.100.0, Python 3.11 or later, and a C compiler:
 
 ```sh
-NXRS_FOOTPRINT_CASE=rust-packet-inplace-2 cargo +1.90.0 test --locked -p nxrs-footprint-demo --bin cq-scale
+NXRS_FOOTPRINT_CASE=rust-packet-inplace-2 cargo +1.100.0 test --locked -p nxrs-footprint-demo --bin cq-scale
 python3 -m unittest discover -s tests/service-footprint -p 'test_*.py' -v
 python3 tests/service-footprint/check_native.py
 ```

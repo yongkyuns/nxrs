@@ -77,7 +77,9 @@ and admitted to the existing Unix pthread-key implementation. The existing
 [key cleanup guard][tls-key] then supplies the destructor-list/runtime cleanup
 callback. No custom app thread entry or manual destructor call is added.
 
-`prepare-std.py` checks original blob `809ef5cfe9c60dd7ca99d587a9246751c1be338f`,
+The historical experiment checked original blob
+`809ef5cfe9c60dd7ca99d587a9246751c1be338f`. The current `prepare-std.py` adapter
+checks blob `1c137e52d931972b717c5e7c121b5dcb6940abc8`,
 rejects missing/duplicate/already-patched anchors, and changes only the private
 copy. Six rejection controls cover drift/repatching. The build verifies Cargo's
 actual std source path and retains patch/source evidence in the artifact manifest.
@@ -89,10 +91,11 @@ into the experiment. The passing patched result is not an unmodified-SDK
 pass or approval for production adoption. Use the exact-head results recorded
 in [PR #5][pr] rather than inferring success from compilation or the initial run.
 
-## Build profile
+## Current build profile
 
-- Target `wasm32-unknown-emscripten`, isolated `nightly-2026-09-25` and rust-src.
-- Emscripten 4.0.15; emsdk commit `389a68bc35dcff7ebae4614e1615099dafda00d1`.
+- Target `wasm32-unknown-emscripten`, isolated `nightly-2026-11-26` and rust-src.
+- [Emscripten 7.0.1](https://github.com/emscripten-core/emscripten/releases/tag/7.0.1);
+  emsdk release commit `a7c808831a666cc903fedb906c171a718cd97341`.
 - Rebuilt std/panic_abort with matching atomics/pthreads; do not mix an unrelated
   prebuilt std with differently configured Emscripten libraries.
 - `PROXY_TO_PTHREAD=1` runs handwritten main on a worker. Four precreated workers
@@ -102,6 +105,11 @@ in [PR #5][pr] rather than inferring success from compilation or the initial run
 - COOP `same-origin`, COEP `require-corp`; the harness serves loopback HTTP.
   Production hosting requires a suitable secure context and compatible resources.
 - The extended lifecycle experiment explicitly opts into the SDK patch above.
+
+The recorded browser runs above used the earlier compiler and Emscripten 4.0.15.
+They remain historical evidence for those exact artifacts. The current SDK pair
+requires fresh Chrome and Safari execution through the same workflow and oracles;
+successful compilation alone does not renew those runtime results.
 
 The older compiler first failed on `crt1_proxy_main.o: undefined symbol: main`.
 The selected compiler contains the [upstream entry-name fix][entry-fix], preserving
@@ -127,7 +135,7 @@ source identity and SDK-patch evidence. Artifact retention is finite.
 With the pinned SDK active and compiler/rust-src installed:
 
 ```sh
-cargo +1.90.0 run --locked --release -p nxrs-browser-threads
+cargo +1.100.0 run --locked --release -p nxrs-browser-threads
 python3 tests/browser-threads/run.py --self-test
 python3 tests/browser-threads/prepare-std.py --self-test
 BROWSER_STD_TLS_FIX=1 bash tests/browser-threads/build.sh

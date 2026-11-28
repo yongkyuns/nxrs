@@ -73,7 +73,7 @@ jobs:
           submodules: true
       - name: Install host Cargo and emulator dependencies
         run: |
-          rustup toolchain install 1.90.0 --profile minimal
+          rustup toolchain install 1.100.0 --profile minimal
           bash .github/scripts/install-ubuntu-packages.sh bison flex gperf kconfig-frontends genromfs cmake ninja-build libncurses-dev zlib1g-dev libgcrypt20 libglib2.0-0 libpixman-1-0 libsdl2-2.0-0 libslirp0
           python3 -m venv target/esp-std-venv
           target/esp-std-venv/bin/pip install kconfiglib==14.1.0 esptool==4.8.1 -r tools/mcuboot-requirements.txt
@@ -81,7 +81,7 @@ jobs:
       - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: target/qemu-tools/*.tar.xz
-          key: qemu-linux-x64-9.0.0-20240606-gcc14.2-20241119-rust1.90.0.0-v1
+          key: qemu-linux-x64-9.2.2-20261109-gcc16.2-20261109-rust1.100.0.0-v1
       - name: Install hash-verified pinned Xtensa tools
         run: bash tools/install-qemu-tools.sh
       - name: Check oracle and SDK isolation controls

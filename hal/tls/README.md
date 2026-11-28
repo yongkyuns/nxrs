@@ -5,7 +5,7 @@ ingestion (#33/#35): a volatile, non-exportable P-256 signing key, public PEM
 enrollment requests and TLS1.2/1.3 server connections. Rust owns peer/time
 admission, socket budgets, callback lifetime, error policy and teardown; private
 C supplies actual SDK layouts, field access and enum translation.
-The hash-pinned, unmodified Mbed TLS 4.2.0 / TF-PSA-Crypto 1.2.0 source builds
+The hash-pinned, unmodified Mbed TLS 4.3.0 / TF-PSA-Crypto 1.3.0 source builds
 offline after `python3 upstream/mbedtls/fetch.py`.
 The SDK uses CMake's size-optimized `MinSizeRel` build to match the embedded
 product's code-size priority; device execution and memory peaks still need qualification.

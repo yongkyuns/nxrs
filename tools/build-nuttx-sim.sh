@@ -3,7 +3,7 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 OUT="$ROOT/target/nuttx-sim"
-export RUSTUP_TOOLCHAIN=1.90.0
+export RUSTUP_TOOLCHAIN=1.100.0
 if [[ "$(uname -s)" != Linux || "$(uname -m)" != x86_64 ]]; then
   echo 'This simulator profile requires Linux x86_64.' >&2
   exit 1

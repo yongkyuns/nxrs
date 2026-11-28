@@ -63,7 +63,7 @@ jobs:
           fi
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
           export PATH="$HOME/.cargo/bin:$PATH"
-          rustup toolchain install 1.90.0 --profile minimal
+          rustup toolchain install 1.100.0 --profile minimal
           python3 -m venv target/qemu-venv
           target/qemu-venv/bin/pip install kconfiglib==14.1.0 esptool==4.8.1
           echo "$GITHUB_WORKSPACE/target/qemu-venv/bin" >> "$GITHUB_PATH"

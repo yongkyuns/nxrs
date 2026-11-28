@@ -117,7 +117,7 @@ def environment() -> dict[str, str]:
     result.update(JOBS)
     # Cargo catalogue discovery runs before the target SDK is configured.
     # Select the installed host toolchain without concurrent component installs.
-    result["RUSTUP_TOOLCHAIN"] = "1.90.0"
+    result["RUSTUP_TOOLCHAIN"] = "1.100.0"
     return result
 
 
@@ -153,17 +153,17 @@ def check_interruption(cancelled: Callable[[], bool] | None) -> None:
 def build_frontend(root: Path, parent: Path, env: dict[str, str], deadline: float,
                    cancelled: Callable[[], bool] | None = None) -> dict:
     native = dict(env)
-    rustc = Path(output(["rustup", "which", "--toolchain", "1.90.0", "rustc"], root)).resolve()
-    rustdoc = Path(output(["rustup", "which", "--toolchain", "1.90.0", "rustdoc"], root)).resolve()
-    native.update(RUSTC=str(rustc), RUSTDOC=str(rustdoc), RUSTUP_TOOLCHAIN="1.90.0")
+    rustc = Path(output(["rustup", "which", "--toolchain", "1.100.0", "rustc"], root)).resolve()
+    rustdoc = Path(output(["rustup", "which", "--toolchain", "1.100.0", "rustdoc"], root)).resolve()
+    native.update(RUSTC=str(rustc), RUSTDOC=str(rustdoc), RUSTUP_TOOLCHAIN="1.100.0")
     compiler_version = output([str(rustc), "--version", "--verbose"], root, native)
-    if not compiler_version.startswith("rustc 1.90.0 "):
-        raise QualificationError("frontend compiler must be Rust 1.90.0")
-    cargo_version = output(["cargo", "+1.90.0", "--version"], root, native)
-    if not cargo_version.startswith("cargo 1.90.0 "):
-        raise QualificationError("frontend Cargo must be 1.90.0")
+    if not compiler_version.startswith("rustc 1.100.0 "):
+        raise QualificationError("frontend compiler must be Rust 1.100.0")
+    cargo_version = output(["cargo", "+1.100.0", "--version"], root, native)
+    if not cargo_version.startswith("cargo 1.100.0 "):
+        raise QualificationError("frontend Cargo must be 1.100.0")
     target = parent / "frontend"
-    argv = ["cargo", "+1.90.0", "build", "--locked", "--manifest-path", str(root / "Cargo.toml"),
+    argv = ["cargo", "+1.100.0", "build", "--locked", "--manifest-path", str(root / "Cargo.toml"),
             "-p", "nxrs-build", "--bin", "nxrs-build", "--message-format=json-render-diagnostics",
             "--target-dir", str(target)]
     messages = parent / "frontend-messages.jsonl"

@@ -7,6 +7,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
+mod support;
+use support::source_pins;
+
 type Fields = BTreeMap<String, String>;
 
 fn json(path: &Path) -> Value {
@@ -46,8 +49,9 @@ fn number(row: &Fields, key: &str) -> u64 {
 
 fn hex_bytes(text: &str) -> Vec<u8> {
     assert_eq!(text.len() % 2, 0);
-    text.as_bytes()
-        .chunks_exact(2)
+    let (pairs, _) = text.as_bytes().as_chunks::<2>();
+    pairs
+        .iter()
         .map(|pair| u8::from_str_radix(std::str::from_utf8(pair).unwrap(), 16).unwrap())
         .collect()
 }
@@ -162,14 +166,9 @@ fn ascii_notes(console: &str) -> Vec<NativeNote> {
 }
 
 fn validate_build(build: &Value, report: &Value, build_dir: &Path, repo: &Path) {
-    assert_eq!(
-        build["nuttx_revision"],
-        "2b5c0de5e933281c209f954a63b99cf10c132346"
-    );
-    assert_eq!(
-        build["apps_revision"],
-        "3c772ea35b9245972e18999828f7b533e6fc57cc"
-    );
+    let pins = source_pins();
+    assert_eq!(build["nuttx_revision"], pins["nuttx"]);
+    assert_eq!(build["apps_revision"], pins["apps"]);
     for source in ["nuttx", "apps"] {
         assert_eq!(
             build["source_identity_before_patch"][source]["tracked_sources_clean"],

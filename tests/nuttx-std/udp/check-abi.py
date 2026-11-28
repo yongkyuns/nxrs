@@ -15,17 +15,17 @@ import subprocess
 
 EXPECTED_LIBC = {
     'riscv32imac-unknown-nuttx-elf': (
-        '0.2.175',
-        '6a82ae493e598baaea5209805c49bbf2ea7de956d50d7da0da1164f9c6d28543',
+        '0.2.191',
+        '65cd87c9a6d60536580b316ad985726104730a5151c99845f2490428ef91240a',
         'riscv64-unknown-elf-',
     ),
     'xtensa-esp32s3-nuttx': (
-        '0.2.174',
-        '1171693293099992e19cddea4e8b849964e9846f4acee11b3948bcc337be8776',
+        '0.2.191',
+        '65cd87c9a6d60536580b316ad985726104730a5151c99845f2490428ef91240a',
         'xtensa-esp32s3-elf-',
     ),
 }
-EXPECTED_LIBC_SOURCE_BLOB = '69732d845b400e9b8781724d5a9dc3d5f3856913'
+EXPECTED_LIBC_SOURCE_BLOB = '4970511599f7da3ab4b9ab7c24fd09b586197454'
 EXPECTED_PATCH_MODE = 'nuttx-parker-fcntl-sigign-and-libc-socket-align'
 
 
@@ -71,6 +71,15 @@ def compare(native, rust):
                 scope='listed IPv4 UDP, timeout, address storage and descriptor observations; not all std::net')
 
 
+def private_libc_source(proof):
+    assert proof['selected_source_matches'] is True, 'unverified std selection'
+    library = Path(proof['rustc']).resolve().parent.parent / 'lib/rustlib/src/rust/library'
+    expected_std = (library / 'std/src/lib.rs').resolve()
+    assert Path(proof['expected_source']).resolve() == expected_std, 'std does not belong to the private compiler SDK'
+    assert Path(proof['std_source']).resolve() == expected_std, 'different std source selected'
+    return (library / 'libc-nuttx/src/lib.rs').resolve()
+
+
 def self_test():
     c = {row[0]: 4 for row in fields()}
     c.update({'sockaddr_storage.size': 128, 'sockaddr_storage.align': 8})
@@ -89,6 +98,22 @@ def self_test():
     else:
         raise AssertionError('accepted missing socket evidence')
     print('PASS: ten socket ABI rejection controls; safe overprovisioning accepted')
+    for location in ('fixture-output/toolchain', 'fixture-shared-sdk/toolchain'):
+        sdk = Path(location).resolve()
+        source = str(sdk / 'lib/rustlib/src/rust/library/std/src/lib.rs')
+        proof = dict(rustc=str(sdk / 'bin/rustc'), selected_source_matches=True,
+                     expected_source=source, std_source=source)
+        assert private_libc_source(proof) == sdk / 'lib/rustlib/src/rust/library/libc-nuttx/src/lib.rs'
+        for key, value in (('selected_source_matches', False),
+                           ('expected_source', str(sdk / 'foreign/std/src/lib.rs')),
+                           ('std_source', str(sdk / 'foreign/std/src/lib.rs'))):
+            try:
+                private_libc_source(dict(proof, **{key: value}))
+            except AssertionError:
+                pass
+            else:
+                raise AssertionError('accepted inconsistent private SDK provenance')
+    print('PASS: owned/shared private SDK identity and inconsistent std provenance rejection')
 
 
 def run(out):
@@ -100,7 +125,7 @@ def run(out):
     assert core['probe_abi_compatible'] and not core['errors'], 'thread/startup ABI gate failed'
     assert hashlib.sha256((out / 'resolved.config').read_bytes()).hexdigest() == core['config_sha256']
     proof = json.loads((out / 'std-source.json').read_text())
-    assert proof['selected_source_matches'], 'unverified std selection'
+    expected_libc = private_libc_source(proof)
 
     patch = json.loads((out / 'std-patch.json').read_text())
     assert patch.get('mode') == EXPECTED_PATCH_MODE, 'wrong private SDK patch mode'
@@ -111,7 +136,6 @@ def run(out):
     assert libc_patch.get('source_blob') == EXPECTED_LIBC_SOURCE_BLOB, 'unexpected original NuttX libc binding'
     assert libc_patch.get('alignment') == 8, 'wrong private libc alignment repair'
 
-    expected_libc = (out / 'toolchain/lib/rustlib/src/rust/library/libc-nuttx/src/lib.rs').resolve()
     assert Path(core['libc_source']).resolve() == expected_libc, 'compiled libc did not come from private SDK'
     assert core['libc_package'].endswith('libc@' + expected_version), 'unexpected compiled libc version'
     binding = expected_libc.parent / 'unix/nuttx/mod.rs'
@@ -127,7 +151,29 @@ def run(out):
     assert commands[1][0] == str(Path(proof['rustc']).resolve()), 'wrong Rust compiler'
     libraries = [Path(arg.removeprefix('libc=')) for arg in commands[1] if arg.startswith('libc=')]
     assert len(libraries) == 1
-    assert hashlib.sha256(libraries[0].read_bytes()).hexdigest() == core['libc_rlib_sha256'], 'changed libc'
+    records = [json.loads(line) for line in (out / 'cargo-messages.jsonl').read_text().splitlines()]
+    recorded_metadata = {(m['package_id'], m['target']['name'], str(Path(p).resolve()))
+                         for m in records if m.get('reason') == 'compiler-artifact'
+                         for p in m['filenames'] if p.endswith('.rmeta')}
+    for metadata in core['rust_metadata']:
+        path = Path(metadata['path'])
+        assert path.is_relative_to(Path(core['target_artifacts'])), 'not target metadata'
+        assert (metadata['package_id'], metadata['crate'], str(path)) in recorded_metadata, 'unrecorded metadata'
+        assert hashlib.sha256(path.read_bytes()).hexdigest() == metadata['sha256'], 'changed Rust metadata'
+    metadata_paths = {m['path'] for m in core['rust_metadata']}
+    for name in ('core', 'compiler_builtins', 'libc'):
+        selected = [arg.removeprefix(name + '=') for arg in commands[1] if arg.startswith(name + '=')]
+        assert len(selected) == 1 and selected[0] in metadata_paths, f'unverified {name} metadata'
+    search_dirs = {arg.removeprefix('-Ldependency=') for arg in commands[1] if arg.startswith('-Ldependency=')}
+    assert search_dirs == {str(Path(p).parent) for p in metadata_paths}, 'changed metadata search directories'
+    libc_metadata = [m for m in core['rust_metadata'] if m['crate'] == 'libc']
+    assert len(libc_metadata) == 1 and libraries[0] == Path(libc_metadata[0]['path']), 'wrong libc metadata'
+    library = Path(core['libc_rlib'])
+    assert library.with_suffix('.rmeta') == libraries[0], 'unpaired libc archive and metadata'
+    assert any(m.get('reason') == 'compiler-artifact' and m['package_id'] == core['libc_package']
+               and str(library) in m['filenames'] and str(libraries[0]) in m['filenames']
+               for m in records), 'libc archive and metadata did not come from the same build'
+    assert hashlib.sha256(library.read_bytes()).hexdigest() == core['libc_rlib_sha256'], 'changed libc archive'
     rows = fields()
     c_source = ('#include <nuttx/config.h>\n#include <stdint.h>\n#include <stddef.h>\n'
                 '#include <sys/types.h>\n#include <sys/socket.h>\n#include <netinet/in.h>\n'
@@ -161,7 +207,8 @@ def run(out):
         values[role] = dict(zip([row[0] for row in rows], struct.unpack('<' + 'I' * len(rows), raw)))
     result = compare(values['native'], values['rust'])
     result.update(commands=executed, target=core['target'], libc_package=core['libc_package'],
-                  libc_rlib_sha256=core['libc_rlib_sha256'], config_sha256=core['config_sha256'],
+                  libc_rlib=core['libc_rlib'], libc_rlib_sha256=core['libc_rlib_sha256'],
+                  rust_metadata=core['rust_metadata'], config_sha256=core['config_sha256'],
                   image_sha256=hashlib.sha256((out / 'nuttx/nuttx').read_bytes()).hexdigest())
     (out / 'socket-abi-report.json').write_text(json.dumps(result, indent=2) + '\n')
     assert result['socket_abi_compatible'], f'Socket ABI gate rejected: {result["errors"]}'

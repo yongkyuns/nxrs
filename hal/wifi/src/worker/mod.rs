@@ -34,7 +34,7 @@ impl Drop for Lease {
 
 fn session() -> Result<SessionId, Error> {
     let value = NEXT_SESSION
-        .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
+        .try_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
             value.checked_add(1)
         })
         .map_err(|_| Error::Unavailable)?;
@@ -215,7 +215,7 @@ impl Wifi for Worker {
         }
         self.shared
             .stop_generation
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |value| {
+            .try_update(Ordering::AcqRel, Ordering::Acquire, |value| {
                 value.checked_add(1)
             })
             .map_err(|_| Error::Unavailable)?;
@@ -224,7 +224,7 @@ impl Wifi for Worker {
         let _ = self
             .shared
             .status
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |value| {
+            .try_update(Ordering::AcqRel, Ordering::Acquire, |value| {
                 if value == 3 {
                     None
                 } else {

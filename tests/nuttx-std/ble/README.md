@@ -287,7 +287,7 @@ Host tests exercise lifecycle, cancellation, bounded delivery, stale IDs,
 timeouts and UUID decoding. They do not test an actual radio:
 
 ```sh
-cargo +1.90.0 test --locked --offline -p nxrs-ble
+cargo +1.100.0 test --locked --offline -p nxrs-ble
 python3 tests/host/test_gatt_native.py
 ```
 

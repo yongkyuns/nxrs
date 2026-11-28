@@ -185,7 +185,7 @@ fn satellite_framer_checks_shape_and_checksum_at_the_protocol_limit() {
     let mut payload = [0; 8 + 255 * 12];
     payload[4] = 1;
     payload[5] = 255;
-    for (id, block) in payload[8..].chunks_exact_mut(12).enumerate() {
+    for (id, block) in payload[8..].as_chunks_mut::<12>().0.iter_mut().enumerate() {
         block[0] = if id % 2 == 0 { 0 } else { 2 };
         block[1] = id as u8;
         block[2] = id as u8;

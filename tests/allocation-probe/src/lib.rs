@@ -57,7 +57,7 @@ impl<A> Tracking<A> {
     }
 
     fn add(&self, counter: &AtomicUsize, amount: usize) -> usize {
-        match counter.fetch_update(SeqCst, SeqCst, |value| value.checked_add(amount)) {
+        match counter.try_update(SeqCst, SeqCst, |value| value.checked_add(amount)) {
             Ok(previous) => previous + amount,
             Err(value) => {
                 self.invalid.store(true, SeqCst);
@@ -68,7 +68,7 @@ impl<A> Tracking<A> {
 
     fn subtract(&self, counter: &AtomicUsize, amount: usize) {
         if counter
-            .fetch_update(SeqCst, SeqCst, |value| value.checked_sub(amount))
+            .try_update(SeqCst, SeqCst, |value| value.checked_sub(amount))
             .is_err()
         {
             self.invalid.store(true, SeqCst);

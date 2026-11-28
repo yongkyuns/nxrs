@@ -34,7 +34,7 @@ impl Drop for Lease {
 
 pub(crate) fn new_session() -> Result<SessionId, Error> {
     let value = NEXT_SESSION
-        .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
+        .try_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
             value.checked_add(1)
         })
         .map_err(|_| Error::Unavailable)?;
@@ -149,7 +149,7 @@ impl Ble for Worker {
         }
         self.shared
             .stop_generation
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |v| v.checked_add(1))
+            .try_update(Ordering::AcqRel, Ordering::Acquire, |v| v.checked_add(1))
             .map_err(|_| Error::Unavailable)?;
         self.shared.stopping.store(true, Ordering::Release);
         self.shared.mark_stopping_unless_terminal();
@@ -180,7 +180,7 @@ impl Drop for Worker {
         if self.status() != ProviderStatus::Stopped {
             self.shared.abandoned.store(true, Ordering::Release);
             self.shared.stopping.store(true, Ordering::Release);
-            let _ = self.shared.stop_generation.fetch_update(
+            let _ = self.shared.stop_generation.try_update(
                 Ordering::AcqRel,
                 Ordering::Acquire,
                 |v| v.checked_add(1),

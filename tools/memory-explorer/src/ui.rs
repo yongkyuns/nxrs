@@ -833,7 +833,7 @@ impl MemoryExplorer {
                         let selected = region.key == self.region;
                         let frame = egui::Frame::new()
                             .fill(if selected { Color32::from_rgb(29, 55, 59) } else { SURFACE })
-                            .stroke(Stroke::new(1.0, if selected { ACCENT } else { LINE }))
+                            .stroke(Stroke::new(1.0_f32, if selected { ACCENT } else { LINE }))
                             .corner_radius(7)
                             .inner_margin(11);
                         let response = frame
@@ -1180,7 +1180,7 @@ impl MemoryExplorer {
         }
         let painter = ui.painter().with_clip_rect(rect);
         painter.rect_filled(rect, 8, PANEL);
-        painter.rect_stroke(rect, 8, Stroke::new(1.0, LINE), StrokeKind::Inside);
+        painter.rect_stroke(rect, 8, Stroke::new(1.0_f32, LINE), StrokeKind::Inside);
         let ticks = ((plot.width() / 125.0) as u64)
             .max(1)
             .min(self.viewport.span());
@@ -1190,7 +1190,7 @@ impl MemoryExplorer {
             let x = plot.left() + self.viewport.fraction(address) as f32 * plot.width();
             painter.line_segment(
                 [Pos2::new(x, plot.top()), Pos2::new(x, plot.bottom())],
-                Stroke::new(1.0, LINE.linear_multiply(0.6)),
+                Stroke::new(1.0_f32, LINE.linear_multiply(0.6)),
             );
             let align = if index == 0 {
                 Align2::LEFT_CENTER
@@ -1358,7 +1358,7 @@ impl MemoryExplorer {
                 if span.symbol && span.span.size == 0 {
                     painter.line_segment(
                         [block_rect.left_top(), block_rect.left_bottom()],
-                        Stroke::new(1.0, if selected { Color32::WHITE } else { color }),
+                        Stroke::new(1.0_f32, if selected { Color32::WHITE } else { color }),
                     );
                 } else {
                     painter.rect_filled(
@@ -1374,7 +1374,7 @@ impl MemoryExplorer {
                         block_rect,
                         2,
                         Stroke::new(
-                            if selected { 2.0 } else { 0.7 },
+                            if selected { 2.0_f32 } else { 0.7_f32 },
                             if selected {
                                 Color32::WHITE
                             } else {
@@ -1496,7 +1496,7 @@ impl MemoryExplorer {
             ui.add_space(12.0);
             ui.label(RichText::new("Explore linked placement, allocation call stacks and captured memory, alongside measured scheduler and application traces.").size(16.0).color(MUTED));
             ui.add_space(30.0);
-            egui::Frame::new().fill(PANEL).stroke(Stroke::new(1.0,LINE)).corner_radius(10).inner_margin(24).show(ui,|ui| {
+            egui::Frame::new().fill(PANEL).stroke(Stroke::new(1.0_f32,LINE)).corner_radius(10).inner_margin(24).show(ui,|ui| {
                 ui.set_max_width(750.0);
                 self.input_fields(ui);
             });
@@ -1862,8 +1862,9 @@ impl MemoryExplorer {
                 self.linked_checkpoints(ctx);
             }
             let previous = self.timing.cursor();
-            self.timing
-                .show(ctx, self.trace.as_ref().unwrap(), self.namespace);
+            if let Some(trace) = self.trace.as_ref() {
+                self.timing.show(ctx, trace, self.namespace);
+            }
             if self.replay_active() {
                 if self.timing.cursor() != previous {
                     self.sync_replay_timing_cursor();
@@ -1899,7 +1900,7 @@ pub fn configure_style(ctx: &egui::Context) {
     visuals.faint_bg_color = SURFACE;
     visuals.extreme_bg_color = BACKGROUND;
     visuals.selection.bg_fill = Color32::from_rgb(40, 103, 100);
-    visuals.selection.stroke = Stroke::new(1.0, ACCENT);
+    visuals.selection.stroke = Stroke::new(1.0_f32, ACCENT);
     visuals.widgets.inactive.bg_fill = SURFACE;
     visuals.widgets.inactive.weak_bg_fill = SURFACE;
     visuals.widgets.hovered.bg_fill = Color32::from_rgb(44, 64, 78);
@@ -2024,7 +2025,7 @@ fn eyebrow(ui: &mut egui::Ui, text: &str) {
 fn badge(ui: &mut egui::Ui, text: &str, color: Color32) {
     egui::Frame::new()
         .fill(color.linear_multiply(0.13))
-        .stroke(Stroke::new(0.7, color.linear_multiply(0.45)))
+        .stroke(Stroke::new(0.7_f32, color.linear_multiply(0.45)))
         .corner_radius(4)
         .inner_margin(egui::Margin::symmetric(7, 4))
         .show(ui, |ui| {
@@ -2065,7 +2066,7 @@ fn hatch(painter: &egui::Painter, rect: Rect, color: Color32) {
                 Pos2::new(x, rect.bottom()),
                 Pos2::new(x + rect.height(), rect.top()),
             ],
-            Stroke::new(1.0, color),
+            Stroke::new(1.0_f32, color),
         );
         x += 14.0;
     }

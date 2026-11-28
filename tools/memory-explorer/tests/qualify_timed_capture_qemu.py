@@ -228,6 +228,12 @@ def native_evidence(console, seconds, overflow, recording_id):
             "trailing_silence_ns": end_ns - max(number(row["fix_after_ticks"]) * TICK_NS for row in operations)}
 
 
+def at_nsh_prompt(console):
+    # NSH may erase the rest of the line after printing its prompt. Inspect
+    # only that known suffix; keep the retained native evidence unchanged.
+    return console.rstrip().removesuffix(b"\x1b[K").rstrip().endswith(b"nsh>")
+
+
 def capture(qemu, image, command, output, timeout):
     process = None
     console = bytearray()
@@ -255,7 +261,7 @@ def capture(qemu, image, command, output, timeout):
                     process.stdin.flush()
                     time.sleep(0.01)
                 sent = True
-            if sent and b"NXRS_TIMED_WITNESS " in console and console.rstrip().endswith(b"nsh>"):
+            if sent and b"NXRS_TIMED_WITNESS " in console and at_nsh_prompt(console):
                 return bytes(console)
         raise TimeoutError("Native timed capture exceeded its bounded host deadline")
     finally:

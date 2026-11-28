@@ -268,6 +268,57 @@ def reviewed_dropbear_history_controls(scanner, source, config, alphabet):
         path.unlink()
 
 
+def reviewed_qemu_cache_controls(scanner, source, config, token, alphabet):
+    revision = "a754981cb06b0bf848d5ef2c255b0b97fc91456a"
+    workflow = ".github/workflows/mpsc-comparison.yml"
+    installer = "tests/owner-qualification/install-qemu.sh"
+    pinned = subprocess.check_output(["git", "show", f"{revision}:{installer}"],
+                                     cwd=ROOT, text=True, timeout=10)
+    checksum = re.search(r"^QEMU_SHA256=([0-9a-f]{64})$", pinned, re.MULTILINE)
+    original = subprocess.check_output(["git", "show", f"{revision}:{workflow}"],
+                                       cwd=ROOT, text=True, timeout=10)
+    prefix = "key: " + "owner-arm-qemu-8.2.7-"
+    row = next((line for line in original.splitlines()
+                if line.lstrip().startswith(prefix)), "")
+    if not checksum or row.strip() != prefix + checksum[1]:
+        raise ControlFailure("qemu-cache-source")
+    # These exact Python lines in 16d74ff contain only the public key prefix.
+    # Assemble their literals so this control does not create another finding.
+    quoted = json.dumps(prefix)
+    historical = [
+        '                if line.lstrip().startswith(' + quoted + ')), "")',
+        '    if not checksum or row.strip() != ' + quoted + ' + checksum[1]:',
+    ]
+    cases = [(workflow, row)]
+    cases.extend(("tools/scan-secrets.py", line) for line in historical)
+    synthetic = alphabet * 4
+    for index, (relative, line) in enumerate(cases):
+        path = source / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        for variant, contents in enumerate((line + "\n", "\n" + line + "\n",
+                                            "\r\n" + line + "\r\n")):
+            path.write_bytes(contents.encode("utf-8"))
+            findings, _ = execute(scanner, "dir", source, config)
+            if findings:
+                raise ControlFailure(f"qemu-cache-allow-{index}-{variant}")
+        for control, (contents, rule, secret) in enumerate([
+                (line.replace(prefix, prefix + synthetic), "generic-api-key", synthetic),
+                (line + ' api_key = "' + synthetic + '"', "generic-api-key", synthetic),
+                (line + ' access_token = "' + token + '"', "github-pat", token),
+                (line + '\naccess_token = "' + token + '"', "github-pat", token)]):
+            path.write_text(contents + "\n")
+            findings, output = execute(scanner, "dir", source, config)
+            if not any(item.get("RuleID") == rule for item in findings) or secret in output:
+                raise ControlFailure(f"qemu-cache-reject-{index}-{control}")
+        path.unlink()
+        outside = source / "unreviewed.txt"
+        outside.write_text(line + "\n")
+        findings, _ = execute(scanner, "dir", source, config)
+        if not any(item.get("RuleID") == "generic-api-key" for item in findings):
+            raise ControlFailure(f"qemu-cache-path-{index}")
+        outside.unlink()
+
+
 def self_test(scanner):
     config = ROOT / "security/gitleaks.toml"
     with tempfile.TemporaryDirectory(prefix="nxrs-secret-control-") as directory:
@@ -301,6 +352,7 @@ def self_test(scanner):
         reviewed_hash_controls(scanner, source, config, token, alphabet)
         reviewed_prose_controls(scanner, source, config, token, alphabet)
         reviewed_dropbear_history_controls(scanner, source, config, alphabet)
+        reviewed_qemu_cache_controls(scanner, source, config, token, alphabet)
         findings, _ = execute(scanner, "dir", source, config)
         if findings:
             raise ValueError("clean-input control failed")

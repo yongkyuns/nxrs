@@ -10,7 +10,7 @@ SCRIPT = Path(__file__).resolve().parents[1] / "layout_discovery.py"
 SPEC = importlib.util.spec_from_file_location("layout_discovery", SCRIPT)
 DISCOVERY = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(DISCOVERY)
-REVISION = "2b5c0de5e933281c209f954a63b99cf10c132346"
+REVISION = "4268617f28ad0ed7e900a081ea1b33c9347458b3"
 
 
 class LayoutDiscoveryTests(unittest.TestCase):
@@ -111,7 +111,7 @@ class LayoutDiscoveryTests(unittest.TestCase):
 
     def test_core_s3_configured_memory_has_no_invented_address_mapping(self):
         self.receipt(board="esp32s3-m5-cores3:nsh", config=(
-            "CONFIG_ARCH_BOARD_ESP32S3_M5_CORES3=y\nCONFIG_ARCH_CHIP_ESP32S3=y\n"
+            "CONFIG_ARCH_BOARD_CUSTOM=y\nCONFIG_ARCH_BOARD_CUSTOM_NAME=\"esp32s3-m5-cores3\"\nCONFIG_ARCH_BOARD_COMMON=y\nCONFIG_ARCH_CHIP_ESP32S3=y\n"
             "CONFIG_ESP32S3_SPIRAM=y\nCONFIG_ESP32S3_SPIRAM_SIZE=8388608\n"
             "CONFIG_ESP32S3_FLASH_16M=y\n"))
         result = self.discover()

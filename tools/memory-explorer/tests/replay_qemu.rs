@@ -15,8 +15,9 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-const NUTTX_REVISION: &str = "2b5c0de5e933281c209f954a63b99cf10c132346";
-const APPS_REVISION: &str = "3c772ea35b9245972e18999828f7b533e6fc57cc";
+mod support;
+use support::source_pins;
+
 const CLOCK: &str = "qemu-an521-cmsdk-timer1-20mhz";
 
 fn json(path: &Path) -> Value {
@@ -370,8 +371,9 @@ fn real_qemu_heap_journal_matches_native_headers_and_every_sequence() {
         assert_eq!(text(receipt, "elf_sha256"), elf_hash);
         assert_eq!(number(receipt, "schema_version"), 1);
     }
-    assert_eq!(text(&build, "nuttx_revision"), NUTTX_REVISION);
-    assert_eq!(text(&build, "apps_revision"), APPS_REVISION);
+    let pins = source_pins();
+    assert_eq!(text(&build, "nuttx_revision"), pins["nuttx"]);
+    assert_eq!(text(&build, "apps_revision"), pins["apps"]);
     for name in ["nuttx", "apps"] {
         assert_eq!(
             build["source_identity"][name]["tracked_sources_clean"],
@@ -464,7 +466,7 @@ fn real_qemu_heap_journal_matches_native_headers_and_every_sequence() {
         .as_deref()
         .unwrap()
         .starts_with("derived-stopped-heap-journal;"));
-    assert_eq!(replay.journal.provenance.nuttx_revision, NUTTX_REVISION);
+    assert_eq!(replay.journal.provenance.nuttx_revision, pins["nuttx"]);
     assert_eq!(
         replay.journal.provenance.config_sha256,
         text(&build, "config_sha256")

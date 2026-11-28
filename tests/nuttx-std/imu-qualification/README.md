@@ -43,10 +43,10 @@ Build each profile with the same Cargo manifest and the same sensor overlay, if
 one is used.
 
 ```sh
-cargo +1.90.0 nxrs build \
+cargo +1.100.0 nxrs build \
   --manifest-path tests/nuttx-std/imu-qualification/Cargo.toml \
   --profile cores3-imu-qualification --out target/s8-imu-flat
-cargo +1.90.0 nxrs build \
+cargo +1.100.0 nxrs build \
   --manifest-path tests/nuttx-std/imu-qualification/Cargo.toml \
   --profile cores3-protected-qualification --out target/s8-imu-protected
 ```

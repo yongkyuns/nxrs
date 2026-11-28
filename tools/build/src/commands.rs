@@ -179,6 +179,10 @@ pub fn run(root: &Path, command: &str, args: &[String]) -> Result<()> {
             }
             println!("{}", sysroot.display());
         }
+        "patch-esp-hal" => {
+            let a = Args::parse(args, &["--nuttx", "--record"], &[])?;
+            crate::nuttx::patch_esp_hal(root, &a.path("--nuttx")?, &a.path("--record")?)?;
+        }
         "patch-source" => {
             let a = Args::parse(
                 args,
@@ -306,7 +310,7 @@ mod tests {
             "--output".into(),
             out.display().to_string(),
             "--sdk".into(),
-            "nightly-2025-09-15".into(),
+            "nightly-2026-11-26".into(),
             "--native-app".into(),
             outside.display().to_string(),
         ];

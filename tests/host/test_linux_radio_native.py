@@ -64,7 +64,7 @@ class LinuxRadioNativeTests(unittest.TestCase):
 
             def build(command, target):
                 built = subprocess.run([
-                    "cargo", "+1.90.0", *command, "--locked", "--offline",
+                    "cargo", "+1.100.0", *command, "--locked", "--offline",
                     "--message-format=json-render-diagnostics",
                 ], cwd=ROOT, env=env, capture_output=True, text=True, timeout=120)
                 self.assertEqual(built.returncode, 0, built.stderr)

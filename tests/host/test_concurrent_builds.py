@@ -78,12 +78,12 @@ class Witness:
             "source": {"root": str(self.root), "revision": revision, "tree": self.git("rev-parse", "HEAD^{tree}"),
                        "inputs": {name: sha(self.root / name) for name in CHECK.SOURCE_INPUTS}},
             "frontend": {"path": str(frontend_path), "sha256": sha(frontend_path),
-                "build_argv": ["cargo", "+1.90.0", "build", "--locked", "--manifest-path", str(self.root / "Cargo.toml"),
+                "build_argv": ["cargo", "+1.100.0", "build", "--locked", "--manifest-path", str(self.root / "Cargo.toml"),
                                "-p", "nxrs-build", "--bin", "nxrs-build", "--message-format=json-render-diagnostics",
                                "--target-dir", str(self.parent / "frontend")],
                 "compiler": {"path": "/immutable/rust/bin/rustc", "sha256": "1" * 64,
-                             "version": "rustc 1.90.0 (fixture)\nhost: x86_64-unknown-linux-gnu"},
-                "cargo_version": "cargo 1.90.0 (fixture)",
+                             "version": "rustc 1.100.0 (fixture)\nhost: x86_64-unknown-linux-gnu"},
+                "cargo_version": "cargo 1.100.0 (fixture)",
                 "build_log": {"path": str(frontend_log), "sha256": sha(frontend_log)},
                 "cargo_messages": {"path": str(frontend_messages), "sha256": sha(frontend_messages)}},
             "environment": {"CARGO_BUILD_JOBS": "2", "NXRS_NUTTX_BUILD_JOBS": "2"},
@@ -114,7 +114,9 @@ class Witness:
                  "aliases": {"imu": "imu", "gnss": "navigation"}, "imu_implementation": chip,
                  "gnss_implementation": "NeoM9n", "stack_bytes": 16384, "gnss_stack_bytes": 16384}
         overlays = [str(source / "tests/host/fixtures/lsm6dso-overlay.toml")] if alternate else []
-        profiles = [str(source / "platform/cores3/profile.toml"), *overlays,
+        profiles = [str(source / name)
+                    for name in ("platform/cores3/profile.toml", *CHECK.BOARD_SOURCES)]
+        profiles += [*overlays,
                     str(source / "platform/nuttx/resources/esp32s3-m5-cores3.toml")]
         semantic = text_sha(json.dumps({"graph": graph, "target": TARGET, "nuttx-resources": None},
                                       sort_keys=True, separators=(",", ":")))
@@ -221,7 +223,7 @@ class Witness:
         write(out / "nuttx/nuttx.bin", b"fixture image\n")
         write(out / "downloads.sha256", "fixture toolchain provenance\n")
         patch = write(out / "std-fixture.patch", "fixture private SDK patch\n")
-        save(out / "std-patch.json", {"sdk": "esp-1.90.0.0", "installed_toolchain_unchanged": True,
+        save(out / "std-patch.json", {"sdk": "esp-1.100.0.0", "installed_toolchain_unchanged": True,
                                       "patchset_sha256": {patch.name: sha(patch)}})
         for name in ("nuttx-patches.json", "nuttx-apps-patches.json", "esp-hal-patches.json"):
             save(out / name, {"fixture": True})
@@ -295,6 +297,26 @@ class ConcurrentCheckerTests(unittest.TestCase):
         save(self.out / "provider-selection.json", selection)
         with self.assertRaisesRegex(ValueError, "escapes its own root"):
             CHECK.snapshot_prepared("bmi270", self.out, self.fixture.root)
+
+    def test_board_sources_are_required_and_content_bound(self):
+        receipt_path = self.out / "resolved-profile.json"
+        original = self.fixture.json("bmi270", "resolved-profile.json")
+        for name in CHECK.BOARD_SOURCES:
+            path = self.fixture.root / name
+            with self.subTest(name=name, mutation="omitted"):
+                receipt = copy.deepcopy(original)
+                receipt["dependencies"] = [row for row in receipt["dependencies"]
+                                           if row["path"] != str(path)]
+                save(receipt_path, receipt)
+                with self.assertRaisesRegex(ValueError, "missing profile/BSP source dependency"):
+                    CHECK.snapshot_prepared("bmi270", self.out, self.fixture.root)
+            save(receipt_path, original)
+            before = path.read_bytes()
+            with self.subTest(name=name, mutation="changed"):
+                write(path, before + b"changed board source\n")
+                with self.assertRaisesRegex(ValueError, "changed/duplicate profile source"):
+                    CHECK.snapshot_prepared("bmi270", self.out, self.fixture.root)
+            write(path, before)
 
     def test_native_inputs_cannot_be_owned_by_the_other_output(self):
         resource = self.fixture.json("bmi270", "provider-selection.json")["native-resources"][0]

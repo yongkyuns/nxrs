@@ -24,13 +24,13 @@ benchmark Cargo feature is added.
 
 ## Build
 
-Use Python 3.11+, Cargo, CMake/Ninja, pyelftools for Pico placement and pyserial
+Use Python 3.11+, Cargo, CMake/Ninja, target binutils (including `c++filt`), pyelftools for Pico placement and pyserial
 for physical capture. Initialize the pinned NuttX/apps submodules. The normal
 `cargo nxrs` frontend prepares its private patched Rust SDK; installed toolchains
 are unchanged. Copy [toolchains.example.toml](toolchains.example.toml) outside the
 checkout, then fill in your existing tool paths. Zephyr is pinned to 4.5.0;
 module revisions and board contracts are in [boards.toml](boards.toml). The Rust
-compiler must match the NuttX SDK: ESP 1.90.0.0 for S3, nightly-2025-09-15 for Pico.
+compiler must match the NuttX SDK: ESP 1.100.0.0 for S3, nightly-2026-11-26 for Pico.
 The S3 `nuttx-tools` directory must include the normal frontend's
 `downloads.sha256`; `path` can add existing native build tools such as genromfs.
 
@@ -99,6 +99,19 @@ and SDK resources; it is not the production channel's memory footprint.
 
 Pico hot operations are relocated by changing input section names only, with
 instruction-byte checks, then linked through each OS's startup SRAM copy path.
+Rust selection uses the target demangler to expand legacy and v0 symbol names,
+including backreferences, before matching qualified paths. Unsupported
+demangling fails before changing that object; `hot-placement.json` retains the
+selected demangled names. The linked audit recognizes both spellings of its
+explicit Rust roots and preserves the existing setup/retirement boundaries.
+NuttX endpoint setup explicitly initializes the controller's Rust `Thread`
+before the heap baseline and warmup, for both transports. Spawned workers have
+their thread state before entering the workload. The controller's initial
+queue fill can use only fast paths, so it cannot establish that precondition:
+its timed terminal send may be the first send that blocks. The audit's exact
+current TLS-guard and stderr/error-result aliases retain only that established
+setup boundary and the inspected print-then-abort paths; they do not exclude
+other I/O or thread-handle drops.
 Early memory routines stay in flash on both Pico kernels. For NuttX, the
 placement step redirects compiler-generated memory calls only in the reset
 object and verifies the reset call targets in the final ELF. S3 uses the shared

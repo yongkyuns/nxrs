@@ -33,8 +33,8 @@
  $(MCUBOOT_UNPACK): $(MCUBOOT_TARBALL)
  	$(Q) echo "Unpacking: $(MCUBOOT_TARBALL) -> $(MCUBOOT_UNPACK)"
 +# The product uses the same pinned source archive as tools/mcuboot-requirements.txt.
-+ifeq ($(MCUBOOT_VERSION),8a07053d42e592c85cb35b79c4de1b7749943387)
-+	$(Q) python3 -c 'import hashlib,pathlib,sys; sys.exit(0 if hashlib.sha256(pathlib.Path("$(MCUBOOT_TARBALL)").read_bytes()).hexdigest() == "f7b965694919899ac8e5cb989f70876396077bcd0cbe9649c4ae98efb97c4b35" else "MCUboot archive checksum mismatch")'
++ifeq ($(MCUBOOT_VERSION),6d3b3d2c38ab20c242e5b9abb04d050086383eb2)
++	$(Q) python3 -c 'import hashlib,pathlib,sys; sys.exit(0 if hashlib.sha256(pathlib.Path("$(MCUBOOT_TARBALL)").read_bytes()).hexdigest() == "37e0d9c9d90abf2b65c49b93401e1b4d44805295d9f5788bca83526864aeaa5b" else "MCUboot archive checksum mismatch")'
 +endif
  	$(Q) tar zxf $(MCUBOOT_TARBALL)
  	$(Q) mv mcuboot-$(MCUBOOT_VERSION) $(MCUBOOT_UNPACK)
