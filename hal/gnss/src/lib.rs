@@ -1,7 +1,14 @@
 //! GNSS contract and capability-local acquisition.
 #![cfg_attr(target_os = "none", no_std)]
 #![deny(unsafe_code)]
+#[cfg(not(target_os = "none"))]
+#[cfg_attr(not(any(test, platform = "nuttx")), allow(dead_code))]
+pub mod aiding;
 mod api;
+#[cfg(not(target_os = "none"))]
+pub use acquisition::monotonic_us;
+#[cfg(not(target_os = "none"))]
+pub use aiding::AidingHandle;
 pub use api::{
     Constellation, Device, DeviceError, Event, FixQuality, GnssFix, SatelliteReport,
     SatelliteSignal, SatelliteStatus, Session,

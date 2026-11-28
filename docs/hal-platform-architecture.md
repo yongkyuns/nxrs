@@ -170,6 +170,9 @@ Platform factories supply resource budgets such as worker stack size. Providers
 report capabilities; shared behavior does not infer them from the OS name.
 Ordinary `cfg(test)` and language/ABI requirements inside a platform provider
 remain appropriate.
+The exact `#[cfg(not(target_os = "none"))]` gate may omit a std-only public
+handle from legacy core-only contract fixtures. It does not select a provider;
+shared runtime behavior still contains no OS selection.
 
 Native callback and DMA ownership still require explicit lifetime proofs. A
 refactor must preserve cancellation, quiescence barriers, bounded overload,

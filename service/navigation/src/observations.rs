@@ -128,7 +128,9 @@ impl<const IMUS: usize> Observations<IMUS> {
                 self.imu_sample(index, sample, received)
             }
             Input::Gnss(gnss::Event::Fix(fix)) => self.gnss_fix(fix, received),
-            Input::Gnss(gnss::Event::Satellites(_) | gnss::Event::InvalidFrame) => {}
+            Input::Gnss(
+                gnss::Event::Satellites(_) | gnss::Event::InvalidFrame | gnss::Event::AidingReady,
+            ) => {}
             Input::Imu(index, imu::Event::Failed(error)) => {
                 return self
                     .imu_failed(index)
@@ -278,6 +280,14 @@ impl<const IMUS: usize> ObservationService<IMUS> {
         self.values.observe(&observation)
     }
 
+    /// Take the active receiver's aiding client once. Its completion remains
+    /// separate from observation health; optional aiding failure is not a
+    /// sensor fault. Reconcile retained results on the caller's existing wake
+    /// and deadline path, including when its observation callback filters events.
+    pub fn take_gnss_aiding(&mut self) -> Option<gnss::AidingHandle> {
+        self.gnss.as_mut()?.aiding()
+    }
+
     /// Reconcile terminal results before publishing a snapshot, including
     /// faults whose notification could not be admitted to the inbox.
     pub fn reap_finished(&mut self, mut report: impl FnMut(SensorFault)) {
@@ -425,6 +435,25 @@ mod tests {
         display.fail(SensorFault::Gnss(gnss::DeviceError::Io));
         assert_eq!(links.snapshot(now).gnss, Some(Reading::Fault));
         assert_eq!(display.satellites(now), Reading::Fault);
+    }
+
+    #[test]
+    fn aiding_completion_does_not_create_or_refresh_an_observation() {
+        let now = Instant::now();
+        let observation = Observation {
+            input: Input::Gnss(gnss::Event::AidingReady),
+            received: now,
+        };
+        let mut values = Observations::<0>::new(Duration::ZERO, Some(Duration::from_secs(1)));
+        assert_eq!(values.observe(&observation), None);
+        assert_eq!(values.snapshot(now).gnss, Some(Reading::Waiting));
+        let (_, mut writer, [mut reader, _]) =
+            fixed_readers::<0>(Duration::ZERO, Duration::from_secs(1));
+        assert!(matches!(writer.record(&observation), Ok(None)));
+        assert_eq!(reader.snapshot(now).gnss, Some(Reading::Waiting));
+        values.gnss_failed();
+        assert_eq!(values.observe(&observation), None);
+        assert_eq!(values.snapshot(now).gnss, Some(Reading::Fault));
     }
 
     struct FinishedImu;

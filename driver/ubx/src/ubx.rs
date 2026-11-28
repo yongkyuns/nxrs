@@ -5,6 +5,7 @@ use crate::{
 };
 use kinavis_ubx::{config, ConfigKey, Layers, Message, PollLayer};
 use peripheral::gnss::{SatelliteReport, SatelliteStatus, TimePulse};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 const WEEK_MS: u32 = 604_800_000;
 const DEFAULT_SATELLITE_AGE_MS: u32 = 2_000;
@@ -207,7 +208,7 @@ fn time_pulse(raw: &[u8]) -> Option<TimePulse> {
 
 #[derive(Default)]
 pub(super) struct Command {
-    bytes: [u8; 24],
+    bytes: [u8; 32],
     used: usize,
 }
 impl core::ops::Deref for Command {
@@ -262,4 +263,97 @@ pub(super) fn set_navigation(measurement: u16, cycles: u16) -> Command {
     )
     .expect("two U2 values fit the fixed command buffer");
     out
+}
+
+// UBX-21022436 R02, sections 3.13.9.2 and 3.13.9.3. Keep the initial
+// position/time layouts here; they are not navigation output messages.
+pub(super) fn initial_position(
+    latitude_deg: f64,
+    longitude_deg: f64,
+    ellipsoid_altitude_m: f64,
+    accuracy_m: f64,
+) -> Result<Command, DriverError> {
+    if !latitude_deg.is_finite()
+        || !(-90.0..=90.0).contains(&latitude_deg)
+        || !longitude_deg.is_finite()
+        || !(-180.0..=180.0).contains(&longitude_deg)
+        || !ellipsoid_altitude_m.is_finite()
+        || !accuracy_m.is_finite()
+        || accuracy_m <= 0.0
+    {
+        return Err(DriverError::InvalidData);
+    }
+    let altitude_cm = (ellipsoid_altitude_m * 100.0).round();
+    // A centimetre also covers combined rounding of latitude, longitude and
+    // ellipsoid altitude. Never advertise more precision after wire encoding.
+    let accuracy_cm = (accuracy_m * 100.0).ceil() + 1.0;
+    if !(i32::MIN as f64..=i32::MAX as f64).contains(&altitude_cm) || accuracy_cm > u32::MAX as f64
+    {
+        return Err(DriverError::InvalidData);
+    }
+    let mut payload = [0; 20];
+    payload[0] = 1; // POS_LLH; version and reserved bytes remain zero.
+    payload[4..8].copy_from_slice(&((latitude_deg * 1e7).round() as i32).to_le_bytes());
+    payload[8..12].copy_from_slice(&((longitude_deg * 1e7).round() as i32).to_le_bytes());
+    payload[12..16].copy_from_slice(&(altitude_cm as i32).to_le_bytes());
+    payload[16..20].copy_from_slice(&(accuracy_cm as u32).to_le_bytes());
+    Ok(initial_message(&payload))
+}
+
+pub(super) fn initial_time(utc: SystemTime, accuracy: Duration) -> Result<Command, DriverError> {
+    let elapsed = utc
+        .duration_since(UNIX_EPOCH)
+        .map_err(|_| DriverError::InvalidData)?;
+    let seconds = elapsed.as_secs();
+    let (year, month, day) = utc_date(seconds / 86_400)?;
+    let accuracy_seconds =
+        u16::try_from(accuracy.as_secs()).map_err(|_| DriverError::InvalidData)?;
+    let mut payload = [0; 24];
+    payload[0] = 0x10; // TIME_UTC, version 0, reference = message receipt.
+    payload[3] = 0x80; // The UTC input does not establish a leap-second count.
+    payload[4..6].copy_from_slice(&year.to_le_bytes());
+    payload[6] = month;
+    payload[7] = day;
+    payload[8] = ((seconds / 3_600) % 24) as u8;
+    payload[9] = ((seconds / 60) % 60) as u8;
+    payload[10] = (seconds % 60) as u8;
+    // trustedSource stays clear: accuracy is not independent spoofing trust.
+    payload[12..16].copy_from_slice(&elapsed.subsec_nanos().to_le_bytes());
+    payload[16..18].copy_from_slice(&accuracy_seconds.to_le_bytes());
+    payload[20..24].copy_from_slice(&accuracy.subsec_nanos().to_le_bytes());
+    Ok(initial_message(&payload))
+}
+
+fn initial_message(payload: &[u8]) -> Command {
+    let mut out = Command::default();
+    let end = 6 + payload.len();
+    out.bytes[..6].copy_from_slice(&[0xb5, 0x62, 0x13, 0x40, payload.len() as u8, 0]);
+    out.bytes[6..end].copy_from_slice(payload);
+    let (a, b) = kinavis_ubx::checksum(0x13, 0x40, payload);
+    out.bytes[end..end + 2].copy_from_slice(&[a, b]);
+    out.used = end + 2;
+    out
+}
+
+fn utc_date(unix_days: u64) -> Result<(u16, u8, u8), DriverError> {
+    // Gregorian 400-year eras, with March as month zero, avoid a calendar
+    // dependency and handle the century exceptions (including year 2100).
+    let days = i64::try_from(unix_days)
+        .ok()
+        .and_then(|days| days.checked_add(719_468))
+        .ok_or(DriverError::InvalidData)?;
+    let era = days / 146_097;
+    let day_of_era = days % 146_097;
+    let year_of_era =
+        (day_of_era - day_of_era / 1_460 + day_of_era / 36_524 - day_of_era / 146_096) / 365;
+    let day_of_year = day_of_era - (365 * year_of_era + year_of_era / 4 - year_of_era / 100);
+    let march_month = (5 * day_of_year + 2) / 153;
+    let day = day_of_year - (153 * march_month + 2) / 5 + 1;
+    let month = march_month + if march_month < 10 { 3 } else { -9 };
+    let year = year_of_era + era * 400 + i64::from(month <= 2);
+    Ok((
+        u16::try_from(year).map_err(|_| DriverError::InvalidData)?,
+        month as u8,
+        day as u8,
+    ))
 }

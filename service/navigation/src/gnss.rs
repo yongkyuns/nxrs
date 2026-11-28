@@ -80,6 +80,7 @@ enum Event {
 pub struct GnssHandle {
     control: Sender<Event>,
     replies: control::Client<GnssStatus>,
+    aiding: Option<gnss::AidingHandle>,
     join: Option<JoinHandle<io::Result<GnssStats>>>,
     stopping: Arc<AtomicBool>,
 }
@@ -144,7 +145,7 @@ impl TestInput {
 impl GnssService {
     fn start_device<D: Session + Send + 'static>(
         self,
-        device: D,
+        mut device: D,
         control: Sender<Event>,
         inbox: Inbox<Event>,
         wake: impl FnMut() + Send + 'static,
@@ -152,18 +153,26 @@ impl GnssService {
         let stopping = Arc::new(AtomicBool::new(false));
         let stop = stopping.clone();
         let (replies, output) = control::channel(wake);
+        let aiding = device.aiding();
         let join = thread::Builder::new()
             .name("gnss-service".into())
             .spawn(move || run(self, device, inbox, &stop, output))?;
         Ok(GnssHandle {
             control,
             replies,
+            aiding,
             join: Some(join),
             stopping,
         })
     }
 }
 impl GnssHandle {
+    /// Take the receiver's independent aiding client once. Reconcile its
+    /// retained result on wakes and an application-owned pending deadline.
+    pub fn take_aiding(&mut self) -> Option<gnss::AidingHandle> {
+        self.aiding.take()
+    }
+
     /// Admit one command without waiting for inbox space or service completion.
     ///
     /// A successful admission occupies this handle's retained request slot until
@@ -301,6 +310,7 @@ fn run<D: Session>(
                 }
             }
             Event::Device(gnss::Event::Satellites(_)) => {}
+            Event::Device(gnss::Event::AidingReady) => replies.notify(),
             Event::Device(gnss::Event::InvalidFrame) => {
                 stats.errors = stats.errors.saturating_add(1);
             }

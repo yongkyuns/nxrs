@@ -1,5 +1,8 @@
 //! Target poll/pipe ABI. Borrowed descriptors stay alive through each call.
-use std::{ffi::{c_int, c_long}, io};
+use std::{
+    ffi::{c_int, c_long},
+    io,
+};
 
 // Verified against the selected NuttX headers by events.c.
 const CLOCK_MONOTONIC: c_int = 1;
@@ -66,10 +69,33 @@ pub fn poll(device: c_int, cancel: Option<c_int>, timeout_ms: c_int) -> io::Resu
         _ => Err(io::Error::last_os_error()),
     }
 }
+
+/// Read readiness, an optional pending write, a wake descriptor and one deadline.
+/// The caller drains a control wake and separately checks its stop/request state.
+pub fn poll_io(
+    device: c_int,
+    wake: c_int,
+    writable: bool,
+    timeout_ms: c_int,
+) -> io::Result<Readiness> {
+    // SAFETY: synchronous poll over live, borrowed descriptors.
+    match unsafe { acquisition_event_poll_io(device, wake, writable.into(), timeout_ms) } {
+        0 => Ok(Readiness::Cancelled),
+        1 => Ok(Readiness::Device),
+        2 => Ok(Readiness::Timeout),
+        _ => Err(io::Error::last_os_error()),
+    }
+}
 unsafe extern "C" {
     fn acquisition_event_pipe(descriptors: *mut c_int) -> c_int;
     fn acquisition_event_wait(device: c_int, cancel: c_int) -> c_int;
     fn acquisition_event_poll(device: c_int, cancel: c_int, timeout_ms: c_int) -> c_int;
+    fn acquisition_event_poll_io(
+        device: c_int,
+        wake: c_int,
+        writable: c_int,
+        timeout_ms: c_int,
+    ) -> c_int;
 }
 
 pub fn tick(cancel: c_int, timeout_ms: c_int) -> io::Result<bool> {

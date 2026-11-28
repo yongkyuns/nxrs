@@ -115,6 +115,7 @@ int main(void) {
 #include <nuttx/ioexpander/gpio.h>
 int acquisition_event_pipe(int[2]);
 int acquisition_event_poll(int, int, int);
+int acquisition_event_poll_io(int, int, int, int);
 int acquisition_event_wait(int, int);
 int acquisition_event_tick(int, int);
 int gpio_check_pin(int, bool);
@@ -151,6 +152,14 @@ static void *waiter(void *opaque) {
 static void check(int (*create)(int[2]), int (*wait)(int,int)) {
   int device[2], cancel[2]; char value;
   assert(create(device) == 0 && create(cancel) == 0);
+  assert(acquisition_event_poll_io(device[1], cancel[0], 0, 0) == 2);
+  assert(acquisition_event_poll_io(device[1], cancel[0], 1, 0) == 1);
+  char bytes[4096] = {0};
+  while (write(device[1], bytes, sizeof(bytes)) > 0) {}
+  assert(errno == EAGAIN || errno == EWOULDBLOCK);
+  assert(acquisition_event_poll_io(device[1], cancel[0], 1, 0) == 2);
+  while (read(device[0], bytes, sizeof(bytes)) > 0) {}
+  assert(acquisition_event_poll_io(device[1], cancel[0], 1, 0) == 1);
   assert(acquisition_event_poll(device[0], -1, 0) == 2);
   assert(write(device[1], "d", 1) == 1);
   assert(acquisition_event_poll(device[0], -1, 0) == 1);
@@ -163,6 +172,7 @@ static void check(int (*create)(int[2]), int (*wait)(int,int)) {
   assert(pthread_join(thread, NULL) == 0);
   assert(write(device[1], "d", 1) == 1);
   assert(acquisition_event_poll(device[0], cancel[0], 0) == 0);
+  assert(acquisition_event_poll_io(device[1], cancel[0], 1, 0) == 0);
   assert(wait(device[0], cancel[0]) == 0); /* cancellation wins */
   for (int i = 0; i < 2; i++) { close(device[i]); close(cancel[i]); }
 }

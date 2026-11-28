@@ -674,6 +674,11 @@ def inspect_hal_boundaries(root: Path) -> list[str]:
                 and not relative.endswith('platform/gatt.rs')):
             continue
         # Comments may describe the rule without becoming platform selection.
+        # A public contract can omit std-only handles on the legacy core-only
+        # fixture target. This exact availability gate cannot select an OS
+        # implementation or branch shared runtime behavior.
+        if path.name == 'api.rs':
+            text = re.sub(r'#\s*\[\s*cfg\s*\(\s*not\s*\(\s*target_os\s*=\s*"none"\s*\)\s*\)\s*\]', '', text)
         if (re.search(r'\b(?:target_(?:os|env|family|vendor)|hal_enabled|hal_mock|hal_provider|nxrs_hal_platform|nxrs_provider|CARGO_CFG_PLATFORM|NXRS_PLATFORM|NXRS_RESOLVED_PROFILE)\b', text)
                 or re.search(r'(?:#\s*\[\s*cfg(?:_attr)?\s*\(|\bcfg!\s*\()[^\];{}]*\b(?:unix|windows|platform)\b', text)):
             errors.append(f'{relative}: shared Rust behavior must not select a platform/provider')

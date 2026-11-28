@@ -95,7 +95,7 @@ impl<const IMUS: usize> Publisher<IMUS> {
                     }));
                     return Ok(None);
                 }
-                gnss::Event::InvalidFrame => return Ok(None),
+                gnss::Event::InvalidFrame | gnss::Event::AidingReady => return Ok(None),
                 gnss::Event::Failed(error) => SensorFault::Gnss(error),
             },
             _ => panic!("observation publisher used with another source"),
