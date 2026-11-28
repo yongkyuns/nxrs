@@ -7,7 +7,7 @@ import unittest
 from unittest import mock
 
 from build_requests_nuttx import patch_paths, run as build, validate_apps_directory
-from qualify_requests_qemu import CASES, controls, evidence
+from qualify_requests_qemu import CASES, NSH_PROMPT, controls, evidence
 
 
 RECORDING = "0123456789abcdef0123456789abcdef"
@@ -66,6 +66,15 @@ def synthetic_console():
 
 
 class RequestQualificationTests(unittest.TestCase):
+    def test_completion_requires_a_full_prompt_with_optional_erase_line(self):
+        prefix = b"NXRS_HEAP_REQUESTS PASS\r\n"
+        for prompt in (b"nsh>", b"nsh> \x1b[K", b"nsh> \x1b[K\r\n"):
+            with self.subTest(prompt=prompt):
+                self.assertIsNotNone(NSH_PROMPT.search(prefix + prompt))
+        for prompt in (b"", b"nsh", b"nsh> \x1b[", b"nsh> \x1b[2K", b"not-nsh>"):
+            with self.subTest(prompt=prompt):
+                self.assertIsNone(NSH_PROMPT.search(prefix + prompt))
+
     def test_native_bare_zero_and_prefixed_zero_are_equivalent(self):
         console = synthetic_console()
         self.assertIn(b"old: 0 align:", console)

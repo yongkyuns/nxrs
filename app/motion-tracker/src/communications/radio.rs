@@ -204,6 +204,10 @@ impl<'a, L: Listener> Output<'a, L> {
             if self.live {
                 self.paired = true;
                 let notifications = self.listener.notifying();
+                // A dashboard would reset the client's reconnect budget before export fails.
+                if notifications && self.capture.failed() {
+                    return Err(io::ErrorKind::NotConnected.into());
+                }
                 if notifications && self.request_len < REQUEST_LEN && self.publication.is_idle() {
                     match conn.read(&mut self.request[self.request_len..]) {
                         Ok(0) => return Err(io::ErrorKind::UnexpectedEof.into()),

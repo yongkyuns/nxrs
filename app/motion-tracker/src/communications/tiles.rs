@@ -67,8 +67,21 @@ impl<'a> Tiles<'a> {
         }
     }
 
-    pub fn busy(&self) -> bool {
-        self.active.is_some()
+    pub fn next_service(&self, poll: Instant, phone_live: bool) -> Option<Instant> {
+        if self.dial.is_some() {
+            return Some(poll);
+        }
+        self.key?;
+        match self.active.as_ref() {
+            Some(Transfer::Phone(deadline)) => Some(*deadline),
+            Some(Transfer::Relay(deadline, _)) => Some(poll.min(*deadline)),
+            None if (phone_live && !self.try_ip)
+                || (DIRECT_RELAY_AVAILABLE && self.relay.is_some()) =>
+            {
+                Some(self.next.max(self.throttle))
+            }
+            None => None,
+        }
     }
 
     pub fn service(
@@ -223,8 +236,11 @@ impl<'a> Relay<'a> {
     ) -> io::Result<Option<Response>> {
         match self {
             Self::Dial => {
-                if let Some(socket) = dial.as_mut().unwrap().poll()? {
+                let result = dial.as_mut().unwrap().poll();
+                if !matches!(&result, Ok(None)) {
                     *dial = None;
+                }
+                if let Some(socket) = result? {
                     let connection = identity()?
                         .connect_pinned(socket, endpoint.pin, IP_DEADLINE)
                         .map_err(|_| io::ErrorKind::PermissionDenied)?;
@@ -267,5 +283,44 @@ impl<'a> Relay<'a> {
             }
         }
         Ok(None)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn failed_dial_releases_its_slot_and_schedules_retry_without_external_work() {
+        if !DIRECT_RELAY_AVAILABLE {
+            return;
+        }
+        let task = thread::spawn(|| Err(io::ErrorKind::ConnectionRefused.into()));
+        let deadline = Instant::now() + Duration::from_secs(1);
+        while !task.is_finished() {
+            assert!(Instant::now() < deadline);
+            thread::yield_now();
+        }
+        let now = Instant::now();
+        let mut tiles = Tiles::new(
+            Some(Endpoint {
+                address: std::net::SocketAddrV4::new(std::net::Ipv4Addr::LOCALHOST, 9),
+                pin: [1; 32],
+            }),
+            now,
+        );
+        tiles.select(
+            Some(Key {
+                zoom: Zoom::default(),
+                x: 1,
+                y: 1,
+            }),
+            now,
+        );
+        tiles.dial = Some(Dial(Some(task)));
+        tiles.active = Some(Transfer::Relay(now + IP_DEADLINE, Relay::Dial));
+        assert!(tiles.service(|| unreachable!(), false, None, now).is_none());
+        assert!(tiles.dial.is_none());
+        assert_eq!(tiles.next_service(now, false), Some(now + RETRY));
     }
 }
