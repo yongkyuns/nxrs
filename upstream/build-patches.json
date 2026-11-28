@@ -125,7 +125,8 @@
       "0145-gpio-edge-timestamps.patch",
       "0146-xtensa-compiler-wchar-limits.patch",
       "0148-trace-heap-allocation-requests.patch",
-      "0149-armv8m-systick-coherent-status.patch"
+      "0149-armv8m-systick-coherent-status.patch",
+      "0151-pynuttx-task-context-and-mutex-owners.patch"
     ]
   },
   "mcuboot": {
