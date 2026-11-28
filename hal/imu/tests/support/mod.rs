@@ -30,6 +30,7 @@ struct Fake {
     fail_stop: bool,
     fail_reference: bool,
     irq_asserted: bool,
+    irq_wake: bool,
     snapshot_crossings: usize,
     periodic_wake: bool,
     repeat_periodic: bool,
@@ -58,6 +59,7 @@ impl Fake {
             fail_stop: false,
             fail_reference: false,
             irq_asserted: true,
+            irq_wake: false,
             snapshot_crossings: 0,
             periodic_wake: false,
             repeat_periodic: false,
@@ -146,7 +148,10 @@ pub(super) mod ffi {
     }
 
     pub(crate) fn wait(_: i32, _: i32) -> io::Result<bool> {
-        Ok(false)
+        let mut fake = FAKE.lock().unwrap();
+        let wake = std::mem::take(&mut fake.irq_wake);
+        fake.irq_asserted |= wake;
+        Ok(wake)
     }
     pub(crate) fn tick(_: i32, timeout: i32) -> io::Result<bool> {
         let wake = {
@@ -945,6 +950,9 @@ fn ambiguous_fifo_snapshot_retries_without_losing_the_sample_or_waiting_for_anot
         reset();
         {
             let mut fake = FAKE.lock().unwrap();
+            // Start with the watermark low, then deliver exactly one edge.
+            fake.irq_asserted = false;
+            fake.irq_wake = irq;
             fake.snapshot_crossings = 3;
             fake.fifo.extend_from_slice(&[0; 12]);
             // A false tick simulates cancellation during the deferred IRQ retry.
@@ -970,6 +978,7 @@ fn ambiguous_fifo_snapshot_retries_without_losing_the_sample_or_waiting_for_anot
         )
         .unwrap();
         let fake = FAKE.lock().unwrap();
+        assert!(!fake.irq_wake);
         assert_eq!(fake.snapshot_crossings, 0);
         assert_eq!(fake.fifo.len(), if retry { 0 } else { 12 });
         assert_eq!(fake.unregisters, usize::from(irq));
