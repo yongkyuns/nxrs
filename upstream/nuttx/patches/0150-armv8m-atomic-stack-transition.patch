@@ -1,0 +1,96 @@
+From: nxrs contributors
+Subject: [PATCH] armv8-m: mask interrupts during initial stack transition
+
+Based on Apache NuttX 13.1.0, revision
+2b5c0de5e933281c209f954a63b99cf10c132346.
+
+The scheduler timer is running before up_initialize() changes from the idle
+MSP to PSP. An interrupt after selecting PSP but before moving MSP to the
+interrupt stack saves its context below PSP, then runs the C handler on the
+overlapping old MSP. The handler can overwrite that exception context and
+fail exception return before the first task starts.
+
+Save PRIMASK and exclude all maskable interrupts through the stack and
+limit updates. Restore the incoming mask on both the MSP and already-PSP
+paths; leave BASEPRI and hardware stack checking unchanged. Declare both
+assembly temporaries as early-clobber outputs and report condition-code
+and memory effects to the compiler.
+
+diff --git a/arch/arm/src/armv8-m/arm_initialstate.c b/arch/arm/src/armv8-m/arm_initialstate.c
+--- a/arch/arm/src/armv8-m/arm_initialstate.c
++++ b/arch/arm/src/armv8-m/arm_initialstate.c
+@@ -195,45 +195,53 @@
+ {
+   uint32_t stacklim = up_get_intstackbase(this_cpu());
+   uint32_t stack = stacklim + INTSTACK_SIZE;
+-  uint32_t temp = 0;
++  uint32_t temp;
++  uint32_t primask;
++
++  /* The scheduler timer may already be running. Exclude all maskable
++   * interrupts until PSP, MSP and their limits describe separate stacks.
++   * BASEPRI alone would still allow high-priority interrupts through.
++   */
+ 
+   __asm__ __volatile__
+     (
+-      "mrs %1, CONTROL\n"
+-      "tst %1, #2\n"
++      "mrs %[primask], primask\n"
++      "cpsid i\n"
++      "mrs %[temp], CONTROL\n"
++      "tst %[temp], #2\n"
+       "bne 1f\n"
+ 
+       /* Initialize PSP */
+ 
+-      "mrs %1, msp\n"
+-      "msr psp, %1\n"
+-#ifdef CONFIG_ARMV8M_STACKCHECK_HARDWARE
+-      "mrs %1, msplim\n"
+-      "msr psplim, %1\n"
++      "mrs %[temp], msp\n"
++      "msr psp, %[temp]\n"
++#ifdef CONFIG_ARMV8M_STACKCHECK_HARDWARE
++      "mrs %[temp], msplim\n"
++      "msr psplim, %[temp]\n"
+ #endif
+       "isb sy\n"
+ 
+       /* Select PSP */
+ 
+-      "mrs %1, CONTROL\n"
+-      "orr %1, #2\n"
+-      "msr CONTROL, %1\n"
++      "mrs %[temp], CONTROL\n"
++      "orr %[temp], #2\n"
++      "msr CONTROL, %[temp]\n"
+       "isb sy\n"
+ 
+       /* Initialize MSP */
+ 
+       "1:\n"
+-      "msr msp, %0\n"
+-#ifdef CONFIG_ARMV8M_STACKCHECK_HARDWARE
+-      "msr msplim, %2\n"
++      "msr msp, %[stack]\n"
++#ifdef CONFIG_ARMV8M_STACKCHECK_HARDWARE
++      "msr msplim, %[stacklim]\n"
+ #endif
+       "isb sy\n"
+-      :
+-#ifdef CONFIG_ARMV8M_STACKCHECK_HARDWARE
+-      : "r" (stack), "r" (temp), "r" (stacklim)
+-#else
+-      : "r" (stack), "r" (temp)
+-#endif
+-      : "memory");
++      "msr primask, %[primask]\n"
++      : [temp] "=&r" (temp), [primask] "=&r" (primask)
++      : [stack] "r" (stack)
++#ifdef CONFIG_ARMV8M_STACKCHECK_HARDWARE
++      , [stacklim] "r" (stacklim)
++#endif
++      : "cc", "memory");
+ }
+ #endif
