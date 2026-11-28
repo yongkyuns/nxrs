@@ -136,7 +136,7 @@ def run():
     output, image = Path(settings["output"]), Path(settings["image"])
     try:
         sys.path.insert(0, settings["test_tools"])
-        from qemu_capture_gdb import raw_snapshot, compare_capture, stop_at
+        from qemu_capture_gdb import raw_snapshot, compare_capture, stop_at, terminate_remote
         gdb.execute("set pagination off")
         gdb.execute("set confirm off")
         gdb.execute("set non-stop off")
@@ -180,7 +180,7 @@ def run():
                              "independent_native_note_ring": True, "stopped_metadata_unchanged": True,
                              "target_function_calls": False, "timer_unchanged_while_stopped": True}}
         (output / "gdb-report.json").write_text(json.dumps(report, indent=2) + "\n")
-        gdb.execute("kill")
+        (output / "teardown.json").write_text(json.dumps(terminate_remote(), indent=2) + "\n")
         gdb.execute("quit 0")
     except Exception as exc:
         failure = {"error": str(exc), "traceback": traceback.format_exc()}

@@ -17,6 +17,10 @@ from unittest import mock
 ENTRY_PC = 0x1003326A
 
 
+class RemoteError(Exception):
+    pass
+
+
 class Breakpoint:
     def __init__(self, spec, type, temporary=False):
         self.spec, self.type, self.temporary = spec, type, temporary
@@ -37,9 +41,11 @@ class StoppedTarget:
     """
 
     BP_HARDWARE_BREAKPOINT = 1
+    error = RemoteError
 
-    def __init__(self, stalled_step=False, step_error=False, bad_stop=None):
+    def __init__(self, stalled_step=False, step_error=False, bad_stop=None, kill_error=None):
         self.stalled_step, self.step_error, self.bad_stop = stalled_step, step_error, bad_stop
+        self.kill_error = kill_error
         self.pc, self.native_id, self.continues = 0, 0, 0
         self.breakpoints, self.steps, self.commands = [], [], []
         self.locking = None
@@ -83,16 +89,20 @@ class StoppedTarget:
             breakpoint = self.breakpoints[-1]
             self.steps.append((self.native_id, breakpoint.enabled, self.locking))
             if self.step_error:
+                if isinstance(self.step_error, Exception):
+                    raise self.step_error
                 raise RuntimeError("Remote step failed")
             if not breakpoint.enabled and not self.stalled_step:
                 self.pc += 2
+        elif command == "kill" and self.kill_error is not None:
+            raise self.kill_error
         elif not command.startswith(("set ", "source ", "target remote ", "quit ")) and command != "kill":
             raise AssertionError(f"Unexpected GDB command: {command}")
 
 
-def load_collector(target):
+def load_collector(target, name="lifecycle_capture_gdb"):
     spec = importlib.util.spec_from_file_location(
-        "lifecycle_capture_gdb", Path(__file__).with_name("lifecycle_capture_gdb.py"))
+        name, Path(__file__).with_name(name + ".py"))
     collector = importlib.util.module_from_spec(spec)
     with mock.patch.dict(sys.modules, {"gdb": target}):
         spec.loader.exec_module(collector)
@@ -134,7 +144,9 @@ class CheckpointProgressTests(unittest.TestCase):
 
         def terminate_remote():
             self.assertFalse(any(bp.is_valid() for bp in target.breakpoints))
-            return {"kill_packet": "acknowledged"}
+            self.assertEqual(self.captured, [1, 2, 3, 4])
+            self.assertTrue((self.output / "gdb-report.json").is_file())
+            return load_collector(target, "qemu_capture_gdb").terminate_remote()
 
         self.terminate_remote = mock.Mock(side_effect=terminate_remote)
         modules = {
@@ -176,7 +188,26 @@ class CheckpointProgressTests(unittest.TestCase):
         self.assertEqual(report["elf_sha256"], hashlib.sha256(self.image.read_bytes()).hexdigest())
         self.assertEqual(report["recording_id"], self.settings["recording_id"])
         self.assertEqual([point["checkpoint_id"] for point in report["snapshots"]], [1, 2, 3, 4])
+        self.terminate_remote.assert_called_once_with()
+        self.assertEqual(json.loads((self.output / "teardown.json").read_text()),
+                         {"kill_packet": "acknowledged"})
         self.assertEqual(target.commands[-1], "quit 0")
+
+    def test_completed_observations_survive_the_recorded_kill_pipe_race(self):
+        response = "Remote communication error. Target disconnected: error while writing: Broken pipe."
+        target = StoppedTarget(kill_error=RemoteError(response))
+        self.collect(target)
+        self.assertEqual(self.captured, [1, 2, 3, 4])
+        self.assertFalse((self.output / "failure.json").exists())
+        self.assertEqual(json.loads((self.output / "teardown.json").read_text()),
+                         {"kill_packet": "unacknowledged", "kill_response": response})
+        self.terminate_remote.assert_called_once_with()
+        self.assertEqual(target.commands[-2:], ["kill", "quit 0"])
+
+    def test_remote_error_during_observation_still_fails_before_teardown(self):
+        target = StoppedTarget(step_error=RemoteError("Remote checkpoint read failed"))
+        self.assert_failure(target, "Remote checkpoint read failed", [1])
+        self.assertFalse((self.output / "teardown.json").exists())
 
     def test_stalled_step_does_not_rearm_or_claim_a_second_capture(self):
         target = StoppedTarget(stalled_step=True)
