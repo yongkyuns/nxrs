@@ -24,8 +24,8 @@ Use the two-core build and ESP-EMU patch from the
 Build the demo image with `NXRS_TARGET_C_FLAGS=-DTRACKER_DEMO_AUTOSTART` and
 `dashboard_init.c` so the tracker starts alongside NSH.
 Use Emscripten, CMake and the Xtensa `nm` in `PATH`. The build verifies the
-existing Mbed TLS 4.2.0 archive pin and the jsQR 1.4.0 npm archive pin. All
-runtime dependencies are copied into the generated directory. [Mbed TLS 4.2.0](https://github.com/Mbed-TLS/mbedtls/tree/mbedtls-4.2.0) · [jsQR](https://github.com/cozmo/jsQR)
+existing Mbed TLS 4.3.0 archive pin and the jsQR 1.4.0 npm archive pin. All
+runtime dependencies are copied into the generated directory. [Mbed TLS 4.3.0](https://github.com/Mbed-TLS/mbedtls/tree/mbedtls-4.3.0) · [jsQR](https://github.com/cozmo/jsQR)
 
 ```sh
 out=target/tracker-esp-emu

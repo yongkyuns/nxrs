@@ -3,8 +3,6 @@
     "marker": "libs/libc/tls/Kconfig",
     "patches": [
       "0001-Fix-ESP32S3-BLE-advertising.patch",
-      "0002-Add-ESP32S3-NimBLE-HCI-configuration-option.patch",
-      "0003-Add-ESP32-S3-camera-driver-for-OV3660-sensor.patch",
       "0004-Enable-ESP32-S3-Wi-Fi-HAL-helpers-under-NuttX.patch",
       "0005-net-udp-return-zero-length-datagrams-from-readahead.patch",
       "0006-flat-build-global-pthread-keys.patch",
@@ -88,12 +86,10 @@
       "0101-netdev-poll-thread-lifetime.patch",
       "0102-camera-stop-acknowledgement.patch",
       "0103-esp32s3-config-partition.patch",
-      "0104-esp32s3-m5-cores3-raw-resources.patch",
       "0105-sched-migrate-affinity-with-empty-ready-queue.patch",
       "0106-esp32s3-direct-voluntary-switch.patch",
       "0107-esp32s3-product-iram-layout.patch",
       "0108-xtensa-simpleboot-hash-offset.patch",
-      "0109-esp32s3-cores3-protected-memory-map.patch",
       "0110-esp32s3-protected-toolchain-libm.patch",
       "0111-esp32s3-devkit-configurable-imu-irq.patch",
       "0112-i2c-scheduler-note-qualification.patch",
@@ -107,16 +103,14 @@
       "0120-rp23xx-peripheral-device-controls.patch",
       "0121-espressif-ledc-gpio-readback.patch",
       "0122-esp32s3-spi-write-only-pio.patch",
-      "0123-esp32s3-cores3-display-resources.patch",
       "0124-esp32s3-maintenance-volume.patch",
       "0125-esp32s3-camera-smp-irq-lifetime.patch",
       "0126-espressif-i2s-rx-enqueue-ownership.patch",
       "0127-esp32s3-i2s-rx-interrupt-route.patch",
       "0128-esp32s3-i2s-rx-stop-ownership.patch",
-      "0129-esp32s3-cores3-register-settings-storage.patch",
-      "0130-esp32s3-cores3-ble-and-guarded-entropy.patch",
+      "0130-esp32s3-ble-guarded-entropy.patch",
       "0131-esp32s3-read-systimer-with-periodic-scheduler.patch",
-      "0132-esp32s3-cores3-touchscreen.patch",
+      "0132-ft5x06-poll-consumer-lifetime.patch",
       "0133-esp32s3-qemu-host-entropy.patch",
       "0134-sim-macos-pty.patch",
       "0135-sim-macos-libc-symbol-prefix.patch",
@@ -127,9 +121,9 @@
       "0140-esp32s3-serialize-vhci-send.patch",
       "0141-bluetooth-reclaim-tx-credits-before-allocation.patch",
       "0142-stack-guard-use-saved-interrupt-context.patch",
-      "0143-esp32s3-cores3-register-watchdog.patch",
       "0144-ram-uart-report-only-new-rx-bytes.patch",
-      "0145-cores3-timestamp-gpio10-edges.patch",
+      "0145-gpio-edge-timestamps.patch",
+      "0146-xtensa-compiler-wchar-limits.patch",
       "0148-trace-heap-allocation-requests.patch",
       "0149-armv8m-systick-coherent-status.patch"
     ]
@@ -145,7 +139,6 @@
   "nuttx-apps": {
     "marker": "wireless/bluetooth/nimble/Makefile.nimble",
     "patches": [
-      "0001-Add-ESP32S3-VHCI-transport-support-for-NimBLE.patch",
       "0002-nsh-dmesg-reset-options.patch",
       "0003-dhcpc-pad-option.patch",
       "0004-mcuboot-current-helpers.patch",
@@ -163,7 +156,8 @@
       "0005-esp32s3-inherit-watchdog-clock.patch",
       "0006-esp32s3-inherit-watchdog-user-handoff.patch",
       "0007-wpa-aes-symbol-prefix.patch",
-      "0008-esp32s3-smp-rng.patch"
+      "0008-esp32s3-smp-rng.patch",
+      "0009-c23-static-atomic-initializers.patch"
     ]
   }
 }

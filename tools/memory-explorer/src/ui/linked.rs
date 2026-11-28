@@ -122,7 +122,7 @@ impl MemoryExplorer {
                 let painter = ui.painter();
                 let mut x = line.left();
                 while x < line.right() {
-                    painter.line_segment([Pos2::new(x, y), Pos2::new((x + 5.0).min(line.right()), y)], Stroke::new(1.0, LINE));
+                    painter.line_segment([Pos2::new(x, y), Pos2::new((x + 5.0).min(line.right()), y)], Stroke::new(1.0_f32, LINE));
                     x += 10.0;
                 }
                 if let Some(pointer) = response.interact_pointer_pos().filter(|_| response.clicked() || response.dragged()) {
@@ -138,7 +138,7 @@ impl MemoryExplorer {
                     let selected = cursor == Some(point.1);
                     painter.circle_filled(Pos2::new(x, y), if selected { 6.0 } else { 4.0 }, ACCENT);
                     if selected {
-                        painter.circle_stroke(Pos2::new(x, y), 10.0, Stroke::new(1.0, ACCENT));
+                        painter.circle_stroke(Pos2::new(x, y), 10.0, Stroke::new(1.0_f32, ACCENT));
                     }
                     let align = if index == 0 { Align2::LEFT_TOP } else if index + 1 == checkpoints.len() { Align2::RIGHT_TOP } else { Align2::CENTER_TOP };
                     if selected || index == 0 || index + 1 == checkpoints.len() || index % stride == 0 {
@@ -149,7 +149,7 @@ impl MemoryExplorer {
                 }
                 if let Some(cursor) = cursor {
                     let x = at(cursor);
-                    painter.line_segment([Pos2::new(x, rect.top() + 2.0), Pos2::new(x, y + 10.0)], Stroke::new(1.0, if exact.is_some() { ACCENT } else { WARNING }));
+                    painter.line_segment([Pos2::new(x, rect.top() + 2.0), Pos2::new(x, y + 10.0)], Stroke::new(1.0_f32, if exact.is_some() { ACCENT } else { WARNING }));
                 }
                 if let Some(point) = exact {
                     ui.label(RichText::new(format!("{} · source clock {} ns · checkpoint {}", point.3, point.2, point.0)).color(TEXT));

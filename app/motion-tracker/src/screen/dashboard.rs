@@ -413,7 +413,7 @@ impl<D: Display> Screen<D> {
                     w: gyro.x + gyro.w - accel.x,
                     ..accel
                 };
-                draw_strips(&mut self.display, &mut self.pixels, controls, whole, &paint)?;
+                draw_strips(&mut self.display, &mut self.pixels, controls, whole, paint)?;
             }
             let label = (plot.y + 5, plot.y + 12);
             let changed = |strip: Area| {
@@ -432,7 +432,7 @@ impl<D: Display> Screen<D> {
                     ..strip
                 })
             };
-            draw_strips(&mut self.display, &mut self.pixels, plot, changed, &paint)?;
+            draw_strips(&mut self.display, &mut self.pixels, plot, changed, paint)?;
             draw_strips(
                 &mut self.display,
                 &mut self.pixels,
@@ -443,7 +443,7 @@ impl<D: Display> Screen<D> {
                     h: 7,
                 },
                 whole,
-                &paint,
+                paint,
             )?;
         } else {
             draw_strips(
@@ -456,7 +456,7 @@ impl<D: Display> Screen<D> {
                     h: layout.height - top,
                 },
                 whole,
-                &paint,
+                paint,
             )?;
         }
         self.present = Some(key);

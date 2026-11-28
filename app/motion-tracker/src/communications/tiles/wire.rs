@@ -121,7 +121,7 @@ impl Pixels {
         let bytes =
             (start..end).map(|offset| self.blocks[offset / BLOCK_BYTES][offset % BLOCK_BYTES]);
         if end - start == ROW_BYTES {
-            for (pair, byte) in colors.chunks_exact_mut(2).zip(bytes) {
+            for (pair, byte) in colors.as_chunks_mut::<2>().0.iter_mut().zip(bytes) {
                 pair.copy_from_slice(&[byte >> 4, byte & 0x0f]);
             }
         } else {
@@ -380,7 +380,7 @@ mod tests {
         let mut row = [0; SIDE];
         for y in 0..SIDE {
             tile.row(y, &mut row);
-            assert!(row.chunks_exact(2).all(|pair| pair == [10, 11]));
+            assert!(row.as_chunks::<2>().0.iter().all(|pair| *pair == [10, 11]));
         }
         let mut unavailable = key.request().to_vec();
         unavailable.push(1);

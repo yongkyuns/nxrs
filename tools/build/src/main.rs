@@ -613,6 +613,7 @@ fn run() -> Result<ExitCode> {
         }
         "check"
         | "prepare-std"
+        | "patch-esp-hal"
         | "patch-source"
         | "stamp-version"
         | "sign"

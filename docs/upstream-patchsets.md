@@ -6,13 +6,52 @@ not Git submodules or installed SDKs. The applicator verifies each source
 revision and patch preimage, then records patch hashes and before/after file
 hashes in a build ledger. Preserve that ledger with firmware.
 
+## Maintaining a small downstream delta
+
+Prefer supported upstream configuration, board directories and callbacks when
+they express the required integration. Keep project-owned board code and product
+identifiers in their owning source directories. A dependency patch is appropriate
+when the selected upstream source cannot satisfy a required contract through
+those interfaces.
+
+Retained changes need a specific requirement, the regression or source evidence
+that establishes it, their upstream status, and a removal condition. Record these
+beside the patch or in this guide. Keep fixes to ABI, ownership and protocol
+correctness separate from performance experiments so each can be retired on its
+own evidence. An accepted upstream change becomes removable after the selected
+compatible revision contains it and the regression passes without the backport.
+
+The source ledger proves which changes were applied. Behavioral qualification
+establishes whether they satisfy the product's contract. For performance changes,
+compare one change at a time using the same workload, priorities, toolchain and
+memory placement. Keep historical measurements tied to their original sources;
+they do not qualify a newly reduced configuration.
+
+The unused private ESP32-S3 camera driver and NimBLE transport integration have
+been retired. Maintained camera profiles use NuttX's standard video interface and
+OV3660 sensor lower half; maintained Bluetooth profiles use the native NuttX host.
+Patch 0068 retains the standard-camera registration with its context rebased after
+the old camera code was removed. The old NimBLE patch's initialization debug
+message is also removed. Existing native capture and Bluetooth ownership fixes
+remain in the ordered series.
+
 ## NuttX
 
-`external/nuttx` is pinned to NuttX 13.1.0
-(`2b5c0de5e933281c209f954a63b99cf10c132346`).
+`external/nuttx` is pinned to NuttX 13.1.1
+(`4268617f28ad0ed7e900a081ea1b33c9347458b3`). The
+[published release](https://nuttx.apache.org/download/) uses the approved
+`nuttx-13.1.1-RC0` source tag. The released OS and Apps archives were checked
+against their published SHA-512 digests and these commits: all tracked regular
+files present in the archives match, with only the generated OS `.version`
+file added by release packaging.
+`external/nuttx-apps` remains at `3c772ea35b9245972e18999828f7b533e6fc57cc`,
+which is also the Apps revision for that release.
 The authoritative ordered lists for NuttX and NuttX Apps are in
 [`upstream/build-patches.json`](../upstream/build-patches.json), consumed by
 [`tools/apply-nuttx-patches.py`](../tools/apply-nuttx-patches.py).
+Kernel patch 0102 has one preimage indentation adjustment for upstream's V4L2 formatting fix;
+its camera stop-acknowledgement behavior is unchanged. Patch 0146 uses GCC 16's
+explicit `wchar_t` minimum so the Xtensa limits match its unsigned native type.
 Patch headers retain their original source and rationale; build ledgers retain
 the exact applied bytes. IDs intentionally have gaps: accepted upstream changes
 and retired investigation tools are not silently renumbered.
@@ -21,7 +60,7 @@ and retired investigation tools are not silently renumbered.
 | --- | --- | --- |
 | Random-source failure | 0090–0091 | Bound RP2350 hardware polling/health rejection and latch failures; stop `arc4random_buf` after clearing output when device reads cannot fill it |
 | ESP32-S3 RF entropy access | 0093 | Hold the existing SDK PHY mutex through `/dev/random` sampling; refuse unavailable RF and unsupported PM and auto-sleep, cap reads at 32 bytes, and honor nonblocking raw-device locking |
-| Original platform support | 0001–0004, 0007–0008 | ESP32-S3 BLE, Wi-Fi, camera, PSRAM validation and Freenove LED |
+| Original platform support | 0001, 0004, 0007–0008 | ESP32-S3 BLE, Wi-Fi, PSRAM validation and Freenove LED |
 | POSIX/network integration | 0005–0006, 0022, 0042, 0077–0078, 0086–0087 | UDP empty datagrams, flat-build pthread cleanup, TCP connect/retransmission progress, safe link-layer dispatch, sequence validation before ACK/close progress, cumulative ACK acceptance after partial retransmission, and congestion-window recovery |
 | Pico board and radio assets | 0009, 0011–0012, 0021, 0028 | Pico 2 W wiring, firmware validation, CLM alignment, calibration and open-network setup |
 | Pico shared Wi-Fi/Bluetooth transport | 0013–0015, 0027, 0029, 0036–0038, 0040–0041 | HCI rings and power ownership; bounded frames, backpressure, receive validation and error propagation |
@@ -42,6 +81,9 @@ and retired investigation tools are not silently renumbered.
 | Espressif I²S receive and GDMA | 0126 | Roll back failed receive submissions and terminate a short ESP32-S3 descriptor list within its capacity |
 | ESP32-S3 I²S receive interrupt | 0127 | Keep the RX interrupt on its registering CPU and serialize DMA completion with task-context queue operations |
 | ESP32-S3 I²S receive stop | 0128 | Keep active buffers until GDMA is parked and submissions and callbacks have retired, then cancel and release the queued buffers |
+| ESP32-S3 BLE entropy source | 0130 | Admit an active BLE controller through the existing guarded RF entropy path; CoreS3 board wiring is maintained outside the patch |
+| FT5x06 poll ownership | 0132 | Start and stop polling with open consumers and bound its interval; CoreS3 registration is maintained outside the patch |
+| GPIO edge timestamps | 0145 | Retain the generic GPIO timestamp interface; CoreS3 pin registration is maintained outside the patch |
 
 Patch 0090 bounds each RP2350 TRNG block's polling and health-rejection retries,
 including startup. Failure disables the source, clears partial output and keeps
@@ -58,6 +100,10 @@ startup readiness and physical qualification remain required under #35.
 Host controls execute pinned driver/libc source with injected registers/reads; they
 do not qualify hardware randomness or target timing.
 
+NuttX Apps changes cover NSH `dmesg` reset options, correct DHCP pad-option
+parsing, the selected MCUboot helpers, bounded Dropbear service ownership, and
+remote-prompt initialization.
+
 The same manifest lists the retained NuttX Apps patches. Patch `0007` adds
 `trace capture <seconds> <recording-id>` to the existing trace utility. It
 records the enabled event scopes in a bounded, non-overwriting RAM window and
@@ -68,12 +114,31 @@ cannot establish a full-window event rate. See
 for ownership, clock, cancellation and qualification limits. The tracked empty
 fork `build.log` is not part of a patch.
 
+### CoreS3 board ownership
+
+CoreS3 uses NuttX's custom-board interface. Its eight native board files live in
+[`platform/cores3/board/`](../platform/cores3/board/), selected by the profile's
+`board-dir` declaration. The existing board identity and BSP resource mapping
+remain `esp32s3-m5-cores3`; the native selector is `ARCH_BOARD_CUSTOM` with that
+custom name. See [board inputs and outputs](build-system.md#inputs-and-outputs)
+for staging, source hashes and cache ownership.
+
+This retires board-only patches 0104, 0109, 0123, 0129 and 0143. The board portions
+of 0130, 0132 and 0145 move with them; those three patches retain their generic
+entropy, touchscreen and GPIO changes. The extracted C, headers, Kconfig and
+Make files preserve the previously prepared board bytes. Only the defconfig's
+board selection and path change for the supported interface. This is an ownership
+change, not new physical-device qualification.
+
 ### Pico integration and limits
 
 NuttX 13.1.0 already includes the common CYW43439 transport and firmware helper;
 the old 0010 backport was retired. Patch 0011 supplies the Pico 2 W board
 adaptation and rejects missing firmware instead of using a dummy image. The
-pending board port is not claimed as accepted upstream.
+[upstream Pico 2 W board port](https://github.com/apache/nuttx/pull/19250) was
+merged on 2026-10-28. The selected 13.1.1 source still lacks that port; replacing
+the local adaptation requires a compatible source update and a comparison of
+board wiring, firmware failure handling and selected radio behavior.
 
 The normal builder calls `tools/prepare-pico2w-radio.py` to stage hash-pinned
 Pico SDK 2.3.1 radio assets on demand. It retains `LICENSE.RP` and records
@@ -117,14 +182,18 @@ unless that maintenance access is intended. See
 
 ESP32-S3 builds also patch their isolated `esp-hal-3rdparty` copy after NuttX
 context setup, before compilation. The source cache is never patched. NuttX
-13.1.0 selects `b90b1837cb5ad24747deb4c895246037cc206ce5`; the build records
+13.1.1 still selects `b90b1837cb5ad24747deb4c895246037cc206ce5`; the build records
 the actual revision, patch hash and source pre/postimages in `esp-hal-patches.json`.
+Keep this kernel-selected HAL revision: a newer independent HAL tag is not a
+drop-in replacement for the NuttX driver interfaces. All eight registered
+application HAL patches target this source.
 
 | Patch | Purpose |
 | --- | --- |
 | [0001](../upstream/esp-hal-3rdparty/patches/0001-mbedtls-pair-configured-allocators.patch) | Pair mbedTLS's fallback libc `calloc` with `free`; keep capability allocations paired with `heap_caps_free` and preserve memory placement |
 | [0002](../upstream/esp-hal-3rdparty/patches/0002-intr-alloc-pair-capability-allocators.patch) | Pair interrupt handles, shared vectors and trace arguments with `heap_caps_free`, including error paths; avoid cross-heap teardown in split-heap builds |
 | [0003](../upstream/esp-hal-3rdparty/patches/0003-esp32s3-serialize-wifi-phy-state.patch) | Move NuttX's Wi-Fi hardware-bit operations inside the existing SDK PHY lock, completing the sampling/shutdown barrier used by NuttX patch 0093 |
+| [0009](../upstream/esp-hal-3rdparty/patches/0009-c23-static-atomic-initializers.patch) | Replace the removed C23 `ATOMIC_VAR_INIT` wrapper with equivalent direct static initialization in GPIO, SPI, ADC and I2S sources for GCC 16 |
 
 The mbedTLS pairing fixed by 0001 triggered the NuttX adapter's cross-heap warning and
 fallback on ESP SoftAP startup. The resulting log flood interrupted shell
@@ -141,56 +210,130 @@ heap. NuttX patch 0072 separately releases the caller-owned callback adapter;
 freeing the SDK handle does not free that argument. Its native regression
 exercises repeated setup/teardown and failed-detach retry with sanitizers.
 
+## MCUboot and image signing
+
+The product builder and `tools/mcuboot-requirements.txt` use
+[MCUboot v2.4.0](https://github.com/mcu-tools/mcuboot/releases/tag/v2.4.0), revision
+`6d3b3d2c38ab20c242e5b9abb04d050086383eb2`. The Apps download guard and imgtool
+require the same source archive SHA-256:
+`37e0d9c9d90abf2b65c49b93401e1b4d44805295d9f5788bca83526864aeaa5b`.
+The application-side flash-backend patches and selected bootloader patches apply
+to this revision; image geometry, ownership, provisioning restrictions and
+verification gates remain in force.
+
+The image-class check uses MCUboot's existing `boot_uuid_cid_match()` callback.
+Its [implementation](../tools/build/src/ffi/mcuboot_image_class.c) and
+[CMake integration](../tools/build/mcuboot/image_class.cmake) live with the NXRS
+build controller. The controller copies them into each fresh loader build and
+records both hashes in `bootloader.json`. CMake 3.19 or newer attaches the callback
+to the upstream executable through its project-include hook; no MCUboot source
+patch is needed. MCUboot continues to parse and authenticate the signed class
+TLV, and the callback retains its image-index check and FIH return contract.
+
+The Espressif bootloader uses HAL revision
+`911dbec8e4a92e70056b58a3d2b0d965b8b7bcc9`, separately from the application's
+HAL. MCUboot v2.4.0 still requires ESP-IDF HAL 5.1.6, which this pin provides.
+The protected bootloader's eFuse-write refusal patch applies to that exact
+source. Changing the kernel HAL does not change the bootloader HAL.
+
 ## Rust, LLVM and std
 
-Normal firmware builds do not use an active Rust compiler fork. The opt-in
-[Xtensa LLVM series](../upstream/rust-llvm/README.md) pins compiler and Rust
-revisions, patch bytes and affected-source preimages. Its six-patch default
-and named compiler candidates are built in a private evaluation sysroot by
-the [local builder](../upstream/rust-llvm/BUILDING.md). The
-[arithmetic assessment](../tests/arithmetic-parity/RESULTS.md) retains the
-matched device measurements and distinguishes the frozen 29-patch candidate
-from the unchanged six-patch default. Compiler evidence binds the actual
-compiler and driver hashes; source patches alone do not prove which compiler
-built an image.
+The normal build controller uses Rust 1.100.0. Firmware std is rebuilt from
+these independently pinned SDKs:
 
-`tests/nuttx-std/prepare-std.py` generates seven unified-diff patches against
-version-checked Rust library and libc inputs: NuttX parker initialization,
-file-descriptor sanitization, startup `SIG_IGN`, `sockaddr_storage` alignment,
-NuttX 13.1 open flags, and the private libc override/lock. NuttX 13.1 changed
-the access modes and flag bit positions; both pinned libc versions predate
-this change. The ABI gate checks all 17 exported open flags against the actual
-target headers, so an old shared SDK is rejected rather than silently reused.
-Three committed patches are also applied: `upstream/libc/patches/0001-nuttx-pollfd-abi.patch`
-defines NuttX's complete pollfd ABI, and
-`upstream/rust-std/patches/0001-native-pollfd-initialization.patch` zero-initializes
-all native pollfd fields in std. The filesystem fix
-`upstream/libc/patches/0002-nuttx-directory-inode-abi.patch` matches the native
-32-bit inode/block-size types and the directory entry's leading inode field.
-Without it, `std::fs::read_dir` interpreted inode bytes as filenames and the
-NuttX stack qualification could not find any owner threads. Each prepared build
-records ten patch entries total. The expanded 117-observation gate also checks
-inode/block-size types and every public directory-entry/stat field offset and
-width. Trailing storage may be larger; undersized buffers and shifted fields
-are rejected. These are new build gates, not retroactive qualification of older
-77-observation artifacts.
-The gate compares the full native pollfd layout, field offsets
-and widths, mask types and constants against the exact Cargo libc artifact;
-Rust polling is admitted only on an exact match. `ppoll` remains rejected
-because its signal ABI is unqualified. `std-patch.json` records source blobs
-and patch hashes; generated patch files are retained with the build output.
-The generator is authoritative because SDK versions have different preimages.
-No upstream checkout or installed SDK is changed.
-Local provenance marks tracked, uncommitted nxrs changes with `nxrs_dirty=yes`;
+| Target family | Rust/std SDK | Private libc | Recorded patch entries |
+| --- | --- | --- | ---: |
+| Xtensa ESP32-S3 | `esp-1.100.0.0` | `0.2.191` | 16 |
+| ARM and native NuttX simulator | `nightly-2026-11-26` | `0.2.191` | 15 |
+
+The local [Xtensa LLVM series](../upstream/rust-llvm/README.md) remains an
+opt-in compiler evaluation with its original Rust/LLVM revisions, source
+preimages and patch bytes. Its six-patch default and named candidates are
+built in a private sysroot by the [local builder](../upstream/rust-llvm/BUILDING.md).
+The [arithmetic assessment](../tests/arithmetic-parity/RESULTS.md) retains its
+matched device measurements and frozen 29-patch candidate. Updating the normal
+SDK does not change those historical source or measurement identities.
+Compiler evidence binds the actual compiler and driver hashes; source patches
+alone do not prove which compiler built an image.
+
+`tools/build/src/sdk.rs` owns preparation; `tests/nuttx-std/prepare-std.py`
+forwards to that frontend. Preparation checks the exact source blobs before
+copying an SDK, applies the selected committed patches to its private copy,
+and records source preimages, resulting blobs and patch hashes in
+`std-patch.json`. A generated lockfile patch records the local libc override,
+including the Xtensa SDK's upgrade from its upstream locked `0.2.189` to
+`0.2.191`. The registry archive is SHA-256 checked before extraction.
+Installed SDKs and upstream source checkouts remain unchanged. Explicit older
+SDK preparation is retained for the frozen evaluation paths.
+
+The shared NuttX channel and parker implementations are unchanged by this
+upgrade. Current context patches 0013–0017 preserve per-entry OS startup,
+image-wide once-only main-thread identity, native parker selection, standard-fd
+sanitization, startup `SIG_IGN` and the libc override. Rust 1.100 moved the
+main-thread identity publication before `sys::init`; the new context patch
+preserves that order while limiting identity publication to one call per image.
+Both SDKs use the same channel and parker implementation bodies.
+
+The [independent runtime comparisons](../tests/nuttx-std/channels/README.md#independent-runtime-comparisons)
+reverse one change at a time in a private qualification SDK: the bounded queue,
+native parker, or operation outlining. The normal frontend accepts that SDK only
+for its exact qualification fixture and still applies its source and target ABI
+checks. Production preparation does not select these experiments.
+
+| Candidate for further reduction | Evidence required before retirement |
+| --- | --- |
+| Native bounded-channel patch 0007 | Preserve ownership, cancellation, disconnect and finite progress under the actual priority policy, including a preempted publisher between slot reservation and publication |
+| Native parker and selector patches 0002 / 0014 | Qualify the narrower upstream pthread parker with NuttX mutex initialization independently of the queue; retain blocked-wait, timeout, wake, joined-retirement and target latency controls |
+| Outlining patches 0010 / 0011 | Compare linked IRAM/shared-SRAM cost and workload timing with the same compiler, memory placement and queue/parker bodies |
+| NuttX direct context-switch patch 0106 | Compare upstream switching under the same product workload and deadlines; keep other architectures, SMP and ABI modes qualified |
+| Already accepted board or correctness backports | Select a compatible upstream revision containing the same fix, then pass the original regression with the local patch omitted |
+
+An instrumented scheduling counterexample can rule out a candidate for that
+contract. Passing ARM functional controls alone cannot establish Xtensa timing
+or physical-device memory budgets. Preserve the production implementation until
+its particular removal condition is met.
+
+Two fixes are now supplied by upstream inputs. `libc 0.2.191` contains all
+NuttX 13.1 open flags, so its older open-flags patch is omitted. The current
+nightly already zero-initializes the complete native poll descriptor, so its
+source is checked and recorded without applying the poll-initialization patch.
+The Xtensa SDK still needs that std patch. Current libc patches retain the
+complete NuttX poll descriptor, directory entry/inode/block-size layout and
+socket-storage alignment. They also supply the omitted Xtensa `wchar_t`
+selection as unsigned 16-bit, matching the pinned Espressif GCC 16.2 compiler
+and NuttX headers, and give all exported poll masks the native `pollevent_t` width.
+The old patch files remain tied to the older SDKs; they are not reapplied to
+sources that already contain their fixes.
+
+The compiled target ABI gate checks 130 observations, with one additional
+Xtensa `wchar_t` signedness observation. These include every exported open flag,
+all poll-mask aliases, native poll descriptor field offsets and widths,
+semaphore storage/alignment, `SEM_PRIO_NONE`, inode/block-size types, and
+public directory-entry/stat field offsets and widths. Trailing storage may be
+larger; undersized buffers and shifted fields are rejected. The gate uses the
+actual Cargo libc artifact and configured target headers. Compile-only witnesses
+consume the paired `.rmeta` files from those Cargo records; reports retain the
+libc link archive and all target metadata hashes, and the socket gate rechecks
+both identities before reuse. `ppoll` remains
+rejected because its signal ABI is unqualified. These checks do not
+retroactively qualify older artifacts or establish physical target behavior.
+
+Immediate-abort builds use the current compiler's `-Cpanic=immediate-abort`
+with `-Zunstable-options`; the removed `panic_immediate_abort` std feature is
+not requested. Diagnostic builds retain their selected panic reporting policy.
+Local provenance marks tracked, uncommitted NXRS changes with `nxrs_dirty=yes`;
 the recorded commit alone is not a reproducible source identity in that case.
 
 The separate [std math RFC](../upstream/rust-std/README.md) routes NuttX
-inverse-hyperbolic methods to C libm. It is not part of the normal std
-qualification: its own manifest, patch ledger and complete packaged source
-inventory are verified and recorded independently from LLVM.
+inverse-hyperbolic methods to C libm. Its original manifest, patch ledger and
+complete packaged source inventory remain independent of the current normal
+SDK and of LLVM qualification.
 
-Browser-thread qualification also has a separate opt-in std TLS-selection
-patch generated by `tests/browser-threads/prepare-std.py`; its input/output
-blobs are recorded in `std-patch.json`. This browser-specific diff is generated
-from pinned inputs. SDK upgrades
-require review of pins, transformations and generated diffs.
+Browser-thread qualification uses `nightly-2026-11-26` and a separate opt-in
+TLS-selection patch in `tools/build/src/web.rs`; the Python preparation entry
+forwards to it. The current source selects WASI separately from generic Wasm.
+The patch still sends atomic Emscripten thread cleanup through Unix TLS keys
+instead of the generic Wasm branch that retains allocations at thread exit.
+Its exact input/output blobs and generated diff are recorded in `std-patch.json`.
+SDK upgrades require review of these selectors and real-source patch application;
+host channel tests do not establish browser-thread or hardware qualification.

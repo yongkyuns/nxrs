@@ -190,7 +190,7 @@ fn fixes_include_quality_and_only_recent_satellite_reports() {
     sat[4] = 1;
     sat[5] = 9;
     for (index, (block, (quality, cn0))) in sat[8..]
-        .chunks_exact_mut(12)
+        .as_chunks_mut::<12>().0.iter_mut()
         .zip([
             (2, 39),
             (3, 28),

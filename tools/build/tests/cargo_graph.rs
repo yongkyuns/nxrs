@@ -277,6 +277,8 @@ fn queries_use_the_configured_compiler_environment_and_custom_target() {
     build
         .arg("--target")
         .arg(fixture.0.join("custom.json"))
+        .arg("-Zjson-target-spec")
+        .env("RUSTFLAGS", "-Zunstable-options")
         .env("RUSTC", &compiler)
         .env("CARGO_BUILD_RUSTC", &compiler)
         .env("RUSTC_BOOTSTRAP", "1")

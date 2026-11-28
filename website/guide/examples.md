@@ -128,7 +128,7 @@ Read `main.rs` to see component construction and shutdown, then follow the linke
 ## Add a second sensor on CoreS3
 
 The [CoreS3 profile](../../platform/cores3/profile.toml) configures a CoreS3
-with the M135 GNSS module. The [CoreS3 NuttX patch](../../upstream/nuttx/patches/0104-esp32s3-m5-cores3-raw-resources.patch)
+with the M135 GNSS module. The [CoreS3 NuttX board](../../platform/cores3/board/Kconfig)
 adds the board and its `nsh` defconfig. Its `board_late_initialize()` calls
 NuttX's shared `board_i2c_init()`. The [resource mapping](../../platform/nuttx/resources/esp32s3-m5-cores3.toml)
 enables I²C0 master mode and the I²C character driver, so that initializer

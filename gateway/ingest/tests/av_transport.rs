@@ -668,7 +668,7 @@ async fn camera_timestamps_and_sample_gaps_survive_the_native_encoder() {
     let mut expected_video = Vec::new();
     let mut pcm = [0; BLOCK_BYTES];
     // A 1 kHz square wave on each nonzero block. No household audio or images.
-    for (index, sample) in pcm.chunks_exact_mut(2).enumerate() {
+    for (index, sample) in pcm.as_chunks_mut::<2>().0.iter_mut().enumerate() {
         let amplitude = if index % 16 < 8 {
             14_000i16
         } else {

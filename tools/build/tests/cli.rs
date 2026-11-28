@@ -1079,6 +1079,12 @@ fn diagnostic_profile_validates_target_and_owns_native_settings() {
     ];
     fs::write(&path, format!("{profile}diagnostics = true\n")).unwrap();
     success(frontend(&root.0, &root.0, &args));
+    let missing_macros: Vec<_> = args
+        .into_iter()
+        .chain(["--kconfig-set", "DEBUG_SYMBOLS_LEVEL=\"-g\""])
+        .collect();
+    let error = failure(frontend(&root.0, &root.0, &missing_macros));
+    assert!(error.contains("build.diagnostics requirement"), "{error}");
     fs::write(&path, format!("{profile}diagnostics = true\ndiagnostics-trace-bytes = 65536\ndiagnostics-heap-backtrace-depth = 4\n")).unwrap();
     success(frontend(&root.0, &root.0, &args));
     let buffer_conflict: Vec<_> = args.into_iter()
@@ -1114,6 +1120,7 @@ fn diagnostic_profile_validates_target_and_owns_native_settings() {
 
     fs::write(&path, format!("{profile}diagnostics = false\n")).unwrap();
     success(frontend(&root.0, &root.0, &conflict));
+    success(frontend(&root.0, &root.0, &missing_macros));
     fs::write(&path, format!("{profile}diagnostics = 'true'\n")).unwrap();
     let error = failure(frontend(&root.0, &root.0, &args));
     assert!(error.contains("build.diagnostics must be a boolean"), "{error}");

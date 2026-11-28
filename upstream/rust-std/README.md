@@ -1,11 +1,28 @@
 # Rust std patches
 
-The normal NuttX build applies
-[native pollfd initialization](patches/0001-native-pollfd-initialization.patch)
-alongside the [libc layout fix](../libc/patches/0001-nuttx-pollfd-abi.patch).
-Preparation patches only a private, source-pinned SDK; the target ABI gate
-checks the actual compiled binding before firmware linking. See
-[patchset provenance](../../docs/upstream-patchsets.md).
+Normal NuttX builds use `esp-1.100.0.0` for Xtensa and
+`nightly-2026-11-26` for ARM and the native simulator. Both use the private,
+hash-pinned `libc 0.2.191` binding. Preparation changes only a copied SDK;
+the target ABI gate checks the actual compiled binding before a firmware build
+is reported as successful.
+See [patchset provenance](../../docs/upstream-patchsets.md).
+
+The Xtensa SDK still needs
+[native pollfd initialization](patches/0001-native-pollfd-initialization.patch).
+The current nightly already contains that initialization: its exact source
+preimage is checked and recorded without reapplying the fix. Both SDKs need
+the [current libc poll layout](../libc/patches/0005-current-nuttx-pollfd-abi.patch),
+directory/inode layout and socket alignment patches. `libc 0.2.191` already
+has the NuttX 13.1 open flags, so the older open-flags patch is not applied.
+The [Xtensa wchar fix](../libc/patches/0007-nuttx-xtensa-wchar.patch) selects the
+unsigned 16-bit type used by the pinned Espressif GCC 16.2 toolchain and NuttX
+headers. The compiled gate checks its size, alignment and signedness; a native
+toolchain with a different wide-character model is rejected.
+
+Current SDK context patches are 0013–0017. The native channel and parker
+implementation bodies are unchanged. Explicit preparation of the older SDKs
+remains available for the frozen compiler/std proposals; it does not relabel
+those proposals or their measured results as current-toolchain qualification.
 
 These are compatibility fixes for the selected NuttX ABI. The channel and
 parking implementations below make separate choices about RTOS scheduling and
@@ -14,12 +31,14 @@ already provide a preallocated buffer of fixed size.
 
 ## NuttX runtime entry
 
-The [main-thread identity patch](patches/0012-nuttx-main-thread-once.patch)
+The [current main-thread identity patch](patches/0013-current-nuttx-main-thread-once.patch)
 publishes that image-wide identity once for `target_os = "nuttx"`. Flat NuttX
 builtins enter the same linked std runtime more than once; rewriting the ID
 can race readers on 32-bit targets. Per-builtin `sys::init` still runs, including
-descriptor sanitization, signal setup and argument initialization. Both pinned
-SDKs have the same checked runtime preimage; the SDK ledger records the patch
+descriptor sanitization, signal setup and argument initialization. Both current
+SDKs share the checked runtime preimage, which initializes the main-thread ID
+before `sys::init`. The legacy SDKs retain [patch 0012](patches/0012-nuttx-main-thread-once.patch)
+for their earlier initialization order. Each SDK ledger records its exact patch
 and resulting source digest. Other targets keep the original initialization.
 
 This fixes the main-thread identity race only. It does not make std's image-wide

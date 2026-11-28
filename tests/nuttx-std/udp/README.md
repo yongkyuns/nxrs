@@ -6,7 +6,7 @@ non-default test binary/image. Production app/providers are unchanged.
 
 ## Run
 
-Native: `cargo +1.90.0 build --locked -p nxrs-std-udp`, then
+Native: `cargo +1.100.0 build --locked -p nxrs-std-udp`, then
 `python3 tests/nuttx-std/udp/run.py --native target/debug/nxrs-std-udp`.
 
 NuttX: install the same pinned prerequisites as the RV32 std probe, then run

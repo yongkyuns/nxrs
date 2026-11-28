@@ -217,9 +217,15 @@ def validate_artifact(root: Path, artifact: Path, expected_revision: str | None 
     for package in catalog['packages']:
         if f"{package['crate']}/index.html" not in actual:
             raise ValueError(f"API artifact is missing {package['crate']}/index.html")
-    for name in ('search-index.js', 'crates.js'):
+    # The pinned rustdoc emits a sharded index. The exact inventory above binds
+    # every search shard as well as its root; symbol search is exercised in the
+    # website browser tests.
+    for name in ('search.index/root.js', 'crates.js'):
         if name not in actual:
             raise ValueError(f'API artifact is missing rustdoc search support: {name}')
+    if not any(name.startswith('search.index/') and name.endswith('.js')
+               and name != 'search.index/root.js' for name in actual):
+        raise ValueError('API artifact is missing rustdoc search index shards')
     return report
 
 

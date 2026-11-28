@@ -39,7 +39,7 @@ class NativeAppsAdmission(unittest.TestCase):
             nuttx.mkdir()
             apps.mkdir()
             (apps / "Makefile").write_text("# native apps\n")
-            for setting in ('CONFIG_APPS_DIR="../apps"', f'CONFIG_APPS_DIR="{apps.as_posix()}"', ""):
+            for setting in ('CONFIG_APPS_DIR="../apps"', f'CONFIG_APPS_DIR="{apps.resolve().as_posix()}"', ""):
                 with self.subTest(setting=setting):
                     self.assertEqual(validate_apps_directory(nuttx, apps, setting), apps.resolve())
 

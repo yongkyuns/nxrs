@@ -27,8 +27,10 @@ Without the backtrace-depth option, the target's existing allocator setting is
 preserved. Captured frames add allocator metadata and work and require a working
 target unwinder. These two options require `diagnostics = true`.
 
-Diagnostic builds retain the final map, native debug symbols, and Rust line
-tables for host-side source resolution. They also enable application markers and
+Diagnostic builds retain the final map, native debug symbols and C macro data
+(`-g3`), and Rust line tables for host-side source resolution. The macro data lets
+the stopped-target exporter verify the compiled stack coloration and context
+layout without calling a target function. They also enable application markers and
 select the existing `probe` implementation for consumed IMU/GNSS providers. These
 providers record canonical device names with wake, drain, bus-transfer, or
 read/parse/deliver work in task context. They add no recorder thread or heap
@@ -268,8 +270,11 @@ benchmark.
 map alongside addressed heap/task-stack observations in an egui viewer. Its
 read-only GDB exporter records raw default-allocator chunk extents and stack
 reservations. Unlike the procfs meminfo read above, it does not drain delayed
-frees. It also does not sample stack coloration or measure requested payload
-sizes, so keep using this qualification for lifecycle reclamation and stack
+frees. Its **Stack usage** view separates usable reservation, admitted current
+pointer depth, and a read-only coloration watermark at each checkpoint. Missing
+or ambiguous measurements remain unknown, and sampled observations do not prove
+maximum stack depth. It does not measure requested payload sizes, so keep using
+this qualification for lifecycle reclamation and stack
 high-water evidence.
 
 The viewer plots per-heap usage and observed peaks across independently captured
@@ -335,6 +340,9 @@ only to this native test fixture.
 
 The initial admitted timing witness used QEMU 10.0.13, ARM GCC 14.2.1, and ELF
 SHA-256 `613479a51d53b2ced2ba0589fee20e5086d2624fd2a1415866982b95b2782b7b`.
+It used NuttX `2b5c0de5e933281c209f954a63b99cf10c132346` and Apps
+`3c772ea35b9245972e18999828f7b533e6fc57cc`; these historical observations do
+not qualify the newer NuttX source selected for current reproductions below.
 Its source-clock observations ran from 20,057,500 to 55,574,900 ns. The converter
 preserves that origin and presents a relative range of 0 to 35,517,400 ns.
 
@@ -368,10 +376,11 @@ preemption or sleep.
 
 #### Clock evidence and rejected attempts
 
-The pinned ARMv8-M implementation's
+The ARMv8-M
 [perf backend](https://github.com/apache/nuttx/blob/2b5c0de5e933281c209f954a63b99cf10c132346/arch/arm/src/armv8-m/arm_perf.c)
-reads DWT cycle-counter state. In the unmodified local QEMU witness the counter
-stayed at zero; the native test rejected it. A second qualification-only adapter
+used by the original witness reads DWT cycle-counter state. In the unmodified
+local QEMU witness the counter stayed at zero; the native test rejected it. A
+second qualification-only adapter
 using SysTick-derived time advanced in task context but produced backward
 timestamps at IRQ boundaries. Its raw failure evidence was retained and the
 converter rejected it. Sorting, clamping, or debugger stop coordinates did not
@@ -402,12 +411,12 @@ Run from the repository root on a POSIX host with `arm-none-eabi-gcc`, ARM
 binutils/newlib, `make`, `kconfig-conf`, `bison`, `flex`, `gperf`, and `genromfs`
 installed and available on `PATH`. Use a QEMU release with the corrected MPS2 UART
 wiring, as required by the ARM workflow. The initial witness used QEMU 10.0.13.
-The helper requires these exact clean tracked source revisions:
-
-```text
-NuttX: 2b5c0de5e933281c209f954a63b99cf10c132346
-apps:  3c772ea35b9245972e18999828f7b533e6fc57cc
-```
+The helper reads the current [NuttX release pin](../upstream/nuttx/release.json)
+and the repository's NuttX/Apps gitlinks. The release manifest must agree with
+the NuttX gitlink, and each supplied tree must have that exact revision with
+clean tracked sources. The current release is NuttX 13.1.1 at
+`4268617f28ad0ed7e900a081ea1b33c9347458b3`; Apps remains
+`3c772ea35b9245972e18999828f7b533e6fc57cc`. There is no arbitrary-revision override.
 
 The following uses the checked-out pinned submodules as shared Git object stores.
 It builds in disposable copies and leaves the submodule worktrees unchanged.
@@ -417,13 +426,15 @@ overwritten.
 
 ```sh
 git submodule update --init external/nuttx external/nuttx-apps
+timing_nuttx_revision="$(python3 -c 'import json; print(json.load(open("upstream/nuttx/release.json"))["revision"])')"
+timing_apps_revision="$(git rev-parse :external/nuttx-apps)"
 timing_sources="$PWD/target/memory-timing-sources"
 timing_output="$PWD/target/memory-timing"
 mkdir -p "$timing_sources" "$timing_output"
 git clone --shared --no-checkout external/nuttx "$timing_sources/nuttx"
 git clone --shared --no-checkout external/nuttx-apps "$timing_sources/apps"
-git -C "$timing_sources/nuttx" checkout --detach 2b5c0de5e933281c209f954a63b99cf10c132346
-git -C "$timing_sources/apps" checkout --detach 3c772ea35b9245972e18999828f7b533e6fc57cc
+git -C "$timing_sources/nuttx" checkout --detach "$timing_nuttx_revision"
+git -C "$timing_sources/apps" checkout --detach "$timing_apps_revision"
 
 python3 tools/memory-explorer/tests/build_timing_nuttx.py \
   --nuttx "$timing_sources/nuttx" --apps "$timing_sources/apps" \
@@ -438,7 +449,7 @@ python3 tools/nuttx-trace-to-perfetto.py \
   --source qemu-mps2-an521 --elf "$timing_output/build/nuttx"
 NXRS_MEMORY_TIMING_EVIDENCE="$timing_output/capture" \
 NXRS_MEMORY_TIMING_ELF="$timing_output/build/nuttx" \
-  cargo +1.90.0 test --locked -p nxrs-memory-explorer \
+  cargo +1.100.0 test --locked -p nxrs-memory-explorer \
     --test timing_qemu -- --ignored --nocapture
 ```
 
@@ -508,7 +519,7 @@ python3 tools/memory-explorer/tests/qualify_requests_qemu.py \
   --output "$request_output/capture"
 NXRS_HEAP_REQUEST_BUILD="$request_output/build" \
 NXRS_HEAP_REQUEST_EVIDENCE="$request_output/capture" \
-  cargo +1.90.0 test --locked -p nxrs-memory-explorer \
+  cargo +1.100.0 test --locked -p nxrs-memory-explorer \
     --test requests_qemu -- --ignored --nocapture
 ```
 
@@ -728,7 +739,7 @@ python3 tools/memory-explorer/tests/qualify_timed_capture_qemu.py \
   --build "$timed_output/build" --output "$timed_output/capture" --timeout 60
 NXRS_TIMED_CAPTURE_BUILD="$timed_output/build" \
 NXRS_TIMED_CAPTURE_EVIDENCE="$timed_output/capture" \
-  cargo +1.90.0 test --locked -p nxrs-memory-explorer \
+  cargo +1.100.0 test --locked -p nxrs-memory-explorer \
     --test timed_capture_qemu -- --ignored --nocapture
 ```
 
@@ -754,7 +765,8 @@ fixture enters a native critical section, masks interrupts with PRIMASK, emits
 `memory/checkpoint/<id>`, and reaches a hardware breakpoint. The admitted sole
 note driver writes a fixed RAM ring and has no poll subscriber that could wake
 another task. This preserves heap topology and task-stack reservations from the
-marker to the debugger stop; it does not establish current stack usage.
+marker to the debugger stop. A stack pointer sampled at that stop describes the
+stopped instruction; it is not proof of the pointer's value at marker emission.
 
 The debugger checks those conditions, independently decodes the last native note
 from the ring, and compares raw allocator headers and task metadata before and
@@ -813,8 +825,13 @@ python3 tools/memory-explorer/tests/qualify_lifecycle_qemu.py \
 
 NXRS_MEMORY_LIFECYCLE_EVIDENCE="$lifecycle_output" \
 NXRS_MEMORY_LIFECYCLE_ELF="$timing_output/build/nuttx" \
-  cargo +1.90.0 test --locked -p nxrs-memory-explorer \
+  cargo +1.100.0 test --locked -p nxrs-memory-explorer \
     --test lifecycle_qemu -- --ignored --nocapture
+
+NXRS_STACK_QEMU_BUILD="$timing_output/build" \
+NXRS_STACK_QEMU_EVIDENCE="$lifecycle_output" \
+  cargo +1.100.0 test --locked -p nxrs-memory-explorer \
+    --test stack_qemu -- --ignored --nocapture
 
 cargo run --locked -p nxrs-memory-explorer --features gui -- \
   --elf "$timing_output/build/nuttx" \
@@ -840,6 +857,50 @@ hole and final payload release. The ARM CI job reuses its native timing build
 for this second invocation and retains `memory-timing/lifecycle/` beside the
 ordinary timing capture. No production build switch, NuttX patch, or extra
 firmware worker is introduced by the viewer's correlation support.
+
+### Stopped stack-depth and coloration witness
+
+The current native fixture retains C macro debug data with `-g3`. The read-only
+exporter uses that exact ELF's architecture, coloration pattern and alignment
+to admit a bounded scan. Its **Stack usage** view keeps three measurements
+separate: the usable reservation, the live or saved stack-pointer depth, and the
+coloration watermark over the declared scanned interval. Untouched scanned
+bytes are not a guarantee that a future call fits. A stack pointer can reserve
+bytes that have not been touched, so its current depth can exceed the watermark.
+
+The MPS2 Cortex-M33 witness uses ELF SHA-256
+`52fbaa759a720134c588066dd90560a32e0c4fd52b648c4d36f711e172948b36`.
+Across four checkpoints it retains 17 task-stack observations: four live pointer
+reads, 13 saved-context pointer reads, and 17 coloration scans. An independent
+raw-memory oracle saves the stack bytes and saved register words, compares them
+before and after export, and reconstructs each watermark in the
+[Rust gate](../tools/memory-explorer/tests/stack_qemu.rs). The gate also checks the
+exact ELF, resolved configuration, fixture inputs, and exporter/collector source
+hashes. The ordinary lifecycle gate still checks native note correlation and
+heap geometry on the same capture.
+
+Current depth is measured at the debugger stop, with the current task's live
+register distinguished from another task's saved context. Checkpoint and
+scheduler instrumentation can contribute to both pointer depth and touched
+bytes. To avoid duplicate stops on the same breakpoint instruction, the
+qualification harness disables that breakpoint after capture, advances one
+instruction with a checked PC change, then reenables it. This occurs after the
+before/after read-only comparison; every expected checkpoint ID remains checked.
+
+A legacy `-g` image is a separate negative control: its missing macro evidence
+leaves measurements explicitly unavailable while reservations remain visible.
+Unsupported architectures, ambiguous stopped contexts, unreadable target bytes,
+and exhausted scan budgets similarly produce reasons, never zero-use results.
+This witness qualifies the single-core MPS2/QEMU adapter. It does not qualify
+physical targets, SMP capture, stack overflow detection, or intermediate stack
+history. The pinned Xtensa coloration layout is covered by host fixtures; its
+native target qualification remains open, and current SP stays unavailable.
+
+Use the capture commands above with a fresh build and evidence directory, then
+open **Stack usage** or replace `--view timing` with `--view stacks`. Select a task
+to inspect exact pointer and scan addresses; **Open in memory** preserves its
+reservation's interval on the memory canvas. Choose a time between checkpoints
+to verify that stack measurements remain unknown there.
 
 ### Isolated heap topology replay witness
 

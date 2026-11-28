@@ -34,7 +34,7 @@ pub(crate) fn start<C: Wake>(
             let mut emit = |event| match sink(event) {
                 Ok(()) => true,
                 Err(rejected) if rejected.error == DeliveryError::Full => {
-                    let _ = dropped.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |count| {
+                    let _ = dropped.try_update(Ordering::Relaxed, Ordering::Relaxed, |count| {
                         Some(count.saturating_add(1))
                     });
                     true

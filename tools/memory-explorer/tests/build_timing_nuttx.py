@@ -17,8 +17,27 @@ import shutil
 import subprocess
 
 
-NUTTX_REVISION = "2b5c0de5e933281c209f954a63b99cf10c132346"
-APPS_REVISION = "3c772ea35b9245972e18999828f7b533e6fc57cc"
+ROOT = Path(__file__).resolve().parents[3]
+
+
+def pinned_revisions(root=ROOT):
+    release = json.loads((root / "upstream/nuttx/release.json").read_text())
+    pins = {}
+    for name, component in (("nuttx", "nuttx"), ("apps", "nuttx-apps")):
+        revision = subprocess.check_output(
+            ["git", "-C", str(root), "rev-parse", ":external/" + component], text=True).strip()
+        if not re.fullmatch(r"[0-9a-f]{40}", revision):
+            raise RuntimeError(f"Invalid checked-in {component} source pin")
+        pins[name] = revision
+    if release.get("schema") != 1 or release.get("revision") != pins["nuttx"]:
+        raise RuntimeError("NuttX release manifest does not match the checked-in source pin")
+    return pins
+
+
+# Keep the fixture helpers on the same verified source pins as this builder.
+_SOURCE_PINS = pinned_revisions()
+NUTTX_REVISION = _SOURCE_PINS["nuttx"]
+APPS_REVISION = _SOURCE_PINS["apps"]
 
 
 def validate_configuration(text, settings):
@@ -61,14 +80,14 @@ def source_identity(tree, revision):
 
 def run(args):
     nuttx, apps, output = [getattr(args, name).resolve() for name in ("nuttx", "apps", "output")]
-    identities = {"nuttx": source_identity(nuttx, NUTTX_REVISION), "apps": source_identity(apps, APPS_REVISION)}
+    pins = pinned_revisions()
+    identities = {"nuttx": source_identity(nuttx, pins["nuttx"]), "apps": source_identity(apps, pins["apps"])}
     output.mkdir(parents=True, exist_ok=False)
-    repository = Path(__file__).resolve().parents[3]
-    fixture = repository / "tests" / "nuttx-std" / "memory-timing"
+    fixture = ROOT / "tests" / "nuttx-std" / "memory-timing"
     installed_fixture = apps / "examples" / "memory_timing"
     shutil.copytree(fixture, installed_fixture, dirs_exist_ok=True)
     # Exercise the exact production ABI translator, not a fixture substitute.
-    bridge = repository / "shared/acquisition/src/platform/nuttx/ffi/trace.c"
+    bridge = ROOT / "shared/acquisition/src/platform/nuttx/ffi/trace.c"
     shutil.copy2(bridge, installed_fixture / "acquisition_trace.c")
     settings = {name: "y" for name in (
         "DEBUG_SYMBOLS", "DEBUG_LINK_MAP", "SCHED_INSTRUMENTATION", "SCHED_INSTRUMENTATION_FILTER",
@@ -79,6 +98,7 @@ def run(args):
         "SMP", "ARCH_FPU", "HAVE_CXX", "HAVE_CXXINITIALIZE", "NET", "DEBUG_SCHED", "DEBUG_SCHED_ERROR",
         "TESTING_OSTEST", "TESTING_GETPRIME", "EXAMPLES_HELLO", "ARCH_PERF_EVENTS", "PERF_OVERFLOW_CORRECTION")})
     settings.update({"DRIVERS_NOTERAM_BUFSIZE": "32768", "DRIVERS_NOTE_TASKNAME_BUFSIZE": "4096",
+                     "DEBUG_SYMBOLS_LEVEL": '"-g3"',
                      "SCHED_INSTRUMENTATION_FILTER_DEFAULT_MODE": "0x0", "SYSTEM_TRACE_STACKSIZE": "8192",
                      "TASK_NAME_SIZE": "31", "MM_BACKTRACE": "8", "MM_BACKTRACE_DEFAULT": "y",
                      "EXAMPLES_MEMORY_TIMING_CMSDK_CLOCK": "y" if args.qemu_timer_clock else "n"})
@@ -115,7 +135,7 @@ def run(args):
     if (nuttx / "nuttx.map").is_file():
         shutil.copy2(nuttx / "nuttx.map", output / "nuttx.map")
     report = {"schema_version": 1, "workload": "native NuttX memory_timing qualification fixture",
-              "nuttx_revision": NUTTX_REVISION, "apps_revision": APPS_REVISION,
+              "nuttx_revision": pins["nuttx"], "apps_revision": pins["apps"],
               "source_identity": identities, "configuration_checks": checks,
               "qemu_cmsdk_clock_adapter": args.qemu_timer_clock, "commands": commands,
               "clock_contract": {"resource": "otherwise unused AN521 CMSDK APB timer1",
@@ -125,7 +145,7 @@ def run(args):
                                  "scope": "explicit QEMU qualification only"} if args.qemu_timer_clock else None,
               "compiler": subprocess.check_output(["arm-none-eabi-gcc", "--version"], text=True).splitlines()[0],
               "acquisition_trace_bridge": {
-                  "source": bridge.relative_to(repository).as_posix(),
+                  "source": bridge.relative_to(ROOT).as_posix(),
                   "sha256": hashlib.sha256(bridge.read_bytes()).hexdigest(),
                   "installed_sha256": hashlib.sha256((installed_fixture / "acquisition_trace.c").read_bytes()).hexdigest(),
               },

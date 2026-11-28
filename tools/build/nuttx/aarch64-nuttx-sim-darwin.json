@@ -9,7 +9,6 @@
   "frame-pointer": "non-leaf",
   "function-sections": false,
   "linker-flavor": "gnu",
-  "llvm-floatabi": "hard",
   "llvm-target": "arm64-apple-macosx11.0.0",
   "max-atomic-width": 128,
   "os": "nuttx",

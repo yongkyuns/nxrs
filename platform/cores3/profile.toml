@@ -1,6 +1,7 @@
 # CoreS3 K128 + Module GNSS M135, software bring-up; physical qualification pending.
 name = "m5stack-cores3-gnss"
 board = "esp32s3-m5-cores3:nsh"
+board-dir = "board"
 target = "xtensa-esp32s3-nuttx"
 crossdev = "xtensa-esp32s3-elf-"
 machine = "Tensilica Xtensa Processor"
@@ -71,7 +72,7 @@ require = [
   "CONFIG_USEC_PER_TICK=1000",
   "CONFIG_PIPES=y", "# CONFIG_NSH_PIPELINE is not set", "CONFIG_DEV_GPIO=y",
   "CONFIG_ESPRESSIF_GPIO_IRQ=y", "CONFIG_DEV_GPIO_NPOLLWAITERS=1",
-  "CONFIG_ARCH_BOARD_ESP32S3_M5_CORES3=y", "CONFIG_ARCH_BOARD_COMMON=y",
+  "CONFIG_ARCH_BOARD_CUSTOM=y", "CONFIG_ARCH_BOARD_CUSTOM_NAME=\"esp32s3-m5-cores3\"", "CONFIG_ARCH_BOARD_COMMON=y",
   "CONFIG_ESP32S3_FLASH_16M=y", "CONFIG_ESP32S3_SPIRAM_SIZE=8388608",
   "CONFIG_ESP32S3_I2CTIMEOMS=50",
 ]

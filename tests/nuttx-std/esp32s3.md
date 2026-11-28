@@ -19,11 +19,11 @@ python3 tests/nuttx-std/run.py \
   --output target/nuttx-esp32s3-std
 ```
 
-The existing installer checks pinned archive hashes for Rust 1.90.0.0,
-GCC 14.2.0_20241119, and QEMU 9.0.0_20240606. Upstream Cargo 1.90.0 is separate
-from the Xtensa compiler. No compiler or submodule pin is changed. The generated
-target retains that compiler's ESP32-S3 processor, data layout and atomics, while
-selecting NuttX/Unix, executable output, pthread-key TLS and GNU ld. Both original
+The installer checks pinned archive hashes for Rust 1.100.0.0,
+GCC 16.2.0_20261109, and QEMU 9.2.2_20261109. Upstream Cargo 1.100.0 is separate
+from the Xtensa compiler. The generated target retains that compiler's ESP32-S3
+processor, data layout and atomics, while selecting NuttX/Unix, executable output,
+pthread-key TLS and GNU ld. Both original
 and adapted JSON targets are retained. This is a custom target, not a claim that
 the compiler already supplies a supported Xtensa NuttX target.
 
@@ -40,19 +40,21 @@ only NuttX-supplied c/m/pthread library resolution is deferred. Its generated ma
 symbol is renamed solely for NuttX builtin registration. GNU ld, rather than the
 upstream LLD used for ARM/RV32, handles Xtensa object files. The final image must
 resolve real NuttX pthread/clock/startup symbols. Rust `poll` is allowed only
-when its poll-specific observations among the 77 match the exact Cargo libc
+when its poll-specific observations among the 131 match the exact Cargo libc
 artifact; `ppoll` remains rejected because its signal ABI is unqualified.
 Native C poll uses the native layout.
 
 ## Required evidence and limits
 
-The 77 C/Rust ABI witnesses use the exact target and libc artifact consumed by
-rebuilt std. This pinned Xtensa SDK uses libc 0.2.174, rather than the other
-profile's 0.2.175. No layout observation or compatible status is copied between
-targets. The result is 76 compatible observations plus the known raw `SIG_IGN`
-mismatch (`0` native, `1` Rust), contained only in the existing std startup
-correction. Raw `SIG_IGN` and general signal APIs remain unqualified; descriptor
-sanitization retains the `fcntl` fallback.
+The 131 C/Rust ABI witnesses use the exact target and libc artifact consumed by
+rebuilt std. Both current SDK families use the private libc 0.2.191 bindings;
+Xtensa adds a `wchar_t` signedness check to the 130 shared observations. No layout
+observation or compatible status is copied between targets. The gate requires
+compatible observations apart from the known raw `SIG_IGN` mismatch (`0` native,
+`1` Rust), contained only in the existing std startup correction. Raw `SIG_IGN`
+and general signal APIs remain unqualified; descriptor sanitization retains the
+`fcntl` fallback. The [patchset reference](../../docs/upstream-patchsets.md#rust-llvm-and-std)
+describes the current SDK source and ABI checks.
 
 The same oracle requires three positive fresh kernels and the deliberate-failure
 case, with no retries or longer deadlines. Normal main/arguments, all channel and

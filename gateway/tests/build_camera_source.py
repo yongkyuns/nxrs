@@ -25,7 +25,7 @@ def build(source_root, output):
     if not all(path.is_file() for path in sources):
         raise ValueError('camera sources required; use a PR merge or current-main worktree')
     output.mkdir(parents=True, exist_ok=True)
-    compiler = ['rustup', 'run', '1.90.0', 'rustc', '--edition=2021', '-Dwarnings']
+    compiler = ['rustup', 'run', '1.100.0', 'rustc', '--edition=2021', '-Dwarnings']
     def compile_file(source, name, dependencies=(), library=False, flags=()):
         args = compiler + list(flags) + ['--crate-name', name, str(source), '-L', 'dependency='+str(output)]
         for dependency in dependencies:

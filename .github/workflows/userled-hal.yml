@@ -31,27 +31,27 @@ jobs:
         with:
           persist-credentials: false
       - name: Install pinned Rust
-        run: rustup toolchain install 1.90.0 --profile minimal --target thumbv6m-none-eabi,wasm32-unknown-unknown
+        run: rustup toolchain install 1.100.0 --profile minimal --target thumbv6m-none-eabi,wasm32-unknown-unknown
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: '3.12'
       - name: Portable contracts, no implicit provider, and mock selection
         run: |
-          cargo +1.90.0 test --locked -p nxrs-led
-          NXRS_PLATFORM=mock cargo +1.90.0 test --locked -p nxrs-led
+          cargo +1.100.0 test --locked -p nxrs-led
+          NXRS_PLATFORM=mock cargo +1.100.0 test --locked -p nxrs-led
       - name: Real Rust provider with host-only private control stubs
-        run: cargo +1.90.0 test --locked -p nxrs-led --lib -- --test-threads=1
+        run: cargo +1.100.0 test --locked -p nxrs-led --lib -- --test-threads=1
       - name: Actual C helper with explicitly fake host headers
         run: |
           python3 tests/host/test-userled-ffi.py
           CC=clang python3 tests/host/test-userled-ffi.py
       - name: no_std contract and mock on Cortex-M0
         run: |
-          cargo +1.90.0 check --locked -p nxrs-led --target thumbv6m-none-eabi
-          NXRS_PLATFORM=mock cargo +1.90.0 check --locked -p nxrs-led --target thumbv6m-none-eabi
+          cargo +1.100.0 check --locked -p nxrs-led --target thumbv6m-none-eabi
+          NXRS_PLATFORM=mock cargo +1.100.0 check --locked -p nxrs-led --target thumbv6m-none-eabi
       - name: Architecture and unified HAL selection isolation
         env:
-          RUSTUP_TOOLCHAIN: 1.90.0
+          RUSTUP_TOOLCHAIN: 1.100.0
         run: |
           python3 tools/check-architecture.py
           python3 tools/check-hal-isolation.py --capability led --out target/led-isolation

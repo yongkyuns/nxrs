@@ -26,6 +26,10 @@ BIN = "event-demo"
 BASE = "platform/cores3/profile.toml"
 OVERLAY = "tests/host/fixtures/lsm6dso-overlay.toml"
 BSP = "platform/nuttx/resources/esp32s3-m5-cores3.toml"
+BOARD_SOURCES = tuple("platform/cores3/board/" + name for name in (
+    "Kconfig", "configs/nsh/defconfig", "include/board.h", "include/board_memorymap.h",
+    "scripts/Make.defs", "src/Make.defs", "src/esp32s3_boot.c", "src/esp32s3_lcd_bus.c",
+))
 MATRIX_ROOT = "tests/nuttx-std/device-composition"
 TWO_IMUS = MATRIX_ROOT + "/overlays/two-bmi270.toml"
 MIXED_IMUS = MATRIX_ROOT + "/overlays/mixed-imu.toml"
@@ -324,15 +328,16 @@ def validate_selection(evidence, case, revision):
     overlays = [str(e.workspace / name) for name in expected["overlays"]]
     expected_overlays = [(e.root / name).resolve() for name in expected["overlays"]]
     require(cli_overlays == expected_overlays, "wrong overlay receipt")
-    profiles = {str(e.workspace / name) for name in (BASE, BSP)} | set(overlays)
-    require({p["path"] for p in s["profiles"]} == profiles, "wrong profile source set")
+    profiles = [str(e.workspace / name) for name in (BASE, *BOARD_SOURCES)]
+    profiles += [*overlays, str(e.workspace / BSP)]
+    require([p["path"] for p in s["profiles"]] == profiles, "wrong profile source order")
     dependencies = {}
     for item in r["dependencies"]:
         require(item["path"] not in dependencies, "duplicate receipt dependency")
         require(e.success.get(item["path"]) == item["sha256"], "receipt/success input hash mismatch")
         e.verified(item["path"], item["sha256"])
         dependencies[item["path"]] = item["sha256"]
-    require(profiles | {manifest, str(e.workspace / "Cargo.toml")} <= dependencies.keys(),
+    require(set(profiles) | {manifest, str(e.workspace / "Cargo.toml")} <= dependencies.keys(),
             "receipt omits required profile/product inputs")
     for item in s["profiles"]:
         require(dependencies.get(item["path"]) == item["sha256"], "profile source hash mismatch")

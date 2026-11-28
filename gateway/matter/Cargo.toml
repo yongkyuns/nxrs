@@ -9,7 +9,9 @@ publish = false
 [dependencies]
 base64 = "=0.22.1"
 serde = { version = "=1.0.228", features = ["derive"] }
-retina = { version = "=0.4.21", default-features = false }
+# Retina constructs HexConfig exhaustively; keep its transitive pretty-hex at
+# 0.4.2 in Cargo.lock until Retina supports 0.4.3's new autoskip field.
+retina = { version = "=0.4.22", default-features = false }
 futures-util = { version = "=0.3.34", default-features = false, features = ["std"] }
 url = "=2.5.9"
 sha2 = "=0.10.9"

@@ -324,7 +324,7 @@ impl Capture {
             *last = Some((sequence, time));
 
             let mut payload = [0; IMU_BYTES - RECORD_HEADER];
-            for (bytes, value) in payload.chunks_exact_mut(4).zip(sample.values) {
+            for (bytes, value) in payload.as_chunks_mut::<4>().0.iter_mut().zip(sample.values) {
                 bytes.copy_from_slice(&value.to_le_bytes());
             }
             let payload = &payload[..len - RECORD_HEADER];
@@ -369,8 +369,8 @@ impl Capture {
 fn encode_counts(payload: &[u8], scale: [u32; 2]) -> Option<[u8; 12]> {
     let mut counts = [0; 12];
     let scale = scale.map(f32::from_bits);
-    for (axis, bytes) in payload.chunks_exact(4).enumerate() {
-        let bits = u32::from_le_bytes(bytes.try_into().unwrap());
+    for (axis, bytes) in payload.as_chunks::<4>().0.iter().enumerate() {
+        let bits = u32::from_le_bytes(*bytes);
         let scale = scale[axis / 3];
         let count = (f32::from_bits(bits) / scale).round() as i16;
         if (f32::from(count) * scale).to_bits() != bits {
@@ -637,7 +637,7 @@ mod tests {
     fn counts_are_bit_exact_or_use_the_float_record() {
         let scale = [f32::to_bits(0.125), f32::to_bits(0.25)];
         let mut payload = [0; 24];
-        for (axis, slot) in payload.chunks_exact_mut(4).enumerate() {
+        for (axis, slot) in payload.as_chunks_mut::<4>().0.iter_mut().enumerate() {
             let value = f32::from(i16::MIN) * f32::from_bits(scale[axis / 3]);
             slot.copy_from_slice(&value.to_le_bytes());
         }

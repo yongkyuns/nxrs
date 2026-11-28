@@ -33,7 +33,7 @@ jobs:
             curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain none
           fi
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
-          rustup toolchain install 1.90.0 --profile minimal --component clippy --component rustfmt
+          rustup toolchain install 1.100.0 --profile minimal --component clippy --component rustfmt
       - name: Test C, parsing, comparison guards and Rust cases
         shell: bash
         run: |
@@ -43,14 +43,14 @@ jobs:
           python3 -m unittest discover -s tests/rtos-bench -p test_bench.py -v
           python3 -m unittest discover -s tests/rtos-bench -p test_isolate.py -v
           python3 -m unittest discover -s tests/host -p test_deployment.py -v
-          cargo +1.90.0 fmt --check -p nxrs-rt-bench
-          cargo +1.90.0 test --locked -p nxrs-rt-bench
-          cargo +1.90.0 clippy --locked -p nxrs-rt-bench --all-targets -- -D warnings
+          cargo +1.100.0 fmt --check -p nxrs-rt-bench
+          cargo +1.100.0 test --locked -p nxrs-rt-bench
+          cargo +1.100.0 clippy --locked -p nxrs-rt-bench --all-targets -- -D warnings
           python3 tools/check-architecture.py
           python3 tests/rtos-bench/build.py fetch
           python3 tests/rtos-bench/build.py c-host
           CARGO_PROFILE_RELEASE_OPT_LEVEL=2 CARGO_PROFILE_RELEASE_LTO=false \
-            cargo +1.90.0 build --locked --release -p nxrs-rt-bench
+            cargo +1.100.0 build --locked --release -p nxrs-rt-bench
           python3 tests/rtos-bench/smoke.py target/release/rt-bench --rust > target/bench-logs/rust-host.json
           python3 tests/rtos-bench/smoke.py target/rtos-bench/c-host/mps2-an521-mock/posix/basic/raw-o2/rt_c > target/bench-logs/c-host.json
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
@@ -85,8 +85,8 @@ jobs:
           sudo apt-get install -y --no-install-recommends gcc-arm-none-eabi binutils-arm-none-eabi libnewlib-arm-none-eabi qemu-system-arm gdb-multiarch bison flex gperf kconfig-frontends genromfs libncurses-dev python3 python3-venv curl build-essential
           export PATH="$HOME/.cargo/bin:$PATH"
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
-          rustup toolchain install 1.90.0 --profile minimal
-          rustup toolchain install nightly-2025-09-15 --profile minimal --component rust-src
+          rustup toolchain install 1.100.0 --profile minimal
+          rustup toolchain install nightly-2026-11-26 --profile minimal --component rust-src
           python3 -m venv target/rtbench-venv
           target/rtbench-venv/bin/pip install kconfiglib==14.1.0
           echo "$GITHUB_WORKSPACE/target/rtbench-venv/bin" >> "$GITHUB_PATH"

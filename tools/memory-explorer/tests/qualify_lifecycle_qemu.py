@@ -35,6 +35,12 @@ def sha256(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def capture_sources(tools):
+    return {name: sha256(tools.parent / name) for name in (
+        "gdb_export.py", "tests/qemu_capture_gdb.py", "tests/lifecycle_capture_gdb.py",
+        "tests/qualify_lifecycle_qemu.py")}
+
+
 def validate_markers(console, report, recording_id):
     """Cross-check stopped native ring headers against independent UART text."""
     timing = evidence(console)
@@ -150,6 +156,7 @@ def bind_capture(capture, point, recording_id, elf_sha256):
     result["warnings"].extend([
         "This checkpoint is bound to an independently read native marker and its matching UART record in one QEMU invocation.",
         "The harness launched this exact ELF. Its single-core critical section preserves heap geometry and task stack reservations from marker to stop.",
+        "Stack pointers and coloration are observed at the stopped instruction. The native marker associates the checkpoint; it does not establish stack depth at marker emission.",
         "QEMU peripheral time was unchanged during debugger export. This stopped and instrumented execution is not uninterrupted timing or physical-device evidence.",
         "Only the checkpoint is observed; memory state between linked markers remains unknown.",
     ])
@@ -199,6 +206,7 @@ def run(args):
     settings = {"schema_version": 1, "image": str(image), "output": str(output),
         "pynuttx": str(pynuttx), "test_tools": str(tools),
         "exporter": str(tools.parent / "gdb_export.py"), "config": str(config),
+        "capture_sources_sha256": capture_sources(tools),
         "config_sha256": sha256(config), "elf_sha256": sha256(image),
         "recording_id": recording_id, "labels": LABELS,
         "qemu_version": version(qemu), "gdb_version": version(debugger),
@@ -241,6 +249,8 @@ def run(args):
         report = json.loads((output / "gdb-report.json").read_text())
         if report["elf_sha256"] != settings["elf_sha256"]:
             raise RuntimeError("GDB and launched ELF identities differ")
+        if capture_sources(tools) != settings["capture_sources_sha256"]:
+            raise RuntimeError("Capture source changed while the native witness was running")
         timing, markers = validate_markers(console, report, recording_id)
         raw_points = [json.loads((output / point["raw_file"]).read_text()) for point in report["snapshots"]]
         lifecycle = validate_heap_lifecycle(raw_points)
@@ -261,6 +271,7 @@ def run(args):
             point["capture_file"] = name
             point["time_ns"] = markers[point["checkpoint_id"]]["source_time_ns"]
         report.update({"clock": CLOCK, "timing": timing, "lifecycle": lifecycle,
+                       "capture_sources_sha256": settings["capture_sources_sha256"],
                        "qemu_version": settings["qemu_version"], "gdb_version": settings["gdb_version"],
                        "config_sha256": settings["config_sha256"], "command": settings["command"],
                        "limits": ["Instrumented and debugger-stopped QEMU execution; no physical-device timing claim",

@@ -102,13 +102,13 @@ def checkpoint(settings, checkpoint_id, raw_snapshot, compare_capture):
             "Marker does not belong to the stopped CPU/task")
     inferior = gdb.selected_inferior()
     timer_before = bytes(inferior.read_memory(0x50001004, 4))
-    before = raw_snapshot(image)
+    before = raw_snapshot(image, include_stack_bytes=True)
     pointers = [int(gdb.parse_and_eval("g_memory_checkpoint_blocks")[index]) for index in range(3)]
     unbound_name = f"unbound-{checkpoint_id}.json"
     command = [str(output / unbound_name), "--label", settings["labels"][checkpoint_id - 1],
                "--time-ns", str(marker["source_time_ns"])]
     gdb.execute("nxrs-memory-export " + shlex.join(command))
-    after = raw_snapshot(image)
+    after = raw_snapshot(image, include_stack_bytes=True)
     require(before == after, "Allocator/task metadata changed during stopped export")
     require(last_native_marker(checkpoint_id) == marker, "Native note ring changed while stopped")
     timer_after = bytes(inferior.read_memory(0x50001004, 4))
@@ -136,7 +136,7 @@ def run():
     output, image = Path(settings["output"]), Path(settings["image"])
     try:
         sys.path.insert(0, settings["test_tools"])
-        from qemu_capture_gdb import raw_snapshot, compare_capture, stop_at
+        from qemu_capture_gdb import raw_snapshot, compare_capture, stop_at, terminate_remote
         gdb.execute("set pagination off")
         gdb.execute("set confirm off")
         gdb.execute("set non-stop off")
@@ -179,8 +179,8 @@ def run():
                   "checks": {"independent_raw_header_comparison": True,
                              "independent_native_note_ring": True, "stopped_metadata_unchanged": True,
                              "target_function_calls": False, "timer_unchanged_while_stopped": True}}
+        report["remote_teardown"] = terminate_remote()
         (output / "gdb-report.json").write_text(json.dumps(report, indent=2) + "\n")
-        gdb.execute("kill")
         gdb.execute("quit 0")
     except Exception as exc:
         failure = {"error": str(exc), "traceback": traceback.format_exc()}

@@ -261,9 +261,9 @@ impl Tools {
             return Err("NuttX requires Linux x86_64 or an explicit supported native-board tool environment".into());
         }
         let sdk = if esp {
-            "esp-1.90.0.0"
+            "esp-1.100.0.0"
         } else {
-            "nightly-2025-09-15"
+            "nightly-2026-11-26"
         };
         let bundle = env::var_os("NXRS_QEMU_TOOLS_DIR")
             .map(PathBuf::from)
@@ -279,7 +279,7 @@ impl Tools {
             output(Command::new("rustup").args([
                 "which",
                 "--toolchain",
-                if esp { "1.90.0" } else { sdk },
+                if esp { "1.100.0" } else { sdk },
                 "cargo",
             ]))?
             .trim(),
@@ -342,7 +342,7 @@ impl Tools {
             .env("RUSTC_BOOTSTRAP", "1")
             .env(
                 "RUSTUP_TOOLCHAIN",
-                if self.esp { "1.90.0" } else { self.sdk },
+                if self.esp { "1.100.0" } else { self.sdk },
             );
         c
     }
@@ -431,6 +431,67 @@ fn stage_application(root: &Path, out: &Path) -> Result<PathBuf> {
     Ok(entry)
 }
 
+fn board_configuration(profile: &Profile) -> Result<String> {
+    match profile.native_board() {
+        Some(board) => Ok(format!("../board/configs/{}", board.configuration)),
+        None if profile.data.get("board-dir").is_some() => {
+            Err("custom board requires resolved source inputs".into())
+        }
+        None => Ok(string(&profile.data, "board")?.into()),
+    }
+}
+
+fn stage_board(profile: &Profile, out: &Path, reused: bool) -> Result<Vec<PathBuf>> {
+    let Some(board) = profile.native_board() else {
+        return Ok(vec![]);
+    };
+    board.verify()?;
+    let destination = out.join("board");
+    if reused {
+        let metadata = fs::symlink_metadata(&destination).map_err(|error| error.to_string())?;
+        if !metadata.is_dir() || metadata.is_symlink() {
+            return Err("custom board must be an owned build directory".into());
+        }
+    } else {
+        fs::create_dir(&destination).map_err(|error| error.to_string())?;
+    }
+    let owned_directory = destination
+        .canonicalize()
+        .map_err(|error| error.to_string())?;
+    let mut inputs = Vec::new();
+    for (relative, expected) in &board.files {
+        let source = board.directory.join(relative);
+        let target = destination.join(relative);
+        if !reused {
+            fs::create_dir_all(target.parent().ok_or("board file parent")?)
+                .map_err(|error| error.to_string())?;
+            fs::copy(&source, &target).map_err(|error| error.to_string())?;
+        }
+        if fs::symlink_metadata(&target)
+            .map_err(|error| error.to_string())?
+            .is_symlink()
+            || !target
+                .canonicalize()
+                .map_err(|error| error.to_string())?
+                .starts_with(&owned_directory)
+            || hash(&target)? != *expected
+        {
+            return Err(format!("staged board source differs: {}", target.display()));
+        }
+        inputs.push(target);
+    }
+    board.verify()?;
+    let record = out.join("board-source.json");
+    write_json(
+        &record,
+        &json!({"schema":1,"source":board.directory,
+        "board":board.name,"configuration":board.configuration,"files":board.files}),
+    )?;
+    inputs.push(record);
+    Ok(inputs)
+}
+
+#[derive(Default)]
 pub struct Inspection(Option<(crate::TempDir, String, String)>);
 
 impl Inspection {
@@ -442,22 +503,31 @@ impl Inspection {
         let deployment = deployment::validate(root, &app.manifest, p, "nuttx")?;
         let protected = deployment["nuttx-build-mode"] == "protected";
         let board = string(&p.data, "board")?;
+        let board_configuration = board_configuration(p)?;
+        let board_identity = json!({"board":board,
+            "custom":p.native_board().map(|board| (&board.directory, &board.files))})
+        .to_string();
         let mut configuration = Configuration::assemble(p, app, protected, options)?;
         let command = |name: &str| {
             let mut command = Command::new(name);
             command.env("LC_ALL", "C");
             command
         };
-        if self.0.as_ref().is_none_or(|(_, previous, _)| previous != board) {
+        if self
+            .0
+            .as_ref()
+            .is_none_or(|(_, previous, _)| previous != &board_identity)
+        {
             let parent = env::temp_dir().canonicalize().map_err(|e| e.to_string())?;
             let temp = crate::TempDir::new(&parent)?;
             stage_sources(root, &temp.0)?;
+            stage_board(p, &temp.0, false)?;
             stage_application(root, &temp.0)?;
             if let Some(layout) = iram_layout_source(root, p)? {
                 stage_iram_layout(&layout, &temp.0.join("nuttx"))?;
             }
-            let seed = nuttx_config::seed(&temp.0.join("nuttx"), board, command)?;
-            self.0 = Some((temp, board.to_owned(), seed));
+            let seed = nuttx_config::seed(&temp.0.join("nuttx"), &board_configuration, command)?;
+            self.0 = Some((temp, board_identity, seed));
         }
         let (temp, _, seed) = self.0.as_ref().ok_or("missing native inspection inputs")?;
         let out = &temp.0;
@@ -607,9 +677,9 @@ fn build_or_prepare(
         .write(true)
         .open(out.join(".nxrs-build.json"))
         .map_err(|error| error.to_string())?;
-    output_lock.try_lock().map_err(|error| {
-        format!("NuttX build output {}: {error}", out.display())
-    })?;
+    output_lock
+        .try_lock()
+        .map_err(|error| format!("NuttX build output {}: {error}", out.display()))?;
     for input in std::iter::once(&app.manifest)
         .chain(p.source_paths())
         .chain(sources.iter())
@@ -671,6 +741,9 @@ fn build_or_prepare(
         "native_environment":native_environment_identity(radio, |name| env::var_os(name))
     });
     let mut cache_directories = vec!["nuttx", "apps", ".nxrs-link-cache"];
+    if p.native_board().is_some() {
+        cache_directories.push("board");
+    }
     if shared_sysroot.is_none() {
         cache_directories.push("toolchain");
     }
@@ -691,6 +764,7 @@ fn build_or_prepare(
     if !reused {
         stage_sources(root, &out)?;
     }
+    let board_inputs = stage_board(p, &out, reused)?;
     let iram_inputs = match iram_layout {
         Some(source) => stage_iram_layout(&source, &nuttx)?,
         None => vec![],
@@ -698,10 +772,12 @@ fn build_or_prepare(
     let entry = stage_application(root, &out)?;
     let radio_inputs = configure_radio(root, &out, radio, &mut configuration)?;
     if !reused {
-        let seed = nuttx_config::seed(&nuttx, board, |name| tools.command(name))?;
-        let report = nuttx_config::resolve(root, &nuttx, &out, &seed, &configuration, false, |name| {
-            tools.command(name)
-        })?;
+        let seed =
+            nuttx_config::seed(&nuttx, &board_configuration(p)?, |name| tools.command(name))?;
+        let report =
+            nuttx_config::resolve(root, &nuttx, &out, &seed, &configuration, false, |name| {
+                tools.command(name)
+            })?;
         nuttx_config::check_report(&report)?;
     }
     let config = read(&nuttx.join(".config"))?;
@@ -748,6 +824,7 @@ fn build_or_prepare(
     } else {
         sdk::prepare(root, &original_sysroot, &out, tools.sdk)?
     };
+    sdk::validate_application(&sysroot, &out.join("std-patch.json"), &app.manifest)?;
     sources.extend(sdk::native_sources(&sysroot, &out.join("std-patch.json"))?);
     let (sources, objects) = stage_helpers(&sources, &entry)?;
     let rustc = sysroot.join("bin/rustc");
@@ -811,16 +888,7 @@ fn build_or_prepare(
         )?;
     }
     if !reused && tools.esp {
-        let hal = isolated_hal(&nuttx, &nuttx.join("arch/xtensa/src/chip/esp-hal-3rdparty"))?;
-        let rev = output(source::git(&hal).args(["rev-parse", "HEAD"]))?;
-        source::apply_series(
-            root,
-            &hal,
-            "esp-hal-3rdparty",
-            rev.trim(),
-            &out.join("esp-hal-patches.json"),
-            true,
-        )?;
+        patch_esp_hal(root, &nuttx, &out.join("esp-hal-patches.json"))?;
     }
     let (native_config, finalized) = native_context(&tools, &nuttx, &entry, &out, target, &make_args)?;
     configuration.validate(p, &finalized.config)?;
@@ -905,7 +973,9 @@ fn build_or_prepare(
             .unwrap_or_else(|| root.join("target/qemu-tools"))
             .join("downloads.sha256");
         if firmware {
-            fs::copy(downloads, out.join("downloads.sha256")).map_err(|e| e.to_string())?;
+            fs::copy(&downloads, out.join("downloads.sha256")).map_err(|error| {
+                format!("cannot copy verified toolchain download manifest {}: {error}", downloads.display())
+            })?;
         }
     } else if tools.sim {
         let mut spec: Value =
@@ -930,10 +1000,13 @@ fn build_or_prepare(
     // Encoded flags preserve paths containing spaces without a shell/linker shim.
     let mut flags = vec![
         "-C".to_owned(),
-        "panic=abort".into(),
+        if immediate { "panic=immediate-abort" } else { "panic=abort" }.into(),
         "-C".into(),
         format!("linker={}", linker.display()),
     ];
+    if immediate || tools.esp || tools.sim {
+        flags.push("-Zunstable-options".into());
+    }
     if env::var("NXRS_NUTTX_DIAGNOSTIC_UNWIND").as_deref() == Ok("1") {
         flags.extend(["-C".into(), "force-unwind-tables=yes".into()]);
     }
@@ -966,6 +1039,9 @@ fn build_or_prepare(
         .env("CARGO_PROFILE_RELEASE_STRIP", "none")
         .env_remove("RUSTFLAGS")
         .env("CARGO_ENCODED_RUSTFLAGS", flags.join("\x1f"));
+    if tools.esp || tools.sim {
+        cargo.arg("-Zjson-target-spec");
+    }
     build::configure_profile(&mut cargo, &out, root, p, target, "nuttx")?;
     options.configure_cargo(&mut cargo, &[]);
     if tools.esp {
@@ -985,7 +1061,7 @@ fn build_or_prepare(
         // std's panic hook is gated by `backtrace`. Trace-only selects raw
         // addresses in the formatter, but does not enable the hook itself.
         cargo.arg(if immediate {
-            "-Zbuild-std-features=backtrace-trace-only,optimize_for_size,panic_immediate_abort"
+            "-Zbuild-std-features=backtrace-trace-only,optimize_for_size"
         } else {
             "-Zbuild-std-features=backtrace-trace-only,optimize_for_size,backtrace"
         });
@@ -1291,6 +1367,7 @@ fn build_or_prepare(
         inputs.extend(protected_images(&out, &nuttx, &finalized.config)?);
     }
     inputs.extend(p.source_paths().cloned());
+    inputs.extend(board_inputs);
     inputs.extend(iram_inputs);
     inputs.extend(radio_inputs);
     inputs.extend(sources);
@@ -1325,6 +1402,14 @@ fn build_or_prepare(
     }
     Ok(())
 }
+/// Apply the registered HAL series after NuttX has prepared its native context.
+/// Both product and legacy qualification builds must patch an owned checkout.
+pub fn patch_esp_hal(root: &Path, nuttx: &Path, record: &Path) -> Result<()> {
+    let hal = isolated_hal(nuttx, &nuttx.join("arch/xtensa/src/chip/esp-hal-3rdparty"))?;
+    let revision = output(source::git(&hal).args(["rev-parse", "HEAD"]))?;
+    source::apply_series(root, &hal, "esp-hal-3rdparty", revision.trim(), record, true)
+}
+
 pub fn isolated_hal(nuttx: &Path, hal: &Path) -> Result<PathBuf> {
     let root = nuttx.canonicalize().map_err(|e| e.to_string())?;
     let hal = hal.canonicalize().map_err(|e| e.to_string())?;
@@ -1494,6 +1579,7 @@ fn clear_success_evidence(out: &Path) -> Result<()> {
             "nuttx-apps-patches.json",
             "mcuboot-patches.json",
             "esp-hal-patches.json",
+            "board-source.json",
             "native-context.json",
             "resolved-profile.json",
             "xtensa-bare-target.json",
@@ -1642,8 +1728,13 @@ pub fn copy_hal_cache(cache: &Path, destination: &Path, revision: &str) -> Resul
                 Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
                 Ok(metadata)
                     if metadata.is_dir()
-                        && fs::read_dir(&module).map_err(|e| e.to_string())?.next().is_none() => {}
-                _ => return Err("uninitialized Espressif HAL cache submodule contains files".into()),
+                        && fs::read_dir(&module)
+                            .map_err(|e| e.to_string())?
+                            .next()
+                            .is_none() => {}
+                _ => {
+                    return Err("uninitialized Espressif HAL cache submodule contains files".into())
+                }
             };
             continue;
         }
@@ -1828,6 +1919,85 @@ mod tests {
         profile.data["iram-layout"] = json!("outside.ld");
         assert!(iram_layout_source(&temp.0, &profile).is_err());
         assert_eq!(read(&staged).unwrap(), read(&source).unwrap());
+    }
+
+    #[test]
+    fn custom_boards_are_private_per_output_and_detect_source_changes() {
+        let temp = crate::TempDir::new(&env::temp_dir()).unwrap();
+        let root = &temp.0;
+        let platform = root.join("platform/example");
+        let source = platform.join("board");
+        for directory in ["include", "configs/nsh", "scripts"] {
+            fs::create_dir_all(source.join(directory)).unwrap();
+        }
+        fs::write(root.join("Cargo.toml"), "[workspace]\n").unwrap();
+        fs::write(
+            platform.join("profile.toml"),
+            "name='example'\nboard='example:nsh'\nboard-dir='board'\n",
+        )
+        .unwrap();
+        for (name, contents) in [
+            ("Kconfig", "# board\n"),
+            ("include/board.h", "#define BOARD 1\n"),
+            ("scripts/Make.defs", "# make\n"),
+            ("configs/nsh/defconfig", "CONFIG_ARCH_BOARD_CUSTOM=y\n"),
+        ] {
+            fs::write(source.join(name), contents).unwrap();
+        }
+        let profile = Profile::resolve(root, "example").unwrap();
+        assert_eq!(
+            board_configuration(&profile).unwrap(),
+            "../board/configs/nsh"
+        );
+        let outputs = root.join("outputs");
+        fs::create_dir(&outputs).unwrap();
+        let alias = root.join("path-alias");
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(&outputs, &alias).unwrap();
+        #[cfg(not(unix))]
+        fs::create_dir(&alias).unwrap();
+        for name in ["first", "second"] {
+            // Exercise canonical containment even when the caller uses another
+            // spelling, as with macOS /var or Windows canonical path prefixes.
+            let out = alias.join("..").join("outputs").join(name);
+            fs::create_dir(&out).unwrap();
+            let files = stage_board(&profile, &out, false).unwrap();
+            assert_eq!(files.len(), 5);
+            assert!(files.iter().all(|path| path.starts_with(&out)));
+            assert!(stage_board(&profile, &out, true).is_ok());
+        }
+        #[cfg(unix)]
+        {
+            let linked = outputs.join("linked");
+            fs::create_dir(&linked).unwrap();
+            std::os::unix::fs::symlink(outputs.join("second/board"), linked.join("board"))
+                .unwrap();
+            assert!(stage_board(&profile, &linked, true).is_err());
+
+            let header = outputs.join("second/board/include/board.h");
+            let same_bytes = outputs.join("second/board/include/same-bytes.h");
+            fs::rename(&header, &same_bytes).unwrap();
+            std::os::unix::fs::symlink(&same_bytes, &header).unwrap();
+            assert!(stage_board(&profile, &outputs.join("second"), true).is_err());
+            fs::remove_file(&header).unwrap();
+            fs::rename(&same_bytes, &header).unwrap();
+        }
+        fs::write(
+            outputs.join("first/board/include/board.h"),
+            "changed private copy\n",
+        )
+        .unwrap();
+        assert!(stage_board(&profile, &outputs.join("first"), true).is_err());
+        assert_eq!(
+            read(&source.join("include/board.h")).unwrap(),
+            "#define BOARD 1\n"
+        );
+        assert_eq!(
+            read(&outputs.join("second/board/include/board.h")).unwrap(),
+            "#define BOARD 1\n"
+        );
+        fs::write(source.join("include/board.h"), "changed source\n").unwrap();
+        assert!(stage_board(&profile, &outputs.join("second"), true).is_err());
     }
     #[cfg(unix)]
     #[test]

@@ -36,7 +36,7 @@ class Sessions(unittest.TestCase):
                 context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
                 context.minimum_version = context.maximum_version = ssl.TLSVersion.TLSv1_3
                 context.load_cert_chain(root/'expired.pem', root/'expired.key')
-                received, faults = [], []
+                received, faults, peer_closed = [], [], []
                 with socket.socket() as server:
                     server.bind(('127.0.0.1', 0));server.listen();server.settimeout(5)
                     private(root/'gateway-address', f'127.0.0.1:{server.getsockname()[1]}')
@@ -48,7 +48,10 @@ class Sessions(unittest.TestCase):
                                 if delayed: time.sleep(.2)
                                 if not wrong_pin: client.sendall(bytes([42]))
                         except (ssl.SSLError, ConnectionError, OSError) as error:
-                            if not wrong_pin and not delayed: faults.append(type(error).__name__)
+                            if wrong_pin and isinstance(error, (ssl.SSLError, ConnectionError)):
+                                peer_closed.append(type(error).__name__)
+                            elif not delayed:
+                                faults.append(type(error).__name__)
                     thread = threading.Thread(target=serve);thread.start()
                     try:
                         result = subprocess.run([str(self.binary), str(root), '100' if delayed else '3000', 'bootstrap'],
@@ -59,7 +62,12 @@ class Sessions(unittest.TestCase):
                     self.assertEqual(result.returncode, 0, result.stderr)
                     self.assertFalse(faults, faults)
                     if wrong_pin:
-                        self.assertEqual(received, [b''])
+                        # Current Mbed TLS may reject the pin before OpenSSL
+                        # finishes its handshake. Both an explicit connection
+                        # close and a clean EOF must expose zero credentials.
+                        self.assertIn(received, ([], [b'']))
+                        if not received:
+                            self.assertEqual(len(peer_closed), 1)
                         self.assertIn('Err(Authentication)', result.stdout)
                     elif delayed:
                         # The absolute 100ms budget also covers the handshake;

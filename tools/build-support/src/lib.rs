@@ -161,7 +161,7 @@ pub fn detector_config(manifest: &Path) -> Result<Option<profile::Detector>> {
     let Some((_, profile)) = selected_profile(manifest)? else {
         return Ok(None);
     };
-    for path in profile.source_paths() {
+    for path in profile.watch_paths() {
         println!("cargo:rerun-if-changed={}", path.display());
     }
     profile.detector()

@@ -29,7 +29,7 @@ pub fn run() {
     drop(writer);
     let bytes = std::fs::read(path).expect("std storage independent read");
     assert_eq!(bytes.len(), 88);
-    for (record, sequence) in bytes.chunks_exact(44).zip(1u64..=2) {
+    for (record, sequence) in bytes.as_chunks::<44>().0.iter().zip(1u64..=2) {
         assert_eq!(&record[..8], b"RCAMREC1");
         assert_eq!(&record[8..12], &[2, 0, 2, 0]);
         assert_eq!(&record[16..24], &sequence.to_le_bytes());

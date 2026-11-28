@@ -12,7 +12,8 @@ use std::{
     path::{Path, PathBuf},
     process::Command,
 };
-const TOOLCHAIN: &str = "nightly-2026-09-25";
+const TOOLCHAIN: &str = "nightly-2026-11-26";
+const EMSCRIPTEN: &str = "7.0.1";
 const TARGET: &str = "wasm32-unknown-emscripten";
 const TLS: &str = "lib/rustlib/src/rust/library/std/src/sys/thread_local/mod.rs";
 const RUSTFLAGS: &str = "-C target-feature=+atomics,+bulk-memory,+mutable-globals -C panic=abort -C link-arg=-pthread -C link-arg=-sPROXY_TO_PTHREAD=1 -C link-arg=-sPTHREAD_POOL_SIZE=4 -C link-arg=-sPTHREAD_POOL_SIZE_STRICT=2 -C link-arg=-sALLOW_BLOCKING_ON_MAIN_THREAD=0 -C link-arg=-sEXIT_RUNTIME=1 -C link-arg=-sINITIAL_MEMORY=67108864 -C link-arg=-sALLOW_MEMORY_GROWTH=0 -C link-arg=-sSTACK_SIZE=2097152 -C link-arg=-sDEFAULT_PTHREAD_STACK_SIZE=2097152 -C link-arg=-sASSERTIONS=2 -C link-arg=-sENVIRONMENT=web,worker";
@@ -20,18 +21,18 @@ const EMCC_CFLAGS: &str = "-pthread";
 const STD_INPUTS: &str = "std-inputs";
 
 fn transform_tls(text: &str) -> Result<String> {
-    let guard = "            all(target_family = \"wasm\", not(target_env = \"p3\")),\n";
+    let guard = "            all(target_family = \"wasm\", not(target_os = \"wasi\")),\n";
     let key = "            all(not(target_vendor = \"apple\"), not(target_family = \"wasm\"), target_family = \"unix\"),\n";
     if text.matches(guard).count() != 1 || text.matches(key).count() != 1 {
         return Err("unexpected browser TLS selection layout".into());
     }
-    let changed=text.replace(guard,"            all(\n                target_family = \"wasm\",\n                not(target_env = \"p3\"),\n                not(all(target_os = \"emscripten\", target_feature = \"atomics\")),\n            ),\n").replace(key,&format!("{key}            all(target_os = \"emscripten\", target_feature = \"atomics\"),\n"));
+    let changed=text.replace(guard,"            all(\n                target_family = \"wasm\",\n                not(target_os = \"wasi\"),\n                not(all(target_os = \"emscripten\", target_feature = \"atomics\")),\n            ),\n").replace(key,&format!("{key}            all(target_os = \"emscripten\", target_feature = \"atomics\"),\n"));
     Ok(changed)
 }
 fn tls_fix(source: &Path, dest: &Path, receipts: &Path) -> Result<()> {
     let original = source.join(TLS);
     let before = output(Command::new("git").arg("hash-object").arg(&original))?;
-    if before.trim() != "809ef5cfe9c60dd7ca99d587a9246751c1be338f" {
+    if before.trim() != "1c137e52d931972b717c5e7c121b5dcb6940abc8" {
         return Err("unexpected browser SDK source; refuse drift/reapplication".into());
     }
     let text = read(&original)?;
@@ -274,9 +275,9 @@ pub fn build(
     if !emcc
         .lines()
         .next()
-        .is_some_and(|line| line.split_whitespace().any(|word| word == "4.0.15"))
+        .is_some_and(|line| line.split_whitespace().any(|word| word == EMSCRIPTEN))
     {
-        return Err("browser builds require Emscripten 4.0.15".into());
+        return Err(format!("browser builds require Emscripten {EMSCRIPTEN}"));
     }
     let compiler =
         output(Command::new("rustup").args(["which", "--toolchain", TOOLCHAIN, "rustc"]))?;
@@ -360,9 +361,14 @@ pub fn build(
         command.arg("--config").arg(config);
     }
     let selection = crate::cargo_graph::resolve(&mut command, p)?;
-    deployment["configuration"] = json!(
-        build::configure_preparation(&mut command, &out, p, &selection, TARGET, "emscripten")?
-    );
+    deployment["configuration"] = json!(build::configure_preparation(
+        &mut command,
+        &out,
+        p,
+        &selection,
+        TARGET,
+        "emscripten"
+    )?);
     deployment["dependency_resolution"] = selection.json();
     deployment["model_features"] = json!(selection.model_features);
     deployment["driver_features"] = json!(selection.driver_features);
@@ -425,7 +431,7 @@ mod tests {
     use super::*;
     #[test]
     fn thread_local_cleanup_selection_rejects_drift() {
-        let guard = "            all(target_family = \"wasm\", not(target_env = \"p3\")),\n";
+        let guard = "            all(target_family = \"wasm\", not(target_os = \"wasi\")),\n";
         let key = "            all(not(target_vendor = \"apple\"), not(target_family = \"wasm\"), target_family = \"unix\"),\n";
         let original = format!("{guard}{key}");
         let fixed = transform_tls(&original).unwrap();

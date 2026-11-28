@@ -17,8 +17,8 @@ def write_receipt(root: Path, artifact: Path) -> dict:
     files = api.files_below(docs)
     report = {
         'schema': api.SCHEMA, 'revision': 'a' * 40, 'dirty': False,
-        'toolchain': '1.90.0', 'compiler': 'rustc 1.90.0\nhost: x86_64-unknown-linux-gnu',
-        'rustdoc': 'rustdoc 1.90.0', 'host': 'x86_64-unknown-linux-gnu',
+        'toolchain': '1.100.0', 'compiler': 'rustc 1.100.0\nhost: x86_64-unknown-linux-gnu',
+        'rustdoc': 'rustdoc 1.100.0', 'host': 'x86_64-unknown-linux-gnu',
         'binding': 'unbound', 'features': catalog['features'],
         'packages': catalog['packages'], 'inputs': api.source_inputs(root, catalog),
         'files': {p.relative_to(docs).as_posix(): api.file_hash(p) for p in files},
@@ -35,7 +35,7 @@ def make_api_fixture(root: Path, artifact: Path) -> dict:
         'Cargo.toml': '[workspace]\nmembers = ["hal/demo", "service/helper", "tools/adapter", "shared/common"]\n'
                       '[workspace.dependencies]\nnxrs-common = { path = "shared/common" }\n',
         'Cargo.lock': '# synthetic locked dependency input\n',
-        'rust-toolchain.toml': '[toolchain]\nchannel = "1.90.0"\n',
+        'rust-toolchain.toml': '[toolchain]\nchannel = "1.100.0"\n',
         'website/build_api.py': '# synthetic builder input\n',
         'hal/demo/Cargo.toml': '[package]\nname = "nxrs-demo"\nversion = "0.1.0"\n'
                                'build = "../../tools/adapter/cargo.rs"\n[lib]\nname = "demo"\n'
@@ -80,7 +80,9 @@ def make_api_fixture(root: Path, artifact: Path) -> dict:
         'src/demo/lib.rs.html': '<!doctype html><html><head><title>lib.rs</title></head><body>'
                                 '<main id="main-content"><pre><a id="1">1</a><a id="2">2</a>'
                                 '</pre></main></body></html>',
-        'search-index.js': '// synthetic search index\n',
+        'search.index/root.js': '// synthetic sharded search root\n',
+        'search.index/name/0123456789.js': '// synthetic search data shard\n',
+        'search.index/abcdef0123.js': '// synthetic search tree shard\n',
         'crates.js': 'window.ALL_CRATES = ["demo", "helper"];\n',
         'static.files/rustdoc.css': '/* synthetic stylesheet */\n',
     }
@@ -162,7 +164,7 @@ class ApiArtifactTests(unittest.TestCase):
             api.validate_artifact(self.root, self.artifact)
 
     def test_required_crate_and_search_indexes_are_checked(self):
-        for name in ['demo/index.html', 'search-index.js', 'crates.js']:
+        for name in ['demo/index.html', 'search.index/root.js', 'crates.js']:
             with self.subTest(name=name):
                 path = self.artifact / 'docs' / name
                 original = path.read_bytes()
@@ -172,6 +174,35 @@ class ApiArtifactTests(unittest.TestCase):
                     api.validate_artifact(self.root, self.artifact)
                 path.write_bytes(original)
                 write_receipt(self.root, self.artifact)
+
+    def test_sharded_search_inventory_is_bound_to_the_receipt(self):
+        for name in ['search.index/name/0123456789.js', 'search.index/abcdef0123.js']:
+            with self.subTest(name=name):
+                path = self.artifact / 'docs' / name
+                original = path.read_bytes()
+                path.write_text('changed shard')
+                with self.assertRaisesRegex(ValueError, 'files'):
+                    api.validate_artifact(self.root, self.artifact)
+                path.unlink()
+                with self.assertRaisesRegex(ValueError, 'files'):
+                    api.validate_artifact(self.root, self.artifact)
+                path.write_bytes(original)
+        api.validate_artifact(self.root, self.artifact)
+
+    def test_search_root_without_shards_is_rejected(self):
+        for path in (self.artifact / 'docs/search.index').rglob('*.js'):
+            if path.name != 'root.js':
+                path.unlink()
+        write_receipt(self.root, self.artifact)
+        with self.assertRaisesRegex(ValueError, 'missing.*shards'):
+            api.validate_artifact(self.root, self.artifact)
+
+    def test_old_search_index_cannot_replace_the_pinned_format(self):
+        (self.artifact / 'docs/search.index/root.js').unlink()
+        (self.artifact / 'docs/search-index.js').write_text('// old search index\n')
+        write_receipt(self.root, self.artifact)
+        with self.assertRaisesRegex(ValueError, 'missing.*search.index/root.js'):
+            api.validate_artifact(self.root, self.artifact)
 
     def test_exact_revision_is_enforced_when_provided(self):
         with self.assertRaisesRegex(ValueError, 'revision'):

@@ -27,20 +27,11 @@ pub(super) enum Event<'a> {
     Invalid,
 }
 
+#[derive(Default)]
 pub(super) struct Decoder {
     parser: Framer,
     satellites: Option<(u32, SatelliteStatus)>,
     satellite_interval_ms: u32,
-}
-
-impl Default for Decoder {
-    fn default() -> Self {
-        Self {
-            parser: Framer::default(),
-            satellites: None,
-            satellite_interval_ms: 0,
-        }
-    }
 }
 
 impl Decoder {

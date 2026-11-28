@@ -122,13 +122,21 @@ pub fn compressed(
         .stderr(Stdio::piped())
         .spawn()
         .map_err(|e| e.to_string())?;
+    let mut stdout = child.stdout.take().unwrap();
     let result = extract_root(
-        child.stdout.take().unwrap(),
+        &mut stdout,
         out,
         max_files,
         max_bytes,
         Some(Path::new(name)),
-    );
+    )
+    .and_then(|()| {
+        // Tar stops at its end marker. Drain the compressed stream's padding
+        // before closing the pipe so the decompressor can finish and validate it.
+        io::copy(&mut stdout, &mut io::sink())
+            .map(|_| ())
+            .map_err(|e| e.to_string())
+    });
     if result.is_err() {
         let _ = child.kill();
     }

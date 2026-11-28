@@ -40,7 +40,7 @@ jobs:
           swift build --product NativePlaybackProbe --jobs 2 -Xswiftc -warnings-as-errors
       - name: Prepare real native media reference
         run: |
-          rustup toolchain install 1.90.0 --profile minimal
+          rustup toolchain install 1.100.0 --profile minimal
           (cd gateway && cargo build --release --locked)
           if ! command -v ffmpeg >/dev/null; then brew install ffmpeg; fi
           FFMPEG_DIR="$(brew --prefix ffmpeg)" cargo build --manifest-path gateway/Cargo.toml --release --locked -p nxrs-rtsp-publisher

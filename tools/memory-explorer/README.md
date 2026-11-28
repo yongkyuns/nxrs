@@ -19,7 +19,7 @@ follow-up work in that issue.
 
 ## Open the viewer
 
-Run from the NXRS repository root with its pinned Rust 1.90 toolchain:
+Run from the NXRS repository root with its pinned Rust 1.100 toolchain:
 
 ```sh
 cargo run --locked -p nxrs-memory-explorer --features gui -- --demo
@@ -109,6 +109,7 @@ input tab. Recordings remain independent even if their ELF hashes match.
 | Inspect an allocator arena or task stack | Select it under **Captured arenas and stacks** |
 | Choose an observation | Click a timeline point, **Previous** / **Next**, or `Page Up` / `Page Down` |
 | See heap usage change | Choose an arena in **Memory usage history**, then Allocated, Free, Largest free, or All |
+| Inspect task stack depth and remaining space | Open **Stack usage**, choose a checkpoint, then select a task |
 | Distinguish code, data, allocations, and known free bytes | Keep **Memory purpose** selected; choose source colors for attribution |
 | Find the largest live allocations | Clear the selection and use the inspector's largest-chunk links |
 | Inspect a gap between observations | Click between timeline points |
@@ -156,6 +157,34 @@ allocation growth. Its peak is the largest retained observation; samples do
 not prove an intervening peak. Snapshot points are not joined into invented
 continuous state. An admitted replay journal can hold state across its validated
 coverage; lost or missing mutations break the history until a complete checkpoint.
+
+## Inspect stack usage at a checkpoint
+
+Open **Stack usage** (or start with `--view stacks`) to compare tasks at one
+captured observation. Select a task to see its exact usable addresses, pointer
+source, scan coverage, and separate address bands for current depth and touched
+memory. **Open in memory** focuses its reservation in the address canvas.
+
+| Measurement | What it tells you |
+| --- | --- |
+| Usable reservation | The task's adjusted stack bounds, excluding any allocation prefix |
+| Current depth | Distance from an admitted live or saved stack pointer to the usable end, accounting for growth direction |
+| Current headroom | Usable reservation minus that pointer depth |
+| Touched watermark | Extent indicated by the first changed coloration word in the admitted scan interval |
+| Untouched colored bytes | Scan interval minus the touched watermark; unscanned alignment edges are excluded |
+
+The pointer can reserve memory without writing to it, so current depth can be
+larger than the touched watermark. Coloration also cannot distinguish a write
+that happens to restore the fill pattern. These are different measurements;
+neither establishes a worst-case stack bound or proves an overflow. A fully
+colored scan reports zero touched bytes. Missing configuration, unsupported
+context, or unreadable memory reports **Unknown** with a reason.
+
+Each row belongs to its selected checkpoint. The viewer does not join task IDs
+or reused TCB addresses across observations, carry a previous value into a gap,
+or expose old stack data while viewing a heap replay. Older captures still show
+their reserved stacks, with unknown depth and watermark. Stack measurements do
+not add to the containing heap chunk's accounted bytes.
 
 ## Find the source of timing and allocation work
 
@@ -323,8 +352,11 @@ diagnostics-heap-backtrace-depth = 4
 ```
 
 Use that setting with the normal `cargo nxrs build` workflow.
-The diagnostic setting retains native debug symbols, Rust line tables, and the
-linker map. It enables heap request counters, stack coloration, bounded
+The diagnostic setting retains native debug symbols and compiled macros
+(`CONFIG_DEBUG_SYMBOLS_LEVEL="-g3"`), Rust line tables, and the linker map.
+The extra macro information lets the host stack exporter check the actual
+coloration pattern and alignment. Older images without those macros keep
+their watermark unavailable. It enables heap request counters, stack coloration, bounded
 scheduler/interrupt/heap instrumentation, and application markers. Consumed
 IMU/GNSS providers select their existing `probe` implementation to name work.
 Recording is controlled
@@ -344,11 +376,14 @@ durations.
 ## Capture a NuttX lifecycle point
 
 The [GDB exporter](gdb_export.py) reads the default NuttX allocator and task
-metadata. Its supported layout is the repository's pinned NuttX revision
-`2b5c0de5e933281c209f954a63b99cf10c132346`. Use a Python-enabled target GDB,
-the pinned NuttX `pynuttx` dependencies, and the exact final ELF with allocator
-and task debug types. Follow the target's debugger procedure to connect and
-halt every relevant CPU at a known quiescent lifecycle point.
+metadata. Its original layout qualification used NuttX
+`2b5c0de5e933281c209f954a63b99cf10c132346`. For current captures, use the
+revision selected by the [release manifest](../../upstream/nuttx/release.json)
+and repository gitlink, that revision's `pynuttx` dependencies, and the exact
+final ELF with allocator and task debug types. The native QEMU qualification
+checks the exporter against that final ELF. Use a Python-enabled target GDB
+and follow the target's debugger procedure to connect and halt every relevant
+CPU at a known quiescent lifecycle point.
 
 In that GDB session, with the repository root as the working directory:
 
@@ -392,7 +427,10 @@ it does not attest that the device is running those bytes.
 
 The exporter checks that every thread GDB exposes is stopped and that raw chunk
 extents form a valid arena. It does not call target functions, drain deferred
-frees, read allocation payloads, or modify target state. A debugger can hide a
+frees, export allocation payloads, or modify target state. Stack measurement
+uses bounded reads and retains the resulting measurements, not stack contents.
+GNU `readelf` must be on the host path for compiled stack-macro discovery.
+A debugger can hide a
 CPU, and valid topology does not prove the allocator was stopped between
 transactions. Choose an application quiescence point appropriate to the target.
 
@@ -406,7 +444,8 @@ transactions. Choose an application quiescence point appropriate to the target.
 | Allocation source | All recorded backtrace PCs with function, file, and line when resolvable; the original first-frame source is retained for compatibility |
 | PID/sequence metadata | Allocator-recorded fields when present; not a durable allocation lifetime ID or current semantic owner |
 | Task stack | Usable reserved bounds when they can be represented within the observed containing chunk |
-| Stack use/high-water | Unknown in this adapter; no coloration scan is performed |
+| Current stack depth | An admitted task-specific live register or saved context; unsupported or ambiguous contexts remain unknown |
+| Touched stack watermark | Read-only coloration scan with explicit pattern, word width, scanned bounds, and untouched bytes; not maximum pointer depth |
 | Pool backing | Parent allocation visible; individual slot occupancy unknown |
 
 Some NuttX shared-boundary layouts put usable stack bounds outside the strict
@@ -415,6 +454,16 @@ warning instead of drawing a false contained stack. Missing backtrace/debug
 information leaves source attribution unknown. Static map colors identify
 objects or archive members; they do not claim unique original Rust source lines
 under LTO, code folding, or merged constants.
+
+Stack measurement admission is independent of heap geometry. The exporter uses
+the compiled NuttX macros and target byte order, and bounds its read-only stack
+scans. It does not call the target's stack-check functions. The current adapter
+admits known ARM/Xtensa downward-growing coloration layouts; context-pointer
+support is narrower and checks architecture, CPU mode, task identity, and saved
+register metadata. Unsupported contexts leave a reason alongside any separately
+available watermark. Firmware stopped inside an interrupt must not lend its
+CPU stack pointer to an ordinary task. Host contract checks and MPS2 emulator
+checks do not qualify physical CoreS3 or Pico behavior.
 
 Per-arena statistics expose allocated chunk bytes, reserved bytes, free chunk
 bytes, largest free chunk, and unobserved bytes. They are scoped to one arena:
@@ -447,7 +496,7 @@ it through the normal frontend. Run these commands from the repository root:
 firmware="$PWD/target/build/std-demo/mps2-an521-mock"
 capture="$PWD/target/memory-explorer-qemu/qualification-001"
 
-NXRS_NUTTX_DIAGNOSTIC_UNWIND=1 cargo +1.90.0 nxrs build \
+NXRS_NUTTX_DIAGNOSTIC_UNWIND=1 cargo +1.100.0 nxrs build \
   --app std-demo --profile mps2-an521-mock --out "$firmware"
 
 python3 tools/memory-explorer/tests/qualify_qemu.py \
@@ -460,7 +509,7 @@ python3 tools/memory-explorer/tests/qualify_qemu.py \
 
 NXRS_MEMORY_QEMU_EVIDENCE="$capture" \
 NXRS_MEMORY_QEMU_ELF="$firmware/nuttx/nuttx" \
-  cargo +1.90.0 test --locked -p nxrs-memory-explorer \
+  cargo +1.100.0 test --locked -p nxrs-memory-explorer \
     --test qemu_capture --test board_projection -- --ignored --nocapture
 ```
 
@@ -855,7 +904,7 @@ exact-number range.
 | `build` | `elf_sha256` as 64 hex digits, plus optional `label` |
 | `regions` | Named address windows: `id`, `name`, `start`, `size`, `kind`, `domain`, optional `physical` |
 | `physical_resources` | Optional named resource capacities: `id`, `name`, `size`; optional `banks` partition the resource by `name`, `offset`, and `size` |
-| `snapshots` | Ordered observations with `time_ns`, `label`, `spans`, optional `complete_regions` and `correlation` |
+| `snapshots` | Ordered observations with `time_ns`, `label`, `spans`, optional `complete_regions`, `correlation`, and `stack_observations` |
 | `warnings` | Optional evidence limitations displayed by the viewer |
 | `capture` | Optional exporter-specific metadata retained in the input file; not permission to weaken validation |
 
@@ -871,6 +920,48 @@ Symbols stay separate from ownership spans because legal symbol aliases overlap.
 those regions. It does not assert that every byte in a larger board RAM window
 was observed. Missing arena coverage stays unknown unless a complete-coverage
 claim requires the importer to reject it.
+
+### Stack observations
+
+`stack_observations` is an optional additive list on each snapshot. Its entries
+reference a `stack` span in the same CPU-address snapshot. Missing entries mean
+usage was not captured; they do not mean zero. This example belongs inside a
+snapshot that contains the referenced reservation:
+
+```json
+{
+  "stack_observations": [{
+    "stack": "task_20001000_stack",
+    "task_id": 7,
+    "tcb": 536875008,
+    "growth": "down",
+    "current": {
+      "status": "observed",
+      "sp": 536883008,
+      "source": "saved_context"
+    },
+    "high_water": {
+      "status": "coloration",
+      "scan_start": 536879104,
+      "scan_size": 4096,
+      "used_bytes": 768,
+      "pattern": 3735928559,
+      "word_bytes": 4
+    }
+  }]
+}
+```
+
+Either measurement can instead be `{"status":"unavailable","reason":"..."}`.
+Current-pointer sources are `live_register` and `saved_context`; the latter
+describes the saved task context at the checkpoint. The model supports `down`
+and `up` growth without changing the address convention. Current pointers must
+lie within the usable reservation, including its endpoints. A coloration scan
+must be a nonempty, contained, aligned interval of 32-bit words; touched bytes
+must be a whole number of words no larger than that interval. Its untouched
+headroom uses `scan_size`, not the reservation size. Unknown fields and duplicate
+stack references, task IDs, or TCB addresses within one checkpoint are rejected.
+These IDs are scoped to the observation; they are not task-lifetime identities.
 
 ### Correlation metadata
 

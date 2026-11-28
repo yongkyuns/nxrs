@@ -67,6 +67,78 @@ pub fn snapshot(root: &Path, paths: &[&str]) -> Result<Value> {
     snapshot_with_library(root, paths, false)
 }
 
+/// NuttX links custom-board headers from the separately owned board copy.
+/// Admit only that fixed sibling; never a source checkout or arbitrary config path.
+pub fn native_headers(root: &Path, config: &str) -> Result<Value> {
+    let root = root.canonicalize().map_err(|error| error.to_string())?;
+    let mut allowed = vec![root.clone()];
+    if config
+        .lines()
+        .any(|line| line == "CONFIG_ARCH_BOARD_CUSTOM=y")
+    {
+        for required in [
+            "CONFIG_ARCH_BOARD_CUSTOM_DIR=\"../board\"",
+            "CONFIG_ARCH_BOARD_CUSTOM_DIR_RELPATH=y",
+        ] {
+            if !config.lines().any(|line| line == required) {
+                return Err("custom board headers require the owned ../board directory".into());
+            }
+        }
+        let board = root.parent().ok_or("native output parent")?.join("board");
+        let metadata = fs::symlink_metadata(&board).map_err(|error| error.to_string())?;
+        if !metadata.is_dir() || metadata.is_symlink() {
+            return Err("custom board must be an owned directory, not a symlink".into());
+        }
+        let board = board.canonicalize().map_err(|error| error.to_string())?;
+        let receipt = read_json(&root.parent().unwrap().join("board-source.json"))?;
+        let name = receipt["board"]
+            .as_str()
+            .ok_or("missing staged board identity")?;
+        let selection = format!("CONFIG_ARCH_BOARD_CUSTOM_NAME=\"{name}\"");
+        if receipt["schema"] != 1 || !config.lines().any(|line| line == selection) {
+            return Err("custom board headers differ from the staged board identity".into());
+        }
+        let sources = receipt["files"]
+            .as_object()
+            .ok_or("missing board source hashes")?;
+        if !sources.contains_key("include/board.h") {
+            return Err("staged board identity omits include/board.h".into());
+        }
+        for (relative, expected) in sources {
+            let relative = Path::new(relative);
+            if relative
+                .components()
+                .any(|part| !matches!(part, std::path::Component::Normal(_)))
+            {
+                return Err("unsafe staged board source path".into());
+            }
+            let path = board.join(relative);
+            if path
+                .symlink_metadata()
+                .map_err(|error| error.to_string())?
+                .is_symlink()
+                || !path
+                    .canonicalize()
+                    .map_err(|error| error.to_string())?
+                    .starts_with(&board)
+                || expected.as_str() != Some(hash(&path)?.as_str())
+            {
+                return Err(format!("staged board source changed: {}", path.display()));
+            }
+        }
+        allowed.push(board);
+    }
+    let mut files = BTreeMap::new();
+    visit(
+        &root,
+        &root.join("include"),
+        &allowed,
+        &mut BTreeSet::new(),
+        &mut files,
+    )?;
+    Ok(json!(files))
+}
+
 /// Installed toolchains may link Rust sources to a separately unpacked library.
 /// Read and identify that selected source tree without treating it as owned
 /// output. Retained private SDKs still use the strict `snapshot` boundary.
@@ -143,6 +215,40 @@ pub fn copy_if_changed(source: &Path, destination: &Path) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn custom_board_headers_require_the_matching_private_copy() {
+        use std::os::unix::fs::symlink;
+        let temp = crate::TempDir::new(&std::env::temp_dir()).unwrap();
+        let nuttx = temp.0.join("nuttx");
+        let board = temp.0.join("board");
+        fs::create_dir_all(nuttx.join("include")).unwrap();
+        fs::create_dir_all(board.join("include")).unwrap();
+        let header = board.join("include/board.h");
+        fs::write(&header, "#define BOARD 1\n").unwrap();
+        symlink(board.join("include"), nuttx.join("include/board")).unwrap();
+        let config = "CONFIG_ARCH_BOARD_CUSTOM=y\nCONFIG_ARCH_BOARD_CUSTOM_DIR=\"../board\"\nCONFIG_ARCH_BOARD_CUSTOM_DIR_RELPATH=y\nCONFIG_ARCH_BOARD_CUSTOM_NAME=\"example\"\n";
+        // A sibling by itself is not a selected board or source identity.
+        assert!(native_headers(&nuttx, "CONFIG_BOARD=y\n").is_err());
+        assert!(native_headers(&nuttx, config).is_err());
+        let receipt = json!({"schema":1,"board":"example","files":{"include/board.h":hash(&header).unwrap()}});
+        write_json(&temp.0.join("board-source.json"), &receipt).unwrap();
+        assert!(native_headers(&nuttx, config).is_ok());
+        assert!(native_headers(&nuttx, &config.replace("example", "different-board")).is_err());
+        assert!(native_headers(&nuttx, &config.replace("../board", "../elsewhere")).is_err());
+        fs::write(&header, "#define BOARD 2\n").unwrap();
+        assert!(native_headers(&nuttx, config).is_err());
+        fs::write(&header, "#define BOARD 1\n").unwrap();
+        fs::create_dir(temp.0.join("foreign")).unwrap();
+        fs::write(temp.0.join("foreign/input.h"), "foreign\n").unwrap();
+        symlink(temp.0.join("foreign"), nuttx.join("include/foreign")).unwrap();
+        assert!(native_headers(&nuttx, config).is_err());
+        fs::remove_file(nuttx.join("include/foreign")).unwrap();
+        fs::rename(&board, temp.0.join("moved-board")).unwrap();
+        symlink(temp.0.join("moved-board"), &board).unwrap();
+        assert!(native_headers(&nuttx, config).is_err());
+    }
 
     #[cfg(unix)]
     #[test]

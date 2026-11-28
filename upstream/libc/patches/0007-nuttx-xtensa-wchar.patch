@@ -1,0 +1,17 @@
+Subject: [PATCH] nuttx: match the pinned Xtensa unsigned 16-bit wchar_t ABI
+
+NuttX Xtensa takes wchar_t from the compiler's __WCHAR_TYPE__. The pinned
+Espressif GCC 16.2.0 defines it as short unsigned int (16 bits), as checked
+by the compiled native ABI witness. The architecture split in libc 0.2.191
+omitted Xtensa; select the matching type explicitly. Native toolchains with
+a different wchar_t model must fail the size/alignment/signedness ABI gate.
+
+--- a/src/unix/nuttx/mod.rs
++++ b/src/unix/nuttx/mod.rs
+@@ -39,3 +39,5 @@
+ cfg_if! {
+-    if #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))] {
++    if #[cfg(target_arch = "xtensa")] {
++        pub type wchar_t = c_ushort;
++    } else if #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))] {
+         pub type wchar_t = c_int;

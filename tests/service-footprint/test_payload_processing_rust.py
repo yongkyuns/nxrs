@@ -16,7 +16,7 @@ class PayloadProcessingRustTests(reference.PayloadProcessingCTests):
             raise unittest.SkipTest('pinned Rust host toolchain unavailable')
         super().setUpClass()
         library = Path(cls._build_dir.name) / 'libpayload_rust.so'
-        subprocess.run(['rustup', 'run', '1.90.0', 'rustc', '--edition', '2021',
+        subprocess.run(['rustup', 'run', '1.100.0', 'rustc', '--edition', '2021',
                         '--crate-type', 'cdylib', '-C', 'opt-level=z',
                         str(reference.HERE / 'src/payload_processing.rs'), '-o', str(library)],
                        check=True, capture_output=True, text=True)

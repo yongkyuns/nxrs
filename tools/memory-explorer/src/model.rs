@@ -250,6 +250,10 @@ pub struct Snapshot {
     pub time_ns: u64,
     pub label: String,
     pub spans: Vec<Span>,
+    /// Independent stack-pointer and coloration observations at this exact
+    /// checkpoint. Older captures omit these; a reservation alone is not usage.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub stack_observations: Vec<crate::StackObservation>,
     /// Regions whose heap-arena children completely tile the observed arena.
     /// Omit for incomplete captures; unobserved gaps remain unknown.
     #[serde(default)]
@@ -1037,6 +1041,7 @@ fn validate_snapshots(snapshots: &[Snapshot], regions: &[Region]) -> Result<()> 
     crate::correlation::validate_snapshot_correlations(snapshots)?;
     for snapshot in snapshots {
         validate_spans(&snapshot.spans, regions)?;
+        crate::stack::validate_observations(snapshot, regions)?;
         for id in &snapshot.complete_regions {
             let region = regions
                 .iter()

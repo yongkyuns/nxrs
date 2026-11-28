@@ -14,7 +14,7 @@ def _frontend():
     environment=dict(os.environ)
     for key in ('RUSTC','CARGO_BUILD_RUSTC','RUSTFLAGS','CARGO_ENCODED_RUSTFLAGS','CARGO_BUILD_TARGET'):
         environment.pop(key,None)
-    result=subprocess.run(['cargo','+1.90.0','build','--quiet','--locked','-p','nxrs-build','--target-dir',str(ROOT/'target')],cwd=ROOT,env=environment,text=True,capture_output=True,timeout=120)
+    result=subprocess.run(['cargo','+1.100.0','build','--quiet','--locked','-p','nxrs-build','--target-dir',str(ROOT/'target')],cwd=ROOT,env=environment,text=True,capture_output=True,timeout=120)
     if result.returncode:
         raise ValueError(result.stderr.strip())
     return ROOT/'target/debug'/('nxrs-build.exe' if os.name=='nt' else 'nxrs-build')

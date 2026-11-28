@@ -108,24 +108,23 @@ paths = ['^docs/dropbear-ssh\.md$']
 regexTarget = "line"
 regexes = ['^[\r\n \t]*\| Resource cost \| Matched baseline, dependencies selected but not running, listening, authenticated shell, handshake/rekey/failure peaks, post-disconnect and post-stop \|[ \t\r]*$']
 
-# The cache-key suffix is the public archive checksum in tests/owner-qualification/install-qemu.sh.
+# Public cache provenance verified against a754981c's pinned QEMU installer.
 [[allowlists]]
-description = "Reviewed ARM QEMU archive cache key"
+description = "Historical owner qualification cache key contains the pinned public QEMU archive checksum"
 targetRules = ["generic-api-key"]
 condition = "AND"
 paths = ['^\.github/workflows/mpsc-comparison\.yml$']
 regexTarget = "line"
 regexes = ['^[\r\n \t]*key:[ \t]*owner-arm-qemu-8\.2\.7-1f0604f296ab9acb4854c054764a1ba408643fc299bd54a6500cccfaaca65b55[ \t\r]*$']
 
-# These historical control lines compare only the public QEMU cache-key prefix.
+# Exact historical Python comparisons from 16d74ff; neither carries a token.
 [[allowlists]]
-description = "Reviewed historical QEMU cache-key control literals"
+description = "Reviewed historical scanner controls contain only the public QEMU cache prefix"
 targetRules = ["generic-api-key"]
 condition = "AND"
-commits = ["16d74ff13cd57485e06520821cfb822742cefaaf"]
 paths = ['^tools/scan-secrets\.py$']
 regexTarget = "line"
 regexes = [
-  '^[\r\n \t]*if line\.lstrip\(\)\.startswith\("key: owner-arm-qemu-8\.2\.7-"\)\), ""\)[ \t\r]*$',
-  '^[\r\n \t]*if not checksum or row\.strip\(\) != "key: owner-arm-qemu-8\.2\.7-" \+ checksum\[1\]:[ \t\r]*$',
+  '^[\r\n \t]*if line\.lstrip\(\)\.startswith\("key:[ ]owner-arm-qemu-8\.2\.7-"\)\), ""\)[ \t\r]*$',
+  '^[\r\n \t]*if not checksum or row\.strip\(\) != "key:[ ]owner-arm-qemu-8\.2\.7-" \+ checksum\[1\]:[ \t\r]*$',
 ]

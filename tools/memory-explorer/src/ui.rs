@@ -13,6 +13,7 @@ mod history;
 mod linked;
 mod overview;
 mod replay;
+mod stacks;
 mod timing;
 mod workspace;
 
@@ -26,6 +27,7 @@ pub enum ViewMode {
     #[default]
     Memory,
     Timing,
+    Stacks,
 }
 
 impl ViewMode {
@@ -34,7 +36,8 @@ impl ViewMode {
             "overview" => Ok(Self::Overview),
             "memory" => Ok(Self::Memory),
             "timing" => Ok(Self::Timing),
-            _ => Err("--view requires overview, memory, or timing".into()),
+            "stacks" => Ok(Self::Stacks),
+            _ => Err("--view requires overview, memory, timing, or stacks".into()),
         }
     }
 }
@@ -332,6 +335,7 @@ pub struct MemoryExplorer {
     replay_enabled: bool,
     replay_time_entry: String,
     history: history::MemoryHistory,
+    stacks: stacks::StackView,
     color_by_role: bool,
 }
 
@@ -392,6 +396,7 @@ impl MemoryExplorer {
             replay_enabled: false,
             replay_time_entry: String::new(),
             history: history::MemoryHistory::default(),
+            stacks: stacks::StackView::default(),
             color_by_role: true,
         };
         if let Some(model) = model {
@@ -424,7 +429,7 @@ impl MemoryExplorer {
             return Err("The timing view needs --trace FILE or --demo.".into());
         }
         if view != ViewMode::Timing && self.model.is_none() {
-            return Err("Memory and overview views need a final ELF or --demo.".into());
+            return Err("Memory, overview, and stack views need a final ELF or --demo.".into());
         }
         self.view = view;
         Ok(())
@@ -469,6 +474,7 @@ impl MemoryExplorer {
     fn install_model(&mut self, model: MemoryModel, synthetic: bool) {
         self.symbol_labels = symbol_labels(&model);
         self.history = history::MemoryHistory::from_model(&model);
+        self.stacks = stacks::StackView::from_model(&model);
         let preferred_heap_region = model
             .snapshots
             .iter()
@@ -783,6 +789,9 @@ impl MemoryExplorer {
                     if ui.add_enabled(self.model.is_some(), egui::Button::new("Memory detail").selected(self.view == ViewMode::Memory)).clicked() {
                         self.view = ViewMode::Memory;
                     }
+                    if ui.add_enabled(self.model.is_some(), egui::Button::new("Stack usage").selected(self.view == ViewMode::Stacks)).clicked() {
+                        self.view = ViewMode::Stacks;
+                    }
                     if ui.add_enabled(self.trace.is_some() && (!self.replay_active() || self.replay_time_is_covered()), egui::Button::new("Timing").selected(self.view == ViewMode::Timing)).on_hover_text("Heap-to-timing navigation requires the selected source time to be inside the imported trace.").clicked() {
                         if self.replay_active() {
                             self.open_replay_timing();
@@ -824,7 +833,7 @@ impl MemoryExplorer {
                         let selected = region.key == self.region;
                         let frame = egui::Frame::new()
                             .fill(if selected { Color32::from_rgb(29, 55, 59) } else { SURFACE })
-                            .stroke(Stroke::new(1.0, if selected { ACCENT } else { LINE }))
+                            .stroke(Stroke::new(1.0_f32, if selected { ACCENT } else { LINE }))
                             .corner_radius(7)
                             .inner_margin(11);
                         let response = frame
@@ -957,6 +966,9 @@ impl MemoryExplorer {
                     if matches!(block.span.kind, SpanKind::Stack | SpanKind::StackUsed) {
                         ui.add_space(9.0);
                         ui.label(RichText::new("Stack reservations can overlap heap allocations. These layers are not additive. A sampled/high-water extent does not reconstruct call-frame history.").small().color(WARNING));
+                        if ui.button("Inspect stack usage").clicked() {
+                            self.open_stack_usage(&block.span);
+                        }
                     }
                     ui.add_space(15.0);
                     if ui.button("Zoom to block").clicked() {
@@ -1168,7 +1180,7 @@ impl MemoryExplorer {
         }
         let painter = ui.painter().with_clip_rect(rect);
         painter.rect_filled(rect, 8, PANEL);
-        painter.rect_stroke(rect, 8, Stroke::new(1.0, LINE), StrokeKind::Inside);
+        painter.rect_stroke(rect, 8, Stroke::new(1.0_f32, LINE), StrokeKind::Inside);
         let ticks = ((plot.width() / 125.0) as u64)
             .max(1)
             .min(self.viewport.span());
@@ -1178,7 +1190,7 @@ impl MemoryExplorer {
             let x = plot.left() + self.viewport.fraction(address) as f32 * plot.width();
             painter.line_segment(
                 [Pos2::new(x, plot.top()), Pos2::new(x, plot.bottom())],
-                Stroke::new(1.0, LINE.linear_multiply(0.6)),
+                Stroke::new(1.0_f32, LINE.linear_multiply(0.6)),
             );
             let align = if index == 0 {
                 Align2::LEFT_CENTER
@@ -1346,7 +1358,7 @@ impl MemoryExplorer {
                 if span.symbol && span.span.size == 0 {
                     painter.line_segment(
                         [block_rect.left_top(), block_rect.left_bottom()],
-                        Stroke::new(1.0, if selected { Color32::WHITE } else { color }),
+                        Stroke::new(1.0_f32, if selected { Color32::WHITE } else { color }),
                     );
                 } else {
                     painter.rect_filled(
@@ -1362,7 +1374,7 @@ impl MemoryExplorer {
                         block_rect,
                         2,
                         Stroke::new(
-                            if selected { 2.0 } else { 0.7 },
+                            if selected { 2.0_f32 } else { 0.7_f32 },
                             if selected {
                                 Color32::WHITE
                             } else {
@@ -1484,7 +1496,7 @@ impl MemoryExplorer {
             ui.add_space(12.0);
             ui.label(RichText::new("Explore linked placement, allocation call stacks and captured memory, alongside measured scheduler and application traces.").size(16.0).color(MUTED));
             ui.add_space(30.0);
-            egui::Frame::new().fill(PANEL).stroke(Stroke::new(1.0,LINE)).corner_radius(10).inner_margin(24).show(ui,|ui| {
+            egui::Frame::new().fill(PANEL).stroke(Stroke::new(1.0_f32,LINE)).corner_radius(10).inner_margin(24).show(ui,|ui| {
                 ui.set_max_width(750.0);
                 self.input_fields(ui);
             });
@@ -1613,6 +1625,17 @@ impl MemoryExplorer {
     }
 
     fn keyboard(&mut self, ctx: &egui::Context) {
+        if self.view == ViewMode::Stacks {
+            if !ctx.wants_keyboard_input() && !self.replay_active() {
+                if ctx.input(|input| input.key_pressed(egui::Key::PageDown)) {
+                    self.adjacent_snapshot(true);
+                }
+                if ctx.input(|input| input.key_pressed(egui::Key::PageUp)) {
+                    self.adjacent_snapshot(false);
+                }
+            }
+            return;
+        }
         if self.view != ViewMode::Memory {
             return;
         }
@@ -1664,7 +1687,7 @@ impl MemoryExplorer {
             }
         };
         let outcome = (|| -> Result<(), String> {
-            if smoke.frame == 3 && self.view != ViewMode::Timing {
+            if smoke.frame == 3 && !matches!(self.view, ViewMode::Timing | ViewMode::Stacks) {
                 let region = self.current_region().ok_or("No region rendered")?;
                 let before = self.viewport;
                 self.viewport = self
@@ -1709,7 +1732,10 @@ impl MemoryExplorer {
                     .checks
                     .push("heap replay sequence navigation and evidence gaps");
             }
-            if smoke.frame == 6 && self.view != ViewMode::Timing && !self.replay_active() {
+            if smoke.frame == 6
+                && !matches!(self.view, ViewMode::Timing | ViewMode::Stacks)
+                && !self.replay_active()
+            {
                 if let Some(model) = self
                     .model
                     .as_ref()
@@ -1772,6 +1798,12 @@ impl MemoryExplorer {
                         .push("linked marker/memory navigation and unknown gaps");
                 }
             }
+            if smoke.frame == 6 && self.view == ViewMode::Stacks {
+                self.smoke_stack_navigation()?;
+                smoke
+                    .checks
+                    .push("stack checkpoint selection, unknown gaps, and exact address navigation");
+            }
             if smoke.frame >= 10 && !smoke.screenshot_requested {
                 ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(egui::UserData::default()));
                 smoke.screenshot_requested = true;
@@ -1830,8 +1862,9 @@ impl MemoryExplorer {
                 self.linked_checkpoints(ctx);
             }
             let previous = self.timing.cursor();
-            self.timing
-                .show(ctx, self.trace.as_ref().unwrap(), self.namespace);
+            if let Some(trace) = self.trace.as_ref() {
+                self.timing.show(ctx, trace, self.namespace);
+            }
             if self.replay_active() {
                 if self.timing.cursor() != previous {
                     self.sync_replay_timing_cursor();
@@ -1842,6 +1875,8 @@ impl MemoryExplorer {
             if self.timing.cursor() != previous {
                 ctx.request_repaint();
             }
+        } else if self.view == ViewMode::Stacks && self.model.is_some() {
+            self.stack_usage(ctx);
         } else if self.view == ViewMode::Overview && self.model.is_some() {
             self.timeline(ctx);
             self.overview(ctx);
@@ -1865,7 +1900,7 @@ pub fn configure_style(ctx: &egui::Context) {
     visuals.faint_bg_color = SURFACE;
     visuals.extreme_bg_color = BACKGROUND;
     visuals.selection.bg_fill = Color32::from_rgb(40, 103, 100);
-    visuals.selection.stroke = Stroke::new(1.0, ACCENT);
+    visuals.selection.stroke = Stroke::new(1.0_f32, ACCENT);
     visuals.widgets.inactive.bg_fill = SURFACE;
     visuals.widgets.inactive.weak_bg_fill = SURFACE;
     visuals.widgets.hovered.bg_fill = Color32::from_rgb(44, 64, 78);
@@ -1990,7 +2025,7 @@ fn eyebrow(ui: &mut egui::Ui, text: &str) {
 fn badge(ui: &mut egui::Ui, text: &str, color: Color32) {
     egui::Frame::new()
         .fill(color.linear_multiply(0.13))
-        .stroke(Stroke::new(0.7, color.linear_multiply(0.45)))
+        .stroke(Stroke::new(0.7_f32, color.linear_multiply(0.45)))
         .corner_radius(4)
         .inner_margin(egui::Margin::symmetric(7, 4))
         .show(ui, |ui| {
@@ -2031,7 +2066,7 @@ fn hatch(painter: &egui::Painter, rect: Rect, color: Color32) {
                 Pos2::new(x, rect.bottom()),
                 Pos2::new(x + rect.height(), rect.top()),
             ],
-            Stroke::new(1.0, color),
+            Stroke::new(1.0_f32, color),
         );
         x += 14.0;
     }

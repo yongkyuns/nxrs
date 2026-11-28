@@ -23,7 +23,7 @@ simulated NuttX UART through a temporary host pseudoterminal. The
 Use Xcode command-line tools, GNU Make and GNU sed (as `make` and `sed` on
 `PATH`), `kconfig-tweak` from NuttX's `kconfig-frontends`, CMake, `flock`,
 `genromfs`, and Python 3.11 or later with `kconfiglib` and `lief`.
-Install `nightly-2025-09-15` with `rust-src`, and provide the pinned Mbed TLS
+Install `nightly-2026-11-26` with `rust-src`, and provide the pinned Mbed TLS
 archive at `target/mbedtls-4.2.0.tar.bz2` or with `NXRS_TLS_ARCHIVE`.
 See the [Mbed TLS source pin](../upstream/mbedtls/source.json) for the download.
 
@@ -100,8 +100,8 @@ compatibility path after the ESP32 behavior was factored into shared Rust code.
 ```sh
 sudo apt-get install bison flex gperf kconfig-frontends genromfs libncurses-dev zlib1g-dev
 python3 -m pip install kconfiglib==14.1.0
-rustup toolchain install 1.90.0 --profile minimal --component rust-src
-rustup target add --toolchain 1.90.0 x86_64-unknown-none
+rustup toolchain install 1.100.0 --profile minimal --component rust-src
+rustup target add --toolchain 1.100.0 x86_64-unknown-none
 git submodule update --init
 
 bash tools/build-nuttx-sim.sh

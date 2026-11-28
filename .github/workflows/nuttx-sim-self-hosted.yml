@@ -58,8 +58,8 @@ jobs:
           fi
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
           export PATH="$HOME/.cargo/bin:$PATH"
-          rustup toolchain install 1.90.0 --profile minimal --component rust-src
-          rustup target add --toolchain 1.90.0 x86_64-unknown-none
+          rustup toolchain install 1.100.0 --profile minimal --component rust-src
+          rustup target add --toolchain 1.100.0 x86_64-unknown-none
           python3 -m pip install --break-system-packages kconfiglib==14.1.0
 
       - name: Build core-only compatibility fixture

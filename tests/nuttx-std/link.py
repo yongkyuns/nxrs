@@ -21,5 +21,5 @@ def prune_discarded_undefined(binary,prefix,evidence):
 if __name__=='__main__':
     binary=ROOT/'target/debug/nxrs-build'
     if not binary.is_file():
-        raise SystemExit('Build the host tool with cargo +1.90.0 build -p nxrs-build before invoking the qualification linker')
+        raise SystemExit('Build the host tool with cargo +1.100.0 build -p nxrs-build before invoking the qualification linker')
     os.execv(binary,[str(binary),'nuttx-link',*sys.argv[1:]])

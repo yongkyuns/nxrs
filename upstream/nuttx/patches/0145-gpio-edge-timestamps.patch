@@ -1,3 +1,9 @@
+Subject: [PATCH] gpio: retain edge timestamps and support static ESP callbacks
+
+Expose the retained monotonic edge timestamp through the GPIO device contract
+and allow a static ESP GPIO callback without an allocated IRQ adapter. Board
+pin registration lives with the selected custom BSP.
+
 --- a/drivers/ioexpander/Kconfig
 +++ b/drivers/ioexpander/Kconfig
 @@ -644,6 +644,10 @@
@@ -148,95 +154,3 @@
  int esp_gpio_irq(int id, xcpt_t irqhandler, void *arg)
  {
    int ret;
---- a/boards/xtensa/esp32s3/esp32s3-m5-cores3/Kconfig
-+++ b/boards/xtensa/esp32s3/esp32s3-m5-cores3/Kconfig
-@@ -1,4 +1,10 @@
- # CoreS3 resources are configured by the ESP32-S3 UART/I2C Kconfig.
-+
-+config ESP32S3_M5_CORES3_GPIO10_IRQ
-+	bool "Register GPIO10 as a rising edge input"
-+	depends on DEV_GPIO && ESPRESSIF_GPIO_IRQ && BOARD_LATE_INITIALIZE
-+	---help---
-+		Register M-Bus pin 2 as /dev/gpio10.
- 
- config ESP32S3_M5_CORES3_LCD
- 	bool "Register the built-in CoreS3 SPI LCD endpoint"
---- a/boards/xtensa/esp32s3/esp32s3-m5-cores3/src/esp32s3_boot.c
-+++ b/boards/xtensa/esp32s3/esp32s3-m5-cores3/src/esp32s3_boot.c
-@@ -7,6 +7,10 @@
- #include <nuttx/fs/fs.h>
- #include <syslog.h>
- #include "esp32s3_i2c.h"
-+#ifdef CONFIG_ESP32S3_M5_CORES3_GPIO10_IRQ
-+#  include <nuttx/ioexpander/gpio.h>
-+#  include "espressif/esp_gpio.h"
-+#endif
- #ifdef CONFIG_WATCHDOG
- #  include "esp32s3_board_wdt.h"
- #endif
-@@ -22,10 +26,65 @@
- #ifdef CONFIG_ESPRESSIF_BLE
- int esp32s3_ble_initialize(void);
- #endif
-+#ifdef CONFIG_ESP32S3_M5_CORES3_GPIO10_IRQ
-+static pin_interrupt_t g_gpio10_callback;
-+
-+static void gpio10_interrupt(void *arg)
-+{
-+  g_gpio10_callback(arg, 10);
-+}
-+
-+static int gpio10_read(struct gpio_dev_s *dev, bool *value)
-+{
-+  *value = esp_gpioread(10);
-+  return 0;
-+}
-+
-+static int gpio10_attach(struct gpio_dev_s *dev, pin_interrupt_t callback)
-+{
-+  if (callback != NULL)
-+    {
-+      g_gpio10_callback = callback;
-+    }
-+
-+  return esp_gpio_isr(10, callback ? gpio10_interrupt : NULL, dev);
-+}
-+
-+static int gpio10_enable(struct gpio_dev_s *dev, bool enable)
-+{
-+  return enable ? esp_gpioirqenable(10) : esp_gpioirqdisable(10);
-+}
-+
-+static const struct gpio_operations_s g_gpio10_ops =
-+{
-+  .go_read = gpio10_read,
-+  .go_attach = gpio10_attach,
-+  .go_enable = gpio10_enable,
-+};
-+
-+static struct gpio_dev_s g_gpio10 =
-+{
-+  .gp_pintype = GPIO_INTERRUPT_RISING_PIN,
-+  .gp_ops = &g_gpio10_ops,
-+};
-+#endif
-+
- void esp32s3_board_initialize(void) {}
- #ifdef CONFIG_BOARD_LATE_INITIALIZE
- void board_late_initialize(void)
- {
-+#ifdef CONFIG_ESP32S3_M5_CORES3_GPIO10_IRQ
-+  int gpio10 = esp_configgpio(10, INPUT_FUNCTION_2 | PULLDOWN | RISING);
-+  if (gpio10 >= 0)
-+    {
-+      gpio10 = gpio_pin_register(&g_gpio10, 10);
-+    }
-+
-+  if (gpio10 < 0)
-+    {
-+      syslog(LOG_ERR, "CoreS3 GPIO10 registration failed: %d\n", gpio10);
-+    }
-+#endif
- #ifdef CONFIG_WATCHDOG
-   int watchdog = board_wdt_init();
-   if (watchdog < 0)

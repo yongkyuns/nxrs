@@ -31,8 +31,6 @@ ABI = {"common_bytes": 16, "clock_offset": 8, "clock_bytes": 8,
        "pid_offset": 4, "pid_bytes": 4, "event_bytes": 32, "data_offset": 24,
        "begin_type": 31, "end_type": 32, "mark_type": 33, "word_bytes": 4}
 MARKER = re.compile(r"^.+-(\d+)\s+\[0\]\s+(\d+)\.(\d{9}): tracing_mark_write: ([BEI])\|(\d+)\|(.+)$")
-# NSH may append an erase-line sequence after its otherwise complete prompt.
-NSH_PROMPT = re.compile(rb"(?:^|\n)nsh>[ \t]*(?:\x1b\[K)?[ \t\r\n]*\Z")
 
 
 def sha256(path):
@@ -230,6 +228,12 @@ def native_evidence(console, seconds, overflow, recording_id):
             "trailing_silence_ns": end_ns - max(number(row["fix_after_ticks"]) * TICK_NS for row in operations)}
 
 
+def at_nsh_prompt(console):
+    # Accept only a full prompt line and NSH's known erase-line suffix.
+    # Keep the retained native evidence byte-for-byte unchanged.
+    return re.search(rb"(?:^|\n)nsh>[ \t]*(?:\x1b\[K)?[ \t\r\n]*\Z", console) is not None
+
+
 def capture(qemu, image, command, output, timeout):
     process = None
     console = bytearray()
@@ -257,7 +261,7 @@ def capture(qemu, image, command, output, timeout):
                     process.stdin.flush()
                     time.sleep(0.01)
                 sent = True
-            if sent and b"NXRS_TIMED_WITNESS " in console and NSH_PROMPT.search(console):
+            if sent and b"NXRS_TIMED_WITNESS " in console and at_nsh_prompt(console):
                 return bytes(console)
         raise TimeoutError("Native timed capture exceeded its bounded host deadline")
     finally:

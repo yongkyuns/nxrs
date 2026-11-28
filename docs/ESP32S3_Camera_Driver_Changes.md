@@ -1,4 +1,11 @@
-# ESP32-S3 Camera Driver Changes
+# Historical ESP32-S3 camera driver investigation
+
+> **Retired implementation.** This document preserves the original private-driver
+> investigation and its measurements. The unused `ESP32S3_CAMERA` driver and its
+> configuration option have been removed. Current Freenove profiles use NuttX's
+> standard capture queue, the ESP32-S3 `ESP32S3_CAM` lower half and the OV3660 sensor
+> driver. See the [camera HAL](../hal/camera/README.md) and
+> [maintained patch inventory](upstream-patchsets.md) for the supported path.
 
 ## Overview
 

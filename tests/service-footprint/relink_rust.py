@@ -141,7 +141,7 @@ def main():
         staged_names.append(name)
     helpers = selected_helpers(app, staged_names)
     env = dict(os.environ)
-    env.update(RUSTUP_TOOLCHAIN='1.90.0', RUSTC_BOOTSTRAP='1',
+    env.update(RUSTUP_TOOLCHAIN='1.100.0', RUSTC_BOOTSTRAP='1',
                RUSTC=str(sysroot / 'bin/rustc'),
                RUSTDOC=str(sysroot / 'bin/rustdoc'),
                NUTTX_STD_SYSROOT=str(sysroot), CARGO_TARGET_DIR=str(target),
@@ -149,10 +149,10 @@ def main():
                NUTTX_STD_LINK_LOG=str(out / 'rust-link.json'),
                CARGO_PROFILE_RELEASE_LTO='fat', CARGO_PROFILE_RELEASE_DEBUG='0',
                CARGO_PROFILE_RELEASE_STRIP='none',
-               RUSTFLAGS=f'-C panic=abort -C linker={root}/tests/nuttx-std/link.py')
+               RUSTFLAGS=f'-C panic=immediate-abort -Zunstable-options -C linker={root}/tests/nuttx-std/link.py')
     if env['NUTTX_STD_GNU_LINKER'] is None:
         raise SystemExit('source the pinned ESP environment first')
-    cargo = subprocess.check_output(['rustup', 'which', '--toolchain', '1.90.0', 'cargo'],
+    cargo = subprocess.check_output(['rustup', 'which', '--toolchain', '1.100.0', 'cargo'],
                                     text=True).strip()
     features = ['probe'] if args.probe else []
     env['NXRS_FOOTPRINT_CASE'] = args.case
@@ -162,8 +162,8 @@ def main():
                '-p', 'nxrs-footprint-demo',
                '--features', ','.join(features), '--bin', args.bin,
                '--target', str(tree / 'xtensa-esp32s3-nuttx.json'),
-               '-Zbuild-std=std,panic_abort',
-               '-Zbuild-std-features=backtrace-trace-only,optimize_for_size,panic_immediate_abort',
+               '-Zbuild-std=std,panic_abort', '-Zjson-target-spec',
+               '-Zbuild-std-features=backtrace-trace-only,optimize_for_size',
                '--message-format=json-render-diagnostics']
     print('Cargo:', ','.join(features), flush=True)
     with (out / 'cargo-messages.jsonl').open('w') as log:

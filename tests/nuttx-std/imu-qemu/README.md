@@ -12,7 +12,7 @@ On Linux x86-64 with the [Nxrs QEMU prerequisites](../../../docs/nuttx-qemu.md):
 ```sh
 git submodule update --init
 bash tools/install-qemu-tools.sh
-cargo +1.90.0 nxrs build \
+cargo +1.100.0 nxrs build \
   --manifest-path tests/nuttx-std/imu-qemu/Cargo.toml \
   --profile esp32s3-devkit-imu-qemu \
   --target-c-source tests/nuttx-std/imu-qemu/bmi270_lower.c \

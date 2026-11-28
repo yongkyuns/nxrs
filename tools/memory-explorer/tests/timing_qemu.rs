@@ -9,6 +9,9 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+mod support;
+use support::source_pins;
+
 fn json(path: &Path) -> Value {
     serde_json::from_str(&fs::read_to_string(path).unwrap()).unwrap()
 }
@@ -23,6 +26,48 @@ fn number(value: &Value, field: &str) -> u64 {
 
 fn sha256(path: &Path) -> String {
     format!("{:x}", Sha256::digest(fs::read(path).unwrap()))
+}
+
+fn validate_sources(build: &Value, pins: &BTreeMap<&str, String>) {
+    for source in ["nuttx", "apps"] {
+        assert_eq!(text(build, &format!("{source}_revision")), pins[source]);
+        assert_eq!(
+            text(&build["source_identity"][source], "revision"),
+            pins[source]
+        );
+        assert_eq!(
+            build["source_identity"][source]["tracked_sources_clean"],
+            true
+        );
+    }
+}
+
+#[test]
+fn timing_receipts_require_current_clean_source_pins() {
+    let pins = source_pins();
+    let build = serde_json::json!({
+        "nuttx_revision": pins["nuttx"], "apps_revision": pins["apps"],
+        "source_identity": {
+            "nuttx": {"revision": pins["nuttx"], "tracked_sources_clean": true},
+            "apps": {"revision": pins["apps"], "tracked_sources_clean": true}
+        }
+    });
+    validate_sources(&build, &pins);
+    for pointer in [
+        "/nuttx_revision",
+        "/apps_revision",
+        "/source_identity/nuttx/revision",
+        "/source_identity/apps/revision",
+    ] {
+        let mut changed = build.clone();
+        *changed.pointer_mut(pointer).unwrap() = serde_json::json!("0".repeat(40));
+        assert!(std::panic::catch_unwind(|| validate_sources(&changed, &pins)).is_err());
+    }
+    for source in ["nuttx", "apps"] {
+        let mut changed = build.clone();
+        changed["source_identity"][source]["tracked_sources_clean"] = Value::Bool(false);
+        assert!(std::panic::catch_unwind(|| validate_sources(&changed, &pins)).is_err());
+    }
 }
 
 fn fields(payload: &str) -> BTreeMap<&str, &str> {
@@ -130,20 +175,7 @@ fn imports_real_timing_and_matches_independent_uart_endpoints() {
     assert_eq!(text(&begin, "frequency_hz"), "20000000");
     assert_eq!(text(&end, "complete"), "1");
 
-    assert_eq!(
-        text(&build, "nuttx_revision"),
-        "2b5c0de5e933281c209f954a63b99cf10c132346"
-    );
-    assert_eq!(
-        text(&build, "apps_revision"),
-        "3c772ea35b9245972e18999828f7b533e6fc57cc"
-    );
-    for source in ["nuttx", "apps"] {
-        assert_eq!(
-            build["source_identity"][source]["tracked_sources_clean"],
-            true
-        );
-    }
+    validate_sources(&build, &source_pins());
     assert_eq!(build["qemu_cmsdk_clock_adapter"], true);
     assert_eq!(number(&build["clock_contract"], "frequency_hz"), 20_000_000);
     assert_eq!(number(&build["clock_contract"], "bits"), 32);
