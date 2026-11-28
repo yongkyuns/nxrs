@@ -40,6 +40,7 @@ fn observation(spans: Vec<Span>) -> SnapshotFile {
             time_ns: 10,
             label: "observed point".into(),
             spans,
+            stack_observations: vec![],
             complete_regions: vec![],
             correlation: None,
         }],

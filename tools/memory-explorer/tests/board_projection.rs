@@ -16,6 +16,7 @@ fn empty_board() -> MemoryModel {
         regions: layout.regions,
         physical_resources: layout.physical_resources,
         snapshots: vec![Snapshot {
+            stack_observations: vec![],
             time_ns: 0,
             label: "synthetic point".into(),
             spans: vec![],

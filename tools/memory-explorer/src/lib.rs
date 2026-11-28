@@ -11,6 +11,7 @@ mod layout;
 mod model;
 mod replay;
 mod session;
+mod stack;
 mod timing;
 
 pub use correlation::{correlate_checkpoints, CheckpointCorrelation, CheckpointLink};
@@ -27,6 +28,7 @@ pub use replay::{
     ReplayHeap, ReplayPoint, ReplayProvenance, UnknownHeapState,
 };
 pub use session::{load_session, SessionInputs};
+pub use stack::{StackCurrent, StackGrowth, StackHighWater, StackObservation, StackPointerSource};
 pub use timing::{
     load_timing, parse_timing, timing_demo, CaptureStopReason, CaptureWindow, CounterSample,
     TimingEvent, TimingEventKind, TimingInstantSpacing, TimingMetadata, TimingOccurrences,

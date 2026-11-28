@@ -391,6 +391,10 @@ jobs:
           NXRS_MEMORY_LIFECYCLE_ELF="$timing_output/build/nuttx" \
             cargo +1.90.0 test --locked -p nxrs-memory-explorer \
               --test lifecycle_qemu -- --ignored --nocapture
+          NXRS_STACK_QEMU_BUILD="$timing_output/build" \
+          NXRS_STACK_QEMU_EVIDENCE="$timing_output/lifecycle" \
+            cargo +1.90.0 test --locked -p nxrs-memory-explorer \
+              --test stack_qemu -- --ignored --nocapture
       - name: Qualify isolated heap topology replay against real QEMU headers
         if: matrix.app == 'std-demo'
         shell: bash

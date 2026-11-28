@@ -69,6 +69,12 @@ jobs:
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: '3.12'
+      - name: Windows ELF macro fixture tools
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          clang --version
+          readelf --version
       - name: Linux rendering prerequisites
         if: runner.os == 'Linux'
         # winit loads libxkbcommon-x11.so.0 at runtime under Xvfb/X11.
@@ -96,7 +102,7 @@ jobs:
           LIBGL_ALWAYS_SOFTWARE: '1'
         run: |
           mkdir -p target/memory-explorer-smoke
-          for view in memory overview timing; do
+          for view in memory overview timing stacks; do
             timeout 45s xvfb-run -a -s '-screen 0 1600x1100x24' target/debug/nxrs-memory-explorer --demo --view "$view" --smoke-test --screenshot "target/memory-explorer-smoke/demo-$view.ppm"
           done
       - name: Render linked ELF with synthetic exporter capture
