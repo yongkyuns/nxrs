@@ -16,7 +16,7 @@ import shutil
 import subprocess
 
 from build_timing_nuttx import (
-    APPS_REVISION, NUTTX_REVISION, source_identity, validate_configuration,
+    APPS_REVISION, NUTTX_REVISION, source_identity, validate_apps_directory, validate_configuration,
 )
 
 
@@ -35,41 +35,6 @@ def patch_files(text):
     ):
         raise RuntimeError("The production patch must modify only unique system/trace files")
     return paths
-
-
-def validate_apps_directory(nuttx, apps, configuration):
-    """Admit the literal APPDIR that pinned tools/Unix.mk will actually use.
-
-    Unix.mk resolves CONFIG_APPS_DIR from the NuttX working directory and
-    requires a readable Makefile. An unset/blank variable defaults to ../apps.
-    Do not evaluate make or shell expansions while checking source identity.
-    """
-    values = [line.partition("=")[2].strip() for line in configuration.splitlines()
-              if line.startswith("CONFIG_APPS_DIR=")]
-    if len(values) > 1:
-        raise RuntimeError("Ambiguous CONFIG_APPS_DIR in the native configuration")
-    value = values[0] if values else ""
-    if not value:
-        value = "../apps"
-    elif value.startswith('"'):
-        if "\\" in value:
-            raise RuntimeError("CONFIG_APPS_DIR must be a supported literal path")
-        try:
-            value = json.loads(value)
-        except ValueError as error:
-            raise RuntimeError("Malformed CONFIG_APPS_DIR string") from error
-    # These characters have nonliteral make/shell meaning in Unix.mk. Its
-    # realpath also splits whitespace, so paths requiring quoting are refused.
-    if not value or any(character.isspace() or character in "$`\\\"';|&<>(){}[]*?!#~"
-                        for character in value):
-        raise RuntimeError("CONFIG_APPS_DIR must be a supported literal path")
-    configured = (nuttx / value).resolve()
-    if configured != apps.resolve():
-        raise RuntimeError(f"The configured apps directory {configured} differs from --apps {apps.resolve()}")
-    makefile = configured / "Makefile"
-    if not makefile.is_file() or not os.access(makefile, os.R_OK):
-        raise RuntimeError("The configured apps directory has no readable Makefile")
-    return configured
 
 
 def run(args):

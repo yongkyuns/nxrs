@@ -268,6 +268,33 @@ def reviewed_dropbear_history_controls(scanner, source, config, alphabet):
         path.unlink()
 
 
+def reviewed_qemu_cache_control(scanner, source, config, alphabet):
+    revision = "a754981cb06b0bf848d5ef2c255b0b97fc91456a"
+    workflow = ".github/workflows/mpsc-comparison.yml"
+    installer = "tests/owner-qualification/install-qemu.sh"
+    pinned = subprocess.check_output(["git", "show", f"{revision}:{installer}"],
+                                     cwd=ROOT, text=True, timeout=10)
+    checksum = re.search(r"^QEMU_SHA256=([0-9a-f]{64})$", pinned, re.MULTILINE)
+    original = subprocess.check_output(["git", "show", f"{revision}:{workflow}"],
+                                       cwd=ROOT, text=True, timeout=10)
+    row = next((line for line in original.splitlines()
+                if line.lstrip().startswith("key: owner-arm-qemu-8.2.7-")), "")
+    if not checksum or row.strip() != "key: owner-arm-qemu-8.2.7-" + checksum[1]:
+        raise ControlFailure("qemu-cache-source")
+    path = source / workflow
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(row + "\n")
+    findings, _ = execute(scanner, "dir", source, config)
+    if findings:
+        raise ControlFailure("qemu-cache-allow")
+    synthetic = alphabet * 4
+    path.write_text(row.replace(checksum[1], synthetic) + "\n")
+    findings, output = execute(scanner, "dir", source, config)
+    if not any(item.get("RuleID") == "generic-api-key" for item in findings) or synthetic in output:
+        raise ControlFailure("qemu-cache-reject")
+    path.unlink()
+
+
 def self_test(scanner):
     config = ROOT / "security/gitleaks.toml"
     with tempfile.TemporaryDirectory(prefix="nxrs-secret-control-") as directory:
@@ -301,6 +328,7 @@ def self_test(scanner):
         reviewed_hash_controls(scanner, source, config, token, alphabet)
         reviewed_prose_controls(scanner, source, config, token, alphabet)
         reviewed_dropbear_history_controls(scanner, source, config, alphabet)
+        reviewed_qemu_cache_control(scanner, source, config, alphabet)
         findings, _ = execute(scanner, "dir", source, config)
         if findings:
             raise ValueError("clean-input control failed")
