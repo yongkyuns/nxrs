@@ -223,7 +223,7 @@ class GdbExporterTests(unittest.TestCase):
         self.assertEqual(snapshot["complete_regions"], [document["regions"][0]["id"]])
         self.assertIn("unverified", document["capture"]["target_build_identity"])
         self.assertTrue(any("manually" in warning for warning in document["warnings"]))
-        self.assertTrue(any("high-water" in warning for warning in document["warnings"]))
+        self.assertTrue(any("coloration watermark" in warning for warning in document["warnings"]))
         # No evaluator expression can invoke a target function.
         self.assertEqual(self.gdb.evaluated, ["g_npidhash"])
 
@@ -382,6 +382,13 @@ class GdbExporterTests(unittest.TestCase):
         task = document["capture"]["tasks"][0]
         self.assertIsNone(task["current_sp"])
         self.assertIsNone(task["high_water_bytes"])
+        observation = document["snapshots"][0]["stack_observations"][0]
+        self.assertEqual((observation["stack"], observation["task_id"], observation["tcb"]),
+                         (stack["id"], 42, 0x900))
+        self.assertEqual(observation["current"]["status"], "unavailable")
+        self.assertEqual(observation["high_water"]["status"], "unavailable")
+        self.assertTrue(observation["current"]["reason"])
+        self.assertTrue(observation["high_water"]["reason"])
         self.assertFalse(any(span["kind"] == "stack_used" for span in document["snapshots"][0]["spans"]))
 
     def test_shared_boundary_or_unknown_stack_does_not_invent_extent(self):

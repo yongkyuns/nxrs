@@ -250,6 +250,7 @@ impl<R: Protocol + AsRef<Serial> + AsMut<Serial> + Send + 'static> crate::Device
         let cancel = readiness::Cancel::new(events::pipe).map_err(|_| DeviceError::Io)?;
         let wake = cancel.reader.clone();
         session::start(self.stack_bytes, cancel, delivery, move |stop, emit| {
+            let trace = acquisition::probe::Trace::for_source("gnss", self.id);
             let mut storage = self.storage.lock().map_err(|_| DeviceError::Io)?;
             let device = storage.as_mut().ok_or(DeviceError::Io)?;
             let result = (|| {
@@ -264,6 +265,7 @@ impl<R: Protocol + AsRef<Serial> + AsMut<Serial> + Send + 'static> crate::Device
                         break;
                     }
                     let mut connected = true;
+                    trace.wake(None);
                     if let Some(line) = &device.pps {
                         if let Some((sequence, time)) =
                             line.take_timestamp().map_err(|_| DeviceError::Io)?
@@ -272,15 +274,24 @@ impl<R: Protocol + AsRef<Serial> + AsMut<Serial> + Send + 'static> crate::Device
                         }
                     }
                     let now = acquisition::monotonic_us();
-                    device.receiver.read_events(now, |event| {
+                    let read = trace.scope("read_parse_deliver", || device.receiver.read_events(now, |event| {
                         if connected {
                             connected = match event {
-                                Ok(event) => emit(event),
+                                Ok(event) => {
+                                    // Count decoded fix reports independently of UART batches.
+                                    // This precedes delivery; it does not assert sink acceptance.
+                                    if matches!(&event, Event::Fix(_)) {
+                                        trace.instant("fix_received");
+                                    }
+                                    emit(event)
+                                },
                                 Err(DeviceError::Busy) => true,
                                 Err(_) => emit(Event::InvalidFrame),
                             };
                         }
-                    })?;
+                    }));
+                    trace.drain(read.is_ok() && connected);
+                    read?;
                     if !connected {
                         break;
                     }

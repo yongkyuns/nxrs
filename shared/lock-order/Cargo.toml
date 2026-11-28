@@ -1,0 +1,8 @@
+[package]
+name = "nxrs-lock-order"
+version.workspace = true
+edition.workspace = true
+rust-version = "1.90"
+
+[lib]
+name = "lock_order"

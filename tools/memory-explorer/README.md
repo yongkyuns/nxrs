@@ -1,18 +1,21 @@
 # NXRS Memory Explorer
 
 Open a final firmware ELF, its GNU linker map, captured NuttX heap/stack
-snapshots, and execution traces in a native egui viewer. The board overview
-shows declared storage banks and load/runtime relationships. The address canvas
-preserves placement and gaps while you zoom, pan, search, and inspect individual
-extents. Source colors connect linked objects and recorded allocation call
-stacks to those extents. The timing view shows observed execution intervals,
-interrupt nesting, application scopes, and counters on an independent clock.
+snapshots, and execution traces in a native egui viewer. The overview explains
+code, constants, static variables, and the linker's named memory budgets. An
+optional physical layout adds storage banks, aliases, and load/runtime
+relationships. The memory view shows placement, readable purpose colors, and
+per-heap usage history. Timing has a timeline, a searchable event list, and
+source summaries with resolved IRQ handlers and allocation callers. Explicitly
+matched checkpoint markers link execution times to captured memory.
 
 This is the offline foundation of [issue #442](https://github.com/yongkyuns/nxrs/issues/442).
-It shows static placement, discrete memory observations, and imported timing
-events. Continuous allocation-event replay into heap geometry, automatic
-memory/trace clock correlation, live transport, and physical-device capture
-qualification remain follow-up work in that issue.
+It shows static placement, discrete memory observations, imported timing events,
+and a separately validated heap topology journal. The first replay collector is
+an isolated QEMU qualification fixture. Diagnostic product builds record native
+scheduler/IRQ/heap events and named IMU/GNSS work. Production heap-topology
+recording, live transport, and physical-device capture qualification remain
+follow-up work in that issue.
 
 ## Open the viewer
 
@@ -44,20 +47,57 @@ cargo run --locked -p nxrs-memory-explorer --features gui -- \
 ```
 
 The ELF alone is enough to see linked sections and symbol labels. The map adds
-retained object/archive contributions. It must come from the same link: the
+retained object/archive contributions and named `MEMORY` region budgets. It must come from the same link: the
 importer checks matching allocated output-section addresses and sizes, but a
 GNU map has no cryptographic build identity of its own.
 
-An empty invocation opens the input form. **Open files** also opens it; paste
-paths or drag an ELF, `.map`, and JSON files into the window, then select **Load
-memory evidence**. `--help` prints all command options without opening a window.
+An empty invocation opens a new recording tab. **+ New** and **Open recording**
+add a fresh input tab. Paste paths or drag an ELF, `.map`,
+and JSON files into the window, then select **Open evidence in tab**. A
+[prepared capture session](#package-and-reopen-a-diagnostic-session) loads
+matching inputs together with `--session session.json` or **Open session**.
+`--help` prints all command options without opening a window.
+
+### Keep several recordings open
+
+Each recording has its own tab, evidence, memory selection, timing cursor,
+filters, zoom, scroll position, and replay state. Opening another recording
+preserves the one already loaded. Switching tabs uses the retained model and
+does not reread the capture or align its clock with another recording.
+
+Open several sessions at startup by repeating `--session`:
+
+```sh
+cargo run --locked -p nxrs-memory-explorer --features gui -- \
+  --session target/baseline-session/session.json \
+  --session target/diagnostic-session/session.json
+```
+
+You can also drop several session files or directories into the window, or
+drop multiple standalone traces. Raw ELF/map/snapshot groups need one clear
+owner: drop one build's artifacts together, then load them in a new tab.
+An invalid session leaves the loaded recordings intact. Tab tooltips show
+the full source path, build identity, and recording identity when available;
+tab numbers distinguish recordings with the same filename.
+An initial `--view` applies to the first tab; other recordings retain their
+own default view, so timing and memory-only sessions can be opened together.
+
+| Task | Control |
+| --- | --- |
+| Add an empty recording tab | **+ New**, `Ctrl+T` / `Cmd+T` |
+| Switch recordings | Click a tab, `Ctrl+Tab`, or `Ctrl+Shift+Tab` |
+| Close a recording | Its **×**, middle-click its label, or `Ctrl+W` / `Cmd+W` |
+
+Closing a tab releases its loaded data. Closing the last tab opens an empty
+input tab. Recordings remain independent even if their ELF hashes match.
 
 ## Navigate an address space
 
 | Task | Control |
 | --- | --- |
 | Choose a CPU/load/image window or physical resource | Select its sidebar card |
-| Inspect board banks, aliases, and load placement | Select **Board overview**, then a resource or address link |
+| Inspect board banks, aliases, and load placement | Select **Memory overview**, then a resource or address link |
+| Understand firmware without a board descriptor | Open **Memory overview** for named linker regions, section purposes, and direct address links |
 | Inspect exact range, source, role, and containing object | Click a block |
 | Fit a block | Double-click it, or select **Zoom to block** |
 | Fit the selected region | **Fit region**, `F`, or `Home` |
@@ -68,16 +108,28 @@ memory evidence**. `--help` prints all command options without opening a window.
 | Find a source, section, object, or symbol | Use the sidebar search; select a result to focus it |
 | Inspect an allocator arena or task stack | Select it under **Captured arenas and stacks** |
 | Choose an observation | Click a timeline point, **Previous** / **Next**, or `Page Up` / `Page Down` |
+| See heap usage change | Choose an arena in **Memory usage history**, then Allocated, Free, Largest free, or All |
+| Inspect task stack depth and remaining space | Open **Stack usage**, choose a checkpoint, then select a task |
+| Distinguish code, data, allocations, and known free bytes | Keep **Memory purpose** selected; choose source colors for attribution |
+| Find the largest live allocations | Clear the selection and use the inspector's largest-chunk links |
 | Inspect a gap between observations | Click between timeline points |
 | Change coordinates | **Runtime / image** or **Physical backing** |
 | Hide optional ELF symbol labels | Clear **ELF symbols** |
 | Compare heap statistics at two observations | Choose **Compare with** below the memory observation controls |
 | Choose the allocation frame used for source coloring | Use **Color allocations by**, or click a recorded frame in the inspector |
+| Open a linked checkpoint on its execution timeline | Select **Show in timing** below the memory observation |
+| Reconstruct one admitted heap | Load `--heap-journal`, then select **Heap replay** |
+| Distinguish commits sharing one clock tick | Select an exact sequence in the heap replay controls |
 
 Search dims nonmatching blocks without moving them. Byte geometry therefore
 stays meaningful during filtering. Small or zero-size symbol labels use ticks;
 they are annotations and do not add occupied bytes. The inspector exposes full
 labels when a block is too narrow to contain its text.
+
+The default purpose legend explains code, constants, initialized data, BSS,
+reservations, allocations, and known free chunks. Section jump buttons focus
+small sections without requiring address arithmetic. Source colors remain
+available for object and allocation attribution.
 
 The canvas has separate layers for linked sections, source objects/symbols,
 captured heap or pool state, and task stacks. A task stack contained in an
@@ -98,6 +150,81 @@ endpoints. An address reused between observations does not establish that the
 same allocation survived. Timeline labels show observation order and phase;
 manual coordinates are not presented as measured elapsed time.
 
+Memory history accounts for each selected arena separately and excludes stack
+overlays and nested arena containers. Missing bytes remain unobserved. The
+default Allocated plot uses its own scale, so a large free heap does not flatten
+allocation growth. Its peak is the largest retained observation; samples do
+not prove an intervening peak. Snapshot points are not joined into invented
+continuous state. An admitted replay journal can hold state across its validated
+coverage; lost or missing mutations break the history until a complete checkpoint.
+
+## Inspect stack usage at a checkpoint
+
+Open **Stack usage** (or start with `--view stacks`) to compare tasks at one
+captured observation. Select a task to see its exact usable addresses, pointer
+source, scan coverage, and separate address bands for current depth and touched
+memory. **Open in memory** focuses its reservation in the address canvas.
+
+| Measurement | What it tells you |
+| --- | --- |
+| Usable reservation | The task's adjusted stack bounds, excluding any allocation prefix |
+| Current depth | Distance from an admitted live or saved stack pointer to the usable end, accounting for growth direction |
+| Current headroom | Usable reservation minus that pointer depth |
+| Touched watermark | Extent indicated by the first changed coloration word in the admitted scan interval |
+| Untouched colored bytes | Scan interval minus the touched watermark; unscanned alignment edges are excluded |
+
+The pointer can reserve memory without writing to it, so current depth can be
+larger than the touched watermark. Coloration also cannot distinguish a write
+that happens to restore the fill pattern. These are different measurements;
+neither establishes a worst-case stack bound or proves an overflow. A fully
+colored scan reports zero touched bytes. Missing configuration, unsupported
+context, or unreadable memory reports **Unknown** with a reason.
+
+Each row belongs to its selected checkpoint. The viewer does not join task IDs
+or reused TCB addresses across observations, carry a previous value into a gap,
+or expose old stack data while viewing a heap replay. Older captures still show
+their reserved stacks, with unknown depth and watermark. Stack measurements do
+not add to the containing heap chunk's accounted bytes.
+
+## Find the source of timing and allocation work
+
+Use **Timeline**, **Events**, and **Source summary** in the timing toolbar, or
+start with `--view timing`, `--view timing-events`, or `--view timing-sources`.
+Category shortcuts isolate IRQs, allocation requests, application scopes, or
+timers. The minimum-duration filter applies to intervals and retains instants.
+The event list is chronological; click for details or double-click to focus
+the corresponding timeline range. Source summaries show count, total observed
+duration, maximum duration, and request bytes where the producer records them.
+Overlapping durations are inclusive and are not CPU-utilization percentages.
+
+Convert with `--elf` and an appropriate `--addr2line` when necessary. An IRQ
+inspection then shows its native vector, handler address, resolved function and
+file/line, and the separately recorded interrupted task. A shared GPIO or UART
+handler does not identify its attached sensor. Diagnostic IMU and GNSS builds
+also emit task-side `imu/<device>/...` and `gnss/<device>/...` scopes, so the
+timeline can show which named device wakes, drains, performs bus transfers, or
+reads/parses/delivers events. Those scopes identify measured work; they do not
+assert an unrecorded causal edge from an interrupt.
+
+`gnss/<device>/fix_received` is a separate instant for each decoded fix report,
+recorded before delivery to the consumer. Its count is independent of the
+number of UART read/parse batches. It does not establish consumer acceptance,
+a valid position solution, or a physical receiver's configured update rate.
+
+Heap request details retain the native caller PC, resolved source, operation,
+requested size, task, and CPU. A request entry does not establish success or
+failure; the viewer reports an unknown outcome unless the producer records it.
+Successful heap observations retain their native operation, address, size, and
+used-byte counter. They show usage at those events, but inconsistent native
+pointer conventions across allocation functions prevent treating them as an
+ordered allocation-lifetime journal. The separate validated journal remains
+the source for exact heap replay.
+
+**Capture diagnostics** reports native record counts, IRQ/caller resolution
+coverage, incomplete intervals, and loss evidence. Missing heap or application
+events are visible there. Wake-to-dispatch intervals are emitted only where
+the retained wake and dispatch observations establish unambiguous endpoints.
+
 ## Read the coordinates correctly
 
 | View | What an address means | Evidence required |
@@ -113,8 +240,11 @@ offset, and the physical view uses that resource's full capacity. Accounting
 unions aliased ranges rather than adding their bytes twice.
 
 Without a layout, inferred ELF windows cover the allocated sections visible in
-the file. They do not establish total board RAM or flash capacity. The viewer
-labels their backing as unknown. Empty space is never inferred to be free heap:
+the file. With a compatible GNU map, nonoverlapping `MEMORY` declarations instead
+supply named CPU regions and their link-time budgets. Neither establishes unique
+physical board RAM or flash capacity. Overlapping linker declarations are omitted
+with a warning, and explicit layout mappings take precedence. The overview stays
+usable in both cases. Empty space is never inferred to be free heap:
 only captured `free` chunks establish that state.
 
 The `.data` section has CPU storage and file-backed initializer bytes. The
@@ -136,6 +266,57 @@ an occupied load reservation. Reuse of load-only staging RAM would need explicit
 lifecycle evidence before those reservations could be released. The importer requires a
 final `ET_EXEC` ELF with allocated section headers; relocatable objects, archives,
 PIE/`ET_DYN` files needing a load bias, and section-header-free images are rejected.
+
+### Automatic board layouts
+
+The viewer bundles memory descriptors in [layouts](layouts/) and retains their
+pinned BSP source material under [upstream/memory-layouts](../../upstream/memory-layouts/).
+The [catalog](layouts/catalog.json) maps the repository's
+CoreS3, ESP32-S3 DevKit/WROOM, Pico 2/2W, and MPS2 AN521 firmware boards to
+their descriptors. Host, web, and NuttX simulator profiles use process address
+spaces; they do not acquire a physical MCU bank map.
+
+| Board/profile family | Explicit `--board` ID |
+| --- | --- |
+| M5Stack CoreS3 | `esp32s3-cores3` |
+| ESP32-S3 DevKit / WROOM | `esp32s3-devkit` |
+| Pico 2, NSH profile | `raspberrypi-pico-2` |
+| Pico 2 / 2 W, USB NSH profile | `raspberrypi-pico-2-usbnsh` |
+| MPS2 AN521 QEMU | `mps2-an521-qemu` |
+
+For a normal `cargo nxrs build` output, opening the final ELF is enough to
+discover its sibling linker map and a matching bundled layout. The viewer
+checks the final ELF and effective configuration against `binaries.sha256`,
+then matches the board and pinned NuttX revision recorded in `provenance.txt`.
+Source identity and selection notes appear with the memory overview. No network
+access is needed to open a recording.
+
+If the build receipts are unavailable, choose the known board in the input
+form or pass `--board` with a catalog ID. That is an explicit board declaration;
+the viewer labels the descriptor's scope and assumptions. A custom `--layout`
+remains available. An automatically discovered adjacent `layout.json` must be
+bound to the selected ELF's SHA-256. Conflicting or incomplete metadata leaves
+the linker/ELF overview available with an explanation.
+
+Fixed on-chip banks and their known aliases come from the retained BSP sources.
+Effective build settings can also declare PSRAM or flash capacity. An external
+address aperture alone does not establish those capacities, partition ownership,
+or an MMU mapping. Those remain separate from the linker's named budgets and
+captured allocator state. Automatic layout enrichment preserves captured region
+and journal identities; it never relabels a capture to fit a guessed board.
+
+Maintainers can verify the retained source files and retrieve the exact pinned
+upstream copies with:
+
+```sh
+python3 tools/memory-explorer/refresh_bsp.py --check
+python3 tools/memory-explorer/refresh_bsp.py --download
+```
+
+The source manifest retains URLs, revisions, checksums, and original license
+headers. Updating a BSP requires reviewing its new memory definitions and the
+descriptor together. A catalog coverage check flags a new firmware board that
+has no descriptor or explicit non-hardware classification.
 
 ### Verified MPS2 QEMU layout
 
@@ -164,11 +345,21 @@ product profile:
 ```toml
 [build]
 diagnostics = true
+# Optional: default is 32768 bytes, preserving the start of the recording.
+diagnostics-trace-bytes = 65536
+# Optional: allocator caller stacks; requires the target's working unwinder.
+diagnostics-heap-backtrace-depth = 4
 ```
 
 Use that setting with the normal `cargo nxrs build` workflow.
-The diagnostic setting enables heap request counters, stack coloration, and
-bounded scheduler, interrupt, and heap instrumentation. Recording is controlled
+The diagnostic setting retains native debug symbols and compiled macros
+(`CONFIG_DEBUG_SYMBOLS_LEVEL="-g3"`), Rust line tables, and the linker map.
+The extra macro information lets the host stack exporter check the actual
+coloration pattern and alignment. Older images without those macros keep
+their watermark unavailable. It enables heap request counters, stack coloration, bounded
+scheduler/interrupt/heap instrumentation, and application markers. Consumed
+IMU/GNSS providers select their existing `probe` implementation to name work.
+Recording is controlled
 at runtime by `trace start` and `trace stop`; enabling instrumentation does not
 mean that every event since boot was recorded. See the
 [capture guide](../../docs/nuttx-memory-qualification.md#diagnostic-builds)
@@ -233,7 +424,10 @@ it does not attest that the device is running those bytes.
 
 The exporter checks that every thread GDB exposes is stopped and that raw chunk
 extents form a valid arena. It does not call target functions, drain deferred
-frees, read allocation payloads, or modify target state. A debugger can hide a
+frees, export allocation payloads, or modify target state. Stack measurement
+uses bounded reads and retains the resulting measurements, not stack contents.
+GNU `readelf` must be on the host path for compiled stack-macro discovery.
+A debugger can hide a
 CPU, and valid topology does not prove the allocator was stopped between
 transactions. Choose an application quiescence point appropriate to the target.
 
@@ -247,7 +441,8 @@ transactions. Choose an application quiescence point appropriate to the target.
 | Allocation source | All recorded backtrace PCs with function, file, and line when resolvable; the original first-frame source is retained for compatibility |
 | PID/sequence metadata | Allocator-recorded fields when present; not a durable allocation lifetime ID or current semantic owner |
 | Task stack | Usable reserved bounds when they can be represented within the observed containing chunk |
-| Stack use/high-water | Unknown in this adapter; no coloration scan is performed |
+| Current stack depth | An admitted task-specific live register or saved context; unsupported or ambiguous contexts remain unknown |
+| Touched stack watermark | Read-only coloration scan with explicit pattern, word width, scanned bounds, and untouched bytes; not maximum pointer depth |
 | Pool backing | Parent allocation visible; individual slot occupancy unknown |
 
 Some NuttX shared-boundary layouts put usable stack bounds outside the strict
@@ -256,6 +451,16 @@ warning instead of drawing a false contained stack. Missing backtrace/debug
 information leaves source attribution unknown. Static map colors identify
 objects or archive members; they do not claim unique original Rust source lines
 under LTO, code folding, or merged constants.
+
+Stack measurement admission is independent of heap geometry. The exporter uses
+the compiled NuttX macros and target byte order, and bounds its read-only stack
+scans. It does not call the target's stack-check functions. The current adapter
+admits known ARM/Xtensa downward-growing coloration layouts; context-pointer
+support is narrower and checks architecture, CPU mode, task identity, and saved
+register metadata. Unsupported contexts leave a reason alongside any separately
+available watermark. Firmware stopped inside an interrupt must not lend its
+CPU stack pointer to an ordinary task. Host contract checks and MPS2 emulator
+checks do not qualify physical CoreS3 or Pico behavior.
 
 Per-arena statistics expose allocated chunk bytes, reserved bytes, free chunk
 bytes, largest free chunk, and unobserved bytes. They are scoped to one arena:
@@ -367,9 +572,12 @@ trace hash stays unknown; loading two files does not establish their identity.
 | Measure arbitrary duration | Enable **Measure range** and drag across time, or use Shift+drag |
 | Measure an exact recorded interval | Select it and choose **Measure this interval** |
 | Find a task or operation | Filter by track, event name, category, or recorded arguments |
+| Find allocation failures | **Failed calls** or `outcome:failed`; use `outcome:succeeded` or `outcome:unknown` for the other recorded outcomes |
 | Inspect counters | Enable **Counters** and hover a recorded sample |
-| Read the axis | Time relative to the first imported record; the inspector shows exact trace coordinates and source-clock timestamps when an explicit origin is available |
+| Read the axis | Time relative to the declared capture start, or the first imported record for older traces; the inspector shows exact trace coordinates and source-clock timestamps when an explicit origin is available |
 | Assess observation coverage | Per-track union of recorded intervals; missing intervals remain unknown |
+| Place a time cursor | Click an event to use its exact start, or click blank time |
+| Open observed memory from a verified recording | Select a point in **Memory checkpoints**, then **Open captured memory** |
 
 CPU and task tracks show scheduled residency. IRQ and application scopes can
 overlap that residency, so their durations must not be added together as CPU
@@ -390,7 +598,7 @@ The NuttX converter instead retains incomplete interval observations as explicit
 instant markers with no duration, and records the incomplete count.
 
 `otherData.nxrs` carries explicit clock, source, original timestamp origin,
-optional ELF SHA-256, loss status, completeness, and warnings. Missing metadata
+optional ELF SHA-256 and recording ID, loss status, completeness, and warnings. Missing metadata
 is shown as unknown. `--clock`, `--source`, and loss options on the converter are
 producer assertions; use them only when supported by the actual capture. A
 backward timestamp across paired scheduler/IRQ observations on one CPU fails conversion. Known
@@ -398,18 +606,209 @@ loss resets pending interval pairs; loss without a located boundary disables
 duration reconstruction. No blank interval is interpreted as idle. Nanosecond
 coordinates do not promise nanosecond clock resolution.
 
-Memory checkpoints and timing traces retain independent axes. Matching ELF
-identity does not synchronize their clocks. In particular, the three manually
-ordered GDB observations above are never aligned to this timing axis. Continuous
-heap history and synchronized memory/timing cursor navigation require an explicit
-common target clock and event sequence in a future capture adapter.
+Ordinary memory checkpoints and timing traces retain independent axes. Matching
+ELF identity does not synchronize their clocks. In particular, the three manually
+ordered GDB observations above are never aligned to this timing axis. A capture
+adapter can establish a link through the explicit contract below.
 
-The current viewer is qualified with bounded diagnostic captures. It loads the
-trace into host memory and scans events for filtering and per-track painting.
-The importer limits files to 128 MiB, one million input records, and 1,024
-nesting levels; those are admission limits, not demonstrated interactive
-performance at those sizes. Large-recording indexes and vertical track
-virtualization remain follow-up work.
+### Inspect allocator call outcomes
+
+Diagnostic firmware records the inputs and return value of native `malloc`,
+`memalign`, and `realloc` calls. Open **Failed calls** to find an observed failure,
+then select its event to inspect the caller, requested size, input address,
+alignment, returned pointer, and exact elapsed interval. **Source summaries**
+group these calls by recorded code location. A failure cause is shown only when
+the producer records one; a null return alone cannot distinguish exhaustion,
+invalid arguments, or another native failure.
+
+Each call has a nonzero, boot-scoped ID that is never reused by the recorder.
+It is independent of the existing per-heap request counter, so reinitializing a
+heap does not restart call IDs. Results must match the entry's ID, heap,
+operation, and task. Task tracks keep nested backing calls separate from calls
+on preempted tasks. Durations include blocking and preemption; they are not CPU
+execution costs.
+
+Correlated outcomes require a capture adapter to provide one
+`NXRS_NOTE_BEGIN`/`NXRS_NOTE_END` envelope with a matching, nonempty
+`recording_id` for one target boot. The converter never constructs reset
+continuity from an ELF hash, filename, or boot-banner heuristic. The
+[native allocator-call witness](../../docs/nuttx-memory-qualification.md#native-allocator-call-witness)
+supplies this envelope. An unframed console dump, or a frame without recording
+identity, still retains the observed request and return endpoints; their paired
+outcome and duration stay unknown. Older entry-only firmware remains readable.
+
+| Evidence | Viewer result |
+| --- | --- |
+| Matching entry and successful return | Succeeded call, returned pointer, and measured elapsed interval |
+| Matching entry and failed return | Failed call and its inputs; failure cause may remain unrecorded |
+| Entry without an admitted return | Requested inputs retained; outcome and duration unknown |
+| Return without an admitted entry | Observed return retained separately; no invented request size or failed-call count |
+| Located record loss | Pending pairs become unknown; later complete pairs can be admitted |
+| Loss without a located boundary | Endpoints retained independently; no call durations reconstructed |
+
+The pinned native allocator rounds zero-byte calls up to its minimum allocation.
+`mm_realloc(pointer, 0)` remains an allocation request; it is not an implicit
+free. The returned pointer can still depend on the allocator path. The viewer
+uses the explicit return outcome and never infers a free from size zero.
+
+`memalign` and `realloc` can invoke other allocator functions internally. Those
+backing calls have their own IDs, so the displayed call count and requested-byte
+sum are not application allocation counts or net heap growth. A returned address
+does not establish a lifetime, its later ownership, or committed chunk geometry.
+Use a separately admitted [heap journal](#replay-one-heap) for topology replay.
+
+The [recorder cost comparison](../../docs/nuttx-memory-qualification.md#allocator-recorder-cost)
+measures the affected native object code, static storage, record sizes, and
+compiler-reported function stack frames separately from viewer performance.
+On the measured 32-bit MPS2 ABI, an entry-only request occupies 32 bytes; the
+paired request and result occupy 56 and 40 bytes. Both use the existing bounded
+note ring, so complete pairs consume its available space faster. Nested calls
+have their own records. These sizes exclude other heap and scheduler notes,
+and elapsed allocator-call durations do not measure instrumentation overhead.
+
+### Record several sensor cycles
+
+A memory snapshot describes one observed state. A timing recording can cover
+several seconds without taking another memory snapshot. For a 1 Hz GNSS source,
+two seconds shows a few updates; ten seconds gives more cycles for comparing
+update gaps and per-operation costs. Choose the duration and recorder budget
+for the workload rather than assuming a fixed buffer holds a fixed time.
+
+With a diagnostic build and the application already running, the NuttX console
+can record a measured window using the existing trace task:
+
+```text
+trace mode -o +w +i +d
+trace capture 2 gnss-check-001
+```
+
+The command accepts integer durations from 1 through 30 seconds and a fresh
+recording identifier of 1–128 printable characters without whitespace. Use a
+different identifier for every invocation. It waits while the application
+continues, stops the recorder, and writes one framed dump to the console.
+Save that output and convert it with the exact firmware ELF as usual. The
+[capture guide](../../docs/nuttx-memory-qualification.md#capture-a-measured-window)
+explains filters, overflow, clock admission, and qualification.
+
+For a lower-volume sensor recording, `trace mode -o -w -i +d` retains application
+markers while disabling switch and IRQ observations. Other compiled native
+categories may still contribute records. This choice cannot measure scheduler
+residency or interrupt costs. The frame retains the effective category flags
+and IRQ/tag/syscall masks, so a configured category never implies every possible
+source was instrumented.
+
+The timing view fits the **whole measured window**, including quiet leading and
+trailing time. **Sources** and the selection inspector distinguish:
+
+- **Complete interval starts/s:** fully observed calls whose start lies in the
+  selected half-open interval, divided by its actual seconds. A call is counted
+  in one adjacent window, even when it spans several windows.
+- **Instants/s:** observed semantic instants inside that same interval. Filter
+  an exact operation such as `gnss/primary/fix_received` to inspect its rate.
+- **Mean and maximum full duration:** complete calls assigned by their start.
+  A call crossing a selected display boundary retains its full measured duration.
+- **Clipped overlap and per-track union:** the time intersecting the selection,
+  shown separately from full-call duration. These are not exclusive CPU usage.
+
+Censored boundary markers have no inferred call duration and are excluded from
+occurrence counts. A fully retained window can contain censored calls at its
+edges; those two kinds of completeness are shown separately. Reported loss,
+incomplete retention, an unknown loss status, or a missing explicit window
+makes rates unavailable with a reason. Older recordings remain readable without
+silently turning their first-to-last event extent into an acquisition duration.
+An empty measured recording retains its duration and zero observed events;
+absence of an instrumented event is not proof that uninstrumented work was idle.
+
+The converter accepts schema-3 `NXRS_NOTE_BEGIN` / `NXRS_NOTE_END` framing from
+the native command. It uses the producer's measured source-clock bounds, crops
+raw context notes outside `[start, end)` before pairing intervals, and preserves
+the original dump as the evidence source. It adds this optional metadata beside
+the existing clock, recording identity, origin, and loss fields:
+
+```json
+"capture_window": {
+  "start_ns": 4000000000,
+  "end_ns": 6002000000,
+  "requested_duration_ns": 2000000000,
+  "stop_reason": "duration",
+  "complete": true,
+  "categories": ["switch", "irq", "app", "heap"]
+}
+```
+
+This illustrative window has 2.002 seconds of measured coverage for a requested
+two seconds. `origin_ns` must equal `start_ns`; converted event timestamps are
+relative to that origin. A clean interrupted capture can also retain its whole
+shorter actual window. `capture_window.complete` describes retention and dump
+coverage independently of the older `complete` flag, which also includes
+incomplete interval boundaries. Neither field asserts physical-board clock
+accuracy or instrumentation overhead.
+
+### Inspect update spacing
+
+In **Source summary**, semantic instants such as `gnss/primary/fix_received`
+show the number of observed gaps and their minimum, mean, and maximum duration.
+Hover the summary for exact nanoseconds and the two timestamps bounding the
+earliest longest gap. Each gap joins consecutive matching instants from the
+same track, operation, category, and recorded code source in the selected
+half-open window. Interval durations and counter samples do not enter this
+summary.
+
+Average reports/s alone can hide uneven delivery. These two illustrative
+four-second windows both contain four reports at 1 report/s:
+
+| Report timestamps | Minimum gap | Mean gap | Maximum gap |
+| --- | ---: | ---: | ---: |
+| 0.2, 1.2, 2.2, 3.2 s | 1.0 s | 1.0 s | 1.0 s |
+| 0.2, 0.3, 1.2, 3.2 s | 0.1 s | 1.0 s | 2.0 s |
+
+Four reports provide three gaps. Quiet time at the window edges still belongs
+to the reports/s denominator, but adds no inter-report gap. Equal timestamps
+produce a zero gap; they are not deduplicated. Fewer than two admitted instants,
+unknown or lost records, incomplete coverage, or a missing measured window
+makes spacing unavailable. Unrelated boundary-censored intervals do not erase
+an otherwise fully retained window.
+
+This is spacing between the matching recorded observations. It does not infer
+the receiver's configured period, a number of missed updates, or a physical
+dropout. The calculation reuses the existing source-analysis pass and keeps a
+fixed-size accumulator per source group; it adds no firmware instrumentation,
+per-event gap buffer, or host dependency.
+
+### Link memory checkpoints to timing
+
+Load an ELF, snapshots, and trace produced by the same qualified recording. The
+viewer validates their firmware, recording ID, clock, checkpoint markers, and
+exact source timestamps before enabling linked navigation. A mismatch fails
+loading with a correlation error; it never falls back to an estimated offset.
+
+The timing view then includes a **Memory checkpoints** strip. Click a point and
+select **Open captured memory** to inspect its heap and stack reservations. The
+memory view's **Show in timing** action returns to the matching marker. Clicking
+an arbitrary time places the shared cursor there: runtime memory appears only
+at an observed checkpoint. **Show memory evidence gap** opens the static layout
+with runtime blocks hidden. Neither the most recent snapshot nor a blend of
+nearby snapshots substitutes for an observation.
+
+The [single-run QEMU lifecycle witness](../../docs/nuttx-memory-qualification.md#linked-qemu-lifecycle-witness)
+qualifies this path with four real allocator observations and the existing native
+timing fixture. The firmware emits each marker inside a single-core critical
+section and pauses at a hardware breakpoint. The harness independently reads
+the final note in the native ring, compares raw heap/task metadata before and
+after export, then matches that note to the UART dump. A fresh recording nonce
+identifies this invocation. Debugger stops pause the admitted QEMU timer;
+durations describe that instrumented run, not uninterrupted performance.
+
+Production instrumentation still uses the existing `[build] diagnostics = true`
+setting. The stopped-checkpoint adapter is currently qualified only for this
+native MPS2 QEMU fixture. Enabling diagnostics on another firmware or board does
+not by itself establish the quiescence, clock, or marker evidence required here.
+
+The current viewer is qualified with bounded diagnostic captures. It retains
+each opened trace in host memory, uses track indexes, and virtualizes visible
+rows. The importer limits files to 128 MiB, one million input records, and
+1,024 nesting levels; those are admission limits, not demonstrated interactive
+performance at those sizes. Several large tabs add their retained memory costs.
 
 The [native timing witness](../../tests/nuttx-std/memory-timing/) and its
 [build](tests/build_timing_nuttx.py) / [capture](tests/qualify_timing_qemu.py)
@@ -418,6 +817,69 @@ CMSDK timer adapter is confined to the qualification fixture. It is not a
 production clock override. See the
 [qualification evidence and commands](../../docs/nuttx-memory-qualification.md#qemu-timing-witness)
 for its exact target, clock, rejected-clock controls, and scope.
+
+## Replay one heap
+
+A heap journal records committed allocator geometry and the intervals during
+which that geometry was being changed. Open it beside its exact ELF and layout:
+
+```sh
+cargo run --locked -p nxrs-memory-explorer --features gui -- \
+  --elf /path/to/nuttx \
+  --layout tools/memory-explorer/layouts/mps2-an521-qemu.json \
+  --heap-journal /path/to/heap-journal.json \
+  --view memory
+```
+
+The journal's heap must fit a declared CPU-address region. The existing canvas
+and physical-backing mappings preserve its actual address and size. Static ELF
+placement remains visible in a separate layer. A fixture arena backed by `.bss`
+therefore appears as both a static reservation and runtime chunks; these views
+describe the same storage and are not added together.
+
+Select **Heap replay** to inspect only that heap, or **Point snapshots** to return
+to independent complete observations. Replay never fabricates a whole-memory
+snapshot. Other heaps, pool slots, and task stacks remain unknown in replay mode,
+even when their last snapshot has a nearby timestamp. The existing
+`MemoryModel::snapshot_at` query still requires an exact observation time.
+
+The replay controls distinguish an observed checkpoint, reconstructed committed
+state, an allocator mutation in progress, and unavailable evidence. Every commit
+has a sequence number independent of the clock. **Previous**, **Next**, and the
+sequence selector preserve intermediate states even when several commits share
+one clock tick. A time-only selection cannot disambiguate such states. The
+inspector shows the selected sequence and evidence instead of treating a reused
+address as the same application allocation.
+
+During an admitted mutation window, geometry is unknown. A missing, duplicate,
+reordered, or contradictory transaction also invalidates knowledge. Only a
+complete recovery checkpoint can restore it. An absent closing receipt does not
+allow the last known layout to continue indefinitely. Free chunks retain their
+raw allocator extents, including metadata and alignment constraints; their size
+does not guarantee that an equally sized allocation request will succeed.
+
+If a trace is loaded too, its ELF, recording identity, clock, and source origin
+must match the journal before the timing cursor can navigate heap state. A
+matching ELF alone is insufficient. Debugger-observed mutation windows describe
+the instrumented recording; they do not establish production allocation latency.
+
+### Why a separate topology journal
+
+The default NuttX request notes are useful for counters and request timing, but
+are not a complete record of committed chunk geometry. On the qualified revision,
+realloc shrink can alter boundaries without a heap note, aligned allocation has
+an intermediate backing allocation, and free is noted before coalescing. Heap
+extension also changes guard geometry. The replay engine therefore consumes
+complete, ordered chunk replacements rather than interpreting request notes as
+addressed history. The collector must independently establish that every admitted
+mutation reached its journal.
+
+The initial collector observes a fixture-owned heap under QEMU. It adds no
+production allocator patch, task, polling loop, or global allocation wrapper.
+`[build] diagnostics = true` remains the product diagnostic entry point; it does
+not silently enable this qualification collector or claim continuous production
+heap coverage. See the [qualification guide](../../docs/nuttx-memory-qualification.md)
+for its admitted source, configuration, hook coverage, and target evidence.
 
 ## File format
 
@@ -439,7 +901,7 @@ exact-number range.
 | `build` | `elf_sha256` as 64 hex digits, plus optional `label` |
 | `regions` | Named address windows: `id`, `name`, `start`, `size`, `kind`, `domain`, optional `physical` |
 | `physical_resources` | Optional named resource capacities: `id`, `name`, `size`; optional `banks` partition the resource by `name`, `offset`, and `size` |
-| `snapshots` | Ordered observations with `time_ns`, `label`, `spans`, optional `complete_regions` |
+| `snapshots` | Ordered observations with `time_ns`, `label`, `spans`, optional `complete_regions`, `correlation`, and `stack_observations` |
 | `warnings` | Optional evidence limitations displayed by the viewer |
 | `capture` | Optional exporter-specific metadata retained in the input file; not permission to weaken validation |
 
@@ -455,6 +917,145 @@ Symbols stay separate from ownership spans because legal symbol aliases overlap.
 those regions. It does not assert that every byte in a larger board RAM window
 was observed. Missing arena coverage stays unknown unless a complete-coverage
 claim requires the importer to reject it.
+
+### Stack observations
+
+`stack_observations` is an optional additive list on each snapshot. Its entries
+reference a `stack` span in the same CPU-address snapshot. Missing entries mean
+usage was not captured; they do not mean zero. This example belongs inside a
+snapshot that contains the referenced reservation:
+
+```json
+{
+  "stack_observations": [{
+    "stack": "task_20001000_stack",
+    "task_id": 7,
+    "tcb": 536875008,
+    "growth": "down",
+    "current": {
+      "status": "observed",
+      "sp": 536883008,
+      "source": "saved_context"
+    },
+    "high_water": {
+      "status": "coloration",
+      "scan_start": 536879104,
+      "scan_size": 4096,
+      "used_bytes": 768,
+      "pattern": 3735928559,
+      "word_bytes": 4
+    }
+  }]
+}
+```
+
+Either measurement can instead be `{"status":"unavailable","reason":"..."}`.
+Current-pointer sources are `live_register` and `saved_context`; the latter
+describes the saved task context at the checkpoint. The model supports `down`
+and `up` growth without changing the address convention. Current pointers must
+lie within the usable reservation, including its endpoints. A coloration scan
+must be a nonempty, contained, aligned interval of 32-bit words; touched bytes
+must be a whole number of words no larger than that interval. Its untouched
+headroom uses `scan_size`, not the reservation size. Unknown fields and duplicate
+stack references, task IDs, or TCB addresses within one checkpoint are rejected.
+These IDs are scoped to the observation; they are not task-lifetime identities.
+
+### Correlation metadata
+
+An optional additive field on each snapshot carries a checked recording claim:
+
+```json
+{
+  "correlation": {
+    "recording_id": "32c749812a07eafbe1f65ac4dcd4402e",
+    "clock": "qemu-an521-cmsdk-timer1-20mhz",
+    "checkpoint_id": 1
+  }
+}
+```
+
+This is a snapshot-field example, not a complete capture. The recording ID names
+one run and reset epoch; producers must not reuse it for another invocation. It
+contains 1–128 printable ASCII characters without whitespace. A checkpoint ID
+is a nonzero `u64`, strictly increasing with its source timestamp. For correlated
+observations, `time_ns` is the exact source-clock timestamp of the checkpoint
+marker. It is never a host timestamp or an approximate time sampled nearby.
+
+The trace must declare matching `recording_id`, `clock`, and `elf_sha256` in
+`otherData.nxrs`, plus an explicit `origin_ns`. Each loaded observation must match
+exactly one instant named `memory/checkpoint/<checkpoint_id>`, satisfying:
+
+```text
+snapshot.time_ns = trace.origin_ns + marker.start_ns
+```
+
+`marker.start_ns` is the imported integer-nanosecond coordinate; Trace Event JSON
+still encodes `ts` in microseconds. Missing markers, duplicate or noncanonical
+IDs, a counter/duration with a reserved marker name, overflow, or even a
+one-nanosecond disagreement fail validation. All snapshots loaded together must
+either be legacy independent observations or correlated points from the same
+recording and clock. Additional trace markers whose snapshots were not loaded
+are permitted. Known trace loss does not erase a separately verified checkpoint;
+the loss warning and unknown intervals remain visible.
+
+The claim travels with each snapshot and the existing trace metadata, preserving
+the current file-loading commands and legacy JSON. A separate manifest or a
+user-entered time offset would add another identity relationship without proving
+the marker-to-memory boundary. The capture adapter owns that proof; the host
+checks its consistency. Continuous allocator replay needs a complete mutation
+journal and remains a separate capability.
+
+### Heap journal version 1
+
+`--heap-journal` consumes a separate JSON envelope. All addresses, extents,
+sequences, and source-clock nanoseconds are unsigned integer JSON numbers.
+The parser rejects unknown topology fields, including unqualified allocation
+generation or source fields. It admits one heap instance per file.
+
+| Field | Contract |
+| --- | --- |
+| `schema_version` | `1` for this journal envelope |
+| `build` | Exact final ELF SHA-256 and a display label |
+| `provenance` | `nuttx_revision`, effective `config_sha256`, and a `collector` token; metadata alone does not certify collection |
+| `recording_id`, `clock` | One recording/reset identity and one source-clock identity |
+| `heap` | Stable `id`, string `epoch`, declared CPU `region`, `start`, and `size` |
+| `initial` | Complete `chunks` at `time_ns`, establishing `sequence: 0` |
+| `records` | Ordered transactions, complete checkpoints, and explicit loss reports |
+| `closing` | Final `heap_epoch`, `sequence`, and covered `time_ns`; `null` means unclosed |
+
+Each chunk is `{ "start": ..., "size": ..., "state": ... }`, with state
+`allocated`, `free`, or `reserved`. The list must tile its declared range in
+address order. Guard chunks and allocator overhead stay in their raw extents.
+An allocator control structure before the first guard belongs to its backing
+reservation, outside the journal's chunk region.
+
+A `transaction` record carries `sequence`, `heap_epoch`, `start_ns`, `commit_ns`,
+the affected `start` and `size`, exact `expected` old chunks, `replacement`
+chunks, and an optional `label`. Both lists must tile the affected range; the
+old list must match current boundaries and states. Replacement is atomic.
+Unchanged geometry still consumes a sequence when the collector observed an
+allocator release. Dropping a cancelling allocation/free pair therefore creates
+a detectable sequence gap even when endpoint geometry is identical.
+
+A `checkpoint` carries `heap_epoch`, `sequence`, `time_ns`, complete `chunks`,
+and an optional `label`. It can restore knowledge after loss, but cannot make
+the missing interval known. A `loss` record carries `heap_epoch`, `time_ns`,
+and `reason`. Detection time does not locate the first lost mutation, so the
+unknown interval begins after the preceding proven state boundary.
+
+The library exposes `HeapReplay::heap_state_at(heap_id, cursor)`. Use
+`ReplayCursor::Time(source_ns)` for a source-clock coordinate,
+`ReplayCursor::Sequence(sequence)` for committed order, or
+`ReplayCursor::Point(point_id)` to distinguish observations sharing a sequence.
+`HeapState::Known` returns the chunk geometry, evidence kind, boundary, and
+coverage. Its `spans()` method returns only that heap's arena and chunks.
+`HeapState::Unknown` explains the missing evidence. A syntax/header error rejects
+the file; a damaged transaction invalidates the affected suffix until recovery.
+
+The reader limits input to 32 MiB, 4,096 records, 16,384 chunks in a state, and
+one million retained chunk records across states. These are host import bounds,
+not a target recorder allocation budget. The QEMU fixture separately limits
+itself to 256 allocator transactions.
 
 ### Declare board storage
 
@@ -536,3 +1137,63 @@ capture or a physical board's memory map.
 For existing lifecycle retention and stack high-water checks, continue using
 [NuttX heap and stack qualification](../../docs/nuttx-memory-qualification.md)
 and [Rust allocation qualification](../../docs/memory-qualification.md).
+
+## Package and reopen a diagnostic session
+
+Keep a recording's inputs together and open them with one path:
+
+```sh
+python3 tools/memory-explorer/prepare_capture.py \
+  --elf target/cores3-trace/nuttx/nuttx \
+  --console cores3-console.txt \
+  --output target/cores3-session
+
+cargo run --locked -p nxrs-memory-explorer --features gui -- \
+  --session target/cores3-session/session.json
+```
+
+The output parent must already exist; the session directory must be new. The
+preparer copies the exact ELF, original console, discovered or explicitly
+supplied map/layout, and converted trace. It resolves recorded IRQ handlers and
+heap caller PCs against the ELF;
+use `--addr2line /path/to/target-addr2line` when automatic discovery cannot find
+the target tool. The generated session has only relative filenames, so the whole
+directory can be moved without changing paths.
+
+Add `--snapshot path/to/observation.json` for each memory observation and
+`--heap-journal path/to/journal.json` for an independently recorded heap journal.
+Their explicit ELF hashes must match the selected executable. The preparer also
+rejects conflicting host-ELF hashes in snapshot capture metadata and conflicting
+ELF identities in native console frames. It does not manufacture recording IDs
+or synchronize clocks. The viewer still validates each format, map placement,
+memory geometry, and any claimed timeline correlation when opening the session.
+
+The preparer uses the same [automatic board discovery](#automatic-board-layouts)
+as the viewer and packages the selected descriptor, its provenance, and the
+discovery notes. The resulting session remains self-contained when moved away
+from the original build directory. Supply `--layout path/to/verified-layout.json`
+for a custom board map, or use `--board` for a known catalog entry when build
+metadata is unavailable. For the qualified QEMU machine, the ID is
+`mps2-an521-qemu`. These two options are mutually exclusive. Without a matching
+layout, the ELF/linker view remains available.
+
+`session.json` uses schema version 1 with `build.elf_sha256`, `elf`, optional
+`map`, `layout`, `trace`, `heap_journal`, a `snapshots` array, and a `files` object
+mapping every retained filename to `{ "sha256": "...", "bytes": 123 }`.
+Optional `automatic_layout` and `automatic_map` flags retain discovery behavior
+when reopening: captured region IDs remain stable, and an incompatible optional
+map is skipped with an explanation. Older sessions retain their original
+explicit-input behavior. Prepared sessions keep their verified inventory and do
+not search neighboring files again when opened.
+The reader checks the inventory before loading. Inputs are copied from stable
+regular files; symlink inputs, duplicate JSON fields, existing output paths,
+oversized files, and mismatched identities fail without publishing a partial
+session. Publication uses an atomic rename that cannot replace an existing
+directory. Bounds are 512 MiB for the ELF, 128 MiB each for console and trace,
+64 MiB for the map, 8 MiB for a layout, 32 MiB for each snapshot or journal, up to
+128 snapshot files, and 1 GiB total retained content.
+
+A hash-bound package proves which files the viewer used. An unbound console log
+still relies on the producer to select the firmware that actually ran; packaging
+does not turn that assertion into target attestation. The original capture and
+source-attribution warnings remain visible in the converted trace.

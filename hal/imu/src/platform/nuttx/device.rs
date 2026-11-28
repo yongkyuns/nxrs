@@ -105,7 +105,7 @@ impl<S: Imu> Device<S> {
                 };
                 self.trace.wake(ready.periodic_deadline);
                 let read_start_us = acquisition::monotonic_us();
-                let drained = self.sensor.read_available(acquisition::monotonic_us, |sample| {
+                let drained = self.trace.scope("drain", || self.sensor.read_available(acquisition::monotonic_us, |sample| {
                     sequence = sequence.saturating_add(1);
                     emit(Event::Sample(ImuSample {
                         sequence,
@@ -115,7 +115,7 @@ impl<S: Imu> Device<S> {
                         accel_mps2: sample.accel_mps2,
                         gyro_rps: sample.gyro_rps,
                     }))
-                });
+                }));
                 self.trace.drain(matches!(&drained, Ok(Some(_))));
                 match drained {
                     Ok(Some(count)) => self.signal.drained(count)?,

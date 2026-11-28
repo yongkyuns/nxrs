@@ -1,0 +1,3 @@
+ifneq ($(CONFIG_EXAMPLES_TIMED_CAPTURE),)
+CONFIGURED_APPS += $(APPDIR)/examples/timed_capture
+endif

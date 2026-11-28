@@ -241,7 +241,8 @@ where
         result
     }
 
-    /// Teardown only after provider status is Stopped and callbacks are quiet.
+    /// Teardown only after provider status is Stopped. Keep sink-owned resources
+    /// alive until this completes callback retirement and worker joining.
     /// Joins before returning any retained shutdown or terminal failure.
     pub fn finish(&mut self) -> Result<(), ReconnectError> {
         self.controller.finish().map_err(ReconnectError::Device)?;

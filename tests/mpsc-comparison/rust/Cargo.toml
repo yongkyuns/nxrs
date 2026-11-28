@@ -11,6 +11,10 @@ crate-type = ["rlib", "staticlib"]
 [[bin]]
 name = "mpsc-comparison"
 path = "src/main.rs"
+
+[package.metadata.nxrs]
+qualification-only = true
+
 [package.metadata.nxrs.firmware]
 bin = "mpsc-comparison"
 command = "mpsc_perf"

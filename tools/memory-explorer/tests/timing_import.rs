@@ -271,3 +271,334 @@ fn demonstration_is_explicitly_synthetic_and_exercises_all_layers() {
         .any(|event| event.kind == TimingEventKind::Instant));
     assert!(!demo.counters.is_empty());
 }
+
+#[test]
+fn source_identity_uses_recorded_code_and_never_guesses_from_irq_numbers() {
+    let trace = parse_timing(r#"[
+      {"ph":"X","pid":1,"ts":0,"dur":1,"name":"IRQ 42","cat":"irq","args":{"irq":42}},
+      {"ph":"X","pid":1,"ts":1,"dur":2,"name":"IRQ 42","cat":"irq","args":{"irq":42,"handler_function":"gpio_interrupt","handler_file":"chip/gpio.c","caller_function":"unrelated"}},
+      {"ph":"B","pid":2,"ts":0,"name":"heap request","cat":"heap","args":{"caller_function":"capture::open","requested_bytes":9007199254740993}},
+      {"ph":"E","pid":2,"ts":1,"args":{"caller_function":"different end source"}}
+    ]"#).unwrap();
+    let irq: Vec<_> = trace.events.iter().filter(|event| event.is_irq()).collect();
+    assert_eq!(irq[0].source_name(), None);
+    assert_eq!(irq[1].source_name(), Some("gpio_interrupt"));
+    let request = trace.events.iter().find(|event| event.is_heap()).unwrap();
+    assert_eq!(request.source_name(), Some("capture::open"));
+    assert_eq!(request.requested_bytes(), Some(9_007_199_254_740_993));
+    assert_eq!(trace.query(trace.bounds, "chip/gpio.c").len(), 1);
+}
+
+#[test]
+fn source_summaries_clip_intervals_and_keep_unknown_heap_outcomes() {
+    let trace = parse_timing(r#"[
+      {"ph":"X","pid":1,"ts":0,"dur":100,"name":"work","cat":"app","args":{"caller_function":"worker"}},
+      {"ph":"X","pid":1,"ts":20,"dur":40,"name":"work","cat":"app","args":{"caller_function":"worker"}},
+      {"ph":"i","pid":2,"ts":30,"name":"request","cat":"heap","args":{"requested_bytes":40,"failed":true,"caller_function":"capture"}},
+      {"ph":"i","pid":2,"ts":40,"name":"request","cat":"heap","args":{"requested_bytes":60,"caller_function":"capture"}},
+      {"ph":"i","pid":2,"ts":40,"name":"request","cat":"heap","args":{"requested_bytes":0,"failed":false,"caller_function":"capture"}},
+      {"ph":"i","pid":2,"ts":40,"name":"allocated","cat":"heap,allocation","args":{"bytes":104,"caller_function":"capture"}}
+    ]"#).unwrap();
+    let selected = TimingRange {
+        start_ns: 30_000,
+        end_ns: 50_000,
+    };
+    let groups = trace.source_stats(selected, "", 0);
+    let work = groups.iter().find(|group| group.name == "work").unwrap();
+    assert_eq!(work.interval_count, 2);
+    assert_eq!(work.inclusive_ns, 40_000);
+    assert_eq!(work.longest_overlap_ns, 20_000);
+    let request = groups.iter().find(|group| group.name == "request").unwrap();
+    assert_eq!((request.request_count, request.requested_bytes), (3, 100));
+    assert_eq!((request.failed_requests, request.unknown_outcomes), (1, 1));
+    let allocation = groups
+        .iter()
+        .find(|group| group.name == "allocated")
+        .unwrap();
+    assert_eq!(allocation.request_count, 0);
+    let filtered = trace.source_stats(selected, "", 50_000);
+    assert_eq!(
+        filtered
+            .iter()
+            .find(|group| group.name == "work")
+            .unwrap()
+            .interval_count,
+        1
+    );
+    assert_eq!(
+        filtered
+            .iter()
+            .find(|group| group.name == "request")
+            .unwrap()
+            .request_count,
+        3
+    );
+    assert!(trace
+        .source_stats(
+            TimingRange {
+                start_ns: 80_000,
+                end_ns: 20_000
+            },
+            "",
+            0
+        )
+        .is_empty());
+}
+
+#[test]
+fn paired_heap_outcomes_use_terminal_evidence_and_keep_beginning_source_identity() {
+    let trace = parse_timing(r#"[
+      {"ph":"B","pid":1,"ts":0,"name":"request","cat":"heap","args":{"requested_bytes":64,"caller_function":"capture::open","failed":false}},
+      {"ph":"E","pid":1,"ts":1,"args":{"failed":true,"caller_function":"allocator_end","requested_bytes":4096}},
+      {"ph":"B","pid":1,"ts":2,"name":"request","cat":"heap","args":{"requested_bytes":32,"caller_function":"capture::open"}},
+      {"ph":"E","pid":1,"ts":3,"args":{"failed":false}},
+      {"ph":"B","pid":1,"ts":4,"name":"request","cat":"heap","args":{"requested_bytes":16,"caller_function":"capture::open"}},
+      {"ph":"E","pid":1,"ts":5,"args":{"outcome":"unknown"}}
+    ]"#).unwrap();
+    assert_eq!(trace.events[0].request_failed(), Some(true));
+    assert_eq!(trace.events[1].request_failed(), Some(false));
+    assert_eq!(trace.events[2].request_failed(), None);
+    assert_eq!(trace.events[0].source_name(), Some("capture::open"));
+    assert_eq!(trace.events[0].requested_bytes(), Some(64));
+    let groups = trace.source_stats(trace.bounds, "cat:heap", 0);
+    assert_eq!(groups.len(), 1);
+    assert_eq!(groups[0].source.as_deref(), Some("capture::open"));
+    assert_eq!(groups[0].request_count, 3);
+    assert_eq!(groups[0].requested_bytes, 112);
+    assert_eq!(groups[0].failed_requests, 1);
+    assert_eq!(groups[0].unknown_outcomes, 1);
+}
+
+#[test]
+fn allocator_call_results_preserve_zero_size_and_explicit_failure_semantics() {
+    let trace = parse_timing(r#"[
+      {"ph":"X","pid":6,"tid":7,"ts":0,"dur":1,"name":"malloc","cat":"heap,request","args":{"request_id":"9007199254740993","request_observed":true,"requested_bytes":0,"caller_function":"initialize","outcome":"succeeded","failed":true,"result_address":"0x38001000"}},
+      {"ph":"X","pid":6,"tid":7,"ts":2,"dur":1,"name":"realloc","cat":"heap,request","args":{"request_id":"9007199254740994","request_observed":true,"requested_bytes":4096,"old_address":"0x38001000","outcome":"failed","failed":false,"result_address":"0x0","failure_reason":"allocator returned NULL"}},
+      {"ph":"i","pid":6,"tid":7,"ts":4,"name":"malloc","cat":"heap,request","args":{"request_observed":true,"requested_bytes":128,"result_address":"0x38002000"}},
+      {"ph":"i","pid":6,"tid":7,"ts":5,"name":"future outcome","cat":"heap,request","args":{"requested_bytes":0,"outcome":"released","failed":true}}
+    ]"#).unwrap();
+    let zero = &trace.events[0];
+    assert_eq!(zero.requested_bytes(), Some(0));
+    assert_eq!(zero.request_failed(), Some(false));
+    assert_eq!(zero.argument("request_id").unwrap(), "9007199254740993");
+    assert_eq!(
+        zero.result_argument("result_address").unwrap(),
+        "0x38001000"
+    );
+    let failed = &trace.events[1];
+    assert_eq!(failed.request_failed(), Some(true));
+    assert_eq!(failed.failure_reason(), Some("allocator returned NULL"));
+    assert_eq!(failed.argument("old_address").unwrap(), "0x38001000");
+    assert_eq!(
+        trace.events[2].request_failed(),
+        None,
+        "a pointer alone cannot prove an outcome"
+    );
+    assert_eq!(
+        trace.events[3].request_failed(),
+        None,
+        "an unsupported outcome cannot become a failure through its legacy flag"
+    );
+}
+
+#[test]
+fn terminal_call_fields_do_not_replace_the_original_request_or_caller() {
+    let trace = parse_timing(r#"[
+      {"ph":"B","pid":6,"tid":7,"ts":0,"name":"memalign","cat":"heap,request","args":{"request_id":"8","requested_bytes":24,"alignment":32,"caller_function":"packet_buffer","outcome":"unknown","result_address":"0xdead"}},
+      {"ph":"E","pid":6,"tid":7,"ts":1,"args":{"outcome":"succeeded","failed":true,"result_address":"0x38001020","requested_bytes":64,"caller_function":"mm_memalign"}},
+      {"ph":"B","pid":6,"tid":7,"ts":2,"name":"malloc","cat":"heap,request","args":{"requested_bytes":99,"outcome":"unknown"}},
+      {"ph":"E","pid":6,"tid":7,"ts":3,"args":{"failed":true,"failure_reason":"legacy explicit failure"}}
+    ]"#).unwrap();
+    let call = &trace.events[0];
+    assert_eq!(call.request_failed(), Some(false));
+    assert_eq!(call.source_name(), Some("packet_buffer"));
+    assert_eq!(call.requested_bytes(), Some(24));
+    assert_eq!(call.argument("alignment").unwrap(), 32);
+    assert_eq!(
+        call.result_argument("result_address").unwrap(),
+        "0x38001020"
+    );
+    assert_eq!(trace.events[1].request_failed(), Some(true));
+    assert_eq!(
+        trace.events[1].failure_reason(),
+        Some("legacy explicit failure")
+    );
+}
+
+#[test]
+fn incomplete_calls_and_orphan_results_cannot_become_known_outcomes() {
+    let trace = parse_timing(r#"[
+      {"ph":"i","pid":6,"tid":7,"ts":1,"name":"malloc","cat":"heap,request,unknown","args":{"request_id":"1","request_observed":true,"requested_bytes":32,"incomplete_reason":"missing return","outcome":"succeeded","failed":false}},
+      {"ph":"i","pid":6,"tid":7,"ts":2,"name":"malloc result","cat":"heap,result,unknown","args":{"request_id":"2","request_observed":false,"requested_bytes":999,"observed_outcome":"failed","observed_result_address":"0x0","outcome":"failed","failed":true}},
+      {"ph":"i","pid":6,"tid":7,"ts":3,"name":"legacy request","cat":"heap,request","args":{"requested_bytes":16}}
+    ]"#).unwrap();
+    for event in &trace.events {
+        assert_eq!(event.kind, TimingEventKind::Instant);
+        assert_eq!(event.duration_ns(), 0);
+        assert_eq!(event.request_failed(), None);
+    }
+    assert_eq!(trace.events[1].requested_bytes(), None);
+    let sources = trace.source_stats(trace.bounds, "cat:heap", 0);
+    assert_eq!(
+        sources
+            .iter()
+            .map(|group| group.request_count)
+            .sum::<usize>(),
+        2
+    );
+    assert_eq!(
+        sources
+            .iter()
+            .map(|group| group.requested_bytes)
+            .sum::<u128>(),
+        48
+    );
+    assert_eq!(
+        sources
+            .iter()
+            .map(|group| group.failed_requests)
+            .sum::<usize>(),
+        0
+    );
+    assert_eq!(
+        sources
+            .iter()
+            .map(|group| group.unknown_outcomes)
+            .sum::<usize>(),
+        2
+    );
+    assert_eq!(
+        sources
+            .iter()
+            .map(|group| group.unpaired_results)
+            .sum::<usize>(),
+        1
+    );
+}
+
+#[test]
+fn allocator_outcome_filters_are_exact_and_exclude_counters_and_unrelated_tracks() {
+    let trace = parse_timing(r#"[
+      {"ph":"M","pid":9,"name":"process_name","args":{"name":"outcome:failed"}},
+      {"ph":"X","pid":6,"tid":7,"ts":0,"dur":1,"name":"failed call","cat":"heap,request","args":{"requested_bytes":64,"outcome":"failed","failed":true}},
+      {"ph":"X","pid":6,"tid":7,"ts":2,"dur":1,"name":"success with failed flag present","cat":"heap,request","args":{"requested_bytes":64,"outcome":"succeeded","failed":false}},
+      {"ph":"i","pid":6,"tid":7,"ts":4,"name":"legacy entry","cat":"heap,request","args":{"requested_bytes":16}},
+      {"ph":"i","pid":6,"tid":7,"ts":5,"name":"unpaired result","cat":"heap,result","args":{"request_observed":false,"observed_outcome":"failed"}},
+      {"ph":"i","pid":9,"ts":6,"name":"unrelated event"},
+      {"ph":"i","pid":6,"ts":7,"name":"raw heap allocation","cat":"heap,allocation","args":{"bytes":64}},
+      {"ph":"C","pid":9,"ts":8,"name":"outcome:failed","args":{"used":64}}
+    ]"#).unwrap();
+    let names = |filter| {
+        trace
+            .query(trace.bounds, filter)
+            .into_iter()
+            .map(|event| event.name.as_str())
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(names("outcome:failed"), ["failed call"]);
+    assert_eq!(
+        names("OUTCOME:SUCCEEDED"),
+        ["success with failed flag present"]
+    );
+    assert_eq!(
+        names("outcome:unknown"),
+        ["legacy entry", "unpaired result"]
+    );
+    assert!(names("outcome:unsupported").is_empty());
+    assert!(trace
+        .counter_query(trace.bounds, "outcome:failed")
+        .is_empty());
+}
+
+#[test]
+fn nested_allocator_calls_keep_separate_ids_and_inclusive_request_accounting() {
+    let trace = parse_timing(r#"[
+      {"ph":"X","pid":6,"tid":7,"ts":0,"dur":5,"name":"memalign","cat":"heap,request","args":{"request_id":"1","requested_bytes":32,"alignment":64,"outcome":"succeeded","result_address":"0x38001040"}},
+      {"ph":"X","pid":6,"tid":7,"ts":1,"dur":2,"name":"malloc","cat":"heap,request","args":{"request_id":"2","requested_bytes":96,"caller_function":"mm_memalign","outcome":"succeeded","result_address":"0x38001010"}}
+    ]"#).unwrap();
+    assert_eq!((trace.events[0].depth, trace.events[1].depth), (0, 1));
+    assert_ne!(
+        trace.events[0].argument("request_id"),
+        trace.events[1].argument("request_id")
+    );
+    let sources = trace.source_stats(trace.bounds, "cat:heap", 0);
+    assert_eq!(
+        sources
+            .iter()
+            .map(|group| group.request_count)
+            .sum::<usize>(),
+        2
+    );
+    assert_eq!(
+        sources
+            .iter()
+            .map(|group| group.requested_bytes)
+            .sum::<u128>(),
+        128
+    );
+    let timing = trace.stats(trace.bounds, "cat:heap");
+    assert_eq!(timing.clipped_interval_sum_ns, 7_000);
+    assert_eq!(timing.tracks[0].covered_ns, 5_000);
+}
+
+#[test]
+fn native_counts_remain_distinct_from_derived_events_and_reject_malformed_counts() {
+    let source = r#"{"otherData":{"nxrs":{"event_counts":{"irq_enter":3,"irq_leave":2,"heap_request":4},"source_attribution":{"callers_resolved":2}}},"traceEvents":[{"ph":"i","pid":1,"ts":0,"name":"one display marker"}]}"#;
+    let trace = parse_timing(source).unwrap();
+    assert_eq!(trace.events.len(), 1);
+    assert_eq!(trace.metadata.event_counts["heap_request"], 4);
+    assert_eq!(trace.metadata.source_attribution["callers_resolved"], 2);
+    assert!(parse_timing(&source.replace("\"irq_enter\":3", "\"irq_enter\":-1")).is_err());
+    assert!(parse_timing(&source.replace("\"irq_enter\":3", "\"irq_enter\":1.5")).is_err());
+}
+
+#[test]
+fn callback_sources_and_attribution_elf_identity_are_preserved() {
+    let hash = "a".repeat(64);
+    let source = format!(
+        r#"{{"otherData":{{"nxrs":{{"elf_sha256":"{hash}","observed_note_count":4,"ignored_line_count":2,"source_attribution":{{"elf_sha256":"{hash}","handler_resolved":1}}}}}},"traceEvents":[{{"ph":"X","pid":1,"ts":0,"dur":1,"name":"timer callback","cat":"timer","args":{{"handler_function":"imu_wake_hint"}}}}]}}"#
+    );
+    let trace = parse_timing(&source).unwrap();
+    assert!(trace.events[0].is_callback());
+    assert!(!trace.events[0].is_irq());
+    assert_eq!(trace.events[0].source_name(), Some("imu_wake_hint"));
+    assert_eq!(
+        trace.metadata.source_elf_sha256.as_deref(),
+        Some(hash.as_str())
+    );
+    assert_eq!(trace.metadata.observed_note_count, Some(4));
+    assert_eq!(trace.metadata.ignored_line_count, Some(2));
+    let mismatch = source.replacen(
+        &format!("\"source_attribution\":{{\"elf_sha256\":\"{hash}\""),
+        &format!(
+            "\"source_attribution\":{{\"elf_sha256\":\"{}\"",
+            "b".repeat(64)
+        ),
+        1,
+    );
+    assert!(parse_timing(&mismatch)
+        .unwrap_err()
+        .to_string()
+        .contains("source attribution ELF"));
+}
+
+#[test]
+fn category_filter_ignores_incidental_argument_names_and_keeps_counter_categories() {
+    let trace = parse_timing(r#"[
+        {"ph":"X","pid":1,"ts":0,"dur":10,"name":"worker","cat":"sched,cpu","args":{"includes_irq_time":true}},
+        {"ph":"X","pid":2,"ts":1,"dur":2,"name":"IRQ 15","cat":"irq"},
+        {"ph":"C","pid":3,"ts":2,"name":"heap bytes","cat":"heap,usage","args":{"used":128}}
+    ]"#).unwrap();
+    assert_eq!(
+        trace.query(trace.bounds, "irq").len(),
+        2,
+        "free text continues to search recorded arguments"
+    );
+    let irqs = trace.query(trace.bounds, "cat:irq");
+    assert_eq!(irqs.len(), 1);
+    assert_eq!(irqs[0].name, "IRQ 15");
+    assert_eq!(trace.counter_query(trace.bounds, "cat:heap").len(), 1);
+    assert_eq!(trace.counter_query(trace.bounds, "category:usage").len(), 1);
+    assert_eq!(trace.query(trace.bounds, "category:SCHED").len(), 1);
+    assert!(trace.query(trace.bounds, "cat:").is_empty());
+}

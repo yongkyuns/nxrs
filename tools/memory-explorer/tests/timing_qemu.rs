@@ -153,6 +153,47 @@ fn imports_real_timing_and_matches_independent_uart_endpoints() {
     );
     assert_eq!(build["clock_contract"]["irq_enabled"], false);
     let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/nuttx-std/memory-timing");
+    let bridge = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../shared/acquisition/src/platform/nuttx/ffi/trace.c");
+    assert_eq!(
+        text(&build["acquisition_trace_bridge"], "source"),
+        "shared/acquisition/src/platform/nuttx/ffi/trace.c"
+    );
+    assert_eq!(
+        text(&build["acquisition_trace_bridge"], "sha256"),
+        sha256(&bridge)
+    );
+    assert_eq!(
+        text(&build["acquisition_trace_bridge"], "installed_sha256"),
+        sha256(&bridge)
+    );
+    assert_eq!(
+        report["acquisition_trace_bridge"]["disabled_markers_absent"],
+        true
+    );
+    assert_eq!(
+        number(&report["acquisition_trace_bridge"], "drain_scopes"),
+        4
+    );
+    assert_eq!(
+        number(&report["acquisition_trace_bridge"], "wake_instants"),
+        4
+    );
+    assert_eq!(
+        number(&report["acquisition_trace_bridge"], "disabled_probes"),
+        2
+    );
+    assert_eq!(
+        console
+            .matches("NXRS_ACQUISITION_BRIDGE rounds=4 disabled_probes=2")
+            .count(),
+        1
+    );
+    assert!(
+        raw.iter()
+            .all(|note| !note.payload.contains("bridge/disabled-")),
+        "bridge escaped trace stop"
+    );
     let hashes = build["fixture_sha256"].as_object().unwrap();
     assert_eq!(hashes.len(), 5);
     for name in [
@@ -179,6 +220,7 @@ fn imports_real_timing_and_matches_independent_uart_endpoints() {
     assert!(!model.static_spans.is_empty());
     for symbol in [
         "memory_timing_main",
+        "acquisition_trace_event",
         "__wrap_up_perf_gettime",
         "__wrap_up_perf_convert",
     ] {
@@ -206,6 +248,7 @@ fn imports_real_timing_and_matches_independent_uart_endpoints() {
     let mut expected_irqs = Vec::new();
     let mut app_stack: BTreeMap<u64, Vec<(&str, u64)>> = BTreeMap::new();
     let mut expected_apps = Vec::new();
+    let mut expected_app_instants = Vec::new();
     let mut expected_counters = Vec::new();
     let mut expected_notes = Vec::new();
     for note in &raw {
@@ -237,6 +280,7 @@ fn imports_real_timing_and_matches_independent_uart_endpoints() {
                         assert_eq!(parts[2], name);
                         expected_apps.push((start, note.time, task, name.to_owned()));
                     }
+                    "I" => expected_app_instants.push((note.time, task, parts[2].to_owned())),
                     "C" => expected_counters.push((
                         note.time,
                         parts[2].to_owned(),
@@ -299,7 +343,7 @@ fn imports_real_timing_and_matches_independent_uart_endpoints() {
     let mut actual_apps: Vec<_> = trace
         .events
         .iter()
-        .filter(|event| event.category == "app")
+        .filter(|event| event.category == "app" && event.kind == TimingEventKind::Interval)
         .map(|event| {
             assert_eq!(event.kind, TimingEventKind::Interval);
             (
@@ -319,12 +363,32 @@ fn imports_real_timing_and_matches_independent_uart_endpoints() {
         ("timing/worker", 4),
         ("timing/busy", 4),
         ("timing/sleep", 4),
+        ("imu/qemu-fixture/drain", 4),
     ] {
         assert_eq!(
             expected_apps.iter().filter(|entry| entry.3 == name).count(),
             count
         );
     }
+    let mut actual_app_instants: Vec<_> = trace
+        .events
+        .iter()
+        .filter(|event| event.category == "app" && event.kind == TimingEventKind::Instant)
+        .map(|event| {
+            (
+                event.start_ns + first,
+                number(&event.args, "task_id"),
+                event.name.clone(),
+            )
+        })
+        .collect();
+    actual_app_instants.sort();
+    expected_app_instants.sort();
+    assert_eq!(actual_app_instants, expected_app_instants);
+    assert_eq!(expected_app_instants.len(), 4);
+    assert!(expected_app_instants
+        .iter()
+        .all(|entry| entry.2 == "imu/qemu-fixture/wake"));
     let mut actual_counters: Vec<_> = trace
         .counters
         .iter()
@@ -400,7 +464,7 @@ fn imports_real_timing_and_matches_independent_uart_endpoints() {
         expected_apps.len() + expected_irqs.len() + 2 * expected_residencies.len();
     assert_eq!(
         trace.events.len(),
-        expected_intervals + expected_notes.len() + censored.len()
+        expected_intervals + expected_notes.len() + expected_app_instants.len() + censored.len()
     );
     assert!(
         trace

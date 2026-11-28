@@ -33,6 +33,9 @@ ALLOWED = {
     'test': {'app', 'service', 'hal', 'api', 'backend', 'mock', 'driver', 'support', 'platform', 'devices', 'test', 'shared', 'build-support'},
 }
 PORTABLE = {'app', 'service', 'hal', 'api', 'shared', 'devices'}
+# Reviewed shared APIs whose contract deliberately uses ordinary Rust std.
+# They retain shared dependency/platform boundaries and the safe-code marker.
+STD_SHARED = {('shared', 'lock-order')}
 PROVIDER_FEATURES = {'native', 'mock', 'nuttx', 'std', 'linux', 'macos', 'windows'}
 # New third-party dependencies of portable production crates require a reviewed
 # portability decision here. Do not infer portability merely from a crate name.
@@ -318,7 +321,8 @@ def inspect_sources(metadata: dict, root: Path) -> list[str]:
         text = source.read_text(encoding='utf-8') if source.is_file() else ''
         markers = ['#![deny(unsafe_code)]' if role == 'hal' else '#![forbid(unsafe_code)]']
         # HAL portability is an OS-independent API, not a no_std requirement.
-        if role in {'api', 'shared'}:
+        # The ordered-lock API also explicitly requires std mutexes and TLS.
+        if role in {'api', 'shared'} and directory.relative_to(root).parts not in STD_SHARED:
             markers.insert(0, '#![no_std]')
         for marker in markers:
             if marker not in text:

@@ -108,6 +108,6 @@ impl<S: Imu + Send + 'static, R: 'static> Device for Instance<S, R> {
         config: Config,
         sink: T,
     ) -> Result<(impl Session + Send + 'static, AppliedConfig), DeviceError> {
-        self.start(config, Trace::default(), |_| Ok(()), sink)
+        self.start(config, Trace::for_source("imu", self.id), |_| Ok(()), sink)
     }
 }

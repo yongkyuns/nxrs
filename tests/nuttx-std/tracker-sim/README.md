@@ -245,6 +245,48 @@ console task's guard and requires the scheduler to assert.
 On an interrupt-driven switch the assertion reuses the outgoing task's saved
 registers to report the fault.
 
+The [application's firmware metadata](../../../app/motion-tracker/Cargo.toml)
+reserves 16 KiB (16,384 bytes) for the `motion_tracker` entry/display task.
+This adds 1,536 bytes to its previous 14,848-byte reservation;
+the communications and acquisition worker budgets are unchanged. At revision
+`66c57797`, the [retained coexistence run](https://github.com/yongkyuns/nxrs/actions/runs/45913615465)
+reported a 12,352-byte touched peak in all 46 samples of that task, with 14,328
+usable bytes and only 1,976 bytes (13.8%) free. The observed requested-to-usable
+difference is 520 bytes.
+The same headroom gate had already failed in the [merged fixed-reader run](https://github.com/yongkyuns/nxrs/actions/runs/45894819103),
+with 12,236 bytes used and 14.6% free.
+
+Keeping the retained peak and observed 520-byte difference fixed, 16 KiB projects
+15,864 usable bytes and 3,512 bytes (22.1%) free. These projected values are budget
+arithmetic; the export and map workloads still measure actual usable capacity
+and touched peaks. A host regression replays the old failure and checks that the
+declared entry budget covers the retained peak at the existing 20% target. The
+15% rejection floor, worker checks and native memory safeguards remain in force.
+
+Separate export runs on
+[`main` at `5511a6c9`](https://github.com/yongkyuns/nxrs/actions/runs/45895997638/job/140169914131)
+and [PR #453 at `9a0a6329`](https://github.com/yongkyuns/nxrs/actions/runs/45902015775/job/140189801518)
+left 1,864 bytes (13.0%) and 1,656 bytes (11.6%) free, respectively, from the
+same 14,328-byte usable capacity. Their higher observed peak of 12,672 bytes
+projects 3,192 of 15,864 usable bytes free (20.1%) with the same 16 KiB
+reservation and observed 520-byte difference. This is a separate historical
+budget projection, not a new native measurement.
+
+The later [export run at `3e841457`](https://github.com/yongkyuns/nxrs/actions/runs/45919882637)
+measured 3,448 of 15,864 usable entry-task bytes free (21.7%). All tracked
+workers passed the headroom gate. Three restart/export cycles recovered
+251,528 B of free heap and a 113,352 B largest free block; the deliberate stack
+guard corruption was detected. These are results for that revision's `--export`
+workload. They do not replace the separate map measurement or qualify later
+source changes. The extra 1,536 B is a requested runtime task reservation, not
+an increase in the historical linked product's measured static SRAM.
+
+The current merged source still requires fresh `--export` and
+`--tiles --tile-write-loss` runs with the existing stack, heap recovery,
+20 KiB largest-free-block, watchdog and guard checks. The extra task stack
+comes from the heap, so stack headroom alone cannot qualify the change.
+Physical CoreS3 qualification remains a separate gate.
+
 For a five-minute soak, pass `--export --export-seconds 300 --timeout 440`.
 The runner repeats the fault sequence and checks that the export catches up
 after each minute. CI runs one sequence.
@@ -269,6 +311,34 @@ map configuration and the PPP listener receives no map traffic. The BLE
 client supplies both tiles during full-rate export. The test checks the
 panel on both sides of the boundary and requires consecutive sample
 sequences throughout the transfers.
+
+### Failure registers and matching firmware
+
+The separate `--tiles` run at `3e841457` failed before the first complete panel
+frame. Its retained log contains 32,338 repeated
+`xtensa_debug_handler: Unhandled debug cause 0x8` messages. The originating
+fault remains unresolved: the old artifact omitted register state and the
+matching coexistence firmware. A successful export run does not establish
+that map startup passed.
+
+On a scenario failure, [the dashboard runner](dashboard.py) now retains its QMP
+connection, requests that the guest stop, and dumps registers from both emulated
+cores before cleanup. The sidecar beside the console log, such as
+`tiles.failure.json`, records the original exception, QMP version, image/ELF
+paths, whether stopping succeeded, register text and partial diagnostic errors.
+Inspect `DEBUGCAUSE`, saved exception PCs including `EPC6`, `EXCCAUSE` and
+`EXCVADDR` against that run's ELF and link map. A BREAK can occur in an exception
+vector, so the current handler PC alone need not identify the original fault.
+
+The [ESP32-S3 CI artifact](../../../.github/workflows/nuttx-qemu.yml) retains
+these sidecars with the upload/coexistence ELF, map, merged image, resolved
+configuration/profile, binary hashes, ABI report and provenance. Use the pinned
+tracker emulator above and the matching product files when reproducing a fault;
+a standard-library qualification image is a different application. Diagnostics
+are best effort: an unavailable monitor or artifact write adds context without
+replacing the original failure. Successful runs keep their existing assertions,
+and the five-second complete-frame deadline is unchanged. The new capture path
+prepares diagnosis; it is not a fix or a passing native map result.
 
 ## Replay an iPhone recording
 

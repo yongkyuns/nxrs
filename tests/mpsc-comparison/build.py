@@ -23,6 +23,16 @@ BOARDS = tomllib.loads((HERE / 'boards.toml').read_text())
 BUILD_SCHEMA = 'mpsc-comparison-build-v4'
 IDENTITY_FIELDS = ('schema', 'board', 'runtime', 'backend', 'observer', 'source_sha256', 'board_contract', 'native_build_inputs', 'nonce')
 NATIVE_QUEUE_ROOTS = ('mp_queue_create', 'mp_queue_send', 'mp_queue_receive', 'mp_queue_destroy', 'mp_queue_waiting')
+MUTEX_CONTROL_REASON = 'Preserve the historical MPSC transport comparison with kernel priority inheritance disabled.'
+
+
+def validate_mutex_policy(document):
+    expected = dict(version=1, mode='kernel-pi-disabled', source='qualification-control',
+                    reason=MUTEX_CONTROL_REASON, default_pthread_mutex_protocol='none', priority_inheritance=False,
+                    holder_tracking='disabled', kconfig={'PRIORITY_INHERITANCE': 'n',
+                    'PTHREAD_MUTEX_DEFAULT_PRIO_INHERIT': 'n', 'PTHREAD_MUTEX_DEFAULT_PRIO_NONE': 'y'})
+    if canonical(document.get('mutex_policy')) != canonical(expected):
+        raise ValueError('frontend mutex policy does not match the MPSC baseline control')
 
 
 def selected_backend(runtime, backend=None):
@@ -277,7 +287,7 @@ def validate_nuttx_control(std, native):
 def inventory():
     files = []
     for directory in (HERE, ROOT / 'tools/build', ROOT / 'tools/build-support',
-                      ROOT / 'upstream/rust-std', ROOT / 'upstream/nuttx',
+                      ROOT / 'upstream/rust-std', ROOT / 'upstream/libc', ROOT / 'upstream/nuttx',
                       ROOT / 'upstream/nuttx-apps', ROOT / 'upstream/esp-hal-3rdparty'):
         files.extend(p for p in directory.rglob('*') if p.is_file()
                      and not any(x in p.parts for x in ('target', '__pycache__', '.git'))
@@ -436,7 +446,8 @@ def build(args):
             firmware = out / 'firmware'
             command = ['cargo', 'nxrs', 'build', '--manifest-path', HERE / 'rust/Cargo.toml',
                        '--platform', board['nuttx-platform'], '--profile', args.board + '-mpsc', '--out', firmware,
-                       '--abi-profile', 'active']
+                       '--abi-profile', 'active', '--qualification-mutex-policy', 'kernel-pi-disabled',
+                       '--qualification-mutex-reason', MUTEX_CONTROL_REASON]
             if observer == 'cpu':
                 for symbol in ('ARCH_PERF_EVENTS', 'PERF_OVERFLOW_CORRECTION', 'SCHED_CRITMONITOR'):
                     command += ['--kconfig-enable', symbol]
@@ -445,6 +456,7 @@ def build(args):
             if args.board == 'pico2w':
                 command += ['--target-c-source', board_dir / 'bootstrap.c']
             run(command, out / 'build.log', env)
+            validate_mutex_policy(json.loads((firmware / 'kconfig-requests.json').read_text()))
             selected = json.loads((firmware / 'std-source.json').read_text())
             if selected['selected_source_matches'] is not True:
                 raise ValueError('wrong std source selected')
@@ -455,7 +467,8 @@ def build(args):
                 placement.prepare(out, prefix, env, backend=backend)
             elf, config = firmware / 'nuttx/nuttx', firmware / 'resolved.config'
             image = firmware / 'nuttx/nuttx.bin'
-            evidence = [firmware / name for name in ('std-source.json', 'std-patch.json', 'nuttx-patches.json', 'abi-report.json', 'provenance.txt')]
+            evidence = [firmware / name for name in ('std-source.json', 'std-patch.json', 'nuttx-patches.json',
+                                                   'abi-report.json', 'kconfig-requests.json', 'provenance.txt')]
             if args.board == 'esp32s3':
                 # The normal frontend applies the matching NuttX loader patch.
                 loader = firmware / 'nuttx/arch/xtensa/src/common/espressif/esp_loader.c'
@@ -597,5 +610,10 @@ def receipt(root):
         record['irq_probe_direct_paths_in_sram'] = audit.get('direct_paths_in_sram') is True
         record['irq_probe_path_placement_qualified'] = False
     if record['runtime'] == 'nuttx':
+        if 'tools/build/src/mutex_policy.rs' in record['source_sha256']:
+            policy = 'firmware/kconfig-requests.json'
+            if policy not in record['artifacts_sha256']:
+                raise ValueError('unbound resource mutex policy')
+            validate_mutex_policy(json.loads((root / policy).read_text()))
         record['kernel_identity'] = read_kernel_identity(root, record)
     return record

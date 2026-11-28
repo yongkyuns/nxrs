@@ -1079,6 +1079,39 @@ fn diagnostic_profile_validates_target_and_owns_native_settings() {
     ];
     fs::write(&path, format!("{profile}diagnostics = true\n")).unwrap();
     success(frontend(&root.0, &root.0, &args));
+    let missing_macros: Vec<_> = args
+        .into_iter()
+        .chain(["--kconfig-set", "DEBUG_SYMBOLS_LEVEL=\"-g\""])
+        .collect();
+    let error = failure(frontend(&root.0, &root.0, &missing_macros));
+    assert!(error.contains("build.diagnostics requirement"), "{error}");
+    fs::write(&path, format!("{profile}diagnostics = true\ndiagnostics-trace-bytes = 65536\ndiagnostics-heap-backtrace-depth = 4\n")).unwrap();
+    success(frontend(&root.0, &root.0, &args));
+    let buffer_conflict: Vec<_> = args.into_iter()
+        .chain(["--kconfig-set", "DRIVERS_NOTERAM_BUFSIZE=8192"])
+        .collect();
+    let error = failure(frontend(&root.0, &root.0, &buffer_conflict));
+    assert!(error.contains("build.diagnostics requirement"), "{error}");
+    let capture_conflict: Vec<_> = args.into_iter()
+        .chain(["--kconfig-set", "SYSTEM_TRACE_CAPTURE=n"])
+        .collect();
+    let error = failure(frontend(&root.0, &root.0, &capture_conflict));
+    assert!(error.contains("build.diagnostics requirement"), "{error}");
+    for (setting, reason) in [
+        ("diagnostics-trace-bytes = 3", "diagnostics-trace-bytes"),
+        ("diagnostics-trace-bytes = 4097", "diagnostics-trace-bytes"),
+        ("diagnostics-trace-bytes = 4194308", "diagnostics-trace-bytes"),
+        ("diagnostics-trace-bytes = '65536'", "diagnostics-trace-bytes"),
+        ("diagnostics-heap-backtrace-depth = 17", "diagnostics-heap-backtrace-depth"),
+        ("diagnostics-heap-backtrace-depth = -1", "diagnostics-heap-backtrace-depth"),
+    ] {
+        fs::write(&path, format!("{profile}diagnostics = true\n{setting}\n")).unwrap();
+        let error = failure(frontend(&root.0, &root.0, &args));
+        assert!(error.contains(reason), "{error}");
+    }
+    fs::write(&path, format!("{profile}diagnostics = false\ndiagnostics-trace-bytes = 65536\n")).unwrap();
+    assert!(failure(frontend(&root.0, &root.0, &args)).contains("require build.diagnostics"));
+    fs::write(&path, format!("{profile}diagnostics = true\n")).unwrap();
     let conflict: Vec<_> = args.into_iter()
         .chain(["--kconfig-disable", "MM_ALLOC_REQUEST_TRACE"])
         .collect();
@@ -1087,6 +1120,7 @@ fn diagnostic_profile_validates_target_and_owns_native_settings() {
 
     fs::write(&path, format!("{profile}diagnostics = false\n")).unwrap();
     success(frontend(&root.0, &root.0, &conflict));
+    success(frontend(&root.0, &root.0, &missing_macros));
     fs::write(&path, format!("{profile}diagnostics = 'true'\n")).unwrap();
     let error = failure(frontend(&root.0, &root.0, &args));
     assert!(error.contains("build.diagnostics must be a boolean"), "{error}");

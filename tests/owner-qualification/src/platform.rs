@@ -17,6 +17,33 @@ pub struct Participant {
     pub restored: Schedule,
 }
 
+#[derive(Clone, Copy, Debug, Serialize)]
+pub struct MutexConfiguration {
+    pub priority_inheritance: bool,
+    pub default_prio_inherit: bool,
+    pub default_protocol: i32,
+    pub protocol_none: i32,
+    pub protocol_inherit: i32,
+    pub holder_capacity: i32,
+}
+
+#[derive(Clone, Copy, Debug, Serialize)]
+pub struct ThreadState {
+    pub tid: i32,
+    pub policy: i32,
+    pub effective_priority: i32,
+    pub base_priority: i32,
+    pub state: i32,
+    pub waiting_semaphore: bool,
+    pub runnable: bool,
+}
+
+#[derive(Clone, Copy, Debug, Serialize)]
+pub struct HolderState {
+    pub state: ThreadState,
+    pub tracked_holders: usize,
+}
+
 #[cfg(target_os = "nuttx")]
 mod native {
     unsafe extern "C" {
@@ -24,6 +51,9 @@ mod native {
         pub fn owner_qualification_set_schedule(policy: i32, priority: i32) -> i32;
         pub fn owner_qualification_fifo() -> i32;
         pub fn owner_qualification_waiting(tid: i32, priority: i32) -> i32;
+        pub fn owner_qualification_mutex_configuration(values: *mut i32) -> i32;
+        pub fn owner_qualification_thread_state(tid: i32, values: *mut i32) -> i32;
+        pub fn owner_qualification_pi_holder_count(tid: i32) -> i32;
         pub fn owner_qualification_watchdog_start(milliseconds: u32) -> i32;
         pub fn owner_qualification_watchdog_stop() -> i32;
     }
@@ -127,6 +157,76 @@ pub fn waiting(tid: i32, priority: i32) -> bool {
     {
         let _ = (tid, priority);
         false
+    }
+}
+
+pub fn mutex_configuration() -> Option<MutexConfiguration> {
+    #[cfg(target_os = "nuttx")]
+    {
+        let mut values = [0; 6];
+        // SAFETY: six writable scalar fields; pthread types stay in C.
+        assert_eq!(
+            unsafe { native::owner_qualification_mutex_configuration(values.as_mut_ptr()) },
+            0
+        );
+        Some(MutexConfiguration {
+            priority_inheritance: values[0] != 0,
+            default_prio_inherit: values[1] != 0,
+            default_protocol: values[2],
+            protocol_none: values[3],
+            protocol_inherit: values[4],
+            holder_capacity: values[5],
+        })
+    }
+    #[cfg(not(target_os = "nuttx"))]
+    {
+        None
+    }
+}
+
+pub fn holder_state(tid: i32) -> Option<HolderState> {
+    #[cfg(target_os = "nuttx")]
+    {
+        let state = thread_state(tid).unwrap();
+        // SAFETY: target header readback returns a count or negative errno.
+        // The coordinator keeps this task parked across both scalar reads.
+        let count = unsafe { native::owner_qualification_pi_holder_count(tid) };
+        assert!(count >= 0, "native PI holder observation failed");
+        Some(HolderState {
+            state,
+            tracked_holders: count as usize,
+        })
+    }
+    #[cfg(not(target_os = "nuttx"))]
+    {
+        let _ = tid;
+        None
+    }
+}
+
+pub fn thread_state(tid: i32) -> Option<ThreadState> {
+    #[cfg(target_os = "nuttx")]
+    {
+        let mut values = [0; 6];
+        // SAFETY: six writable scalar fields; no Rust interpretation of TCB layout.
+        assert_eq!(
+            unsafe { native::owner_qualification_thread_state(tid, values.as_mut_ptr()) },
+            0
+        );
+        Some(ThreadState {
+            tid,
+            policy: values[0],
+            effective_priority: values[1],
+            base_priority: values[2],
+            state: values[3],
+            waiting_semaphore: values[4] != 0,
+            runnable: values[5] != 0,
+        })
+    }
+    #[cfg(not(target_os = "nuttx"))]
+    {
+        let _ = tid;
+        None
     }
 }
 

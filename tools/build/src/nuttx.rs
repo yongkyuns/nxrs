@@ -548,6 +548,8 @@ fn build_or_prepare(
                     "abi-profile",
                     "size-optimized",
                     "diagnostics",
+                    "diagnostics-trace-bytes",
+                    "diagnostics-heap-backtrace-depth",
                     "trace-only-backtrace",
                     "panic-immediate-abort",
                     "protected-runtime",
@@ -574,6 +576,7 @@ fn build_or_prepare(
         None
     };
     let mut configuration = Configuration::assemble(p, app, protected, options)?;
+    deployment["mutex_policy"] = configuration.mutex_policy.evidence();
     let jobs = env::var("NXRS_NUTTX_BUILD_JOBS")
         .unwrap_or("4".into())
         .parse::<usize>()
@@ -652,6 +655,7 @@ fn build_or_prepare(
         "profile":p.data,"profile_input_fingerprint":p.input_fingerprint(),
         "configuration":configuration.values,"application":app.manifest,
         "kconfig_overrides":requested,
+        "mutex_policy":configuration.mutex_policy.evidence(),
         "iram_layout":iram_layout.as_ref().map(|source| hash(source)).transpose()?,
         "entry":[app.command.clone(),app.priority.to_string(),app.stack.to_string()],
         "features":options.features,"no_default_features":options.no_default_features,
@@ -958,7 +962,7 @@ fn build_or_prepare(
             "CARGO_PROFILE_RELEASE_LTO",
             if size { "fat" } else { "false" },
         )
-        .env("CARGO_PROFILE_RELEASE_DEBUG", if size { "0" } else { "1" })
+        .env("CARGO_PROFILE_RELEASE_DEBUG", if size && p.diagnostics()?.is_none() { "0" } else { "1" })
         .env("CARGO_PROFILE_RELEASE_STRIP", "none")
         .env_remove("RUSTFLAGS")
         .env("CARGO_ENCODED_RUSTFLAGS", flags.join("\x1f"));
@@ -1013,6 +1017,7 @@ fn build_or_prepare(
     deployment["dependency_resolution"] = selection.json();
     deployment["model_features"] = json!(selection.model_features);
     deployment["driver_features"] = json!(selection.driver_features);
+    deployment["diagnostic_features"] = json!(selection.diagnostic_features);
     let editor_sdk: BTreeMap<_, _> = ["NXRS_PICO_SDK", "NXRS_TLS_ARCHIVE"]
         .into_iter()
         .filter_map(|name| env::var_os(name).map(|path| (name, PathBuf::from(path))))
@@ -1022,6 +1027,7 @@ fn build_or_prepare(
         "features": options.features.iter()
             .chain(&selection.driver_features)
             .chain(&selection.model_features)
+            .chain(&selection.diagnostic_features)
             .collect::<Vec<_>>(),
         "no_default_features": options.no_default_features,
         "sdk": editor_sdk,
@@ -1215,7 +1221,11 @@ fn build_or_prepare(
         format!("panic_immediate_abort={}", immediate as u8),
         format!("target={target}"),
         format!("board={board}"),
+        format!("mutex_policy={}", configuration.mutex_policy.name()),
     ];
+    if let Some(reason) = &options.qualification_mutex_reason {
+        provenance.push(format!("qualification_mutex_reason={reason}"));
+    }
     provenance.extend(options.enable.iter().map(|s| format!("kconfig_enable={s}")));
     provenance.extend(
         options

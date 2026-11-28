@@ -38,6 +38,14 @@ pub const CAPABILITIES: &[&str] = &[
     "touch",
 ];
 pub const HOST_OS: &[&str] = &["linux", "macos", "windows"];
+
+/// Bounded recording storage, selected only for an instrumented product build.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Diagnostics {
+    pub trace_bytes: u64,
+    /// Saved allocation frames change the native chunk header and need a target unwinder.
+    pub heap_backtrace_depth: Option<u64>,
+}
 const NUTTX_ENDPOINTS: &[&str] =
     &["camera", "audio", "watchdog", "wifi", "rtc", "flash", "display", "touch"];
 #[derive(Debug, Clone)]
@@ -766,15 +774,34 @@ impl Profile {
             "input-fingerprint": self.input_fingerprint(),
         })
     }
-    pub fn validate_target(&self, os: &str) -> Result<()> {
-        if let Some(value) = self.data.pointer("/build/diagnostics") {
-            let enabled = value.as_bool().ok_or("build.diagnostics must be a boolean")?;
-            if enabled
-                && (os != "nuttx"
-                    || self.data.pointer("/build/protected-runtime") == Some(&json!(true)))
-            {
-                return Err("build.diagnostics requires flat NuttX".into());
+    pub fn diagnostics(&self) -> Result<Option<Diagnostics>> {
+        let enabled = self.data.pointer("/build/diagnostics")
+            .map(|value| value.as_bool().ok_or("build.diagnostics must be a boolean"))
+            .transpose()?.unwrap_or(false);
+        let trace = self.data.pointer("/build/diagnostics-trace-bytes");
+        let depth = self.data.pointer("/build/diagnostics-heap-backtrace-depth");
+        if !enabled {
+            if trace.is_some() || depth.is_some() {
+                return Err("diagnostic recording options require build.diagnostics = true".into());
             }
+            return Ok(None);
+        }
+        let trace_bytes = trace.map_or(Some(32_768), Value::as_u64)
+            .filter(|bytes| (4096..=4_194_304).contains(bytes) && bytes % 4 == 0)
+            .ok_or("build.diagnostics-trace-bytes must be a multiple of 4 from 4096 to 4194304")?;
+        let heap_backtrace_depth = depth.map(|value| value.as_u64()
+            .filter(|depth| *depth <= 16)
+            .ok_or("build.diagnostics-heap-backtrace-depth must be an integer from 0 to 16"))
+            .transpose()?;
+        Ok(Some(Diagnostics { trace_bytes, heap_backtrace_depth }))
+    }
+
+    pub fn validate_target(&self, os: &str) -> Result<()> {
+        if self.diagnostics()?.is_some()
+            && (os != "nuttx"
+                || self.data.pointer("/build/protected-runtime") == Some(&json!(true)))
+        {
+            return Err("build.diagnostics requires flat NuttX".into());
         }
         if let Some(list) = self.data.get("target-os") {
             let list = list

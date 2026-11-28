@@ -8,13 +8,32 @@
 //! markers with explicit evidence metadata instead of inventing an end time.
 
 use crate::{Error, Result};
+use serde::Deserialize;
 use serde_json::{Map, Value};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 const MAX_TRACE_BYTES: usize = 128 * 1024 * 1024;
 const MAX_TRACE_EVENTS: usize = 1_000_000;
 const MAX_NESTING: usize = 1024;
+
+fn category_filter(filter: &str) -> Option<&str> {
+    filter
+        .strip_prefix("cat:")
+        .or_else(|| filter.strip_prefix("category:"))
+        .map(str::trim)
+}
+
+fn outcome_filter(filter: &str) -> Option<&str> {
+    filter.strip_prefix("outcome:").map(str::trim)
+}
+
+fn category_matches(category: &str, filter: &str) -> bool {
+    !filter.is_empty()
+        && category
+            .split(',')
+            .any(|part| part.trim().eq_ignore_ascii_case(filter))
+}
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct TimingRange {
@@ -31,6 +50,12 @@ impl TimingRange {
     /// half-open and have zero overlap with a zero-width selection.
     pub fn contains(self, time_ns: u64) -> bool {
         self.start_ns <= time_ns && time_ns <= self.end_ns
+    }
+
+    /// Occurrence counts use half-open windows so adjacent buckets never count
+    /// an instant or interval start twice. Display queries retain both edges.
+    pub fn contains_start(self, time_ns: u64) -> bool {
+        self.start_ns <= time_ns && time_ns < self.end_ns
     }
 }
 
@@ -67,8 +92,147 @@ impl TimingEvent {
         self.end_ns - self.start_ns
     }
 
+    /// Censored edges and loss/coverage diagnostics are evidence markers, not
+    /// semantic occurrences. They remain visible in ordinary display queries.
+    pub fn is_observed_occurrence(&self) -> bool {
+        !self
+            .category
+            .split(',')
+            .any(|category| matches!(category.trim(), "unknown" | "loss" | "capture"))
+            && self.argument("reason").is_none()
+            && self
+                .argument("duration_unknown")
+                .is_none_or(|value| value == &Value::Bool(false))
+            // Allocator endpoint records do not establish a complete call,
+            // including legacy records without an explicit unknown category.
+            && !(self.is_heap_call()
+                && (self.kind == TimingEventKind::Instant
+                    || self.argument("request_observed").and_then(Value::as_bool) == Some(false)
+                    || self.result_argument("incomplete_reason").is_some()))
+    }
+
+    /// Read producer evidence, including the beginning of a paired B/E span.
+    /// End arguments never silently replace its original source identity.
+    pub fn argument(&self, name: &str) -> Option<&Value> {
+        self.args
+            .get(name)
+            .or_else(|| self.args.get("begin_args").and_then(|args| args.get(name)))
+    }
+
+    /// Terminal evidence takes precedence for result fields. The ordinary
+    /// argument accessor continues to preserve the original caller and input.
+    pub fn result_argument(&self, name: &str) -> Option<&Value> {
+        self.args
+            .get("end_args")
+            .and_then(|args| args.get(name))
+            .or_else(|| self.argument(name))
+    }
+
+    pub fn is_irq(&self) -> bool {
+        self.category
+            .split(',')
+            .any(|part| matches!(part.trim(), "irq" | "interrupt"))
+    }
+
+    pub fn is_heap(&self) -> bool {
+        self.category.split(',').any(|part| part.trim() == "heap")
+    }
+
+    pub fn is_heap_call(&self) -> bool {
+        self.is_heap()
+            && (self
+                .category
+                .split(',')
+                .any(|part| matches!(part.trim(), "request" | "result"))
+                || self.argument("requested_bytes").is_some()
+                || self.argument("request_id").is_some())
+    }
+
+    pub fn is_callback(&self) -> bool {
+        self.is_irq() || self.category.split(',').any(|part| part.trim() == "timer")
+    }
+
+    /// A recorded/resolved code location, never an inferred device or owner.
+    /// In particular, an IRQ number alone cannot identify a sensor.
+    pub fn source_name(&self) -> Option<&str> {
+        let fields: &[&str] = if self.is_callback() {
+            &["handler_function", "handler_file", "source_label"]
+        } else {
+            &["caller_function", "caller_file", "source_label"]
+        };
+        fields.iter().find_map(|field| {
+            self.argument(field)
+                .and_then(Value::as_str)
+                .filter(|value| !value.trim().is_empty())
+        })
+    }
+
+    pub fn requested_bytes(&self) -> Option<u64> {
+        (self.is_heap()
+            && self.argument("request_observed").and_then(Value::as_bool) != Some(false))
+        .then(|| self.argument("requested_bytes").and_then(Value::as_u64))
+        .flatten()
+    }
+
+    /// Explicit allocator result, when reported. Paired B/E spans can record
+    /// the result at E while retaining caller and request size from B.
+    /// Neither a missing result nor an unrelated allocation implies success.
+    pub fn request_failed(&self) -> Option<bool> {
+        if !self.is_heap()
+            || self.argument("request_observed").and_then(Value::as_bool) == Some(false)
+            || self.result_argument("incomplete_reason").is_some()
+        {
+            return None;
+        }
+        // An explicit terminal outcome owns the result, including an unknown
+        // or unsupported outcome. Do not let a conflicting legacy flag replace
+        // it, or promote an orphan result into a correlated call.
+        for args in [
+            self.args.get("end_args"),
+            Some(&self.args),
+            self.args.get("begin_args"),
+        ]
+        .into_iter()
+        .flatten()
+        {
+            if let Some(outcome) = args.get("outcome") {
+                return match outcome.as_str() {
+                    Some("succeeded") => Some(false),
+                    Some("failed") => Some(true),
+                    _ => None,
+                };
+            }
+            if let Some(failed) = args.get("failed") {
+                return failed.as_bool();
+            }
+        }
+        None
+    }
+
+    pub fn failure_reason(&self) -> Option<&str> {
+        (self.request_failed() == Some(true))
+            .then(|| {
+                self.result_argument("failure_reason")
+                    .and_then(Value::as_str)
+            })
+            .flatten()
+            .filter(|reason| !reason.trim().is_empty())
+    }
+
     pub fn matches(&self, filter: &str) -> bool {
         let filter = filter.trim().to_lowercase();
+        if let Some(category) = category_filter(&filter) {
+            return category_matches(&self.category, category);
+        }
+        if let Some(outcome) = outcome_filter(&filter) {
+            return self.is_heap_call()
+                && match outcome {
+                    "failed" => self.request_failed() == Some(true),
+                    "succeeded" => self.request_failed() == Some(false),
+                    "unknown" => self.request_failed().is_none(),
+                    _ => false,
+                };
+        }
         filter.is_empty()
             || self.name.to_lowercase().contains(&filter)
             || self.category.to_lowercase().contains(&filter)
@@ -91,6 +255,7 @@ pub struct CounterSample {
     pub track: usize,
     pub time_ns: u64,
     pub name: String,
+    pub category: String,
     pub series: String,
     /// Finite numeric value for plotting. `exact_value` preserves the original
     /// decimal representation for inspection when f64 cannot represent it.
@@ -98,18 +263,148 @@ pub struct CounterSample {
     pub exact_value: String,
 }
 
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum CaptureStopReason {
+    Duration,
+    Interrupted,
+}
+
+impl CaptureStopReason {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Duration => "duration",
+            Self::Interrupted => "interrupted",
+        }
+    }
+}
+
+/// Explicit source-clock recording bounds, including periods with no events.
+/// Completeness here concerns retained capture coverage, independently of the
+/// legacy metadata flag that also tracks incomplete interval edges.
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct CaptureWindow {
+    pub start_ns: u64,
+    pub end_ns: u64,
+    pub requested_duration_ns: u64,
+    pub stop_reason: CaptureStopReason,
+    pub complete: bool,
+    /// Native acquisition categories, not device ownership or source identity.
+    pub categories: Vec<String>,
+}
+
+impl CaptureWindow {
+    pub fn duration_ns(&self) -> u64 {
+        self.end_ns - self.start_ns
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TimingRateUnavailable {
+    NoCaptureWindow,
+    IncompleteCapture,
+    RecordLoss,
+    UnknownLoss,
+    EmptyWindow,
+    OutsideCapture,
+}
+
+impl TimingRateUnavailable {
+    pub fn description(self) -> &'static str {
+        match self {
+            Self::NoCaptureWindow => {
+                "No explicit capture window; event extent is not an acquisition duration"
+            }
+            Self::IncompleteCapture => "Capture-window coverage is incomplete",
+            Self::RecordLoss => "Record loss was reported; the occurrence population is incomplete",
+            Self::UnknownLoss => "Record-loss status is unknown",
+            Self::EmptyWindow => "The selected window has no positive duration",
+            Self::OutsideCapture => "The selected window extends outside the recorded capture",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TimingRateDenominator {
+    Observed { duration_ns: u64 },
+    Unavailable(TimingRateUnavailable),
+}
+
+impl TimingRateDenominator {
+    pub fn duration_ns(self) -> Option<u64> {
+        match self {
+            Self::Observed { duration_ns } => Some(duration_ns),
+            Self::Unavailable(_) => None,
+        }
+    }
+
+    pub fn per_second(self, count: usize) -> Option<f64> {
+        self.duration_ns()
+            .filter(|duration| *duration > 0)
+            .map(|duration| count as f64 * 1_000_000_000.0 / duration as f64)
+    }
+}
+
+/// Counts belong to interval starts and semantic instants in a half-open
+/// window. Full durations describe the observed calls whose starts belong to
+/// that window; overlap and union statistics are calculated separately.
+#[derive(Clone, Debug, Default)]
+pub struct TimingOccurrences {
+    pub interval_starts: usize,
+    pub instants: usize,
+    pub excluded_markers: usize,
+    pub complete_intervals: usize,
+    pub full_duration_sum_ns: u128,
+    pub longest_duration_ns: Option<u64>,
+}
+
+impl TimingOccurrences {
+    fn observe(&mut self, event: &TimingEvent, range: TimingRange) {
+        if !range.contains_start(event.start_ns) {
+            return;
+        }
+        if !event.is_observed_occurrence() {
+            self.excluded_markers += 1;
+        } else if event.kind == TimingEventKind::Instant {
+            self.instants += 1;
+        } else {
+            self.interval_starts += 1;
+            self.complete_intervals += 1;
+            let duration = event.duration_ns();
+            self.full_duration_sum_ns += u128::from(duration);
+            self.longest_duration_ns = Some(self.longest_duration_ns.unwrap_or(0).max(duration));
+        }
+    }
+
+    pub fn mean_duration_ns(&self) -> Option<f64> {
+        (self.complete_intervals > 0)
+            .then(|| self.full_duration_sum_ns as f64 / self.complete_intervals as f64)
+    }
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct TimingMetadata {
+    /// Producer-assigned identity for one recording and target reset epoch.
+    /// This token never establishes memory alignment without checked markers.
+    pub recording_id: Option<String>,
     pub clock: Option<String>,
     pub source: Option<String>,
     /// Explicit source-clock origin of a normalized trace, if supplied.
     pub origin_ns: Option<u64>,
+    pub capture_window: Option<CaptureWindow>,
     pub elf_sha256: Option<String>,
     pub lost_records: Option<u64>,
     /// A recorder may report that loss occurred without knowing its count.
     pub loss_detected: Option<bool>,
     pub complete: Option<bool>,
     pub incomplete_intervals: u64,
+    /// Native recorder counts, kept distinct from derived display intervals.
+    pub event_counts: BTreeMap<String, u64>,
+    pub source_attribution: BTreeMap<String, u64>,
+    pub source_elf_sha256: Option<String>,
+    pub observed_note_count: Option<u64>,
+    pub ignored_line_count: Option<u64>,
 }
 
 #[derive(Clone, Debug)]
@@ -141,11 +436,113 @@ pub struct TimingStats {
     pub instant_count: usize,
     pub clipped_interval_sum_ns: u128,
     pub tracks: Vec<TimingTrackStats>,
+    pub occurrences: TimingOccurrences,
+    pub rate_denominator: TimingRateDenominator,
+}
+
+/// Gaps between consecutive matching semantic instants from one source group.
+/// Window edges are not observations and contribute no inferred gaps.
+#[derive(Clone, Debug, Default)]
+pub struct TimingInstantSpacing {
+    pub gap_count: usize,
+    pub min_ns: u64,
+    /// Exact endpoints of the earliest longest gap, in trace coordinates.
+    pub max_gap: TimingRange,
+    pub sum_ns: u128,
+}
+
+impl TimingInstantSpacing {
+    fn observe(&mut self, gap: TimingRange) {
+        let duration = gap.span_ns();
+        if self.gap_count == 0 || duration < self.min_ns {
+            self.min_ns = duration;
+        }
+        if self.gap_count == 0 || duration > self.max_gap.span_ns() {
+            self.max_gap = gap;
+        }
+        self.gap_count += 1;
+        self.sum_ns += u128::from(duration);
+    }
+
+    pub fn mean_ns(&self) -> Option<f64> {
+        (self.gap_count > 0).then(|| self.sum_ns as f64 / self.gap_count as f64)
+    }
+}
+
+/// Matching observations grouped by track, operation and recorded code source.
+/// Overlap durations are clipped to the query window and summed inclusively;
+/// occurrence durations retain each complete interval's full elapsed duration.
+/// Nested or overlapping tracks are not additive CPU utilization.
+#[derive(Clone, Debug, Default)]
+pub struct TimingSourceStats {
+    pub track: usize,
+    pub name: String,
+    pub category: String,
+    pub source: Option<String>,
+    pub interval_count: usize,
+    pub instant_count: usize,
+    pub inclusive_ns: u128,
+    pub longest_overlap_ns: u64,
+    pub representative_event: usize,
+    pub request_count: usize,
+    pub requested_bytes: u128,
+    pub failed_requests: usize,
+    pub unknown_outcomes: usize,
+    /// Result endpoints with no admitted matching request. They contribute no
+    /// requested bytes, request count, or correlated success/failure.
+    pub unpaired_results: usize,
+    pub occurrences: TimingOccurrences,
+    /// At least two admitted instants in a complete, known no-loss window.
+    /// Intervals, counters, censored endpoints and quiet window edges are excluded.
+    pub instant_spacing: Option<TimingInstantSpacing>,
 }
 
 impl TimingTrace {
+    /// The producer's full acquisition window in trace coordinates. A capture
+    /// window requires origin == its source start, so silent captures begin at 0.
+    pub fn capture_range(&self) -> Option<TimingRange> {
+        self.metadata
+            .capture_window
+            .as_ref()
+            .map(|window| TimingRange {
+                start_ns: 0,
+                end_ns: window.duration_ns(),
+            })
+    }
+
+    pub fn rate_denominator(&self, range: TimingRange) -> TimingRateDenominator {
+        use TimingRateUnavailable as Unknown;
+        let unavailable = |reason| TimingRateDenominator::Unavailable(reason);
+        let Some(window) = &self.metadata.capture_window else {
+            return unavailable(Unknown::NoCaptureWindow);
+        };
+        if self.metadata.loss_detected == Some(true)
+            || self.metadata.lost_records.is_some_and(|count| count > 0)
+        {
+            return unavailable(Unknown::RecordLoss);
+        }
+        if !window.complete {
+            return unavailable(Unknown::IncompleteCapture);
+        }
+        if self.metadata.loss_detected != Some(false) && self.metadata.lost_records != Some(0) {
+            return unavailable(Unknown::UnknownLoss);
+        }
+        if range.end_ns <= range.start_ns {
+            return unavailable(Unknown::EmptyWindow);
+        }
+        if range.end_ns > window.duration_ns() {
+            return unavailable(Unknown::OutsideCapture);
+        }
+        TimingRateDenominator::Observed {
+            duration_ns: range.end_ns - range.start_ns,
+        }
+    }
+
     pub fn event_matches(&self, event: &TimingEvent, filter: &str) -> bool {
         let filter = filter.trim().to_lowercase();
+        if category_filter(&filter).is_some() || outcome_filter(&filter).is_some() {
+            return event.matches(&filter);
+        }
         let track = &self.tracks[event.track];
         event.matches(&filter)
             || track.name.to_lowercase().contains(&filter)
@@ -159,32 +556,147 @@ impl TimingTrace {
             .collect()
     }
 
+    /// Minimum duration applies only to intervals; instantaneous allocation,
+    /// loss and checkpoint evidence stays visible at any duration threshold.
+    pub fn source_stats(
+        &self,
+        range: TimingRange,
+        filter: &str,
+        minimum_ns: u64,
+    ) -> Vec<TimingSourceStats> {
+        let mut groups = BTreeMap::new();
+        let spacing_observed = matches!(
+            self.rate_denominator(range),
+            TimingRateDenominator::Observed { .. }
+        );
+        for event in self.query(range, filter) {
+            if event.kind == TimingEventKind::Interval && event.duration_ns() < minimum_ns {
+                continue;
+            }
+            let key = (
+                event.track,
+                event.name.as_str(),
+                event.category.as_str(),
+                event.source_name(),
+            );
+            let (group, previous_instant) = groups.entry(key).or_insert_with(|| {
+                (
+                    TimingSourceStats {
+                        track: event.track,
+                        name: event.name.clone(),
+                        category: event.category.clone(),
+                        source: event.source_name().map(str::to_owned),
+                        representative_event: event.id,
+                        ..Default::default()
+                    },
+                    None,
+                )
+            });
+            let prior_instants = group.occurrences.instants;
+            group.occurrences.observe(event, range);
+            // Reuse the occurrence admission rules, including the half-open
+            // window and exclusion of incomplete allocator endpoints.
+            if spacing_observed && group.occurrences.instants > prior_instants {
+                if let Some(start_ns) = previous_instant.replace(event.start_ns) {
+                    group
+                        .instant_spacing
+                        .get_or_insert_with(TimingInstantSpacing::default)
+                        .observe(TimingRange {
+                            start_ns,
+                            end_ns: event.start_ns,
+                        });
+                }
+            }
+            if event.kind == TimingEventKind::Instant {
+                group.instant_count += 1;
+            } else {
+                let overlap = event
+                    .end_ns
+                    .min(range.end_ns)
+                    .saturating_sub(event.start_ns.max(range.start_ns));
+                group.interval_count += 1;
+                group.inclusive_ns += u128::from(overlap);
+                if overlap > group.longest_overlap_ns {
+                    group.longest_overlap_ns = overlap;
+                    group.representative_event = event.id;
+                }
+            }
+            if let Some(bytes) = event.requested_bytes() {
+                group.request_count += 1;
+                group.requested_bytes += u128::from(bytes);
+                match event.request_failed() {
+                    Some(true) => group.failed_requests += 1,
+                    Some(false) => {}
+                    None => group.unknown_outcomes += 1,
+                }
+            }
+            if event.is_heap_call()
+                && event.argument("request_observed").and_then(Value::as_bool) == Some(false)
+            {
+                group.unpaired_results += 1;
+            }
+        }
+        let mut groups: Vec<_> = groups.into_values().map(|(group, _)| group).collect();
+        groups.sort_by(|left, right| {
+            right
+                .inclusive_ns
+                .cmp(&left.inclusive_ns)
+                .then_with(|| right.requested_bytes.cmp(&left.requested_bytes))
+                .then_with(|| {
+                    (left.track, &left.name, &left.source).cmp(&(
+                        right.track,
+                        &right.name,
+                        &right.source,
+                    ))
+                })
+        });
+        groups
+    }
+
     pub fn counter_query(&self, range: TimingRange, filter: &str) -> Vec<&CounterSample> {
-        let filter = filter.trim().to_lowercase();
         self.counters
             .iter()
-            .filter(|sample| {
-                let track = &self.tracks[sample.track];
-                range.contains(sample.time_ns)
-                    && (filter.is_empty()
-                        || sample.name.to_lowercase().contains(&filter)
-                        || sample.series.to_lowercase().contains(&filter)
-                        || track.name.to_lowercase().contains(&filter)
-                        || track.process_name.to_lowercase().contains(&filter))
-            })
+            .filter(|sample| range.contains(sample.time_ns) && self.counter_matches(sample, filter))
             .collect()
     }
 
+    pub fn counter_matches(&self, sample: &CounterSample, filter: &str) -> bool {
+        let filter = filter.trim().to_lowercase();
+        if outcome_filter(&filter).is_some() {
+            return false;
+        }
+        if let Some(category) = category_filter(&filter) {
+            return category_matches(&sample.category, category);
+        }
+        let track = &self.tracks[sample.track];
+        filter.is_empty()
+            || sample.name.to_lowercase().contains(&filter)
+            || sample.series.to_lowercase().contains(&filter)
+            || sample.category.to_lowercase().contains(&filter)
+            || track.name.to_lowercase().contains(&filter)
+            || track.process_name.to_lowercase().contains(&filter)
+    }
+
     pub fn stats(&self, range: TimingRange, filter: &str) -> TimingStats {
+        self.stats_filtered(range, filter, 0)
+    }
+
+    pub fn stats_filtered(&self, range: TimingRange, filter: &str, minimum_ns: u64) -> TimingStats {
         let mut stats = TimingStats {
             range,
             interval_count: 0,
             instant_count: 0,
             clipped_interval_sum_ns: 0,
             tracks: Vec::new(),
+            occurrences: TimingOccurrences::default(),
+            rate_denominator: self.rate_denominator(range),
         };
         let mut by_track: BTreeMap<usize, (TimingTrackStats, Vec<(u64, u64)>)> = BTreeMap::new();
         for event in self.query(range, filter) {
+            if event.kind == TimingEventKind::Interval && event.duration_ns() < minimum_ns {
+                continue;
+            }
+            stats.occurrences.observe(event, range);
             let (track, intervals) = by_track.entry(event.track).or_insert_with(|| {
                 (
                     TimingTrackStats {
@@ -367,6 +879,7 @@ pub fn parse_timing(text: &str) -> Result<TimingTrace> {
                     track,
                     time_ns: time,
                     name: name.clone(),
+                    category: category.clone(),
                     series: series.clone(),
                     value: numeric,
                     exact_value: number.to_string(),
@@ -451,18 +964,36 @@ pub fn parse_timing(text: &str) -> Result<TimingTrace> {
     counters.sort_by(|a, b| {
         (a.time_ns, a.track, &a.name, &a.series).cmp(&(b.time_ns, b.track, &b.name, &b.series))
     });
-    let start_ns = events
+    let observed_start = events
         .iter()
         .map(|event| event.start_ns)
         .chain(counters.iter().map(|sample| sample.time_ns))
-        .min()
-        .ok_or_else(|| timing_error("trace has no interval, instant, or counter observations"))?;
-    let end_ns = events
+        .min();
+    let observed_end = events
         .iter()
         .map(|event| event.end_ns)
         .chain(counters.iter().map(|sample| sample.time_ns))
-        .max()
-        .unwrap();
+        .max();
+    let (start_ns, end_ns) = if let Some(window) = &metadata.capture_window {
+        let duration = window.duration_ns();
+        if events
+            .iter()
+            .any(|event| event.start_ns >= duration || event.end_ns > duration)
+            || counters.iter().any(|sample| sample.time_ns >= duration)
+        {
+            return Err(timing_error(
+                "observations must lie inside the half-open capture window",
+            ));
+        }
+        (0, duration)
+    } else {
+        (
+            observed_start.ok_or_else(|| {
+                timing_error("trace has no interval, instant, or counter observations")
+            })?,
+            observed_end.expect("an observed start has an observed end"),
+        )
+    };
     if metadata
         .origin_ns
         .is_some_and(|origin| origin.checked_add(end_ns).is_none())
@@ -495,6 +1026,10 @@ fn parse_metadata(document: &Value) -> Result<(TimingMetadata, Vec<String>)> {
             return Err(timing_error("unsupported otherData.nxrs schema_version"));
         }
         metadata.clock = optional_str(object, "clock")?.map(str::to_owned);
+        metadata.recording_id = optional_str(object, "recording_id")?.map(str::to_owned);
+        if let Some(recording_id) = &metadata.recording_id {
+            crate::correlation::validate_recording_id(recording_id)?;
+        }
         metadata.source = optional_str(object, "source")?.map(str::to_owned);
         metadata.elf_sha256 = optional_str(object, "elf_sha256")?.map(str::to_owned);
         if metadata.elf_sha256.as_ref().is_some_and(|hash| {
@@ -508,7 +1043,47 @@ fn parse_metadata(document: &Value) -> Result<(TimingMetadata, Vec<String>)> {
         metadata.lost_records = optional_u64(object, "lost_records")?;
         metadata.loss_detected = optional_bool(object, "loss_detected")?;
         metadata.complete = optional_bool(object, "complete")?;
+        if let Some(value) = object.get("capture_window") {
+            let window: CaptureWindow = serde_json::from_value(value.clone())
+                .map_err(|error| timing_error(format!("invalid capture_window: {error}")))?;
+            validate_capture_window(&window, &metadata)?;
+            metadata.capture_window = Some(window);
+        }
         metadata.incomplete_intervals = optional_u64(object, "incomplete_intervals")?.unwrap_or(0);
+        metadata.observed_note_count = optional_u64(object, "observed_note_count")?;
+        metadata.ignored_line_count = optional_u64(object, "ignored_line_count")?;
+        for (field, target) in [
+            ("event_counts", &mut metadata.event_counts),
+            ("source_attribution", &mut metadata.source_attribution),
+        ] {
+            if let Some(counts) = object.get(field) {
+                let counts = counts
+                    .as_object()
+                    .ok_or_else(|| timing_error(format!("metadata {field} must be an object")))?;
+                for (name, value) in counts {
+                    if field == "source_attribution" && name == "elf_sha256" {
+                        let hash = value.as_str().filter(|hash| hash.len() == 64 && hash.bytes().all(|byte| byte.is_ascii_hexdigit())).ok_or_else(|| timing_error("source_attribution elf_sha256 must contain 64 hexadecimal digits"))?;
+                        if metadata
+                            .elf_sha256
+                            .as_ref()
+                            .is_some_and(|elf| !elf.eq_ignore_ascii_case(hash))
+                        {
+                            return Err(timing_error(
+                                "source attribution ELF does not match trace ELF",
+                            ));
+                        }
+                        metadata.source_elf_sha256 = Some(hash.to_owned());
+                        continue;
+                    }
+                    let count = value.as_u64().ok_or_else(|| {
+                        timing_error(format!(
+                            "metadata {field}.{name} must be a nonnegative integer"
+                        ))
+                    })?;
+                    target.insert(name.clone(), count);
+                }
+            }
+        }
         if metadata.loss_detected == Some(false)
             && metadata.lost_records.is_some_and(|count| count > 0)
             || metadata.loss_detected == Some(true) && metadata.lost_records == Some(0)
@@ -548,13 +1123,73 @@ fn parse_metadata(document: &Value) -> Result<(TimingMetadata, Vec<String>)> {
             .push("Record-loss status is unknown; absent intervals do not prove idle time.".into());
     }
     if metadata.complete == Some(false) || metadata.incomplete_intervals > 0 {
-        warnings.push(
-            "Capture has incomplete coverage. Unclosed intervals have no inferred duration.".into(),
-        );
+        warnings.push(if metadata.capture_window.is_some() {
+            "Some interval edges are incomplete. Censored markers have no call duration and are excluded from occurrence counts; capture-window retention is reported separately.".into()
+        } else {
+            "Capture has incomplete coverage. Unclosed intervals have no inferred duration.".into()
+        });
     }
-    warnings.push("Timing coordinates are not synchronized with memory snapshot labels. An ELF match alone does not establish a clock mapping.".into());
+    if metadata.recording_id.is_none() {
+        warnings.push("Timing coordinates are not synchronized with memory snapshot labels. An ELF match alone does not establish a clock mapping.".into());
+    } else {
+        warnings.push("Recording identity permits checkpoint verification, but does not itself synchronize memory. A link requires matching ELF, recording, clock, unique marker, and exact source timestamp; memory between checkpoints remains unknown.".into());
+    }
     warnings.push("Per-track coverage is an interval union. Scheduled residency can overlap IRQ and application tracks; these layers are not additive CPU time.".into());
     Ok((metadata, warnings))
+}
+
+fn validate_capture_window(window: &CaptureWindow, metadata: &TimingMetadata) -> Result<()> {
+    if window.start_ns >= window.end_ns {
+        return Err(timing_error("capture_window must have positive duration"));
+    }
+    if window.requested_duration_ns == 0 {
+        return Err(timing_error(
+            "capture_window requested_duration_ns must be positive",
+        ));
+    }
+    if window.stop_reason == CaptureStopReason::Duration
+        && window.duration_ns() < window.requested_duration_ns
+    {
+        return Err(timing_error(
+            "duration stop precedes the requested capture duration",
+        ));
+    }
+    if metadata.origin_ns != Some(window.start_ns) {
+        return Err(timing_error(
+            "capture_window start_ns must equal the declared origin_ns",
+        ));
+    }
+    if metadata
+        .clock
+        .as_ref()
+        .is_none_or(|clock| clock.trim().is_empty())
+        || metadata.recording_id.is_none()
+    {
+        return Err(timing_error(
+            "capture_window requires a clock and recording_id",
+        ));
+    }
+    if window.complete
+        && (metadata.loss_detected == Some(true)
+            || metadata.lost_records.is_some_and(|count| count > 0))
+    {
+        return Err(timing_error(
+            "complete capture_window contradicts reported record loss",
+        ));
+    }
+    let mut seen = BTreeSet::new();
+    for category in &window.categories {
+        if !matches!(
+            category.as_str(),
+            "switch" | "irq" | "app" | "heap" | "syscall"
+        ) || !seen.insert(category)
+        {
+            return Err(timing_error(
+                "capture_window categories must be unique native instrumentation names",
+            ));
+        }
+    }
+    Ok(())
 }
 
 /// Parse a decimal JSON microsecond number into exact whole nanoseconds.

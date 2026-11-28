@@ -8,6 +8,18 @@ pub struct Trace {}
 pub type Observed<T> = T;
 
 impl Trace {
+    pub fn for_source(_: &'static str, _: &'static str) -> Self {
+        Self {}
+    }
+
+    #[inline]
+    pub fn scope<T>(&self, _: &str, call: impl FnOnce() -> T) -> T {
+        call()
+    }
+
+    #[inline]
+    pub fn instant(&self, _: &str) {}
+
     pub fn observe<T>(self, inner: T) -> T {
         inner
     }
@@ -31,6 +43,7 @@ mod tests {
     fn disabled_tracing_is_zero_sized_and_leaves_the_resource_unwrapped() {
         assert_eq!(std::mem::size_of::<Trace>(), 0);
         let trace = Trace::default();
+        trace.instant("fix_received");
         trace.wake(None);
         trace.drain(true);
         let resource = std::boxed::Box::new(7);
