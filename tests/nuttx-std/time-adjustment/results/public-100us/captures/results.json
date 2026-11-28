@@ -1,0 +1,80 @@
+[
+  {
+    "mode": "public",
+    "success": true,
+    "command": [
+      "qemu-system-arm",
+      "-M",
+      "mps2-an521",
+      "-display",
+      "none",
+      "-serial",
+      "stdio",
+      "-monitor",
+      "none",
+      "-nic",
+      "none",
+      "-no-reboot",
+      "-kernel",
+      "/dev/shm/nxrs-time-sync-followup/time-adjustment-public/firmware/nuttx/nuttx",
+      "-gdb",
+      "tcp:127.0.0.1:56927",
+      "-icount",
+      "shift=3,sleep=off"
+    ],
+    "image_sha256": "ed8b64d4dc8049835edcf1c3382e717b2a13de8ea602d8e2e057c3fb5f1777f8",
+    "uname": "uname -a\r\nNuttX 13.1.1 4268617f28ad-nxrs Nov 28 2026 22:29:37 arm mps2-an521\r\nnsh> \u001b[K"
+  },
+  {
+    "mode": "public",
+    "success": true,
+    "command": [
+      "qemu-system-arm",
+      "-M",
+      "mps2-an521",
+      "-display",
+      "none",
+      "-serial",
+      "stdio",
+      "-monitor",
+      "none",
+      "-nic",
+      "none",
+      "-no-reboot",
+      "-kernel",
+      "/dev/shm/nxrs-time-sync-followup/time-adjustment-public/firmware/nuttx/nuttx",
+      "-gdb",
+      "tcp:127.0.0.1:36925",
+      "-icount",
+      "shift=3,sleep=off"
+    ],
+    "image_sha256": "ed8b64d4dc8049835edcf1c3382e717b2a13de8ea602d8e2e057c3fb5f1777f8",
+    "uname": "uname -a\r\nNuttX 13.1.1 4268617f28ad-nxrs Nov 28 2026 22:29:37 arm mps2-an521\r\nnsh> \u001b[K"
+  },
+  {
+    "mode": "public",
+    "success": true,
+    "command": [
+      "qemu-system-arm",
+      "-M",
+      "mps2-an521",
+      "-display",
+      "none",
+      "-serial",
+      "stdio",
+      "-monitor",
+      "none",
+      "-nic",
+      "none",
+      "-no-reboot",
+      "-kernel",
+      "/dev/shm/nxrs-time-sync-followup/time-adjustment-public/firmware/nuttx/nuttx",
+      "-gdb",
+      "tcp:127.0.0.1:50873",
+      "-icount",
+      "shift=3,sleep=off"
+    ],
+    "image_sha256": "ed8b64d4dc8049835edcf1c3382e717b2a13de8ea602d8e2e057c3fb5f1777f8",
+    "uname": "uname -a\r\nNuttX 13.1.1 4268617f28ad-nxrs Nov 28 2026 22:29:37 arm mps2-an521\r\nnsh> \u001b[K"
+  }
+]

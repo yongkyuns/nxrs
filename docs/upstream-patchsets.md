@@ -84,6 +84,7 @@ and retired investigation tools are not silently renumbered.
 | ESP32-S3 BLE entropy source | 0130 | Admit an active BLE controller through the existing guarded RF entropy path; CoreS3 board wiring is maintained outside the patch |
 | FT5x06 poll ownership | 0132 | Start and stop polling with open consumers and bound its interval; CoreS3 registration is maintained outside the patch |
 | GPIO edge timestamps | 0145 | Retain the generic GPIO timestamp interface; CoreS3 pin registration is maintained outside the patch |
+| Software clock adjustment | 0150 | Project realtime reads and commits from the same elapsed counter; preserve fractional slew progress, query/replacement semantics, normalized residuals and public error propagation |
 
 Patch 0090 bounds each RP2350 TRNG block's polling and health-rejection retries,
 including startup. Failure disables the source, clears partial output and keeps
@@ -113,6 +114,29 @@ cannot establish a full-window event rate. See
 [measured capture windows](nuttx-memory-qualification.md#capture-a-measured-window)
 for ownership, clock, cancellation and qualification limits. The tracked empty
 fork `build.log` is not part of a patch.
+
+### Software clock adjustment
+
+Patch `0150` repairs the `CLOCK_TIMEKEEPING` backend using a cumulative 500 ppm
+correction budget from raw elapsed timer time. Reads and committed updates share
+one projection; replacement and cancellation first materialize prior progress.
+Queries preserve the pending request and return both normalized `timeval` fields.
+Checked conversions reject invalid or overflowing requests, and the public clock
+get/set paths propagate software failures. A failed software set returns before
+an RTC update. `CLOCK_ADJTIME` admits this backend but remains disabled by default;
+profiles are unchanged.
+
+The [native regressions](../tests/host/test_clock_timekeeping.py) compile the
+actual pinned clock sources before and after the patch with deterministic timer
+and RTC dependencies. The [public adjustment fixture](../tests/nuttx-std/time-adjustment/README.md)
+checks Rust time reads and concurrent sleeps on a controlled MPS2-AN521 QEMU
+image. Its emulated reference does not qualify physical oscillator accuracy,
+RTC retention, suspend accounting, or other timer/adjustment backends.
+
+This is a local correction for the pinned NuttX revision, not yet submitted
+upstream. Remove it after selecting an upstream implementation with equivalent
+behavior and passing these regressions without the patch. The source ledger
+records its exact preimages, postimages and patch hash.
 
 ### CoreS3 board ownership
 

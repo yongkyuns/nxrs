@@ -2,6 +2,15 @@
 
 This fixture implements phase 1 of [NXRS #490](https://github.com/yongkyuns/nxrs/issues/490): establish what the selected NuttX clocks actually do before adding a reusable synchronization service. It measures explicit wall-clock steps, positive and negative adjustments, replacement, cancellation, pending-adjustment queries, and Rust time reads against an independent emulated timer.
 
+**Historical backend snapshot:** the retained captures and build commands below
+describe the implementation before patch 0150. Reproduce those native builds at
+NXRS `06964ca826bbeb434e6ed63e9da20f9c0cced3cb` from
+[PR #494](https://github.com/yongkyuns/nxrs/pull/494). The retained evidence and
+oracle remain unchanged. Use the separate
+[public time-adjustment fixture](../time-adjustment/README.md) to build and test
+the repaired backend; the historical diagnostic declaration is not a supported
+API on the repaired, default-disabled configuration.
+
 The package is an independent, dependency-free Cargo workspace marked `qualification-only = true`. Its NuttX command is `clock_probe`, with priority 100 and a 32 KiB entry stack. [Rust](src/main.rs) owns the measurement loops; [native.c](native.c) supplies mechanical calls to the configured NuttX APIs. Host execution refuses to run and exits with status 2, so the fixture cannot set the host clock.
 
 This phase does not add a production clock HAL, synchronization service, NTP client, GNSS source, or RTC retention implementation. The design and subsequent work remain tracked in #490.

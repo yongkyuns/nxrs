@@ -1,0 +1,3 @@
+results/** -text whitespace=cr-at-eol
+# Archived patch context lines retain their literal leading space.
+results/icount-control/source/*.patch -whitespace

@@ -1,0 +1,382 @@
+{
+  "schema": 1,
+  "purpose": "Unchanged phase1 ELF control: instruction-driven virtual time versus ordinary QEMU timing",
+  "controls": {
+    "software-corrected": {
+      "image_sha256": "f29c1bc0a844743de5cd50d85049228d88c8ebb2764fd1827de2188dc912fe4d",
+      "qemu_command": [
+        "qemu-system-arm",
+        "-M",
+        "mps2-an521",
+        "-display",
+        "none",
+        "-serial",
+        "stdio",
+        "-monitor",
+        "none",
+        "-nic",
+        "none",
+        "-no-reboot",
+        "-kernel",
+        "/dev/shm/nxrs-time-sync-phase1/software-corrected-retry/firmware/nuttx/nuttx",
+        "-gdb",
+        "tcp:127.0.0.1:36213",
+        "-icount",
+        "shift=5,sleep=off"
+      ],
+      "analysis_sha256": "ebd84cc48d46df132fc7e5fcac803099dae67470723ac859fe35cce2e120b5a4",
+      "phase1_analysis_sha256": "8d417d97783df0134890245db82f555d042a05846cf952ffedaecc2d2dcb719a",
+      "ordinary_phase_monotonic_rate_range": [
+        0.9460015403959949,
+        0.9999962000372397
+      ],
+      "icount_phase_monotonic_rate_range": [
+        0.9999988500128224,
+        1.0000004791621047
+      ],
+      "max_absolute_monotonic_rate_error_ppm": 1.1499871775955128,
+      "host_elapsed_seconds": 5.224895495000965,
+      "phases": {
+        "baseline": {
+          "reads": 7033,
+          "monotonic_rate": 0.9999988500128224,
+          "realtime_rate": 0.9999888501243211,
+          "monotonic_regressions": 0,
+          "realtime_regressions": 0,
+          "min_realtime_delta_ns": 0,
+          "observed_realtime_resolution_ns": 1000000,
+          "max_read_span_ns": 140800
+        },
+        "positive": {
+          "reads": 70199,
+          "monotonic_rate": 1.0000000499999826,
+          "realtime_rate": 1.0003996498601226,
+          "monotonic_regressions": 0,
+          "realtime_regressions": 0,
+          "min_realtime_delta_ns": 0,
+          "observed_realtime_resolution_ns": 1000000,
+          "max_read_span_ns": 142050
+        },
+        "negative": {
+          "reads": 70212,
+          "monotonic_rate": 0.9999999350004202,
+          "realtime_rate": 0.9995935376277792,
+          "monotonic_regressions": 0,
+          "realtime_regressions": 0,
+          "min_realtime_delta_ns": 0,
+          "observed_realtime_resolution_ns": 500000,
+          "max_read_span_ns": 143650
+        },
+        "before_replace": {
+          "reads": 16849,
+          "monotonic_rate": 1.0000004791621047,
+          "realtime_rate": 1.0004071419570026,
+          "monotonic_regressions": 0,
+          "realtime_regressions": 0,
+          "min_realtime_delta_ns": 0,
+          "observed_realtime_resolution_ns": 1000000,
+          "max_read_span_ns": 142000
+        },
+        "replaced": {
+          "reads": 70208,
+          "monotonic_rate": 0.9999999850001382,
+          "realtime_rate": 0.9995907887708815,
+          "monotonic_regressions": 0,
+          "realtime_regressions": 0,
+          "min_realtime_delta_ns": 0,
+          "observed_realtime_resolution_ns": 500000,
+          "max_read_span_ns": 143000
+        },
+        "before_cancel": {
+          "reads": 16854,
+          "monotonic_rate": 1.0000001666630833,
+          "realtime_rate": 1.000395158170766,
+          "monotonic_regressions": 0,
+          "realtime_regressions": 0,
+          "min_realtime_delta_ns": 0,
+          "observed_realtime_resolution_ns": 1000000,
+          "max_read_span_ns": 141450
+        },
+        "cancelled": {
+          "reads": 28088,
+          "monotonic_rate": 0.9999999875002689,
+          "realtime_rate": 0.9999784879627777,
+          "monotonic_regressions": 0,
+          "realtime_regressions": 0,
+          "min_realtime_delta_ns": 0,
+          "observed_realtime_resolution_ns": 1000000,
+          "max_read_span_ns": 140800
+        }
+      },
+      "failed_gates": [
+        "public_adjustment_api",
+        "pending_query",
+        "complete_old_delta"
+      ]
+    },
+    "software-fine100us": {
+      "image_sha256": "0b7e58fbae68ed4d487da9fb0d355fe208ac9d470c19e425c588f8d47a54e096",
+      "qemu_command": [
+        "qemu-system-arm",
+        "-M",
+        "mps2-an521",
+        "-display",
+        "none",
+        "-serial",
+        "stdio",
+        "-monitor",
+        "none",
+        "-nic",
+        "none",
+        "-no-reboot",
+        "-kernel",
+        "/dev/shm/nxrs-time-sync-phase1/software-fine100us-retry/firmware/nuttx/nuttx",
+        "-gdb",
+        "tcp:127.0.0.1:34581",
+        "-icount",
+        "shift=5,sleep=off"
+      ],
+      "analysis_sha256": "fed2be77289c22f35a733e64b9d20466c1602b8b4698b733e5ee9cd9c35525b3",
+      "phase1_analysis_sha256": "1bec5e0834046d7031661a33578bd1eb6a343ffa0a13b473e35d96ffba85dc61",
+      "ordinary_phase_monotonic_rate_range": [
+        0.9014072338038512,
+        0.9788043618746607
+      ],
+      "icount_phase_monotonic_rate_range": [
+        0.9999712718262508,
+        1.0000067999211208
+      ],
+      "max_absolute_monotonic_rate_error_ppm": 28.728173749215102,
+      "host_elapsed_seconds": 11.3397843620005,
+      "phases": {
+        "baseline": {
+          "reads": 2500,
+          "monotonic_rate": 0.99999980000164,
+          "realtime_rate": 0.9999918000672394,
+          "monotonic_regressions": 0,
+          "realtime_regressions": 0,
+          "min_realtime_delta_ns": 200000,
+          "observed_realtime_resolution_ns": 200000,
+          "max_read_span_ns": 191650
+        },
+        "positive": {
+          "reads": 24927,
+          "monotonic_rate": 0.9999987200267259,
+          "realtime_rate": 1.0003991116665485,
+          "monotonic_regressions": 0,
+          "realtime_regressions": 0,
+          "min_realtime_delta_ns": 200000,
+          "observed_realtime_resolution_ns": 200000,
+          "max_read_span_ns": 272150
+        },
+        "negative": {
+          "reads": 24984,
+          "monotonic_rate": 0.9999931951946515,
+          "realtime_rate": 0.9995914066878117,
+          "monotonic_regressions": 0,
+          "realtime_regressions": 4,
+          "min_realtime_delta_ns": -300000,
+          "observed_realtime_resolution_ns": 200000,
+          "max_read_span_ns": 205700
+        },
+        "before_replace": {
+          "reads": 5980,
+          "monotonic_rate": 0.9999712718262508,
+          "realtime_rate": 1.0003820909606478,
+          "monotonic_regressions": 0,
+          "realtime_regressions": 0,
+          "min_realtime_delta_ns": 200000,
+          "observed_realtime_resolution_ns": 200000,
+          "max_read_span_ns": 204850
+        },
+        "replaced": {
+          "reads": 24982,
+          "monotonic_rate": 1.0000067999211208,
+          "realtime_rate": 0.9996084045425073,
+          "monotonic_regressions": 0,
+          "realtime_regressions": 4,
+          "min_realtime_delta_ns": -300000,
+          "observed_realtime_resolution_ns": 200000,
+          "max_read_span_ns": 205700
+        },
+        "before_cancel": {
+          "reads": 5976,
+          "monotonic_rate": 0.9999940625352537,
+          "realtime_rate": 1.0004107267279767,
+          "monotonic_regressions": 0,
+          "realtime_regressions": 0,
+          "min_realtime_delta_ns": 200000,
+          "observed_realtime_resolution_ns": 200000,
+          "max_read_span_ns": 204850
+        },
+        "cancelled": {
+          "reads": 10000,
+          "monotonic_rate": 0.999982950358895,
+          "realtime_rate": 0.9999789504430932,
+          "monotonic_regressions": 0,
+          "realtime_regressions": 0,
+          "min_realtime_delta_ns": 200000,
+          "observed_realtime_resolution_ns": 200000,
+          "max_read_span_ns": 191650
+        }
+      },
+      "failed_gates": [
+        "monotonic_stable_across_clock_controls",
+        "no_unrequested_realtime_regression",
+        "public_adjustment_api",
+        "pending_query",
+        "complete_old_delta"
+      ]
+    },
+    "software-fine100us-shift3": {
+      "image_sha256": "0b7e58fbae68ed4d487da9fb0d355fe208ac9d470c19e425c588f8d47a54e096",
+      "qemu_command": [
+        "qemu-system-arm",
+        "-M",
+        "mps2-an521",
+        "-display",
+        "none",
+        "-serial",
+        "stdio",
+        "-monitor",
+        "none",
+        "-nic",
+        "none",
+        "-no-reboot",
+        "-kernel",
+        "/dev/shm/nxrs-time-sync-phase1/software-fine100us-retry/firmware/nuttx/nuttx",
+        "-gdb",
+        "tcp:127.0.0.1:40553",
+        "-icount",
+        "shift=3,sleep=off"
+      ],
+      "analysis_sha256": "05b0fe67036d3de2774ad7051b74b0cc03b5d1de8bb2a0202b0a71eef4bfc35a",
+      "phase1_analysis_sha256": "1bec5e0834046d7031661a33578bd1eb6a343ffa0a13b473e35d96ffba85dc61",
+      "ordinary_phase_monotonic_rate_range": [
+        0.9014072338038512,
+        0.9788043618746607
+      ],
+      "icount_phase_monotonic_rate_range": [
+        0.9999988500174223,
+        1.000003844995559
+      ],
+      "max_absolute_monotonic_rate_error_ppm": 3.844995559054709,
+      "host_elapsed_seconds": 21.04455151900038,
+      "phases": {
+        "baseline": {
+          "reads": 25001,
+          "monotonic_rate": 0.9999988500174223,
+          "realtime_rate": 0.999984850229519,
+          "monotonic_regressions": 0,
+          "realtime_regressions": 0,
+          "min_realtime_delta_ns": 0,
+          "observed_realtime_resolution_ns": 100000,
+          "max_read_span_ns": 34450
+        },
+        "positive": {
+          "reads": 250001,
+          "monotonic_rate": 1.0000019649908922,
+          "realtime_rate": 1.000415363074792,
+          "monotonic_regressions": 0,
+          "realtime_regressions": 0,
+          "min_realtime_delta_ns": 0,
+          "observed_realtime_resolution_ns": 100000,
+          "max_read_span_ns": 34700
+        },
+        "negative": {
+          "reads": 250001,
+          "monotonic_rate": 1.000003844995559,
+          "realtime_rate": 0.9995988454633334,
+          "monotonic_regressions": 0,
+          "realtime_regressions": 4,
+          "min_realtime_delta_ns": -400000,
+          "observed_realtime_resolution_ns": 100000,
+          "max_read_span_ns": 34900
+        },
+        "before_replace": {
+          "reads": 60000,
+          "monotonic_rate": 0.9999999375002122,
+          "realtime_rate": 1.0004132694299392,
+          "monotonic_regressions": 0,
+          "realtime_regressions": 0,
+          "min_realtime_delta_ns": 0,
+          "observed_realtime_resolution_ns": 100000,
+          "max_read_span_ns": 34600
+        },
+        "replaced": {
+          "reads": 250001,
+          "monotonic_rate": 0.9999998700004069,
+          "realtime_rate": 0.999596871261793,
+          "monotonic_regressions": 0,
+          "realtime_regressions": 4,
+          "min_realtime_delta_ns": -400000,
+          "observed_realtime_resolution_ns": 100000,
+          "max_read_span_ns": 34950
+        },
+        "before_cancel": {
+          "reads": 60001,
+          "monotonic_rate": 0.9999999166670208,
+          "realtime_rate": 1.0004124149139033,
+          "monotonic_regressions": 0,
+          "realtime_regressions": 0,
+          "min_realtime_delta_ns": 0,
+          "observed_realtime_resolution_ns": 100000,
+          "max_read_span_ns": 34700
+        },
+        "cancelled": {
+          "reads": 100000,
+          "monotonic_rate": 0.9999997750002756,
+          "realtime_rate": 0.9999987750015006,
+          "monotonic_regressions": 0,
+          "realtime_regressions": 0,
+          "min_realtime_delta_ns": 0,
+          "observed_realtime_resolution_ns": 100000,
+          "max_read_span_ns": 34450
+        }
+      },
+      "failed_gates": [
+        "monotonic_stable_across_clock_controls",
+        "no_unrequested_realtime_regression",
+        "public_adjustment_api",
+        "pending_query",
+        "complete_old_delta"
+      ]
+    }
+  },
+  "limitations": [
+    "Single fresh boot for each control; not a statistical reliability qualification.",
+    "Instruction counting changes virtual CPU speed and sampling cadence; it is not cycle accurate.",
+    "APB and SysTick remain emulated clocks; no physical oscillator, RTC, deep sleep, or real device evidence.",
+    "Ordinary unadjusted realtime regressions disappearing here does not establish their cause or prove a fix."
+  ],
+  "environment": {
+    "mem_available": "3001284 kB",
+    "shared_memory": "6072696 kB",
+    "swap_total": "0 kB",
+    "workspace_free_bytes": 113737728,
+    "shm_free_bytes": 4466741248,
+    "shared_sdk": "/workspace/scratch/706f9e3bc115/nxrs/target/time-sync-tools/prepared-sdk/toolchain",
+    "recommended_build_parent": "/dev/shm/nxrs-time-sync-followup",
+    "prunable_completed_fine_caches": "/dev/shm/nxrs-time-sync-phase1/software-fine100us-retry/firmware: apps, cargo, native tree excluding .config/nuttx ELF, nxrs-nuttx-link"
+  },
+  "source_patch_evidence": {
+    "applies_to_images": [
+      "0b7e58fbae68ed4d487da9fb0d355fe208ac9d470c19e425c588f8d47a54e096",
+      "f29c1bc0a844743de5cd50d85049228d88c8ebb2764fd1827de2188dc912fe4d"
+    ],
+    "ledger": "source/nuttx-patches.json",
+    "ledger_sha256": "65f762d70750a834b6a063536b13ad240f1c970c7726ca2f4b31f467be300958",
+    "coherent_status_patch": {
+      "files": {
+        "arch/arm/src/armv8-m/arm_systick.c": {
+          "after": "7196931b9477c8bcbafd223b49d3f9a7251fd35e8f5f824e0183121882fe6ca1",
+          "before": "d7f7c5222254241d05fc5c46c5abb02dc2c93012f85a0978f5904255db05f2a4"
+        }
+      },
+      "name": "0149-armv8m-systick-coherent-status.patch",
+      "sha256": "dac4226cbf74bc15cc5ed3ece9cdab797f902bcd2457e3a655d0cc6b72594946"
+    },
+    "retained_native_source": "source/arm_systick.c",
+    "retained_native_source_sha256": "7196931b9477c8bcbafd223b49d3f9a7251fd35e8f5f824e0183121882fe6ca1"
+  }
+}

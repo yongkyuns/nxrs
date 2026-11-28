@@ -1,0 +1,701 @@
+{
+  "schema": 1,
+  "variant": "software-fine100us",
+  "qemu_clock_options": [
+    "-icount",
+    "shift=3,sleep=off"
+  ],
+  "mode": "software",
+  "tick_us": 100,
+  "source_build": "/dev/shm/nxrs-time-sync-phase1/software-fine100us-retry",
+  "build_sha256": "d7870bfd22901675b1a4480172489b203c0e6aa8437bd6bacbee36b730d02cbd",
+  "artifacts": {
+    "firmware/nuttx/.config": "820f9cfda62160048754ad051b1b8107be2dd318f0cd542f124b0f70a8749224",
+    "firmware/abi-report.json": "129bd9ed4bde4f94bb69bd5b97fbabff3039932ff49a49fbde4c22735356dbcb",
+    "firmware/provenance.txt": "fec5ca36a6debfe6f30400bd05e61cb92af6f117c9dd375fabc92306e9be57fa",
+    "firmware/resolved.config": "820f9cfda62160048754ad051b1b8107be2dd318f0cd542f124b0f70a8749224",
+    "firmware/nuttx/nuttx": "0b7e58fbae68ed4d487da9fb0d355fe208ac9d470c19e425c588f8d47a54e096"
+  },
+  "fixture_sources": {
+    "tests/nuttx-std/clock-control/Cargo.toml": "e351e4c4f40f226e8b46747db3a9ea43575ede8816c8578f77163fec446502be",
+    "tests/nuttx-std/clock-control/Cargo.lock": "23a056fc292817eb657f0bde3f3c03c3ab67c4735feda3dfcc808b08c415ee2a",
+    "tests/nuttx-std/clock-control/native.c": "595b62ac4e65a908ce3c3e8d1bf6ca4ddd57c7cff78f4e078c08e8e685f5c4aa",
+    "tests/nuttx-std/clock-control/src/main.rs": "f4260f514a132331fc8dcd36db9b1c317a7dd3c583084acb73ea85a785889bfd",
+    "tests/nuttx-std/memory-timing/qemu_timer_clock.c": "703cb28f21b28b4af4974c129163856aee6f04545d8d72304f25e404c09e606d",
+    "tests/nuttx-std/clock-control/qemu_systick_clock.c": "3e6e49b7d4e47da9713e902218a623f54ef406ea3d8aec279b935a05d4d067b2"
+  },
+  "firmware_identities": {
+    "nxrs": "8f0db0bbe85af7f6239e6568b16b1efce133ad1e",
+    "working_tree": "M docs/nuttx-std.md\n M tests/README.md\n?? tests/nuttx-std/clock-control/",
+    "nuttx": "4268617f28ad0ed7e900a081ea1b33c9347458b3",
+    "nuttx-apps": "3c772ea35b9245972e18999828f7b533e6fc57cc"
+  },
+  "experiment_git_head": "ddeff299dc4dea5ecacddd1f68c4fc16e6bf8e27",
+  "oracle_sha256": "e8976b6a57287a326304bbb4f987bf2ffa056a84d2fab1cca96d01c11ab71ab4",
+  "harness_sha256": "1bcb982dcba2b747661c20d278a8d2f96e6bb240fa16f8899d4f30e16655c8eb",
+  "driver_sha256": "f4bbaa4cd4114b980c4e3b88ddc2186b76db19d4adc12e13bb76de22064bb467",
+  "phase1_analysis_sha256": "1bec5e0834046d7031661a33578bd1eb6a343ffa0a13b473e35d96ffba85dc61",
+  "qemu_version": "QEMU emulator version 10.0.13 (Debian 1:10.0.13+ds-0+deb13u1)\nCopyright (c) 2003-2025 Fabrice Bellard and the QEMU Project developers\n",
+  "qemu_executable": "/workspace/scratch/47a087f14644/tools-followup/debian-prefix/usr/bin/qemu-system-arm",
+  "qemu_sha256": "0dfd6c04c472cf2e6478092caf090a963a6e9ae354ffe39cfc309966430c093e",
+  "installed_manual": "/workspace/scratch/47a087f14644/tools-followup/debian-prefix/usr/share/doc/qemu-system-common/system/invocation.html",
+  "installed_manual_sha256": "c6dec7332569751795649158b8f05437de7bbb71e3b6389985e4e89e6931e8ad",
+  "virtual_ns_per_instruction": 8,
+  "idle_fast_forward_to_timer_deadline": true,
+  "cycle_accurate": false,
+  "physical_clock_qualified": false,
+  "characterization_complete": true,
+  "qualified": false,
+  "runs": [
+    {
+      "characterization_complete": true,
+      "qualified": false,
+      "gates": {
+        "explicit_steps": true,
+        "realtime_baseline_rate_within_one_percent": true,
+        "monotonic_rate_within_one_percent": true,
+        "monotonic_non_decreasing": true,
+        "monotonic_stable_across_clock_controls": false,
+        "no_unrequested_realtime_regression": false,
+        "sleep_reference_within_ten_percent": true,
+        "public_adjustment_api": false,
+        "pending_query": false,
+        "complete_old_delta": false,
+        "adjustment_requests_succeeded": true,
+        "correction_endpoints_within_resolution": true
+      },
+      "failed_gates": [
+        "monotonic_stable_across_clock_controls",
+        "no_unrequested_realtime_regression",
+        "public_adjustment_api",
+        "pending_query",
+        "complete_old_delta"
+      ],
+      "features": {
+        "kind": "begin",
+        "schema": 1,
+        "build_id": "unbound",
+        "timekeeping": true,
+        "adjtime_header": false,
+        "rtc": false,
+        "rtc_hires": false,
+        "direct_implementation_only": true,
+        "tick_us": 100,
+        "reported_realtime_resolution_ns": 100000,
+        "reference_hz": 20000000
+      },
+      "phases": {
+        "baseline": {
+          "reference_elapsed_ns": 500007575,
+          "reads": 25001,
+          "realtime_rate": 0.999984850229519,
+          "monotonic_rate": 0.9999988500174223,
+          "realtime_regressions": 0,
+          "monotonic_regressions": 0,
+          "min_realtime_delta_ns": 0,
+          "observed_realtime_resolution_ns": 100000,
+          "observed_monotonic_resolution_ns": 15000,
+          "max_read_span_ns": 34450,
+          "wall_minus_monotonic_change_ns": -7000,
+          "endpoint_uncertainty_ns": 127650,
+          "correction_trace": [
+            {
+              "elapsed_ns": 0,
+              "change_ns": 0
+            },
+            {
+              "elapsed_ns": 250008450,
+              "change_ns": -8000
+            },
+            {
+              "elapsed_ns": 500007575,
+              "change_ns": -7000
+            }
+          ]
+        },
+        "positive": {
+          "reference_elapsed_ns": 5000023175,
+          "reads": 250001,
+          "realtime_rate": 1.000415363074792,
+          "monotonic_rate": 1.0000019649908922,
+          "realtime_regressions": 0,
+          "monotonic_regressions": 0,
+          "min_realtime_delta_ns": 0,
+          "observed_realtime_resolution_ns": 100000,
+          "observed_monotonic_resolution_ns": 15000,
+          "max_read_span_ns": 34700,
+          "wall_minus_monotonic_change_ns": 2067000,
+          "endpoint_uncertainty_ns": 147850,
+          "correction_trace": [
+            {
+              "elapsed_ns": 0,
+              "change_ns": 0
+            },
+            {
+              "elapsed_ns": 250024575,
+              "change_ns": 65000
+            },
+            {
+              "elapsed_ns": 500048675,
+              "change_ns": 51000
+            },
+            {
+              "elapsed_ns": 750051425,
+              "change_ns": 49000
+            },
+            {
+              "elapsed_ns": 1000064825,
+              "change_ns": 535000
+            },
+            {
+              "elapsed_ns": 1250080375,
+              "change_ns": 520000
+            },
+            {
+              "elapsed_ns": 1500082275,
+              "change_ns": 518000
+            },
+            {
+              "elapsed_ns": 1750082500,
+              "change_ns": 518000
+            },
+            {
+              "elapsed_ns": 2000098125,
+              "change_ns": 1002000
+            },
+            {
+              "elapsed_ns": 2250123200,
+              "change_ns": 1067000
+            },
+            {
+              "elapsed_ns": 2500123750,
+              "change_ns": 1068000
+            },
+            {
+              "elapsed_ns": 2750124625,
+              "change_ns": 1065000
+            },
+            {
+              "elapsed_ns": 3000149600,
+              "change_ns": 1550000
+            },
+            {
+              "elapsed_ns": 3250165025,
+              "change_ns": 1535000
+            },
+            {
+              "elapsed_ns": 3500166650,
+              "change_ns": 1533000
+            },
+            {
+              "elapsed_ns": 3750166900,
+              "change_ns": 1533000
+            },
+            {
+              "elapsed_ns": 4000180600,
+              "change_ns": 2019000
+            },
+            {
+              "elapsed_ns": 4250182175,
+              "change_ns": 2018000
+            },
+            {
+              "elapsed_ns": 4500183275,
+              "change_ns": 2017000
+            },
+            {
+              "elapsed_ns": 4750198200,
+              "change_ns": 2002000
+            },
+            {
+              "elapsed_ns": 5000023175,
+              "change_ns": 2067000
+            }
+          ]
+        },
+        "negative": {
+          "reference_elapsed_ns": 5000005775,
+          "reads": 250001,
+          "realtime_rate": 0.9995988454633334,
+          "monotonic_rate": 1.000003844995559,
+          "realtime_regressions": 4,
+          "monotonic_regressions": 0,
+          "min_realtime_delta_ns": -400000,
+          "observed_realtime_resolution_ns": 100000,
+          "observed_monotonic_resolution_ns": 15000,
+          "max_read_span_ns": 34900,
+          "wall_minus_monotonic_change_ns": -2025000,
+          "endpoint_uncertainty_ns": 165050,
+          "correction_trace": [
+            {
+              "elapsed_ns": 0,
+              "change_ns": 0
+            },
+            {
+              "elapsed_ns": 250008425,
+              "change_ns": -27000
+            },
+            {
+              "elapsed_ns": 500033775,
+              "change_ns": -43000
+            },
+            {
+              "elapsed_ns": 750048500,
+              "change_ns": -57000
+            },
+            {
+              "elapsed_ns": 1000050500,
+              "change_ns": -2059000
+            },
+            {
+              "elapsed_ns": 1250063875,
+              "change_ns": -2073000
+            },
+            {
+              "elapsed_ns": 1500079775,
+              "change_ns": -2089000
+            },
+            {
+              "elapsed_ns": 1750082450,
+              "change_ns": -2091000
+            },
+            {
+              "elapsed_ns": 2000106575,
+              "change_ns": -2025000
+            },
+            {
+              "elapsed_ns": 2250107175,
+              "change_ns": -2026000
+            },
+            {
+              "elapsed_ns": 2500132650,
+              "change_ns": -2041000
+            },
+            {
+              "elapsed_ns": 2750148000,
+              "change_ns": -2057000
+            },
+            {
+              "elapsed_ns": 3000150075,
+              "change_ns": -2059000
+            },
+            {
+              "elapsed_ns": 3250163425,
+              "change_ns": -2072000
+            },
+            {
+              "elapsed_ns": 3500165700,
+              "change_ns": -2074000
+            },
+            {
+              "elapsed_ns": 3750180650,
+              "change_ns": -2089000
+            },
+            {
+              "elapsed_ns": 4000206000,
+              "change_ns": -2025000
+            },
+            {
+              "elapsed_ns": 4250206050,
+              "change_ns": -2025000
+            },
+            {
+              "elapsed_ns": 4500231625,
+              "change_ns": -2040000
+            },
+            {
+              "elapsed_ns": 4750234025,
+              "change_ns": -2043000
+            },
+            {
+              "elapsed_ns": 5000005775,
+              "change_ns": -2025000
+            }
+          ]
+        },
+        "before_replace": {
+          "reference_elapsed_ns": 1200004075,
+          "reads": 60000,
+          "realtime_rate": 1.0004132694299392,
+          "monotonic_rate": 0.9999999375002122,
+          "realtime_regressions": 0,
+          "monotonic_regressions": 0,
+          "min_realtime_delta_ns": 0,
+          "observed_realtime_resolution_ns": 100000,
+          "observed_monotonic_resolution_ns": 15000,
+          "max_read_span_ns": 34600,
+          "wall_minus_monotonic_change_ns": 496000,
+          "endpoint_uncertainty_ns": 127650,
+          "correction_trace": [
+            {
+              "elapsed_ns": 0,
+              "change_ns": 0
+            },
+            {
+              "elapsed_ns": 250003625,
+              "change_ns": -3000
+            },
+            {
+              "elapsed_ns": 500018475,
+              "change_ns": -18000
+            },
+            {
+              "elapsed_ns": 750033875,
+              "change_ns": -33000
+            },
+            {
+              "elapsed_ns": 1000034625,
+              "change_ns": 466000
+            },
+            {
+              "elapsed_ns": 1200004075,
+              "change_ns": 496000
+            }
+          ]
+        },
+        "replaced": {
+          "reference_elapsed_ns": 5000015650,
+          "reads": 250001,
+          "realtime_rate": 0.999596871261793,
+          "monotonic_rate": 0.9999998700004069,
+          "realtime_regressions": 4,
+          "monotonic_regressions": 0,
+          "min_realtime_delta_ns": -400000,
+          "observed_realtime_resolution_ns": 100000,
+          "observed_monotonic_resolution_ns": 15000,
+          "max_read_span_ns": 34950,
+          "wall_minus_monotonic_change_ns": -2015000,
+          "endpoint_uncertainty_ns": 127600,
+          "correction_trace": [
+            {
+              "elapsed_ns": 0,
+              "change_ns": 0
+            },
+            {
+              "elapsed_ns": 250002200,
+              "change_ns": -2000
+            },
+            {
+              "elapsed_ns": 500017075,
+              "change_ns": -17000
+            },
+            {
+              "elapsed_ns": 750017150,
+              "change_ns": -17000
+            },
+            {
+              "elapsed_ns": 1000032475,
+              "change_ns": -2032000
+            },
+            {
+              "elapsed_ns": 1250057950,
+              "change_ns": -1968000
+            },
+            {
+              "elapsed_ns": 1500058975,
+              "change_ns": -1967000
+            },
+            {
+              "elapsed_ns": 1750059825,
+              "change_ns": -1970000
+            },
+            {
+              "elapsed_ns": 2000060200,
+              "change_ns": -1970000
+            },
+            {
+              "elapsed_ns": 2250085825,
+              "change_ns": -1986000
+            },
+            {
+              "elapsed_ns": 2500100750,
+              "change_ns": -2000000
+            },
+            {
+              "elapsed_ns": 2750116625,
+              "change_ns": -2016000
+            },
+            {
+              "elapsed_ns": 3000132550,
+              "change_ns": -2032000
+            },
+            {
+              "elapsed_ns": 3250158175,
+              "change_ns": -1968000
+            },
+            {
+              "elapsed_ns": 3500184275,
+              "change_ns": -1984000
+            },
+            {
+              "elapsed_ns": 3750199725,
+              "change_ns": -1999000
+            },
+            {
+              "elapsed_ns": 4000215425,
+              "change_ns": -2015000
+            },
+            {
+              "elapsed_ns": 4250218250,
+              "change_ns": -2018000
+            },
+            {
+              "elapsed_ns": 4500232775,
+              "change_ns": -2033000
+            },
+            {
+              "elapsed_ns": 4750258450,
+              "change_ns": -1968000
+            },
+            {
+              "elapsed_ns": 5000015650,
+              "change_ns": -2015000
+            }
+          ]
+        },
+        "before_cancel": {
+          "reference_elapsed_ns": 1200005100,
+          "reads": 60001,
+          "realtime_rate": 1.0004124149139033,
+          "monotonic_rate": 0.9999999166670208,
+          "realtime_regressions": 0,
+          "monotonic_regressions": 0,
+          "min_realtime_delta_ns": 0,
+          "observed_realtime_resolution_ns": 100000,
+          "observed_monotonic_resolution_ns": 15000,
+          "max_read_span_ns": 34700,
+          "wall_minus_monotonic_change_ns": 495000,
+          "endpoint_uncertainty_ns": 127700,
+          "correction_trace": [
+            {
+              "elapsed_ns": 0,
+              "change_ns": 0
+            },
+            {
+              "elapsed_ns": 250004925,
+              "change_ns": -5000
+            },
+            {
+              "elapsed_ns": 500030625,
+              "change_ns": 59000
+            },
+            {
+              "elapsed_ns": 750032700,
+              "change_ns": 57000
+            },
+            {
+              "elapsed_ns": 1000057400,
+              "change_ns": 543000
+            },
+            {
+              "elapsed_ns": 1200005100,
+              "change_ns": 495000
+            }
+          ]
+        },
+        "cancelled": {
+          "reference_elapsed_ns": 2000002450,
+          "reads": 100000,
+          "realtime_rate": 0.9999987750015006,
+          "monotonic_rate": 0.9999997750002756,
+          "realtime_regressions": 0,
+          "monotonic_regressions": 0,
+          "min_realtime_delta_ns": 0,
+          "observed_realtime_resolution_ns": 100000,
+          "observed_monotonic_resolution_ns": 15000,
+          "max_read_span_ns": 34450,
+          "wall_minus_monotonic_change_ns": -2000,
+          "endpoint_uncertainty_ns": 127600,
+          "correction_trace": [
+            {
+              "elapsed_ns": 0,
+              "change_ns": 0
+            },
+            {
+              "elapsed_ns": 250002425,
+              "change_ns": -2000
+            },
+            {
+              "elapsed_ns": 500003725,
+              "change_ns": -4000
+            },
+            {
+              "elapsed_ns": 750005125,
+              "change_ns": -5000
+            },
+            {
+              "elapsed_ns": 1000020850,
+              "change_ns": -21000
+            },
+            {
+              "elapsed_ns": 1250035925,
+              "change_ns": -36000
+            },
+            {
+              "elapsed_ns": 1500037400,
+              "change_ns": -37000
+            },
+            {
+              "elapsed_ns": 1750060850,
+              "change_ns": 29000
+            },
+            {
+              "elapsed_ns": 2000002450,
+              "change_ns": -2000
+            }
+          ]
+        }
+      },
+      "steps": {
+        "seed": {
+          "target_error_ns": 100000,
+          "within_read_window": true,
+          "monotonic_elapsed_ns": 46000,
+          "reference_elapsed_ns": 36075
+        },
+        "forward": {
+          "target_error_ns": 100000,
+          "within_read_window": true,
+          "monotonic_elapsed_ns": 46000,
+          "reference_elapsed_ns": 36025
+        },
+        "backward": {
+          "target_error_ns": 0,
+          "within_read_window": true,
+          "monotonic_elapsed_ns": 43000,
+          "reference_elapsed_ns": 34350
+        },
+        "positive_seed": {
+          "target_error_ns": 0,
+          "within_read_window": true,
+          "monotonic_elapsed_ns": 26000,
+          "reference_elapsed_ns": 25875
+        },
+        "negative_seed": {
+          "target_error_ns": 0,
+          "within_read_window": true,
+          "monotonic_elapsed_ns": 26000,
+          "reference_elapsed_ns": 25900
+        },
+        "replace_seed": {
+          "target_error_ns": 0,
+          "within_read_window": true,
+          "monotonic_elapsed_ns": 26000,
+          "reference_elapsed_ns": 34400
+        },
+        "cancel_seed": {
+          "target_error_ns": 0,
+          "within_read_window": true,
+          "monotonic_elapsed_ns": 26000,
+          "reference_elapsed_ns": 25900
+        }
+      },
+      "sleeps": {
+        "baseline_sleep": {
+          "requested_ns": 100000000,
+          "reference_elapsed_ns": 100107175,
+          "monotonic_elapsed_ns": 100107000
+        },
+        "positive_sleep": {
+          "requested_ns": 100000000,
+          "reference_elapsed_ns": 100091800,
+          "monotonic_elapsed_ns": 100091000
+        },
+        "negative_sleep": {
+          "requested_ns": 100000000,
+          "reference_elapsed_ns": 100076175,
+          "monotonic_elapsed_ns": 100076000
+        }
+      },
+      "adjustments": {
+        "initial_query": {
+          "has_delta": false,
+          "delta_us": 0,
+          "result": -1,
+          "errno": 22,
+          "old_seconds": 1234567,
+          "old_microseconds": 7654321
+        },
+        "positive": {
+          "has_delta": true,
+          "delta_us": 2000,
+          "result": 0,
+          "errno": 0,
+          "old_seconds": 1234567,
+          "old_microseconds": 0
+        },
+        "positive_query": {
+          "has_delta": false,
+          "delta_us": 0,
+          "result": -1,
+          "errno": 22,
+          "old_seconds": 1234567,
+          "old_microseconds": 7654321
+        },
+        "negative": {
+          "has_delta": true,
+          "delta_us": -2000,
+          "result": 0,
+          "errno": 0,
+          "old_seconds": 1234567,
+          "old_microseconds": 0
+        },
+        "negative_query": {
+          "has_delta": false,
+          "delta_us": 0,
+          "result": -1,
+          "errno": 22,
+          "old_seconds": 1234567,
+          "old_microseconds": 7654321
+        },
+        "replace_initial": {
+          "has_delta": true,
+          "delta_us": 20000,
+          "result": 0,
+          "errno": 0,
+          "old_seconds": 1234567,
+          "old_microseconds": 0
+        },
+        "replacement": {
+          "has_delta": true,
+          "delta_us": -2000,
+          "result": 0,
+          "errno": 0,
+          "old_seconds": 1234567,
+          "old_microseconds": 19500
+        },
+        "cancel_initial": {
+          "has_delta": true,
+          "delta_us": 20000,
+          "result": 0,
+          "errno": 0,
+          "old_seconds": 1234567,
+          "old_microseconds": 0
+        },
+        "cancel": {
+          "has_delta": true,
+          "delta_us": 0,
+          "result": 0,
+          "errno": 0,
+          "old_seconds": 1234567,
+          "old_microseconds": 19500
+        },
+        "final_query": {
+          "has_delta": false,
+          "delta_us": 0,
+          "result": -1,
+          "errno": 22,
+          "old_seconds": 1234567,
+          "old_microseconds": 7654321
+        }
+      },
+      "limits": [
+        "Emulated APB reference; no physical RTC or deep-sleep evidence.",
+        "100 ms sleeps need not overlap an applied adjustment.",
+        "Checkpoints and endpoint resolution do not prove continuous slew rate.",
+        "Firmware hashes, not the optional in-band build_id, bind capture identity."
+      ]
+    }
+  ],
+  "host_elapsed_seconds": 21.04455151900038
+}
