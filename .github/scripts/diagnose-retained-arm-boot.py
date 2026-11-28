@@ -11,6 +11,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import resource
 import select
 import shutil
 import signal
@@ -34,8 +35,11 @@ def boot(command, directory, experiment_deadline):
     deadline = min(started + 10, experiment_deadline)
     assertion_at = None
     status = "host_timeout"
-    process = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                               stderr=subprocess.STDOUT, start_new_session=True)
+    trace = directory / "qemu-interrupts.log"
+    traced_command = command + ["-d", "int,guest_errors", "-D", str(trace.resolve())]
+    process = subprocess.Popen(traced_command, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                               stderr=subprocess.STDOUT, start_new_session=True,
+                               preexec_fn=lambda: resource.setrlimit(resource.RLIMIT_FSIZE, (LIMIT, LIMIT)))
     try:
         with (directory / "console.log").open("wb") as log:
             while time.monotonic() < deadline:
@@ -74,7 +78,12 @@ def boot(command, directory, experiment_deadline):
         process.wait(timeout=5)
         process.stdin.close()
         process.stdout.close()
+    if trace.stat().st_size == LIMIT and assertion_at is None:
+        status = "interrupt_trace_limit"
     report = {"status": status, "host_elapsed_seconds": time.monotonic() - started,
+              "qemu_command": traced_command,
+              "interrupt_trace_bytes": trace.stat().st_size,
+              "interrupt_trace_sha256": digest(trace),
               "console_bytes": len(console),
               "console_sha256": hashlib.sha256(console).hexdigest(),
               "assertion_seen": assertion_at is not None,
@@ -110,6 +119,8 @@ def main():
               "os_release": Path("/etc/os-release").read_text(),
               "command": command, "maximum_boots": 1000,
               "experiment_host_deadline_seconds": 180,
+              "qemu_trace": "int,guest_errors",
+              "trace_file_limit_bytes": LIMIT, "total_output_limit_bytes": 32 * 1024 * 1024,
               "host_deadline_seconds_per_boot": 10, "assertion_tail_seconds": 2,
               "boots": []}
     experiment_deadline = time.monotonic() + 180
@@ -124,7 +135,10 @@ def main():
         print(f"boot {index}: {result['status']} ({result['console_bytes']} bytes)", flush=True)
         if result["status"] != "prompt_observed":
             print((directory / "console.log").read_text(errors="replace"), flush=True)
+            print((directory / "qemu-interrupts.log").read_text(errors="replace")[-65536:], flush=True)
             raise SystemExit(1)
+        if sum(item["console_bytes"] + item["interrupt_trace_bytes"] for item in report["boots"]) >= 32 * 1024 * 1024:
+            raise RuntimeError("Diagnostic total output bound reached; original failure remains unresolved")
     print("No assertion in this 1000-boot diagnostic window; original failure remains unresolved.")
 
 
