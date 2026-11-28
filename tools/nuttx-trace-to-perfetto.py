@@ -36,6 +36,14 @@ WAKE = re.compile(r"comm=(.*?)\s+pid=(\d+)\s+target_cpu=(\d+)")
 HEAP_REQUEST = re.compile(
     r"(malloc|memalign|realloc)\s+heap:\s*(\S+)\s+size:\s*(\d+)\s+caller:\s*(\S+)"
 )
+HEAP_CALL_REQUEST = re.compile(
+    r"(malloc|memalign|realloc)\s+heap:\s*(\S+)\s+id:\s*(\d+)"
+    r"\s+size:\s*(\d+)\s+caller:\s*(\S+)\s+old:\s*(\S+)\s+align:\s*(\d+)"
+)
+HEAP_CALL_RESULT = re.compile(
+    r"(malloc|memalign|realloc)\s+heap:\s*(\S+)\s+id:\s*(\d+)"
+    r"\s+result:\s*(\S+)\s+outcome:\s*(success|failure)"
+)
 HEAP_USAGE = re.compile(
     r"C\|-?\d+\|Heap Usage\|(\d+)\|(\w+):\s+heap:\s*(\S+)"
     r"(?:\s+size:\s*(\d+),\s+address:\s*(\S+))?"
@@ -43,6 +51,7 @@ HEAP_USAGE = re.compile(
 WATCHDOG = re.compile(r"I\|(-?\d+)\|wdog: (start|cancel|enter|leave)-(\S+) (\S+)")
 LOSS = re.compile(r"^\s*(?:LOST_EVENTS\s+count=(\d+)|\[LOST\s+(\d+)\s+EVENTS\])\s*$")
 BEGIN, END = "NXRS_NOTE_BEGIN ", "NXRS_NOTE_END "
+CAPTURE_CATEGORIES = frozenset(("switch", "irq", "app", "heap", "syscall"))
 
 
 def _frame(line, prefix):
@@ -69,6 +78,177 @@ def _bool_field(fields, name):
     if value not in ("0", "1"):
         raise ValueError(f"Capture frame {name} must be 0 or 1")
     return value == "1"
+
+
+def _pointer(value, label):
+    if value in ("0", "(nil)", "NULL"):
+        return "0x0"
+    if not re.fullmatch(r"0[xX][0-9a-fA-F]+", value):
+        raise ValueError(f"{label} must be a native hexadecimal pointer")
+    address = int(value, 16)
+    if address > U64_MAX:
+        raise ValueError(f"{label} exceeds u64")
+    return f"0x{address:x}"
+
+
+class _HeapCalls:
+    """Correlate explicit native calls without reconstructing allocation state.
+
+    IDs are boot-global, nonzero and never reused by the admitted producer.
+    The enclosing capture supplies the recording/reset boundary. Native heap
+    addresses identify the observed allocator, not an allocation generation.
+    """
+
+    MAX_PENDING = 4096
+
+    def __init__(self, emit, censor, global_loss, identified_recording):
+        self.emit = emit
+        self.censor = censor
+        self.global_loss = global_loss
+        self.identified_recording = identified_recording
+        self.pending = {}
+        self.identities = {}
+        self.previous_task_edge = {}
+        self.counts = {"requests": 0, "results": 0, "paired": 0, "failed": 0,
+                       "incomplete_requests": 0, "orphan_results": 0}
+
+    @staticmethod
+    def track(task_id, request_id):
+        # Preempted tasks can have crossing call intervals on the same CPU.
+        # Put synchronous native calls on their task track; without a task
+        # identity, keep each explicit call on a separate unidentified track.
+        if task_id is None:
+            return ("unidentified_call", request_id), f"Allocator call {request_id} · task unknown"
+        return ("calls", task_id), f"Task {task_id} allocator calls"
+
+    def incomplete_request(self, request, reason):
+        start, key, label, operation, args = request
+        self.counts["incomplete_requests"] += 1
+        self.censor(6, key, label, operation, start, reason,
+                    {**args, "incomplete_reason": reason}, category="heap,request")
+
+    def reset(self, reason):
+        for request in self.pending.values():
+            self.incomplete_request(request, reason)
+        self.pending.clear()
+
+    def observe(self, kind, payload, fields, cpu, stamp):
+        request = kind == "heap_request"
+        match = (HEAP_CALL_REQUEST if request else HEAP_CALL_RESULT).fullmatch(payload)
+        if match is None:
+            raise ValueError(f"Malformed correlated native {kind}")
+        operation, heap, raw_id, *values = match.groups()
+        heap = _pointer(heap, "Heap address")
+        if heap == "0x0":
+            raise ValueError("A correlated allocator call requires a non-null heap")
+        request_id = _unsigned(raw_id, "Heap call ID")
+        if request_id == 0:
+            raise ValueError("Heap call ID zero cannot establish a correlation")
+        task_id = None if fields["pid"] is None else _unsigned(fields["pid"], "Heap call task ID")
+        if self.identified_recording and task_id is not None:
+            if stamp < self.previous_task_edge.get(task_id, stamp):
+                raise ValueError(f"Allocator call timestamps ran backward for task {task_id}")
+            self.previous_task_edge[task_id] = stamp
+        identity = heap, operation, task_id
+        previous = self.identities.get(request_id) if self.identified_recording else None
+        if previous is not None and previous[:3] != identity:
+            raise ValueError("Heap call ID was reused with a different heap, operation or task")
+        flags = 0 if previous is None else previous[3]
+        if request and flags:
+            raise ValueError("Heap call ID was reused or its result preceded its request")
+        if not request and flags & 2:
+            raise ValueError("Heap call has duplicate result records")
+        if self.identified_recording:
+            self.identities[request_id] = (*identity, flags | (1 if request else 2))
+        key, label = self.track(task_id, request_id)
+        args = {"heap": heap, "request_id": str(request_id), "operation": operation,
+                "cpu": cpu, "request_observed": request,
+                "call_scope": "native allocator call; may include internal backing calls"}
+        if task_id is not None:
+            args.update(task=fields["task"], task_id=task_id)
+        if request:
+            requested, caller, old_address, alignment = values
+            args.update(requested_bytes=_unsigned(requested, "Heap requested bytes"),
+                        caller=_pointer(caller, "Heap caller address"),
+                        old_address=_pointer(old_address, "Heap previous address"),
+                        alignment=_unsigned(alignment, "Heap requested alignment"))
+            if operation != "realloc" and args["old_address"] != "0x0":
+                raise ValueError("Only realloc can have a previous allocation address")
+            if operation != "memalign" and args["alignment"] != 0:
+                raise ValueError("Only memalign can declare a requested alignment")
+            self.counts["requests"] += 1
+            observation = stamp, key, label, operation, args
+            if not self.identified_recording:
+                self.incomplete_request(observation, "capture has no identified single-recording envelope; reset continuity is unknown")
+            elif self.global_loss:
+                self.incomplete_request(observation, "record loss has no located boundary; call outcome is unknown")
+            else:
+                if len(self.pending) >= self.MAX_PENDING:
+                    raise ValueError("Capture exceeds the 4,096 pending allocator-call bound")
+                self.pending[request_id] = observation
+            return
+
+        result, outcome = values
+        result = _pointer(result, "Heap returned address")
+        if (outcome == "success") != (result != "0x0"):
+            raise ValueError("Native allocator outcome contradicts its returned pointer")
+        # This pinned native allocator clamps zero-byte calls to its minimum
+        # allocation. Neither size zero nor NULL is interpreted as a release.
+        outcome = "succeeded" if outcome == "success" else "failed"
+        self.counts["results"] += 1
+        pending = self.pending.pop(request_id, None)
+        if pending is None:
+            self.counts["orphan_results"] += 1
+            reason = ("capture has no identified single-recording envelope; reset continuity is unknown"
+                      if not self.identified_recording else
+                      "record loss has no located boundary; request/result correlation is unknown"
+                      if self.global_loss else "result has no complete observed request")
+            self.censor(6, key, label, f"{operation} result", stamp, reason,
+                        {**args, "observed_result_address": result, "observed_outcome": outcome,
+                         "incomplete_reason": reason}, category="heap,result")
+            return
+        start, key, label, operation, args = pending
+        self.counts["paired"] += 1
+        self.counts["failed"] += outcome == "failed"
+        self.emit(6, key, label, operation, "heap,request", start,
+                  {**args, "result_address": result, "outcome": outcome,
+                   "failed": outcome == "failed", "result_cpu": cpu,
+                   "accounting": "elapsed native allocator call; includes blocking and preemption, not CPU cost"}, stamp)
+
+
+def _capture_window(begin, end, complete, loss_detected):
+    """Validate a timed producer's window independently of its first/last note.
+
+    The native command reads the start after enabling its recorder and the end
+    before disabling it. Notes outside that interval are retained in the raw
+    dump but do not establish observations inside the requested analysis window.
+    Dump completion and interval-edge censoring are deliberately separate.
+    """
+    if not begin.get("recording_id") or not begin.get("clock"):
+        raise ValueError("Timed capture requires a recording identity and source clock")
+    if begin.get("cpus") != "1" or "capture_mode" in begin:
+        raise ValueError("Timed capture requires an uninterrupted single-core recording")
+    start = _unsigned(begin.get("capture_start_ns", ""), "capture start")
+    finish = _unsigned(begin.get("capture_end_ns", ""), "capture end")
+    requested = _unsigned(begin.get("requested_duration_ns", ""), "requested duration")
+    if finish <= start or not 0 < requested <= 30_000_000_000:
+        raise ValueError("Timed capture requires an increasing window and a duration up to 30 seconds")
+    stop_reason = begin.get("stop_reason")
+    if stop_reason not in ("duration", "interrupted"):
+        raise ValueError("Unsupported timed capture stop reason")
+    if stop_reason == "duration" and finish - start < requested:
+        raise ValueError("Timed capture ended before its requested source-clock duration")
+    categories = [] if begin.get("categories") == "none" else begin.get("categories", "").split(",")
+    if len(categories) != len(set(categories)) or any(value not in CAPTURE_CATEGORIES for value in categories):
+        raise ValueError("Timed capture categories must be unique supported recorder categories")
+    capacity = _unsigned(begin.get("buffer_bytes", ""), "capture buffer bytes")
+    if not 0 < capacity <= MAX_BYTES:
+        raise ValueError("Timed capture buffer exceeds the host admission bound")
+    if any(fields.get("mode") not in ("0", "2") for fields in (begin, end)):
+        raise ValueError("Timed capture requires the non-overwrite recorder mode")
+    return {"start_ns": start, "end_ns": finish, "requested_duration_ns": requested,
+            "stop_reason": stop_reason, "categories": categories,
+            "complete": bool(complete and loss_detected is False)}
 
 
 def _us(nanoseconds):
@@ -234,12 +414,13 @@ def convert(lines, *, clock=None, source=None, elf_sha256=None, notes_lost=None,
     framed = bool(begin_indices or end_indices)
     framing = None
     recording_id = None
+    capture_window = None
     if framed:
         if len(begin_indices) != 1 or len(end_indices) != 1 or begin_indices[0] >= end_indices[0]:
             raise ValueError("Expected exactly one ordered NXRS_NOTE_BEGIN/NXRS_NOTE_END pair")
         begin = _frame(lines[begin_indices[0]], BEGIN)
         end = _frame(lines[end_indices[0]], END)
-        if begin.get("schema") not in ("1", "2") or begin.get("schema") != end.get("schema"):
+        if begin.get("schema") not in ("1", "2", "3") or begin.get("schema") != end.get("schema"):
             raise ValueError("Unsupported or conflicting capture frame schema")
         recording_id = begin.get("recording_id")
         if recording_id != end.get("recording_id"):
@@ -273,6 +454,8 @@ def convert(lines, *, clock=None, source=None, elf_sha256=None, notes_lost=None,
         if complete is True and not declared_complete:
             raise ValueError("Supplied completeness conflicts with the capture frame")
         complete = declared_complete if complete is None else complete and declared_complete
+        if begin["schema"] == "3":
+            capture_window = _capture_window(begin, end, complete, loss_detected)
         framing = {"begin": begin, "end": end}
         clock_fields = {key: begin[key] for key in ("clock_bits", "frequency_hz", "clock_epoch") if key in begin}
         if "clock_bits" in clock_fields and not 1 <= _unsigned(clock_fields["clock_bits"], "clock_bits") <= 64:
@@ -296,9 +479,12 @@ def convert(lines, *, clock=None, source=None, elf_sha256=None, notes_lost=None,
     tracks, events = {}, []
     running, interrupts, markers, wakes, timers = {}, {}, {}, {}, {}
     ambiguous_wakes = set()
-    origin = earliest = previous = None
+    origin = capture_window["start_ns"] if capture_window is not None else None
+    earliest = None
+    previous = origin
     previous_cpu_edge, previous_marker_edge, previous_timer_edge = {}, {}, {}
     incomplete = recognized = ignored = loss_boundaries = explicit_loss_count = 0
+    context_notes = 0
     legacy_switches = 0
     native_counts, timer_counts = {}, {}
     saw_heap_requests = saw_heap_usage = False
@@ -329,7 +515,10 @@ def convert(lines, *, clock=None, source=None, elf_sha256=None, notes_lost=None,
         event(process, key, label, name, categories, stamp,
               {**(args or {}), "duration_unknown": True, "reason": reason})
 
+    heap_calls = _HeapCalls(event, censored, global_loss, framed and recording_id is not None)
+
     def reset_pending(reason):
+        heap_calls.reset(reason)
         for cpu, (start, name, pid) in running.items():
             censored(1, cpu, f"CPU {cpu}", f"Unclosed scheduled residency: {name}", start, reason,
                      {"cpu": cpu, "task_id": pid})
@@ -380,9 +569,15 @@ def convert(lines, *, clock=None, source=None, elf_sha256=None, notes_lost=None,
         stamp = int(fields["seconds"]) * 1_000_000_000 + int(fields["fraction"].ljust(9, "0"))
         if stamp > U64_MAX:
             raise ValueError("NuttX timestamp overflows u64 nanoseconds")
+        if capture_window is not None:
+            if cpu != 0:
+                raise ValueError("Timed capture contains observations from another CPU")
+            if not capture_window["start_ns"] <= stamp < capture_window["end_ns"]:
+                context_notes += 1
+                continue
         if origin is None:
-            origin = earliest = stamp
-        earliest = min(earliest, stamp)
+            origin = stamp
+        earliest = stamp if earliest is None else min(earliest, stamp)
         previous = stamp
         recognized += 1
         kind, payload = fields["kind"], fields["payload"]
@@ -487,7 +682,9 @@ def convert(lines, *, clock=None, source=None, elf_sha256=None, notes_lost=None,
         elif kind == "heap_request":
             request = HEAP_REQUEST.fullmatch(payload)
             if request is None:
-                raise ValueError(f"Line {number}: malformed heap allocation request")
+                heap_calls.observe(kind, payload, fields, cpu, stamp)
+                saw_heap_requests = True
+                continue
             operation, heap, requested, caller = request.groups()
             args = {"heap": heap, "requested_bytes": _unsigned(requested, "heap request size"), "caller": caller,
                     "cpu": cpu, "operation": operation, "outcome": "unknown; allocator entry only"}
@@ -495,6 +692,8 @@ def convert(lines, *, clock=None, source=None, elf_sha256=None, notes_lost=None,
                 args.update(task=fields["task"], task_id=_unsigned(fields["pid"], "request task id"))
             event(6, ("requests", cpu), f"CPU {cpu} heap requests", operation, "heap,request", stamp, args)
             saw_heap_requests = True
+        elif kind == "heap_result":
+            heap_calls.observe(kind, payload, fields, cpu, stamp)
         elif kind == "tracing_mark_write":
             watchdog = WATCHDOG.fullmatch(payload)
             if watchdog is not None:
@@ -611,7 +810,7 @@ def convert(lines, *, clock=None, source=None, elf_sha256=None, notes_lost=None,
         else:
             event(5, cpu, f"CPU {cpu} other notes", kind, "note", stamp, {"cpu": cpu, "payload": payload})
 
-    if origin is None or not recognized:
+    if origin is None or (not recognized and capture_window is None):
         raise ValueError("The capture has no timestamped NuttX notes")
     reset_pending("capture ended before the corresponding end/switch; duration unknown")
     if global_loss:
@@ -624,6 +823,12 @@ def convert(lines, *, clock=None, source=None, elf_sha256=None, notes_lost=None,
         if not global_loss:
             lost_records = explicit_loss_count
         warnings.append(f"{loss_boundaries} explicit loss boundary/boundaries reset pending intervals.")
+    if capture_window is not None:
+        if loss_detected is not False or loss_boundaries:
+            capture_window["complete"] = False
+        warnings.append("The timed capture window includes quiet leading and trailing time. Rates describe the enabled recorder categories and retained observations, not uninstrumented work.")
+        if context_notes:
+            warnings.append(f"{context_notes} native note(s) outside the measured half-open window were excluded before interval reconstruction; the raw dump retains them.")
     if incomplete:
         warnings.append(f"{incomplete} incomplete interval observation(s) retained as markers with no duration.")
         complete = False
@@ -632,7 +837,9 @@ def convert(lines, *, clock=None, source=None, elf_sha256=None, notes_lost=None,
     if legacy_switches:
         warnings.append(f"{legacy_switches} scheduler switch(es) omit the previous task; residency uses observed switch endpoints but previous-task continuity cannot be checked.")
     if saw_heap_requests:
-        warnings.append("Heap requests are allocator-entry observations, including failures, retries and internal backing calls; they do not establish successful allocations or lifetimes.")
+        warnings.append("Heap requests count native allocator calls, including failures, retries and internal backing calls. Only an explicit matching result establishes a call outcome; requested bytes are not net memory growth, and calls do not establish allocation lifetimes or committed heap topology.")
+    if heap_calls.counts["requests"] or heap_calls.counts["results"]:
+        warnings.append("Allocator request IDs identify calls within one target boot/recording, not allocation generations. Missing endpoints and loss remain unknown. This native allocator keeps zero-size calls as minimum-sized allocations; no release is inferred from size zero.")
     if saw_heap_usage:
         warnings.append("Heap usage is a sampled native used-byte counter. Operation notes retain raw native addresses and sizes, whose semantics can differ between allocator paths; they do not establish allocation lifetimes or heap topology.")
     if not native_counts.get("irq_handler_entry"):
@@ -646,12 +853,26 @@ def convert(lines, *, clock=None, source=None, elf_sha256=None, notes_lost=None,
     if loss_detected is None:
         warnings.append("Record-loss status is unknown; a missing interval does not prove idle time.")
     warnings.append("CPU and per-task tracks show the same scheduled residency; IRQ and app scopes overlap them and must not be added as CPU time.")
-    if earliest < origin:
+    if earliest is not None and earliest < origin:
         shift = _us(origin - earliest)
         for item in events:
             item["ts"] += shift
         origin = earliest
     events.sort(key=lambda item: (item["ts"], -item.get("dur", 0)))
+    call_nesting = {}
+    for item in events:
+        if item["ph"] != "X" or item["cat"] != "heap,request":
+            continue
+        active = call_nesting.setdefault(item["tid"], [])
+        while active and active[-1] <= item["ts"]:
+            active.pop()
+        end = item["ts"] + item["dur"]
+        if active and end > active[-1]:
+            raise ValueError("Crossing native allocator calls cannot share one synchronous task track")
+        if item["dur"] > 0:
+            if len(active) >= 1024:
+                raise ValueError("Allocator call nesting exceeds the 1,024-level host bound")
+            active.append(end)
     nxrs = {"schema_version": 1, "clock": clock, "source": source, "origin_ns": origin,
             "recording_id": recording_id,
             "elf_sha256": elf_sha256.lower() if elf_sha256 else None, "lost_records": lost_records,
@@ -659,10 +880,14 @@ def convert(lines, *, clock=None, source=None, elf_sha256=None, notes_lost=None,
             "warnings": warnings, "input_format": "nuttx-noteram-ascii"}
     nxrs["event_counts"] = native_counts
     nxrs["timer_event_counts"] = timer_counts
+    nxrs["heap_call_counts"] = heap_calls.counts
     nxrs["observed_note_count"] = recognized
     nxrs["ignored_line_count"] = ignored
     nxrs["observed_start_ns"] = earliest
-    nxrs["observed_end_ns"] = max(origin + int(item["ts"] * 1000) + int(item.get("dur", 0) * 1000) for item in events)
+    nxrs["observed_end_ns"] = max((origin + int(item["ts"] * 1000) + int(item.get("dur", 0) * 1000) for item in events), default=None)
+    if capture_window is not None:
+        nxrs["capture_window"] = capture_window
+        nxrs["context_note_count"] = context_notes
     if loss_boundaries:
         nxrs["located_lost_records"] = explicit_loss_count
     if framing is not None:
