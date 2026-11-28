@@ -11,7 +11,7 @@ from unittest.mock import AsyncMock, call, patch
 
 from bumble.hci import HCI_Reset_Command
 from coexist import STACK_TASKS, check_stack_headroom
-from dashboard import Guest, H4Controller, Qmp, resume_guest, retain_failure
+from dashboard import Guest, GuestFaultError, H4Controller, Qmp, resume_guest, retain_failure
 
 
 def snapshot(used, tracker_size=1000):
@@ -57,6 +57,33 @@ class StackHeadroomTests(unittest.TestCase):
 
 
 class StartupDiagnosticsTests(unittest.IsolatedAsyncioTestCase):
+    async def test_first_fatal_exception_stops_without_waiting_for_eof(self):
+        stdout = asyncio.StreamReader()
+        log = io.BytesIO()
+        guest = Guest(SimpleNamespace(stdout=stdout), log)
+        reader = asyncio.create_task(guest.read_console())
+        prefix = b'xtensa_debug_handler: Unhandled debug cause '
+        stdout.feed_data(b'normal startup\r\n' + prefix + b'0x')
+        await asyncio.sleep(0)
+        self.assertFalse(reader.done())
+        stdout.feed_data(b'8\r\n' + prefix + b'4\r\n')
+        with self.assertRaisesRegex(GuestFaultError, 'Unhandled debug cause 0x8$'):
+            await asyncio.wait_for(reader, 1)
+        self.assertEqual(log.getvalue(), b'normal startup\r\n' + prefix + b'0x8\r\n' + prefix + b'4\r\n')
+        self.assertIn(prefix + b'0x8\n', guest.buffer)
+
+    async def test_normal_console_and_expected_guard_diagnostics_continue(self):
+        stdout = asyncio.StreamReader()
+        guest = Guest(SimpleNamespace(stdout=stdout), io.BytesIO())
+        stdout.feed_data(
+            b'nsh> echo stack-guard-control\r\n'
+            b'dump_assert_info: Assertion failed stack margin overwritten: task: tracker_sim_init\r\n'
+            b'example: xtensa_debug_handler: Unhandled debug cause 0x8\r\n'
+            b'{"v":1,"sample":42}\r\n')
+        stdout.feed_eof()
+        await guest.read_console()
+        self.assertEqual(guest.samples, [{'v': 1, 'sample': 42}])
+
     async def test_split_failure_line_preserves_stage_and_hci_progress(self):
         stdout = asyncio.StreamReader()
         guest = Guest(SimpleNamespace(stdout=stdout), io.BytesIO())
@@ -161,6 +188,17 @@ class QmpDiagnosticsTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(report['registers'], {'1': 'EPC6=42005678'})
         self.assertEqual(len(report['diagnostic_errors']), 2)
         self.assertEqual(error.args, ('map sample missing',))
+
+    async def test_fatal_console_error_survives_failed_snapshot(self):
+        monitor = SimpleNamespace(greeting={}, command=AsyncMock(side_effect=TimeoutError('monitor')))
+        error = GuestFaultError('xtensa_debug_handler: Unhandled debug cause 0x8')
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / 'tiles.log'
+            await retain_failure(monitor, error, path, Path('firmware/nuttx.merged.bin'))
+            report = json.loads(path.with_suffix('.failure.json').read_text())
+        self.assertEqual(report['failure'], {'type': 'GuestFaultError', 'message': str(error)})
+        self.assertFalse(report['stopped'])
+        self.assertEqual(len(report['diagnostic_errors']), 3)
 
     async def test_unavailable_session_and_artifact_write_keep_original_error(self):
         error = TimeoutError('original startup failure')

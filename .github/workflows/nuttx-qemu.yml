@@ -3,8 +3,8 @@ name: ESP32-S3 QEMU
 on:
   push:
     branches: [main]
+  # Stacked pull requests must exercise their product image too.
   pull_request:
-    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -25,6 +25,7 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
           submodules: true
       - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master

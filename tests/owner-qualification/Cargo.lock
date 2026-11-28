@@ -144,6 +144,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "nxrs-allocation-probe"
+version = "0.1.0"
+
+[[package]]
 name = "nxrs-build-support"
 version = "0.1.0"
 dependencies = [
@@ -203,15 +207,29 @@ version = "0.1.0"
 [[package]]
 name = "nxrs-messaging"
 version = "0.1.0"
+dependencies = [
+ "triple_buffer",
+]
+
+[[package]]
+name = "nxrs-navigation-services"
+version = "0.1.0"
+dependencies = [
+ "nxrs-gnss",
+ "nxrs-imu",
+ "nxrs-messaging",
+]
 
 [[package]]
 name = "nxrs-owner-qualification"
 version = "0.1.0"
 dependencies = [
+ "nxrs-allocation-probe",
  "nxrs-gnss",
  "nxrs-imu",
  "nxrs-lock-order",
  "nxrs-messaging",
+ "nxrs-navigation-services",
  "nxrs-std-wifi",
  "nxrs-wifi",
  "serde",

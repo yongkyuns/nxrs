@@ -177,6 +177,7 @@ fn validate_build(build: &Value, report: &Value, build_dir: &Path, repo: &Path) 
         );
     }
     assert_eq!(build["apps_tracked_sources_restored"], true);
+    assert_eq!(build["nuttx_tracked_sources_restored"], true);
     assert_eq!(
         report["build_sha256"],
         sha256(&build_dir.join("build.json"))
@@ -197,6 +198,20 @@ fn validate_build(build: &Value, report: &Value, build_dir: &Path, repo: &Path) 
     assert_eq!(
         sha256(&build_dir.join("production.patch")),
         sha256(&repo.join(patch))
+    );
+    let systick = "upstream/nuttx/patches/0149-armv8m-systick-coherent-status.patch";
+    assert_eq!(build["systick_patch"]["path"], systick);
+    assert_eq!(
+        build["systick_patch"]["source"],
+        "arch/arm/src/armv8-m/arm_systick.c"
+    );
+    assert_eq!(
+        build["systick_patch"]["sha256"],
+        sha256(&repo.join(systick))
+    );
+    assert_eq!(
+        sha256(&build_dir.join("systick.patch")),
+        sha256(&repo.join(systick))
     );
     let fixture = repo.join("tests/nuttx-std/timed-capture");
     let names: BTreeSet<_> = fs::read_dir(&fixture)

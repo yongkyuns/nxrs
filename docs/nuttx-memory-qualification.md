@@ -738,7 +738,10 @@ NXRS_TIMED_CAPTURE_EVIDENCE="$timed_output/capture" \
 ```
 
 The ARM `std-demo` CI job runs these cases after the allocator-call witness and
-recorder-cost matrices. It retains `timed-capture/{build,capture}` in its firmware
+recorder-cost matrices. The build applies the production SysTick correction for
+the capture watchdog's monotonic clock. The independent CMSDK timer still supplies
+note timestamps, and the builder restores both source trees. CI retains
+`timed-capture/{build,capture}` in its firmware
 artifact. This qualifies
 the native command, conversion and viewer model for the declared emulated
 clock and workload. Physical GNSS behavior, board clock accuracy and production

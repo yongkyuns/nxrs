@@ -6,10 +6,21 @@ mod mutex_nested;
 mod platform;
 mod scenarios;
 
+#[rustfmt::skip]
+#[path = "../../mpsc-comparison/rust/tests/support/capture_gate.rs"]
+mod capture_gate;
+#[rustfmt::skip]
+#[path = "../../mpsc-comparison/rust/tests/support/capture_pool.rs"]
+mod capture_pool;
+
 use serde::Serialize;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-pub const CASES: [&str; 11] = [
+#[global_allocator]
+static ALLOCATOR: allocation_probe::Tracking<std::alloc::System> =
+    allocation_probe::Tracking::new(std::alloc::System);
+
+pub const CASES: [&str; 13] = [
     "std-blocked-delivery",
     "std-full-progress",
     "std-disconnect",
@@ -21,6 +32,8 @@ pub const CASES: [&str; 11] = [
     "std-mutex-inherit",
     "std-mutex-no-inherit",
     "std-mutex-nested",
+    "publication-progress",
+    "capture-pool-progress",
 ];
 static USED: AtomicBool = AtomicBool::new(false);
 
@@ -48,6 +61,10 @@ pub struct Outcome {
     mutex_nested: Option<mutex_nested::Report>,
     #[serde(skip_serializing_if = "Option::is_none")]
     latest: Option<scenarios::latest::Comparison>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    publication: Option<scenarios::publication::Report>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    capture_pool: Option<scenarios::capture_pool::Report>,
 }
 
 fn main() {
@@ -70,7 +87,12 @@ fn main() {
     let id = env!("OWNER_QUALIFICATION_BUILD_ID");
     println!("OWNER_QUALIFICATION_BEGIN {id} {case} {token}");
     platform::watchdog(true);
-    if !case.starts_with("std-mutex-") {
+    if !case.starts_with("std-mutex-")
+        && !matches!(
+            case.as_str(),
+            "publication-progress" | "capture-pool-progress"
+        )
+    {
         if let Some(configuration) = platform::mutex_configuration() {
             assert!(
                 !configuration.priority_inheritance,

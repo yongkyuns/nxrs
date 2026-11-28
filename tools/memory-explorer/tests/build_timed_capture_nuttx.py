@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build the finite capture witness with the exact production Apps patch.
+"""Build the finite capture witness with the exact production patches.
 
 Supply disposable, tracked-clean pinned native trees. The production patch is
 applied only for this build and reversed afterwards, including build failures.
@@ -7,6 +7,7 @@ Existing native timing/lifecycle fixtures and their clock contracts are unchange
 """
 
 import argparse
+from contextlib import ExitStack
 import hashlib
 import json
 import os
@@ -16,11 +17,13 @@ import shutil
 import subprocess
 
 from build_timing_nuttx import (
-    APPS_REVISION, NUTTX_REVISION, source_identity, validate_configuration,
+    APPS_REVISION, NUTTX_REVISION, source_identity, validate_apps_directory, validate_configuration,
 )
 
 
 PRODUCTION_PATCH = "upstream/nuttx-apps/patches/0007-trace-capture-window.patch"
+SYSTICK_PATCH = "upstream/nuttx/patches/0149-armv8m-systick-coherent-status.patch"
+SYSTICK_SOURCE = "arch/arm/src/armv8-m/arm_systick.c"
 
 
 def sha256(path):
@@ -35,41 +38,6 @@ def patch_files(text):
     ):
         raise RuntimeError("The production patch must modify only unique system/trace files")
     return paths
-
-
-def validate_apps_directory(nuttx, apps, configuration):
-    """Admit the literal APPDIR that pinned tools/Unix.mk will actually use.
-
-    Unix.mk resolves CONFIG_APPS_DIR from the NuttX working directory and
-    requires a readable Makefile. An unset/blank variable defaults to ../apps.
-    Do not evaluate make or shell expansions while checking source identity.
-    """
-    values = [line.partition("=")[2].strip() for line in configuration.splitlines()
-              if line.startswith("CONFIG_APPS_DIR=")]
-    if len(values) > 1:
-        raise RuntimeError("Ambiguous CONFIG_APPS_DIR in the native configuration")
-    value = values[0] if values else ""
-    if not value:
-        value = "../apps"
-    elif value.startswith('"'):
-        if "\\" in value:
-            raise RuntimeError("CONFIG_APPS_DIR must be a supported literal path")
-        try:
-            value = json.loads(value)
-        except ValueError as error:
-            raise RuntimeError("Malformed CONFIG_APPS_DIR string") from error
-    # These characters have nonliteral make/shell meaning in Unix.mk. Its
-    # realpath also splits whitespace, so paths requiring quoting are refused.
-    if not value or any(character.isspace() or character in "$`\\\"';|&<>(){}[]*?!#~"
-                        for character in value):
-        raise RuntimeError("CONFIG_APPS_DIR must be a supported literal path")
-    configured = (nuttx / value).resolve()
-    if configured != apps.resolve():
-        raise RuntimeError(f"The configured apps directory {configured} differs from --apps {apps.resolve()}")
-    makefile = configured / "Makefile"
-    if not makefile.is_file() or not os.access(makefile, os.R_OK):
-        raise RuntimeError("The configured apps directory has no readable Makefile")
-    return configured
 
 
 def run(args):
@@ -94,6 +62,9 @@ def run(args):
         raise RuntimeError("An untracked file collides with a production patch input")
     output.mkdir(parents=True, exist_ok=False)
     shutil.copy2(patch, output / "production.patch")
+    systick = output / "systick.patch"
+    shutil.copy2(repository / SYSTICK_PATCH, systick)
+    original_systick = sha256(nuttx / SYSTICK_SOURCE)
     # Applying and reversing the retained bytes remains safe if another task
     # updates the repository patch while this build is running. Such a change
     # still rejects the success receipt below.
@@ -139,12 +110,23 @@ def run(args):
         commands.append(command)
         subprocess.run(command, cwd=cwd, stdout=log, stderr=subprocess.STDOUT, check=True)
 
-    applied = False
+    def reverse_patch(source, retained, log):
+        execute(["git", "apply", "--reverse", "--check", str(retained)], source, log)
+        execute(["git", "apply", "--reverse", str(retained)], source, log)
+
     with (output / "patch.log").open("w") as patch_log:
-        try:
-            execute(["git", "apply", "--check", str(patch)], apps, patch_log)
-            execute(["git", "apply", str(patch)], apps, patch_log)
-            applied = True
+        with ExitStack() as restore:
+            # The production trace command uses CLOCK_MONOTONIC for its watchdog.
+            # Keep its existing clock checks on the corrected Cortex-M SysTick.
+            for source, retained in ((nuttx, systick), (apps, patch)):
+                execute(["git", "apply", "--check", str(retained)], source, patch_log)
+                execute(["git", "apply", str(retained)], source, patch_log)
+                restore.callback(reverse_patch, source, retained, patch_log)
+            kernel_changes = subprocess.check_output(
+                ["git", "-C", str(nuttx), "diff", "--name-only", "HEAD", "--"], text=True).splitlines()
+            if kernel_changes != [SYSTICK_SOURCE]:
+                raise RuntimeError("Native kernel changes differ from the exact SysTick patch")
+            patched_systick = sha256(nuttx / SYSTICK_SOURCE)
             changed = set(subprocess.check_output(
                 ["git", "-C", str(apps), "diff", "--name-only", "HEAD", "--"], text=True).splitlines())
             if changed != tracked:
@@ -178,7 +160,8 @@ def run(args):
                 execute(["make", "clean"], nuttx, log)
                 execute(["make", "-j2", "EXTRALINKCMDS=--wrap=up_perf_gettime --wrap=up_perf_getfreq --wrap=up_perf_convert"],
                         nuttx, log)
-            if patched != {path: sha256(apps / path) for path in paths}:
+            if (patched != {path: sha256(apps / path) for path in paths} or
+                    patched_systick != sha256(nuttx / SYSTICK_SOURCE)):
                 raise RuntimeError("Production source changed during the native build")
             if (fixture_hashes != {path.name: sha256(path) for path in sorted(fixture.iterdir()) if path.is_file()} or
                 installed_hashes != {name: sha256(installed / name) for name in installed_hashes} or
@@ -194,12 +177,10 @@ def run(args):
                 if not re.search(r"\b" + symbol + r"$", symbols, re.MULTILINE):
                     raise RuntimeError("Missing actual linked witness/production symbol: " + symbol)
             (output / "symbols.txt").write_text(symbols)
-        finally:
-            if applied:
-                execute(["git", "apply", "--reverse", "--check", str(patch)], apps, patch_log)
-                execute(["git", "apply", "--reverse", str(patch)], apps, patch_log)
     restored = source_identity(apps, APPS_REVISION)
-    if sha256(repository / PRODUCTION_PATCH) != sha256(patch):
+    restored_nuttx = source_identity(nuttx, NUTTX_REVISION)
+    if (sha256(repository / PRODUCTION_PATCH) != sha256(patch) or
+            sha256(repository / SYSTICK_PATCH) != sha256(systick)):
         raise RuntimeError("The repository production patch changed during the native build")
     if build_sources != {name: sha256(repository / name) for name in build_sources}:
         raise RuntimeError("Native build helpers changed during the build")
@@ -210,6 +191,10 @@ def run(args):
         "apps_revision": APPS_REVISION,
         "source_identity_before_patch": identities,
         "apps_tracked_sources_restored": restored["tracked_sources_clean"],
+        "nuttx_tracked_sources_restored": restored_nuttx["tracked_sources_clean"],
+        "systick_patch": {"path": SYSTICK_PATCH, "sha256": sha256(systick),
+                          "source": SYSTICK_SOURCE, "before": original_systick,
+                          "after": patched_systick},
         "production_patch": {"path": PRODUCTION_PATCH, "sha256": sha256(patch),
                              "original_sources": original, "patched_sources": patched},
         "fixture_sha256": fixture_hashes,

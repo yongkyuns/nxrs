@@ -11,10 +11,9 @@ probe = ["dep:log"]
 
 [dependencies]
 log = { version = "0.4", optional = true }
-nxrs-messaging = { path = "../../shared/messaging" }
+nxrs-messaging = { path = "../../shared/messaging", features = ["latest"] }
 nxrs-imu = { path = "../../hal/imu" }
 nxrs-gnss = { path = "../../hal/gnss" }
-triple_buffer = "=9.0.0"
 
 [dev-dependencies]
 nxrs-composition = { path = "../../platform", features = ["imu", "gnss"] }

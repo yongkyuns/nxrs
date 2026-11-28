@@ -47,6 +47,9 @@ PORTABLE_EXTERNAL: set[str] = {'cfg-if'}
 # provenance and qualification live in hal/detector/README.md; services do not
 # receive a general third-party dependency exception.
 PORTABLE_EXTERNAL_BY_PACKAGE = {
+    # Optional fixed-reader latest values: no_std + alloc, preallocated SPSC
+    # buffer ownership. Target atomic progress is qualified separately.
+    'nxrs-messaging': {'triple_buffer'},
     # Concrete resource construction uses the same portable bus traits.
     'nxrs-composition': {'embedded-hal'},
     'nxrs-detector': {'microflow', 'nalgebra', 'zune-jpeg'},
@@ -58,9 +61,8 @@ PORTABLE_EXTERNAL_BY_PACKAGE = {
     'nxrs-motion-tracker': {'log', 'qrcodegen'},
     # Fixed-buffer PPP framing and negotiation with no host/native runtime.
     'nxrs-cellular': {'ppproto'},
-    # Navigation uses the portable log facade and a no_std triple buffer
-    # with setup-only allocation, qualified on the CoreS3 product path.
-    'nxrs-navigation-services': {'log', 'triple_buffer'},
+    # Navigation uses the portable log facade; latest storage belongs to messaging.
+    'nxrs-navigation-services': {'log'},
     'nxrs-log-router': {'log'},
 }
 

@@ -9,3 +9,18 @@ name = "messaging"
 [features]
 default = ["channels"]
 channels = []
+latest = ["dep:triple_buffer"]
+pooled = []
+probe = []
+
+[dependencies]
+triple_buffer = { version = "=9.0.0", default-features = false, optional = true }
+
+[dev-dependencies]
+allocation_probe = { package = "nxrs-allocation-probe", path = "../../tests/allocation-probe" }
+
+[[test]]
+name = "pooled-allocation"
+path = "tests/pooled_allocation.rs"
+harness = false
+required-features = ["pooled"]

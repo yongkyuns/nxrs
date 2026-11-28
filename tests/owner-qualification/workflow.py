@@ -32,14 +32,30 @@ CASES = {
 OWNER_CASES = tuple(CASES)
 LATEST_SOURCE = "tests/owner-qualification/src/scenarios/latest.rs"
 NESTED_SOURCE = "tests/owner-qualification/src/mutex_nested.rs"
+PUBLICATION_SOURCE = "tests/owner-qualification/src/scenarios/publication.rs"
+CAPTURE_SOURCE = "tests/owner-qualification/src/scenarios/capture_pool.rs"
+CAPTURE_SUPPORT = (
+    "tests/mpsc-comparison/rust/tests/support/capture_gate.rs",
+    "tests/mpsc-comparison/rust/tests/support/capture_pool.rs",
+)
+CAPTURE_CORE_SUPPORT = (
+    "shared/messaging/src/pooled.rs",
+    "shared/messaging/src/pooled/gate.rs",
+)
 POLICY_SOURCE = "tools/build/src/mutex_policy.rs"
 MUTEX_CASES = ("std-mutex-inherit", "std-mutex-no-inherit")
 CASES.update({case: (0, 0, 0, 0, 0, 3, 3) for case in MUTEX_CASES})
 CASES["std-mutex-nested"] = (18, 18, 0, 18, 0, 10, 48)
+CASES["publication-progress"] = (0, 0, 0, 0, 0, 4, 2)
+CASES["capture-pool-progress"] = (516, 514, 2, 514, 0, 2, 2)
 SUITES = {"owner": OWNER_CASES,
           "mutex-inherit": (MUTEX_CASES[0], "std-mutex-nested"),
           "mutex-no-inherit": (MUTEX_CASES[1],),
+          "publication": ("publication-progress", MUTEX_CASES[0]),
+          "capture": ("capture-pool-progress", MUTEX_CASES[0]),
           "host-all": tuple(CASES)}
+SUITE_PROTOCOLS = {"mutex-inherit": "inherit", "mutex-no-inherit": "none",
+                   "publication": "inherit", "capture": "inherit"}
 MUTEX_CONTROLS = {
     "owner": ("kernel-pi-disabled", "Preserve the owner and channel progress baseline without priority inheritance."),
     "mutex-no-inherit": ("no-inherit", "Negative control for ordinary std::sync::Mutex priority inheritance."),
@@ -59,6 +75,12 @@ ROLES.update({case: [("mutex-low", 120), ("mutex-medium", 150),
 ROLES["std-mutex-nested"] = [("mutex-nested-owner", 120),
                             *[(f"mutex-nested-waiter-{index}", 140 + 5 * index) for index in range(9)],
                             ("coordinator", 220)]
+ROLES["publication-progress"] = [("publication-writer-low", 120),
+                                 ("publication-reader-high", 180),
+                                 ("publication-reader-low", 120),
+                                 ("publication-writer-high", 180), ("coordinator", 220)]
+ROLES["capture-pool-progress"] = [("capture-producer-low", 120),
+                                  ("capture-owner-high", 180), ("coordinator", 220)]
 FIELDS = ("attempted", "admitted", "rejected", "handled", "discarded", "joined", "required_waits")
 FAULT = re.compile(r"\b(panic|panicked|assertion|hardfault|dump_assert|watchdog expired|segmentation fault|aborted|fatal error)\b", re.I)
 
@@ -103,7 +125,8 @@ def inventory():
     # frontend, ABI/SDK/kernel patches and every product profile. Captured files
     # are exact build inputs, not a claim that every one links into the image.
     paths = []
-    for directory in (HERE, ROOT / "tests/nuttx-std", ROOT / "hal", ROOT / "shared",
+    for directory in (HERE, ROOT / "tests/nuttx-std", ROOT / "tests/allocation-probe",
+                      ROOT / "hal", ROOT / "shared", ROOT / "service/navigation", ROOT / "app/motion-tracker",
                       ROOT / "driver", ROOT / "platform", ROOT / "upstream",
                       ROOT / "tools/build", ROOT / "tools/build-support", ROOT / "tools/detector-build-support"):
         paths.extend(p for p in directory.rglob("*") if p.is_file() and not p.is_symlink()
@@ -112,6 +135,7 @@ def inventory():
                           or p.name in ("Makefile", "Kconfig")))
     paths += [ROOT / name for name in ("Cargo.toml", "Cargo.lock", "rust-toolchain.toml", ".cargo/config.toml")]
     paths.append(ROOT / "tests/rtos_harness/console.py")
+    paths.extend(ROOT / name for name in CAPTURE_SUPPORT)
     return {str(p.relative_to(ROOT)): digest(p) for p in sorted(set(paths))}
 
 
@@ -120,7 +144,7 @@ def selected_cases(specification):
     # case is admitted only when its source is part of the retained build;
     # earlier seven-owner/nine-host receipts keep their original inventories.
     sources = specification.get("sources", {})
-    if (POLICY_SOURCE in sources or NESTED_SOURCE in sources) and ("mutex_policy" not in specification or "suite" not in specification):
+    if any(source in sources for source in (POLICY_SOURCE, NESTED_SOURCE, PUBLICATION_SOURCE, CAPTURE_SOURCE)) and ("mutex_policy" not in specification or "suite" not in specification):
         raise ValueError("current retained sources require an explicit suite and resource mutex policy")
     suite = specification.get("suite", "owner")
     if suite not in SUITES or (specification["kind"] == "nuttx-target" and suite == "host-all"):
@@ -130,14 +154,25 @@ def selected_cases(specification):
         cases = tuple(case for case in cases if case != "latest-value-progress")
     if NESTED_SOURCE not in sources:
         cases = tuple(case for case in cases if case != "std-mutex-nested")
+    if PUBLICATION_SOURCE not in sources:
+        if suite == "publication":
+            raise ValueError("publication suite requires retained production publication scenario")
+        cases = tuple(case for case in cases if case != "publication-progress")
+    if CAPTURE_SOURCE not in sources:
+        if suite == "capture":
+            raise ValueError("capture suite requires retained pooled transport scenario")
+        cases = tuple(case for case in cases if case != "capture-pool-progress")
+    elif any(source not in sources for source in CAPTURE_SUPPORT):
+        raise ValueError("pooled capture requires retained shared gate and transport sources")
+    if any(source in sources for source in CAPTURE_CORE_SUPPORT) and any(
+            source not in sources for source in CAPTURE_CORE_SUPPORT):
+        raise ValueError("shared pooled capture requires the complete promoted transport sources")
     if "suite" in specification:
         if specification.get("cases") != list(cases):
             raise ValueError("case inventory disagrees with build suite")
         target = specification["kind"] == "nuttx-target"
-        inheritance = suite.startswith("mutex-") if target else None
-        protocol = suite.removeprefix("mutex-") if target and inheritance else None
-        if protocol == "no-inherit":
-            protocol = "none"
+        protocol = SUITE_PROTOCOLS.get(suite) if target else None
+        inheritance = protocol is not None if target else None
         if specification.get("priority_inheritance") is not inheritance or specification.get("pthread_mutex_default_protocol") != protocol:
             raise ValueError("mutex protocol disagrees with build suite")
         if "mutex_policy" in specification and canonical(specification["mutex_policy"]) != canonical(mutex_policy(specification["kind"], suite)):
@@ -164,7 +199,7 @@ def mutex_policy(kind, suite):
 def inputs(kind, profile=None, suite=None):
     suite = suite or ("host-all" if kind == "host-functional" else "owner")
     target = kind == "nuttx-target"
-    protocol = {"mutex-inherit": "inherit", "mutex-no-inherit": "none"}.get(suite) if target else None
+    protocol = SUITE_PROTOCOLS.get(suite) if target else None
     return {"kind": kind, "profile": profile, "suite": suite, "cases": list(SUITES[suite]),
             "build_nonce": secrets.token_hex(16),
             "sources": inventory(), "command": "owner_qualification", "main_stack": 16384,
@@ -348,7 +383,8 @@ def validate_mutex(observed, report, specification):
         if native is not None:
             raise ValueError("host run fabricated native mutex evidence")
         return
-    if specification.get("suite") != ("mutex-inherit" if inherit else "mutex-no-inherit"):
+    allowed_suites = ("mutex-inherit", "publication", "capture") if inherit else ("mutex-no-inherit",)
+    if specification.get("suite") not in allowed_suites:
         raise ValueError("mutex case does not match its configured firmware")
     validate_mutex_configuration(native["configuration"], inherit, "mutex_policy" in specification)
     people = {p["role"]: p for p in observed["participants"]}
@@ -441,6 +477,150 @@ def validate_nested_mutex(observed, report, specification):
             owner(stage.get("owner"), 140 + 5 * (index - 1) if index else 120, index)
 
 
+def validate_publication(observed, report, specification):
+    if report["case"] != "publication-progress":
+        if "publication" in observed:
+            raise ValueError("unrelated case cannot carry production publication evidence")
+        return
+    publication = observed.get("publication")
+    expected = {"imu_sources": 2, "readers": 2, "paused_writer_reads": 64,
+                "paused_reader_publications": 64, "pause_scope": "between-production-api-calls",
+                "timestamps_preserved": True, "freshness_preserved": True,
+                "sticky_faults_preserved": True, "late_samples_suppressed": True,
+                "independent_sources": True}
+    if type(publication) is not dict or any(type(publication.get(key)) is not type(value) or publication.get(key) != value
+                                            for key, value in expected.items()):
+        raise ValueError("production publication progress or lifecycle witnesses missing")
+    native = report["domain"] == "nuttx-target"
+    if native:
+        if specification.get("suite") != "publication":
+            raise ValueError("production publication requires its PI-enabled suite")
+        validate_mutex_configuration(publication.get("native_configuration"), True, True)
+    elif publication.get("native_configuration") is not None:
+        raise ValueError("host publication fabricated native mutex configuration")
+    people = {person["role"]: person for person in observed["participants"]}
+    for field, role in (("paused_writer", "publication-writer-low"),
+                        ("paused_reader", "publication-reader-low")):
+        state = publication.get(field)
+        if not native:
+            if state is not None:
+                raise ValueError("host publication fabricated native peer wait")
+            continue
+        expected_state = {"tid": people[role]["start"]["tid"], "policy": report["fifo_policy"],
+                          "base_priority": 120, "effective_priority": 120,
+                          "waiting_semaphore": True, "runnable": False}
+        if type(state) is not dict or any(type(state.get(key)) is not type(value) or state.get(key) != value
+                                         for key, value in expected_state.items()):
+            raise ValueError("production publication peer was not paused at its declared priority")
+        if type(state.get("state")) is not int or state["state"] < 0:
+            raise ValueError("invalid production publication peer state")
+    comparison = publication.get("comparison")
+    expected_comparison = {"rounds": 4096, "imu_sources": 2, "readers": 2, "gnss_enabled": False,
+                           "scope": "same-image-instrumented-uncontended",
+                           "memory_scope": "requested-rust-global-allocator"}
+    if type(comparison) is not dict or any(type(comparison.get(key)) is not type(value) or comparison.get(key) != value
+                                         for key, value in expected_comparison.items()):
+        raise ValueError("production publication comparison changed its workload or scope")
+    calls = {"alloc", "zeroed", "realloc", "dealloc", "failed"}
+    fields = calls | {"live_before", "live_after", "blocks_before", "blocks_after"}
+    phases = ("setup", "first_use", "steady", "teardown")
+    for variant in ("mutex", "publication"):
+        cost = comparison.get(variant)
+        if type(cost) is not dict or type(cost.get("elapsed_ns")) is not int or cost["elapsed_ns"] <= 0 or cost.get("fully_reclaimed") is not True:
+            raise ValueError("invalid production publication cost or reclamation")
+        previous = None
+        for phase in phases:
+            window = cost.get(phase)
+            if type(window) is not dict or set(window) != fields or any(type(value) is not int or value < 0 for value in window.values()) or window["failed"] != 0:
+                raise ValueError("invalid publication allocator window")
+            if window["blocks_after"] - window["blocks_before"] != window["alloc"] + window["zeroed"] - window["dealloc"]:
+                raise ValueError("publication allocation block accounting is inconsistent")
+            if previous is not None and any(window[f"{field}_before"] != previous[f"{field}_after"] for field in ("live", "blocks")):
+                raise ValueError("publication allocator windows are not contiguous")
+            if phase == "steady" or (variant == "publication" and phase == "first_use"):
+                if any(window[field] != 0 for field in calls) or window["live_before"] != window["live_after"]:
+                    raise ValueError("allocation in a publication zero-call window")
+            previous = window
+        if any(cost["setup"][f"{field}_after"] <= cost["setup"][f"{field}_before"] for field in ("live", "blocks")):
+            raise ValueError("publication setup did not retain the compared storage")
+        if any(cost[phase][f"{field}_after"] < cost["setup"][f"{field}_after"]
+               for phase in ("first_use", "steady") for field in ("live", "blocks")):
+            raise ValueError("publication comparison retired its storage before teardown")
+        if any(cost["teardown"][f"{field}_after"] != cost["setup"][f"{field}_before"] for field in ("live", "blocks")):
+            raise ValueError("publication storage was not fully reclaimed")
+
+
+def validate_capture_pool(observed, report, specification):
+    if report["case"] != "capture-pool-progress":
+        if "capture_pool" in observed:
+            raise ValueError("unrelated case cannot carry pooled capture evidence")
+        return
+    capture = observed.get("capture_pool")
+    expected = {
+        "scope": ("shared-pooled-scalar-transport"
+                  if all(source in specification.get("sources", {}) for source in CAPTURE_CORE_SUPPORT)
+                  else "fixture-pooled-scalar-transport"),
+        "pause_stage": "after-slot-claim-before-payload",
+        "capacity": 512, "sources": 3, "other_source_records": 511, "restart_records": 2,
+        "rejected_full": 1, "rejected_stale": 1, "source_order": "per-source-fifo",
+        "complete_payloads": True, "sticky_terminal": True, "clean_restart": True,
+        "pause_hits": 1, "first_missing_source": 1, "first_missing_sequence": 511,
+        "atomic_16": True, "atomic_32": True,
+    }
+    if type(capture) is not dict or any(type(capture.get(key)) is not type(value) or capture.get(key) != value
+                                       for key, value in expected.items()):
+        raise ValueError("pooled capture progress or lifecycle evidence missing")
+    checkpoint_fields = ("occupied", "busy_sources", "free_slots")
+    for field, values in (("after_claim", (1, 1, 511)), ("full", (512, 1, 0)),
+                          ("pending", (1, 1, 511)), ("retired", (0, 0, 512)),
+                          ("restarted", (0, 0, 512))):
+        checkpoint = capture.get(field)
+        if type(checkpoint) is not dict or set(checkpoint) != set(checkpoint_fields):
+            raise ValueError("missing pooled capture checkpoint")
+        if any(type(checkpoint[key]) is not int for key in checkpoint_fields) or tuple(checkpoint[key] for key in checkpoint_fields) != values:
+            raise ValueError("pooled capture slot or obligation accounting changed")
+    native = report["domain"] == "nuttx-target"
+    pointer_bytes = capture.get("pointer_bytes")
+    if type(pointer_bytes) is not int or pointer_bytes not in ((4,) if native else (4, 8)):
+        raise ValueError("unsupported pooled capture storage layout")
+    storage = capture.get("storage")
+    expected_storage = {
+        "payload_heap_bytes": 18432, "index_heap_bytes": 3072, "bitmap_bytes": 64,
+        "cursor_bytes": 24, "storage_inline_bytes": 88 + 8 * pointer_bytes,
+        "raw_components_bytes": 21592,
+        "scope": "storage-components-excludes-gate-arc-thread-and-allocator-overhead",
+    }
+    if type(storage) is not dict or set(storage) != set(expected_storage) or any(
+            type(storage[key]) is not type(value) or storage[key] != value
+            for key, value in expected_storage.items()):
+        raise ValueError("pooled capture storage accounting or scope changed")
+    if native:
+        if specification.get("suite") != "capture":
+            raise ValueError("pooled capture requires its PI-enabled suite")
+        validate_mutex_configuration(capture.get("native_configuration"), True, True)
+    elif capture.get("native_configuration") is not None:
+        raise ValueError("host pooled capture fabricated native mutex configuration")
+    roles = {participant["role"]: participant for participant in observed["participants"]}
+    for field, role in (("low_after_claim", "capture-producer-low"),
+                        ("low_after_other_progress", "capture-producer-low"),
+                        ("owner_waiting", "capture-owner-high")):
+        state = capture.get(field)
+        if not native:
+            if state is not None:
+                raise ValueError("host pooled capture fabricated native peer wait")
+            continue
+        person = roles[role]
+        required = {"tid": person["start"]["tid"], "policy": report["fifo_policy"],
+                    "base_priority": person["requested_priority"],
+                    "effective_priority": person["requested_priority"],
+                    "waiting_semaphore": True, "runnable": False}
+        if type(state) is not dict or any(type(state.get(key)) is not type(value) or state.get(key) != value
+                                          for key, value in required.items()):
+            raise ValueError("pooled capture peer was not paused at its declared priority")
+        if type(state.get("state")) is not int or state["state"] <= 0:
+            raise ValueError("invalid pooled capture peer state")
+
+
 def parse(text, build, case, token, physical=False):
     if case not in selected_cases(build["inputs"]) or not re.fullmatch(r"[A-Za-z0-9-]{8,64}", token):
         raise ValueError("unknown case or invalid token")
@@ -470,7 +650,7 @@ def parse(text, build, case, token, physical=False):
         raise ValueError("incorrect domain, identity or unsupported qualification")
     observed = report["observations"]
     if any(type(value) is not int or value < 0 for key, value in observed.items()
-           if key not in ("participants", "endpoints_closed", "mutex", "mutex_nested", "latest")):
+           if key not in ("participants", "endpoints_closed", "mutex", "mutex_nested", "latest", "publication", "capture_pool")):
         raise ValueError("invalid observation count")
     if any(type(observed[field]) is not int for field in FIELDS) or tuple(observed[field] for field in FIELDS) != CASES[case]:
         raise ValueError("incomplete work, wait or joined cleanup")
@@ -497,6 +677,8 @@ def parse(text, build, case, token, physical=False):
         raise ValueError("failure/retry witnesses missing")
     validate_mutex(observed, report, build["inputs"])
     validate_nested_mutex(observed, report, build["inputs"])
+    validate_publication(observed, report, build["inputs"])
+    validate_capture_pool(observed, report, build["inputs"])
     if case == "latest-value-progress":
         latest = observed.get("latest")
         expected = {"paused_writer_reads": 2, "paused_reader_publications": 32, "fanout_skew_checks": 1, "rounds": 4096}
@@ -757,8 +939,8 @@ def main():
     b.add_argument("--profile", required=True)
     b.add_argument("--out", type=Path, required=True)
     b.add_argument("--cargo", default="cargo")
-    b.add_argument("--suite", choices=("owner", "mutex-inherit", "mutex-no-inherit"), default="owner",
-                   help="build a separate firmware for each mutex protocol; owner preserves its PI-disabled baseline")
+    b.add_argument("--suite", choices=("owner", "mutex-inherit", "mutex-no-inherit", "publication", "capture"), default="owner",
+                   help="select the native contract suite; owner preserves its PI-disabled baseline")
     h = sub.add_parser("host")
     h.add_argument("--out", type=Path, required=True)
     h.add_argument("--cargo", default="cargo")

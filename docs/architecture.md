@@ -277,6 +277,15 @@ This is not an actor framework, service registry, executor, or global event bus.
 Each service keeps its event enum private and exposes narrow typed endpoints or
 domain methods.
 
+The independent `latest` feature supplies fixed-reader publication when
+consumers may skip intermediate values. `latest::channel::<T, READERS>` creates
+one publisher and all readers during setup; non-cloneable endpoints require
+mutable access and copied payloads. It adds no thread or wake mechanism.
+Navigation uses it for Motion Tracker's two observation readers and owns the
+timestamps, freshness and terminal fault policy above the generic storage.
+See [observations and capture](concurrency-event-communication.md#motion-tracker-observations-and-capture)
+for allocation, lifecycle, target progress and ordered-history boundaries.
+
 For example, Fusion has one private event type:
 
 <figure class="architecture-art">

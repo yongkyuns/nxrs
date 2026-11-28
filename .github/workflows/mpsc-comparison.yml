@@ -9,6 +9,7 @@ on:
       - 'tests/owner-qualification/**'
       - 'tests/host/test_armv8m_systick.py'
       - 'tests/host/armv8m_systick.c'
+      - 'tests/allocation-probe/**'
       - 'tests/rtos-characterization/**'
       - 'tests/rtos_harness/**'
       - 'tests/nuttx-std/wifi/**'
@@ -16,6 +17,8 @@ on:
       - 'hal/wifi/**'
       - 'shared/messaging/**'
       - 'shared/lock-order/**'
+      - 'service/navigation/**'
+      - 'app/motion-tracker/**'
       - 'tests/nuttx-std/channels/mpsc-fixture-iram.ld'
       - 'tests/event-services-comparison/image_package.py'
       - 'tests/profiles/*-mpsc.toml'
@@ -73,11 +76,22 @@ jobs:
           cargo fmt --manifest-path tests/mpsc-comparison/rust/Cargo.toml --check
           cargo fmt --manifest-path tests/owner-qualification/Cargo.toml --check
           cargo test --locked -p nxrs-lock-order
+          cargo test --locked -p nxrs-messaging --features latest,pooled,probe
+          cargo test --locked -p nxrs-messaging --no-default-features --features pooled
+          cargo test --locked -p nxrs-motion-tracker
           python3 -m unittest discover -s tests/mpsc-comparison -p 'test_*.py' -v
           python3 -m unittest discover -s tests/owner-qualification -p 'test_*.py' -v
           python3 -m unittest discover -s tests/host -p test_armv8m_systick.py -v
           python3 -m unittest discover -s tests/rtos-characterization -p 'test_*.py' -v
-      - name: Run and replay all eleven current-source owner, latest-value and mutex host cases
+      - name: Compare ordered capture admission and allocation
+        run: |
+          set -o pipefail
+          mkdir -p target/capture-comparison
+          cargo test --manifest-path tests/mpsc-comparison/rust/Cargo.toml --test capture --locked \
+            2>&1 | tee target/capture-comparison/results.log
+          python3 tests/mpsc-comparison/capture_peer.py target/capture-comparison/results.log \
+            --out target/capture-comparison/python-peer.json
+      - name: Run and replay all current-source host cases
         run: |
           python3 tests/owner-qualification/workflow.py host --out target/owner-host-ci
           python3 tests/owner-qualification/workflow.py inspect --build target/owner-host-ci \
@@ -93,19 +107,20 @@ jobs:
             target/owner-host-ci/inspect.json
             target/owner-host-ci/retained/**
             target/owner-host-ci/runs/**
+            target/capture-comparison/**
           include-hidden-files: true
           if-no-files-found: warn
           retention-days: 14
 
   mutex-qemu:
-    name: Standard mutex fixed-priority control (${{ matrix.suite }})
+    name: Capture, publication and mutex native controls (${{ matrix.suite }})
     needs: host
     runs-on: ubuntu-24.04
     timeout-minutes: 35
     strategy:
       fail-fast: false
       matrix:
-        suite: [mutex-inherit, mutex-no-inherit]
+        suite: [mutex-inherit, mutex-no-inherit, publication, capture]
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -126,7 +141,7 @@ jobs:
           key: owner-arm-qemu-8.2.7-1f0604f296ab9acb4854c054764a1ba408643fc299bd54a6500cccfaaca65b55
       - name: Build verified ARM QEMU with corrected MPS2 UART interrupts
         run: bash tests/owner-qualification/install-qemu.sh
-      - name: Build the selected mutex protocol through the normal frontend
+      - name: Build the selected suite through the normal frontend
         env:
           MUTEX_SUITE: ${{ matrix.suite }}
         run: |

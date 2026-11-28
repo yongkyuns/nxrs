@@ -9,6 +9,41 @@ use navigation::{FusionConfig, FusionService, GnssService, HealthService, ImuSer
 static PRIMARY: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 #[test]
+fn publication_open_failure_remains_terminal_after_the_callback_is_dropped() {
+    use imu::Session;
+    use navigation::observations::{publication, ObservationService, Reading, SensorFault};
+    let _primary = PRIMARY.lock().unwrap();
+    let device = composition::imu::primary_imu();
+    let mut occupied = device.open_default(|_| Ok(())).unwrap();
+    let (publishers, [owner, mut other]) = publication::<1, 2>(Duration::from_secs(1), None);
+    let [mut publisher] = publishers.imu;
+    let mut service = ObservationService::with_reader(owner);
+    let (sender, _inbox) = messaging::bounded::<()>(1);
+    assert_eq!(
+        service.start_imu_with(0, device, sender.clone(), move |event| {
+            let _ = publisher.record(&event);
+            None
+        }),
+        Err(SensorFault::Imu(0, imu::DeviceError::Busy))
+    );
+    occupied.request_stop().unwrap();
+    occupied.join().unwrap();
+    assert_eq!(
+        service.snapshot(std::time::Instant::now()).imu,
+        [Reading::Fault]
+    );
+    assert_eq!(
+        other.snapshot(std::time::Instant::now()).imu,
+        [Reading::Fault]
+    );
+    // Releasing the physical device cannot restart this failed publication lifetime.
+    assert_eq!(
+        service.start_imu_with(0, device, sender, |_| None),
+        Err(SensorFault::Imu(0, imu::DeviceError::Busy))
+    );
+}
+
+#[test]
 fn retained_commands_share_the_callers_existing_wait_point() {
     let _primary = PRIMARY.lock().unwrap();
     let caller = std::thread::current();

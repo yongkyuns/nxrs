@@ -22,6 +22,274 @@ joined cleanup. `sdk_{nuttx,zephyr}.c` translate native operations;
 `tests/profiles/{esp32s3,pico2w}-mpsc.toml`. No production HAL API or
 benchmark Cargo feature is added.
 
+## Host capture admission comparison
+
+The serial, harness-free
+[capture fixture](rust/tests/capture.rs) source-includes Motion Tracker's
+current `Capture` and clock implementation. It compares their observable
+capture behavior with desktop `std::sync::mpsc` and pinned `heapless::spsc`
+0.9.4 queue models. This is a host contract and storage comparison. It does not
+measure timing or run the patched NuttX std backend. The source-included app
+now uses the same shared scalar transport exercised by the pool controls.
+
+Run it from the repository root:
+
+```sh
+mkdir -p target/mpsc/capture-host
+CARGO_TARGET_DIR=target/qualification-build-driver \
+CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0 \
+CARGO_INCREMENTAL=0 CARGO_BUILD_JOBS=1 \
+cargo test --manifest-path tests/mpsc-comparison/rust/Cargo.toml \
+  --test capture --locked > target/mpsc/capture-host/results.log
+python3 tests/mpsc-comparison/capture_peer.py target/mpsc/capture-host/results.log \
+  --out target/mpsc/capture-host/python-peer.json
+```
+
+The executable emits `CAPTURE_METADATA`, `CAPTURE_COMPARE`, `CAPTURE_CHECK`,
+`CAPTURE_PROTOCOL`, `CAPTURE_POOL`, `CAPTURE_POOL_MEMORY`, `CAPTURE_PEER` and `CAPTURE_GATES`
+JSON records. Metadata hashes the compiled-in capture, clock, fixture, lifecycle
+gate, reference adapter, pool facade, pool checks, manifest and lockfile
+bytes using Git blob SHA-1. Separate fields bind the actual shared production
+gate, pool implementation and app budget policy; facade hashes alone would not
+identify the compiled transport. Retain the
+whole output and the command's exit status. The existing allocation probe
+observes requested Rust heap bytes, not process RAM or native allocator use.
+The harness is disabled because an ordinary libtest harness can allocate
+concurrently with an allocation window. The source-included module's own
+`#[test]` functions are not executed by this harness; they remain in the
+Motion Tracker test suite.
+
+The peer checker executes the unchanged `dashboard.py::decode_batch` function
+against eight vectors emitted by the real app encoder, including mixed-source
+v1/v2/v3 batches, count encoding and float fallback, UTC, wrapping sequences and
+timestamps, and overflow framing. It binds both compiled source blobs and the
+current decoder source, and rejects six deliberately damaged controls. It loads
+only that function's AST with `struct`, so no BLE/UI packages are required.
+This is Python decoder execution; terminal framing has a separate oracle, and
+it does not run Swift, an iPhone or TLS/BLE. Nonfinite scalar preservation is a
+transport control; the Swift client intentionally rejects nonfinite readings.
+
+Every variant has **512 usable record slots**:
+
+| Variant | Admission capacity | Extra storage distinction |
+| --- | --- | --- |
+| Production pooled `Capture` | One 512-record pool across all sources | Reserves before acquisition, retains while inactive and releases at final endpoint teardown |
+| Desktop std MPSC model | One 512-record pool across all sources | Reports actual requested setup allocation; this is the host standard library |
+| Even SPSC model | IMU 1: 171, IMU 2: 171, GNSS: 170 | Three rings use 172, 172, and 171 physical slots |
+| Rate SPSC model | IMU 1: 254, IMU 2: 254, GNSS: 4 | Three rings use 255, 255, and 5 physical slots |
+
+The two partitions are experiment inputs, not accepted product budgets.
+`heapless::spsc::Queue<T, N>` has `N - 1` usable slots. Defaults and
+`portable-atomic` fallbacks are disabled; this host witness uses the crate's
+native-width atomic load/store implementation. The fixture adds no unsafe
+queue code. Source inspection establishes exclusive producer/consumer endpoint
+ownership and release/acquire publication, but target atomic instructions and
+scheduling still need native qualification.
+
+Each matched trace withholds consumption while offering either two or three
+seconds of nominal 100 Hz / 100 Hz / 2 Hz data, one active IMU, a GNSS burst,
+or unequal source bursts. Canonical queue records retain exactly the scalar
+fields exported by the real capture path. Independent wire decoding checks
+source, sequence, timestamp truncation and payload bits; it makes no assumption
+about the layout of Capture's private `Sample` type. The reported queue record
+layout, inline object size and requested setup heap allocation are distinct
+quantities. Inline size is not stack high-water measurement.
+
+The current capture path runs its actual record, readiness, host unpark, batch,
+overflow marker and finish operations. Queue models deliberately stop admission
+at their first Full in the serial trace, return the unadmitted record, and
+classify subsequent offers as closed. They are **not concurrent export
+protocols**. Their rotating three-source drain preserves each source's FIFO
+without waiting for an absent source; cross-source interleaving can change.
+All rows reconcile offered = admitted + full + closed and admitted = delivered
+after draining. They report unused slots at overflow, exposing capacity stranded
+in other rings instead of treating equal total capacity as equal admission.
+
+The production pool and encoder subsequently process each result in batches
+of 16 outside allocation windows. Independent decoding verifies full-float v1,
+v2 and v3 payloads and per-source FIFO; cross-source interleaving may change
+again when records enter the pool. The reported post-processing wire sizes are
+therefore not measurements of a replacement SPSC exporter. UTC anchoring,
+native-count reconstruction, partial transport writes and client behavior remain
+with their owning fixtures. Production setup and inactive-retention byte counts
+include its separate clock/wake object, while the pool-only harness has a
+different allocation scope.
+
+Additional witnesses check non-Copy value ownership through Full, ring wrap and
+retirement; three producers and a stalled consumer exchange 1,536 records across 32
+full/drain rounds; and simultaneous overflow of the real Capture retains one
+missing identity, drains its admitted prefix and restarts cleanly. Dropping a raw
+SPSC consumer does not close its producer, unlike dropping an MPSC receiver.
+Closure therefore needs an explicit capture protocol.
+
+A deterministic negative control pauses an SPSC producer after its last epoch
+check. The controller closes admission, observes an empty ring and starts a new
+epoch before allowing the old commit. The old record then appears. This is an
+expected failure of the **epoch-check-only protocol**, not of the SPSC queue.
+Stable ring storage is retained throughout the test. Empty storage is not proof
+that every admitted producer is quiescent, and a last epoch check is not an
+atomic commit barrier.
+
+### Concurrent capture lifecycle fixture
+
+The [production lifecycle gate](../../shared/messaging/src/pooled/gate.rs) owns
+admission, overflow identity, cancellation and retirement. Its explicit `probe`
+feature exposes qualification boundaries to two independent payload paths. The [reference adapter](rust/tests/support/capture_protocol.rs) uses
+real host threads, non-Copy payloads and a 512-slot desktop std MPSC queue. The
+[pool facade](rust/tests/support/capture_pool.rs) calls `messaging::pooled`
+without implementing storage or lifecycle again. Both use safe Rust. The app
+uses the optional `pooled` feature of its existing messaging dependency; this
+adds no worker or separate runtime. The original serial comparisons and
+epoch-only negative control remain independent reference checks. Reference
+ownership witnesses and event accounting run outside the allocation windows;
+they are not a product memory measurement.
+
+One `AtomicU32` coordinates the following state:
+
+| Field | Width | Meaning |
+| --- | ---: | --- |
+| Phase | 2 bits | Idle, open, overflow or cancelled |
+| Occupied credits | 10 bits | Accepted records reserved or retained, up to 512 across all sources |
+| Busy sources | 3 bits | One outstanding publication or closing obligation per source |
+| Epoch | 17 bits | Session identity; exhaustion fails explicitly without wrapping |
+
+Three exclusive producer endpoints reserve a shared credit and their source bit
+in the same compare-and-exchange that validates the captured epoch and open
+phase. The first offer at genuine capacity closes admission and holds its source
+bit until the first-missing identity is published. A failed compare-and-exchange
+requires reconsidering the new state; it is not itself evidence of overflow.
+Rejected offers return their original values.
+
+The owner can drain visible records while another source is paused. Closing
+remains Pending while publication is outstanding; the overflow terminal and
+restart wait until every credit and source obligation has retired. Terminal
+state remains observable until the owner explicitly finishes the closed epoch.
+Occupied credits and busy sources are independent: a consumer may release the
+last queued record before its producer retires. Forgetting a permit strands its
+source bit and keeps the epoch pending; it cannot overflow a counter or permit
+unsafe reuse. Abandoning an accepted permit cancels the session, so discarded
+work cannot be presented as a lossless overflow prefix.
+
+The transport checks per-source FIFO and accepted-record accounting. Credit
+reservation order is not global payload order: another source may publish while
+an earlier reservation is paused. This differs from the previous mutex queue's
+cross-source admission order. The production wire decoder keeps each source's
+sequence and delta timestamp independently.
+
+The 24 `CAPTURE_PROTOCOL` cases cover pooled admission under nominal and skewed
+loads; simultaneous overflow and the last shared credit; a credit returned
+between observing Full and attempting to close; paused admission, marker
+publication and producer retirement; cancellation, stale epochs and reuse of
+source sequence numbers; abandoned and forgotten permits; unwinding after
+dequeue; epoch exhaustion; setup rollback before opening; and concurrent FIFO
+with credit return. Non-Copy values have independent identity and exactly-once
+drop witnesses. Each report reconciles admitted values with delivered,
+explicitly discarded and still-retained values. The deliberate forgotten-permit
+case retains one obligation and does not claim successful teardown.
+
+Three of those cases use fresh owner threads with readiness checks and a 5 ms
+bounded host poll. They check retained-data progress before a delayed unpark and
+notification during unwind. They do not force publication into the exact final
+recheck-to-park window or qualify the production batch deadline and wait loop.
+The app test suite separately exercises the actual communications endpoint
+handoff and export session. The host reference alone does not establish them.
+
+These host checks establish behavior for the controlled schedules in the fixture.
+They do not qualify desktop std MPSC as a nonblocking NuttX transport, prove
+bounded compare-and-exchange retries, or measure acquisition latency. The epoch
+limit is 131,071 successful opens per acquisition lifetime. The product returns
+an exhaustion error rather than wrapping or implicitly replacing live endpoints.
+
+### Shared pooled payload transport
+
+The pooled adapter preallocates 512 shared payload slots, a free-slot bitmap and
+three source-owned index rings. Any source can use all 512 payload slots; the
+index rings do not partition payload capacity. A record stores its sequence and eight uninterpreted payload words as nine
+atomic 32-bit words. The app maps its 64-bit time and six sample words into that
+payload; the shared transport has no sensor or wire-format dependency. A release/acquire
+cursor publishes the complete payload and its slot index. The sole owner checks
+at most three source lanes and skips a producer that has not published yet.
+This preserves per-source FIFO, without imposing the mutex queue's cross-source
+order or proving a bound on the entire poll operation.
+
+Physical slots return before logical credits, so an admitted producer has
+backing storage available. Unwind cleanup follows the same order. A published
+record belongs to the consumer even if its publisher later unwinds. Dropping
+the owner closes admission; outstanding producers keep storage alive until they
+retire. Dropping the last publisher closes an open epoch without replacing an
+overflow terminal. Opening rechecks source lifetime: an empty disconnected epoch
+rolls back, while accepted records remain available for explicit accounting.
+
+The [22 pooled controls](rust/tests/support/capture_pool_checks.rs) check complete
+payload bits, nominal and skewed admission, source FIFO, full-ring reuse,
+cancellation/restart, unwind, owner drop and last-publisher races around opening.
+Three controlled pauses occur after slot claim, midway through payload writes,
+and before cursor publication. In each case another source publishes and the
+owner drains 511 records while the paused producer retains one obligation.
+The original 20 comparison rows, four controls and 24 reference lifecycle cases
+remain in the same executable.
+
+The [historical host run at `60ee9f07`](https://github.com/yongkyuns/nxrs/issues/446)
+requested **21,712 B in five setup allocations**. Its first offer/read and 4,096 subsequent
+round trips made zero Rust allocator calls. The raw storage components are:
+
+| Component | Layout | Bytes |
+| --- | --- | ---: |
+| Shared payloads | 512 × 9 atomic 32-bit words | 18,432 |
+| Source indices | 3 × 512 atomic 16-bit indices | 3,072 |
+| Free-slot bitmap | 16 atomic 32-bit words | 64 |
+| Published/consumed cursors | 3 × 2 atomic 32-bit words | 24 |
+| Raw component total | Included in the measured setup allocation | 21,592 |
+
+The remaining 120 requested bytes contain host structure/control metadata and
+alignment. Native allocator overhead, process RAM and stack high-water are not
+measured by that receipt. All **21,712 B remained allocated while inactive**;
+normal final endpoint teardown reclaimed them. The previous mutex `Capture`
+released its **20,480 B payload allocation** on finish. Those payload-only and
+complete-arena numbers have different scope and lifetime; their subtraction is
+not a full product heap comparison. Current allocator records must be collected
+again because promotion adds peak accounting, configurable notification and a
+feature-dependent probe counter.
+
+Production ordered capture now uses this transport. `CAPTURE_GATES` reports
+`candidate_integrated: true` while keeping native qualification separate.
+Each callback owns one source publisher and `Telemetry` transfers the exclusive
+consumer through the existing worker's failed-spawn and joined-reuse paths.
+The app's 22 KiB requested-pool budget is checked before allocation. The fixed
+arena remains reserved between exports; a headless run without BLE does not
+allocate it. The two-second stall budget includes resolved IMU rates, a declared
+2 Hz GNSS assumption and 64 burst records. Oversized IMU configurations fail
+before sensor startup. The exported wire still has 512 shared admissions and
+16-record batches.
+
+Normal shared-library builds exclude the public pause hooks. The independent
+allocator harness also runs without `probe`, checks that a too-small budget
+performs no allocation, compares its requested-byte calculation with the actual
+five setup allocations, and checks no first-use/steady allocation or inactive
+release. Notifier-owned referents and target allocator metadata are outside that
+pool budget. The four array allocations are fallible; the final small `Arc`
+control allocation uses the standard allocator contract.
+
+At source `60ee9f07`, the single-core MPS2 NuttX
+[`capture` suite](../owner-qualification/README.md#pooled-capture-transport-witness)
+passed `capture-pool-progress` and the same-image `std-mutex-inherit` control in
+fresh QEMU boots; both retained captures passed independent replay. Build
+`8c3b0380` checks the actual shared Gate/pool: a priority-120 producer pauses
+after claiming a physical slot while a priority-180 owner publishes and drains
+the other 511 records, then blocks until publication and obligation retirement
+permit completion. This is evidence for that exact fixture revision and
+controlled schedule, before the later production owner-registration integration.
+
+The application suite owns wake/clear/recheck/sleep, batch deadlines, partial
+writes, cancellation/reconnect and v1/v2/v3 compatibility checks. Target adoption
+still requires matching evidence for each deployed target's atomics, scheduling,
+active/idle heap and stack high-water. Bitmap scans and compare-and-exchange retries
+have no per-call SMP bound. These controlled schedules and the separate host
+windows with zero allocator calls do not establish WCET, ISR
+suitability, physical acquisition latency or a whole-product deadline. See
+[#446](https://github.com/yongkyuns/nxrs/issues/446) and the
+[capture contract](../../docs/concurrency-event-communication.md#motion-tracker-observations-and-capture).
+
 ## Build
 
 Use Python 3.11+, Cargo, CMake/Ninja, pyelftools for Pico placement and pyserial

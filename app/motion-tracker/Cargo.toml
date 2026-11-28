@@ -27,7 +27,7 @@ nxrs-gnss = { path = "../../hal/gnss" }
 nxrs-imu = { path = "../../hal/imu" }
 nxrs-boot = { path = "../../hal/boot" }
 nxrs-watchdog = { path = "../../hal/watchdog" }
-nxrs-messaging = { path = "../../shared/messaging", features = ["channels"] }
+nxrs-messaging = { path = "../../shared/messaging", features = ["channels", "pooled"] }
 nxrs-navigation-services = { path = "../../service/navigation" }
 nxrs-settings = { path = "../../hal/settings" }
 nxrs-cellular = { path = "../../hal/cellular" }
@@ -35,3 +35,6 @@ nxrs-ble = { path = "../../hal/ble", features = ["peripheral"] }
 nxrs-execution = { path = "../../hal/execution" }
 nxrs-tls = { path = "../../hal/tls", features = ["pairing"] }
 qrcodegen = "1.8"
+
+[dev-dependencies]
+nxrs-messaging = { path = "../../shared/messaging", features = ["pooled", "probe"] }

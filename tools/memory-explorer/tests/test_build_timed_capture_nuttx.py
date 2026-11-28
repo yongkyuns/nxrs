@@ -35,18 +35,23 @@ class NativeAppsAdmission(unittest.TestCase):
     def test_accepts_literal_relative_absolute_and_default_apps_paths(self):
         with TemporaryDirectory() as temporary:
             root = Path(temporary)
-            nuttx, apps = root / "nuttx", root / "apps"
+            nuttx, apps = root / "nuttx", root / "APPS~1"
             nuttx.mkdir()
             apps.mkdir()
             (apps / "Makefile").write_text("# native apps\n")
-            for setting in ('CONFIG_APPS_DIR="../apps"', f'CONFIG_APPS_DIR="{apps.as_posix()}"', ""):
+            for setting in ('CONFIG_APPS_DIR="../APPS~1"', f'CONFIG_APPS_DIR="{apps.as_posix()}"'):
                 with self.subTest(setting=setting):
                     self.assertEqual(validate_apps_directory(nuttx, apps, setting), apps.resolve())
+            default = root / "apps"
+            default.mkdir()
+            (default / "Makefile").write_text("# native apps\n")
+            self.assertEqual(validate_apps_directory(nuttx, default, ""), default.resolve())
 
     def test_ambiguous_or_interpolated_apps_paths_fail_without_evaluation(self):
         with TemporaryDirectory() as temporary:
             nuttx, apps = Path(temporary) / "nuttx", Path(temporary) / "apps"
             for setting in ('CONFIG_APPS_DIR="$(unexpected)"',
+                            'CONFIG_APPS_DIR="~/apps"',
                             'CONFIG_APPS_DIR="../apps"\nCONFIG_APPS_DIR="../elsewhere"',
                             'CONFIG_APPS_DIR="../apps with spaces"'):
                 with self.subTest(setting=setting), self.assertRaises(RuntimeError):

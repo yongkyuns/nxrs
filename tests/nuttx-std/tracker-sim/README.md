@@ -314,6 +314,12 @@ sequences throughout the transfers.
 
 ### Failure registers and matching firmware
 
+The ESP32-S3 QEMU workflow runs for pull requests targeting any branch, including
+stacked pull requests. It checks out the pull request's exact head commit, so
+the product image and retained provenance identify that source. Push and manual
+runs use their event commit. A queued workflow establishes trigger coverage;
+the export and map assertions must finish before that revision is qualified.
+
 The separate `--tiles` run at `3e841457` failed before the first complete panel
 frame. Its retained log contains 32,338 repeated
 `xtensa_debug_handler: Unhandled debug cause 0x8` messages. The originating
@@ -329,6 +335,14 @@ paths, whether stopping succeeded, register text and partial diagnostic errors.
 Inspect `DEBUGCAUSE`, saved exception PCs including `EPC6`, `EXCCAUSE` and
 `EXCVADDR` against that run's ELF and link map. A BREAK can occur in an exception
 vector, so the current handler PC alone need not identify the original fault.
+
+The console reader raises `GuestFaultError` on the first complete line beginning
+`xtensa_debug_handler: Unhandled debug cause `. Raw console bytes are flushed
+before parsing, and a console fault takes precedence over a simultaneous scenario
+timeout. This requests the failure snapshot promptly instead of waiting for the
+panel deadline while the exception repeats. It does not guarantee that the
+original exception registers survive until the guest stops. The intentional
+stack-guard assertion remains an expected control and is not intercepted.
 
 The [ESP32-S3 CI artifact](../../../.github/workflows/nuttx-qemu.yml) retains
 these sidecars with the upload/coexistence ELF, map, merged image, resolved

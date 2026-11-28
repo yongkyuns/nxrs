@@ -2247,6 +2247,10 @@ dependencies = [
 [[package]]
 name = "nxrs-messaging"
 version = "0.1.0"
+dependencies = [
+ "nxrs-allocation-probe",
+ "triple_buffer",
+]
 
 [[package]]
 name = "nxrs-motion-tracker"
@@ -2291,7 +2295,6 @@ dependencies = [
  "nxrs-imu",
  "nxrs-messaging",
  "nxrs-simulation",
- "triple_buffer",
 ]
 
 [[package]]

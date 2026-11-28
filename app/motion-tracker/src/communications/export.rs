@@ -1,20 +1,23 @@
 //! Bounded capture for the authenticated tracker export stream.
+//!
+//! Three exclusive acquisition publishers share a fixed scalar pool. The
+//! communications owner copies complete batches before encoding or transport I/O.
+#[path = "export/policy.rs"]
+mod policy;
+
 use crate::clock::ClockAnchor;
+use messaging::pooled::{self, Notify, StartError, Status};
 use navigation::observations::Measurement;
-use std::collections::VecDeque;
 use std::io;
 use std::sync::{
-    atomic::{AtomicBool, AtomicUsize, Ordering},
-    Mutex, OnceLock,
+    atomic::{AtomicBool, Ordering},
+    Arc, Mutex, OnceLock,
 };
 use std::thread::{self, Thread};
 use std::time::Duration;
 
 pub const REQUEST_PREFIX: &[u8; 4] = b"NXRS";
 pub const REQUEST_LEN: usize = REQUEST_PREFIX.len() + 1;
-// Roughly 2.5 seconds at two 100 Hz IMUs and 2 Hz GNSS. Retain samples
-// while connection-level backpressure clears and the exporter catches up.
-const QUEUE: usize = 512;
 const BATCH: usize = 16;
 const RECORD_HEADER: usize = 13;
 const IMU_BYTES: usize = RECORD_HEADER + 24;
@@ -25,7 +28,7 @@ const COUNTS: u8 = 0x40;
 const NO_UTC: u8 = 0x20;
 pub const MAX_BYTES: usize = 4 + 8 + BATCH * IMU_BYTES;
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Version {
     Fixed = 1,
     Compact = 2,
@@ -52,24 +55,69 @@ pub struct Batch {
     pub terminal: bool,
 }
 
-#[derive(Default)]
-pub struct Capture {
-    // Odd epochs admit records. A new export has a different epoch so an
-    // acquisition task paused during encoding cannot enqueue into it.
-    epoch: AtomicUsize,
-    ready: AtomicBool,
+/// Read-only product state remains useful when export storage is not reserved.
+struct CaptureShared {
     sensor_failed: AtomicBool,
     owner: OnceLock<Mutex<Thread>>,
-    samples: Mutex<Samples>,
     scales: [Option<[u32; 2]>; 2],
     clock: OnceLock<ClockAnchor>,
 }
 
-#[derive(Default)]
-struct Samples {
-    queue: VecDeque<Sample>,
-    first_missing: Option<(Source, u32)>,
-    high_water: usize,
+struct CaptureWake(Arc<CaptureShared>);
+
+impl Notify for CaptureWake {
+    fn notify(&self) {
+        self.0.notify_owner();
+    }
+}
+
+/// The sole pool consumer moves with Telemetry through spawn and joined handoff.
+pub struct Capture {
+    owner: Option<pooled::Owner<CaptureWake>>,
+    shared: Arc<CaptureShared>,
+    retiring: bool,
+}
+
+/// A source-owned callback endpoint. It is neither Clone nor Sync.
+pub struct CapturePublisher {
+    publisher: Option<pooled::Publisher<CaptureWake>>,
+    source: u8,
+    shared: Arc<CaptureShared>,
+}
+
+#[derive(Clone)]
+pub struct CaptureView(Arc<CaptureShared>);
+
+impl CaptureView {
+    pub fn clock(&self) -> Option<ClockAnchor> {
+        self.0.clock.get().copied()
+    }
+}
+
+impl CaptureShared {
+    fn register_owner(&self) {
+        // Only the joined owner may replace this destination. Initialize and
+        // prewarm native mutex storage on that worker before publishing it.
+        let current = thread::current();
+        let owner = self.owner.get_or_init(|| {
+            let owner = Mutex::new(current.clone());
+            drop(owner.lock().unwrap());
+            owner
+        });
+        let retired = std::mem::replace(&mut *owner.lock().unwrap(), current);
+        drop(retired);
+    }
+
+    fn notify_owner(&self) {
+        // Publication/fault state precedes this hint. No acquisition callback
+        // waits for replacement or clones/retires a Thread. Active work and
+        // pending cancellation retain a bounded owner polling deadline.
+        if let Some(owner) = self.owner.get() {
+            if let Ok(owner) = owner.try_lock() {
+                owner.unpark();
+            }
+        }
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -87,8 +135,6 @@ impl Source {
     }
 }
 
-/// The export queue retains only the scalar fields its consumer needs.
-/// Float bits have native byte order here and are serialized by the owner.
 #[derive(Clone, Copy)]
 struct Sample {
     time: u64,
@@ -131,167 +177,252 @@ impl From<Measurement> for Sample {
     }
 }
 
-impl Capture {
-    pub fn new(scales: [Option<[u32; 2]>; 2]) -> Self {
+impl From<pooled::Captured> for Sample {
+    fn from(sample: pooled::Captured) -> Self {
         Self {
-            scales,
-            ..Self::default()
+            time: u64::from(sample.record.words[0]) | (u64::from(sample.record.words[1]) << 32),
+            sequence: sample.record.sequence,
+            source: match sample.source {
+                0 | 1 => Source::Imu(sample.source),
+                2 => Source::Gnss,
+                _ => unreachable!("unconfigured capture source"),
+            },
+            values: sample.record.words[2..].try_into().unwrap(),
         }
     }
+}
 
-    pub fn scales(&self) -> [Option<[u32; 2]>; 2] {
-        self.scales
+impl Sample {
+    fn record(self) -> pooled::Record {
+        pooled::Record {
+            sequence: self.sequence,
+            words: [
+                self.time as u32,
+                (self.time >> 32) as u32,
+                self.values[0],
+                self.values[1],
+                self.values[2],
+                self.values[3],
+                self.values[4],
+                self.values[5],
+            ],
+        }
     }
+}
 
-    pub fn clock(&self) -> Option<ClockAnchor> {
-        self.clock.get().copied()
-    }
-
-    pub fn register_owner(&self) {
-        // A communications task owns several exports, but a joined task can
-        // return its telemetry to a later worker. Replace its wake destination
-        // at that handoff, and retire the old handle outside the lock.
-        let current = thread::current();
-        let owner = self.owner.get_or_init(|| {
-            let owner = Mutex::new(current.clone());
-            // Some targets initialize the underlying mutex on first use.
-            // Do that on the communications worker before publishing it.
-            drop(owner.lock().unwrap());
-            owner
-        });
-        let retired = std::mem::replace(&mut *owner.lock().unwrap(), current);
-        drop(retired);
-    }
-
-    fn notify_owner(&self) {
-        // Acquisition never waits for owner replacement or another notifier,
-        // and never clones or retires a Thread handle. Readiness and faults
-        // remain retained if this wake is skipped. Active communications has
-        // a bounded poll/deadline; starting work from idle has its own wake.
-        if let Some(owner) = self.owner.get() {
-            if let Ok(owner) = owner.try_lock() {
-                owner.unpark();
+impl CapturePublisher {
+    pub fn record(&mut self, measurement: Measurement) {
+        // Capture the epoch before scalar conversion so a paused callback
+        // cannot submit old work after a reconnect opens a different epoch.
+        let epoch = self
+            .publisher
+            .as_ref()
+            .map(pooled::Publisher::captured_epoch);
+        let source = match measurement {
+            Measurement::Imu(index, _) => index,
+            Measurement::Gnss(_) => 2,
+        };
+        assert_eq!(source, usize::from(self.source), "capture source mismatch");
+        let sample = Sample::from(measurement);
+        if let Measurement::Gnss(fix) = measurement {
+            if let Some(anchor) = fix
+                .receiver_utc_ms
+                .and_then(|utc| ClockAnchor::new(sample.time, utc))
+            {
+                let _ = self.shared.clock.set(anchor);
             }
         }
-    }
-
-    pub fn take_ready(&self) -> bool {
-        self.ready.swap(false, Ordering::AcqRel)
+        if let (Some(publisher), Some(epoch)) = (self.publisher.as_mut(), epoch) {
+            // Closed is normal outside an export. Full retains the exact first
+            // missing key in the pool; the owner emits it after admitted work.
+            let _ = publisher.offer(epoch, sample.record());
+        }
     }
 
     pub fn sensor_failed(&self) {
-        self.sensor_failed.store(true, Ordering::Release);
-        self.notify_owner();
+        self.shared.sensor_failed.store(true, Ordering::Release);
+        self.shared.notify_owner();
+    }
+}
+
+impl Capture {
+    /// Reserve before starting acquisition. Enabled export retains its bounded
+    /// pool in active and idle epochs until the last owner/publisher is dropped.
+    /// Scalar arenas use fallible reservation; Arc control allocation follows
+    /// Rust's ordinary infallible allocation contract.
+    pub fn new(
+        scales: [Option<[u32; 2]>; 2],
+        imu_rates: [Option<u32>; 2],
+        reserve_export: bool,
+    ) -> io::Result<(Self, [CapturePublisher; pooled::SOURCES])> {
+        if reserve_export {
+            policy::validate_imu_rates(imu_rates)?;
+        }
+        let shared = Arc::new(CaptureShared {
+            sensor_failed: AtomicBool::new(false),
+            owner: OnceLock::new(),
+            scales,
+            clock: OnceLock::new(),
+        });
+        let (owner, publishers) = if reserve_export {
+            let (owner, publishers) = pooled::channel(
+                pooled::RetainedBudget {
+                    max_requested_bytes: policy::POOL_REQUESTED_BYTES,
+                },
+                CaptureWake(shared.clone()),
+            )
+            .map_err(|error| match error {
+                pooled::SetupError::Allocation(_) => io::ErrorKind::OutOfMemory.into(),
+                pooled::SetupError::BudgetExceeded { required, maximum } => io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    format!("capture reservation requires {required} bytes, budget is {maximum}"),
+                ),
+            })?;
+            (Some(owner), publishers.map(Some))
+        } else {
+            (None, [None, None, None])
+        };
+        let mut source = 0;
+        let publishers = publishers.map(|publisher| {
+            let endpoint = CapturePublisher {
+                publisher,
+                source,
+                shared: shared.clone(),
+            };
+            source += 1;
+            endpoint
+        });
+        Ok((
+            Self {
+                owner,
+                shared,
+                retiring: false,
+            },
+            publishers,
+        ))
+    }
+
+    pub fn view(&self) -> CaptureView {
+        CaptureView(self.shared.clone())
+    }
+
+    pub fn scales(&self) -> [Option<[u32; 2]>; 2] {
+        self.shared.scales
+    }
+
+    pub fn clock(&self) -> Option<ClockAnchor> {
+        self.shared.clock.get().copied()
+    }
+
+    pub fn register_owner(&self) {
+        self.shared.register_owner();
+    }
+
+    pub fn take_ready(&mut self) -> bool {
+        self.owner.as_mut().is_some_and(pooled::Owner::take_ready)
     }
 
     pub fn take_sensor_failed(&self) -> bool {
-        self.sensor_failed.swap(false, Ordering::AcqRel)
+        self.shared.sensor_failed.swap(false, Ordering::AcqRel)
     }
 
-    pub fn enable(&self) -> io::Result<()> {
-        // An export reconnect may overlap an acquisition callback. Reserve
-        // before touching the queue lock, and retire the old queue outside it.
-        let mut queue = VecDeque::new();
-        queue
-            .try_reserve_exact(QUEUE)
-            .map_err(|_| io::ErrorKind::OutOfMemory)?;
-        {
-            let mut samples = self.samples.lock().unwrap();
-            std::mem::swap(&mut samples.queue, &mut queue);
-            samples.first_missing = None;
-            samples.high_water = 0;
-            self.ready.store(false, Ordering::Relaxed);
-            let epoch = self.epoch.load(Ordering::Relaxed).wrapping_add(1) | 1;
-            self.epoch.store(epoch, Ordering::Release);
+    /// False means an earlier cancellation is still retiring. The request
+    /// remains pending in the radio session; other communications keeps running.
+    pub fn enable(&mut self) -> io::Result<bool> {
+        if self.retire() {
+            return Ok(false);
         }
-        Ok(())
+        let owner = self.owner.as_mut().ok_or(io::ErrorKind::Unsupported)?;
+        match owner.begin() {
+            Ok(_) => Ok(true),
+            Err(StartError::Pending) => Ok(false),
+            Err(StartError::Disconnected) => Err(io::ErrorKind::NotConnected.into()),
+            Err(StartError::Exhausted) => Err(io::Error::other("capture epoch budget exhausted")),
+        }
     }
 
-    pub fn finish(&self) -> usize {
-        // Move the queue out so its storage is freed after unlocking acquisition.
-        let (_retired_queue, high_water) = {
-            let mut samples = self.samples.lock().unwrap();
-            let epoch = self.epoch.load(Ordering::Relaxed);
-            self.epoch
-                .store(epoch.wrapping_add(epoch & 1), Ordering::Release);
-            self.ready.store(false, Ordering::Relaxed);
-            samples.first_missing = None;
-            (std::mem::take(&mut samples.queue), samples.high_water)
+    pub fn finish(&mut self) -> usize {
+        let Some(owner) = &mut self.owner else {
+            return 0;
         };
+        let high_water = owner.high_water();
+        if owner.status() != Status::Inactive {
+            owner.cancel();
+            self.retiring = true;
+            self.retire();
+        }
         high_water
     }
 
-    pub fn record(&self, sample: Measurement) {
-        if let Measurement::Gnss(fix) = sample {
-            if let Some(anchor) = fix
-                .receiver_utc_ms
-                .and_then(|utc| ClockAnchor::new(fix.timestamp_us / 1_000, utc))
-            {
-                let _ = self.clock.set(anchor);
+    /// Drain only published work without waiting for a preempted producer.
+    /// The caller includes a bounded deadline while this returns true.
+    pub fn retire(&mut self) -> bool {
+        if !self.retiring {
+            return false;
+        }
+        let owner = self.owner.as_mut().unwrap();
+        for _ in 0..pooled::CAPACITY {
+            if owner.poll().is_none() {
+                break;
             }
         }
-        let epoch = self.epoch.load(Ordering::Acquire);
-        if epoch & 1 == 0 {
-            return;
+        if matches!(owner.status(), Status::Overflow(_) | Status::Cancelled) {
+            owner.finish().expect("quiescent capture retirement");
+            self.retiring = false;
         }
-        self.enqueue(epoch, sample.into());
+        self.retiring
     }
 
-    fn enqueue(&self, epoch: usize, sample: Sample) {
-        // This runs in the acquisition task. The consumer holds the lock
-        // only for a bounded copy, with no encoding or transport I/O.
-        {
-            let mut samples = self.samples.lock().unwrap();
-            if self.epoch.load(Ordering::Relaxed) != epoch {
-                return;
-            }
-            if samples.queue.len() == QUEUE {
-                samples.first_missing = Some((sample.source, sample.sequence));
-                self.epoch.store(epoch.wrapping_add(1), Ordering::Release);
-            } else {
-                samples.queue.push_back(sample);
-                let depth = samples.queue.len();
-                samples.high_water = samples.high_water.max(depth);
-                if depth != BATCH {
-                    return;
-                }
-            }
-            self.ready.store(true, Ordering::Release);
-        }
-        self.notify_owner();
+    pub fn retirement_pending(&self) -> bool {
+        self.retiring
     }
 
-    pub fn take(&self, output: &mut [u8; MAX_BYTES], due: bool, version: Version) -> Option<Batch> {
-        let mut records = [None; BATCH];
-        let count = {
-            let mut samples = self.samples.lock().unwrap();
-            let count = samples.queue.len().min(BATCH);
-            // Full batches can catch up while the deadline bounds how
-            // long a smaller batch waits to fill.
-            if count < BATCH && !due && samples.first_missing.is_none() {
-                return None;
-            }
-            if count == 0 {
-                let (source, sequence) = samples.first_missing?;
-                let len = match version {
-                    Version::Fixed => 4,
-                    Version::Compact | Version::Timed => {
-                        output[4] = source.tag();
-                        output[5..9].copy_from_slice(&sequence.to_le_bytes());
-                        9
-                    }
-                };
-                header(output, version, len);
-                return Some(Batch {
-                    len,
-                    terminal: true,
-                });
-            }
-            for (record, sample) in records.iter_mut().zip(samples.queue.drain(..count)) {
-                *record = Some(sample);
-            }
-            count
+    pub fn take(
+        &mut self,
+        output: &mut [u8; MAX_BYTES],
+        due: bool,
+        version: Version,
+    ) -> io::Result<Option<Batch>> {
+        if self.retiring {
+            return Ok(None);
+        }
+        let Some(owner) = self.owner.as_mut() else {
+            return Ok(None);
         };
+        let count = owner.published_len().min(BATCH);
+        let status = owner.status();
+        // Per-source FIFO is retained; the owner fairly interleaves independent
+        // sources. No record waits behind an unpublished slot in another lane.
+        if count < BATCH && !due && matches!(status, Status::Open | Status::Inactive) {
+            return Ok(None);
+        }
+        if count == 0 {
+            if status == Status::Cancelled {
+                // A vanished or unwinding producer cannot leave a successful
+                // export apparently live forever. No missing key is invented.
+                return Err(io::ErrorKind::BrokenPipe.into());
+            }
+            let Status::Overflow(missing) = status else {
+                return Ok(None);
+            };
+            let len = match version {
+                Version::Fixed => 4,
+                Version::Compact | Version::Timed => {
+                    output[4] = missing.source + 1;
+                    output[5..9].copy_from_slice(&missing.sequence.to_le_bytes());
+                    9
+                }
+            };
+            header(output, version, len);
+            return Ok(Some(Batch {
+                len,
+                terminal: true,
+            }));
+        }
+        let mut records = [None::<Sample>; BATCH];
+        for record in &mut records[..count] {
+            *record = Some(owner.poll().expect("published capture record").into());
+        }
 
         let timed = matches!(version, Version::Timed);
         let clock = self.clock();
@@ -330,7 +461,7 @@ impl Capture {
                 tag |= NO_UTC;
             }
             let counts = if timed && kind != 3 {
-                self.scales[index].and_then(|scale| encode_counts(payload, scale))
+                self.shared.scales[index].and_then(|scale| encode_counts(payload, scale))
             } else {
                 None
             };
@@ -354,10 +485,10 @@ impl Capture {
             end += payload.len();
         }
         header(output, version, end);
-        Some(Batch {
+        Ok(Some(Batch {
             len: end,
             terminal: false,
-        })
+        }))
     }
 }
 
@@ -384,15 +515,17 @@ fn header(output: &mut [u8; MAX_BYTES], version: Version, len: usize) {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
-    use std::{
-        sync::mpsc,
-        thread,
-        time::{Duration, Instant},
-    };
+    use messaging::pooled::Stage;
+    use std::sync::mpsc;
+    use std::time::Instant;
 
-    fn fix(sequence: u64) -> Measurement {
+    pub(crate) fn fixture(scales: [Option<[u32; 2]>; 2]) -> (Capture, [CapturePublisher; 3]) {
+        Capture::new(scales, [Some(100_000); 2], true).unwrap()
+    }
+
+    pub(crate) fn fix(sequence: u64) -> Measurement {
         Measurement::Gnss(gnss::GnssFix {
             sequence,
             timestamp_us: sequence * 500_000,
@@ -406,123 +539,277 @@ mod tests {
         })
     }
 
-    #[test]
-    fn arrival_during_queue_access_is_delivered() {
-        let capture = Capture::default();
-        capture.enable().unwrap();
-        thread::scope(|scope| {
-            let (started, ready) = mpsc::channel();
-            let (finished, complete) = mpsc::channel();
-            let capture = &capture;
-            let early = {
-                let _queue = capture.samples.lock().unwrap();
-                scope.spawn(move || {
-                    started.send(()).unwrap();
-                    capture.record(fix(1));
-                    finished.send(()).unwrap();
-                });
-                ready.recv().unwrap();
-                complete.recv_timeout(Duration::from_millis(40))
-            };
-            assert_eq!(early, Err(mpsc::RecvTimeoutError::Timeout));
-            complete.recv().unwrap();
+    pub(crate) fn imu(source: usize, sequence: u64, time: u64) -> Measurement {
+        Measurement::Imu(
+            source,
+            imu::ImuSample {
+                sequence,
+                timestamp_us: time * 1_000 + 700,
+                is_capture_time: true,
+                sample_interval_us: 10_000,
+                accel_mps2: [-4096.0, 0.0, 4095.875],
+                gyro_rps: [-0.25, 1.0, 8191.75],
+            },
+        )
+    }
+
+    pub(crate) struct PausedRecord {
+        resume: Option<mpsc::Sender<()>>,
+        worker: Option<thread::JoinHandle<CapturePublisher>>,
+    }
+
+    impl PausedRecord {
+        pub(crate) fn release(mut self) -> CapturePublisher {
+            self.resume.take().unwrap().send(()).unwrap();
+            self.worker.take().unwrap().join().unwrap()
+        }
+    }
+
+    impl Drop for PausedRecord {
+        fn drop(&mut self) {
+            if let Some(resume) = self.resume.take() {
+                let _ = resume.send(());
+            }
+            if let Some(worker) = self.worker.take() {
+                let _ = worker.join();
+            }
+        }
+    }
+
+    pub(crate) fn pause_record(
+        mut publisher: CapturePublisher,
+        value: Measurement,
+    ) -> PausedRecord {
+        let (claimed, observed) = mpsc::channel();
+        let (resume, released) = mpsc::channel();
+        let epoch = publisher.publisher.as_ref().unwrap().captured_epoch();
+        let worker = thread::spawn(move || {
+            publisher
+                .publisher
+                .as_mut()
+                .unwrap()
+                .offer_with_hooks(epoch, Sample::from(value).record(), |stage| {
+                    if stage == Stage::AfterSlotClaim {
+                        claimed.send(()).unwrap();
+                        released.recv().unwrap();
+                    }
+                })
+                .unwrap();
+            publisher
         });
-        let mut bytes = [0; MAX_BYTES];
-        assert!(capture.take(&mut bytes, false, Version::Fixed).is_none());
+        let paused = PausedRecord {
+            resume: Some(resume),
+            worker: Some(worker),
+        };
+        observed.recv_timeout(Duration::from_secs(2)).unwrap();
+        paused
+    }
+
+    #[derive(Debug, PartialEq)]
+    pub(crate) struct Decoded {
+        pub source: usize,
+        pub sequence: u32,
+        pub time: u64,
+        pub utc: Option<i64>,
+        pub values: [u32; 6],
+    }
+
+    /// Independent peer-side decode of the documented v1/v2/v3 wire layouts.
+    pub(crate) fn decode(bytes: &[u8], scales: [Option<[u32; 2]>; 2]) -> Vec<Decoded> {
+        assert_eq!(bytes[0], 0xa5);
         assert_eq!(
-            capture.take(&mut bytes, true, Version::Fixed).unwrap().len,
-            33
+            usize::from(u16::from_le_bytes(bytes[2..4].try_into().unwrap())),
+            bytes.len() - 4
         );
-        assert_eq!(bytes[4], 3);
-        assert_eq!(&bytes[5..9], &1_u32.to_le_bytes());
-    }
-
-    #[test]
-    fn sensor_fault_is_retained_while_export_owns_the_queue() {
-        let capture = Capture::default();
-        let (finished, complete) = mpsc::channel();
-        thread::scope(|scope| {
-            let notified = {
-                let _queue = capture.samples.lock().unwrap();
-                scope.spawn(|| {
-                    capture.sensor_failed();
-                    finished.send(()).unwrap();
-                });
-                complete.recv_timeout(Duration::from_secs(1))
+        let timed = bytes[1] == 3;
+        let mut pos = 4;
+        let offset = if timed {
+            pos += 8;
+            i64::from_le_bytes(bytes[4..12].try_into().unwrap())
+        } else {
+            UTC_UNAVAILABLE
+        };
+        let mut previous = [None::<(u32, u64)>; 3];
+        let mut result = Vec::new();
+        while pos < bytes.len() {
+            let tag = bytes[pos];
+            let source = usize::from(tag & if timed { 0x1f } else { 0x7f }) - 1;
+            assert!(source < 3);
+            let delta = bytes[1] >= 2 && tag & DELTA != 0;
+            let counts = timed && tag & COUNTS != 0;
+            let (sequence, time) = if delta {
+                let (sequence, time) = previous[source].unwrap();
+                let time = time + u64::from(bytes[pos + 1]);
+                pos += 2;
+                (
+                    sequence.wrapping_add(1),
+                    if timed { time } else { u64::from(time as u32) },
+                )
+            } else {
+                let sequence = u32::from_le_bytes(bytes[pos + 1..pos + 5].try_into().unwrap());
+                let time = if timed {
+                    u64::from_le_bytes(bytes[pos + 5..pos + 13].try_into().unwrap())
+                } else {
+                    u64::from(u32::from_le_bytes(
+                        bytes[pos + 5..pos + 9].try_into().unwrap(),
+                    ))
+                };
+                pos += if timed { 13 } else { 9 };
+                (sequence, time)
             };
-            assert_eq!(notified, Ok(()));
-        });
-        assert!(capture.take_sensor_failed());
-        assert!(!capture.take_sensor_failed());
+            previous[source] = Some((sequence, time));
+            let mut values = [0; 6];
+            if counts {
+                assert!(source < 2);
+                let scale = scales[source].unwrap().map(f32::from_bits);
+                for (axis, value) in values.iter_mut().enumerate() {
+                    let point = i16::from_le_bytes(bytes[pos..pos + 2].try_into().unwrap());
+                    *value = (f32::from(point) * scale[axis / 3]).to_bits();
+                    pos += 2;
+                }
+            } else {
+                let words = if source == 2 { 5 } else { 6 };
+                for value in &mut values[..words] {
+                    *value = u32::from_le_bytes(bytes[pos..pos + 4].try_into().unwrap());
+                    pos += 4;
+                }
+            }
+            result.push(Decoded {
+                source,
+                sequence,
+                time,
+                values,
+                utc: (timed && offset != UTC_UNAVAILABLE && tag & NO_UTC == 0)
+                    .then(|| i64::try_from(time).unwrap() + offset),
+            });
+        }
+        assert_eq!(pos, bytes.len());
+        result
     }
 
     #[test]
-    fn joined_owner_replacement_wakes_the_new_worker_while_the_queue_is_locked() {
-        let capture = Capture::default();
+    fn short_batches_keep_pool_credits_until_the_deadline() {
+        let (mut capture, [_, _, mut gnss]) = fixture([None; 2]);
+        capture.enable().unwrap();
+        gnss.record(fix(1));
+        let mut bytes = [0; MAX_BYTES];
+        assert!(capture
+            .take(&mut bytes, false, Version::Fixed)
+            .unwrap()
+            .is_none());
+        assert_eq!(capture.owner.as_ref().unwrap().obligations().0, 1);
+        let batch = capture
+            .take(&mut bytes, true, Version::Fixed)
+            .unwrap()
+            .unwrap();
+        assert_eq!(batch.len, 33);
+        assert_eq!(decode(&bytes[..batch.len], [None; 2])[0].sequence, 1);
+        assert_eq!(capture.owner.as_ref().unwrap().obligations().0, 0);
+    }
+
+    #[test]
+    fn sensor_fault_and_other_sources_progress_past_an_unpublished_slot() {
+        let (mut capture, [mut primary, _, mut gnss]) = fixture([None; 2]);
+        capture.enable().unwrap();
+        let (claimed, observed) = mpsc::channel();
+        let (resume, released) = mpsc::channel();
+        let epoch = primary.publisher.as_ref().unwrap().captured_epoch();
+        let worker = thread::spawn(move || {
+            primary
+                .publisher
+                .as_mut()
+                .unwrap()
+                .offer_with_hooks(epoch, Sample::from(imu(0, 1, 10)).record(), |stage| {
+                    if stage == Stage::AfterSlotClaim {
+                        claimed.send(()).unwrap();
+                        released.recv().unwrap();
+                    }
+                })
+                .unwrap();
+        });
+        observed.recv_timeout(Duration::from_secs(2)).unwrap();
+        gnss.sensor_failed();
+        gnss.record(fix(1));
+        assert!(capture.take_sensor_failed());
+        let mut bytes = [0; MAX_BYTES];
+        let batch = capture
+            .take(&mut bytes, true, Version::Fixed)
+            .unwrap()
+            .unwrap();
+        assert_eq!(decode(&bytes[..batch.len], [None; 2])[0].source, 2);
+        assert_eq!(capture.finish(), 2);
+        assert!(capture.retirement_pending());
+        assert!(!capture.enable().unwrap());
+        resume.send(()).unwrap();
+        worker.join().unwrap();
+        assert!(!capture.retire());
+        assert!(capture.enable().unwrap());
+        gnss.record(fix(2));
+        let batch = capture
+            .take(&mut bytes, true, Version::Fixed)
+            .unwrap()
+            .unwrap();
+        assert_eq!(decode(&bytes[..batch.len], [None; 2])[0].sequence, 2);
+    }
+
+    #[test]
+    fn joined_owner_replacement_wakes_the_new_worker() {
+        let (capture, [_, _, gnss]) = fixture([None; 2]);
         let mut previous = None;
         for _ in 0..2 {
-            thread::scope(|scope| {
-                let (registered, attached) = mpsc::channel();
-                let (notified, observed) = mpsc::channel();
-                let capture = &capture;
-                let worker = scope.spawn(move || {
-                    capture.register_owner();
-                    registered.send(thread::current()).unwrap();
-                    let deadline = Instant::now() + Duration::from_secs(2);
-                    loop {
-                        // A wake arriving before park must leave a token too.
-                        thread::park_timeout(deadline.saturating_duration_since(Instant::now()));
-                        if capture.take_sensor_failed() {
-                            notified.send(()).unwrap();
-                            break;
-                        }
-                        if Instant::now() >= deadline {
-                            break;
-                        }
+            let shared = capture.shared.clone();
+            let (registered, attached) = mpsc::channel();
+            let (notified, observed) = mpsc::channel();
+            let worker = thread::spawn(move || {
+                shared.register_owner();
+                registered.send(thread::current()).unwrap();
+                let deadline = Instant::now() + Duration::from_secs(2);
+                loop {
+                    thread::park_timeout(deadline.saturating_duration_since(Instant::now()));
+                    if shared.sensor_failed.swap(false, Ordering::AcqRel) {
+                        notified.send(()).unwrap();
+                        break;
                     }
-                });
-                let owner = attached.recv_timeout(Duration::from_secs(1)).unwrap();
-                assert_ne!(previous, Some(owner.id()));
-                assert_eq!(
-                    capture.owner.get().unwrap().lock().unwrap().id(),
-                    owner.id()
-                );
-                let result = {
-                    let _queue = capture.samples.lock().unwrap();
-                    capture.sensor_failed();
-                    observed.recv_timeout(Duration::from_secs(1))
-                };
-                // Also release a worker on the failure path before joining it.
-                owner.unpark();
-                worker.join().unwrap();
-                assert_eq!(result, Ok(()));
-                assert!(!capture.take_sensor_failed());
-                previous = Some(owner.id());
+                    if Instant::now() >= deadline {
+                        break;
+                    }
+                }
             });
+            let owner = attached.recv_timeout(Duration::from_secs(1)).unwrap();
+            assert_ne!(previous, Some(owner.id()));
+            assert_eq!(
+                capture.shared.owner.get().unwrap().lock().unwrap().id(),
+                owner.id()
+            );
+            gnss.sensor_failed();
+            let result = observed.recv_timeout(Duration::from_secs(1));
+            owner.unpark();
+            worker.join().unwrap();
+            assert_eq!(result, Ok(()));
+            previous = Some(owner.id());
         }
     }
 
     #[test]
-    fn skipped_owner_wakes_retain_fault_and_batch_readiness_without_waiting() {
-        let capture = Capture::default();
+    fn skipped_wakes_retain_fault_and_batch_readiness_without_waiting() {
+        let (mut capture, [_, _, mut gnss]) = fixture([None; 2]);
         capture.register_owner();
         capture.enable().unwrap();
-        thread::scope(|scope| {
-            let (finished, complete) = mpsc::channel();
-            let capture = &capture;
-            let result = {
-                let _owner = capture.owner.get().unwrap().lock().unwrap();
-                scope.spawn(move || {
-                    capture.sensor_failed();
-                    for sequence in 0..BATCH {
-                        capture.record(fix(sequence as u64));
-                    }
-                    finished.send(()).unwrap();
-                });
-                complete.recv_timeout(Duration::from_secs(1))
-            };
-            assert_eq!(result, Ok(()));
+        let shared = capture.shared.clone();
+        let (finished, complete) = mpsc::channel();
+        let owner = shared.owner.get().unwrap().lock().unwrap();
+        let worker = thread::spawn(move || {
+            gnss.sensor_failed();
+            for sequence in 0..BATCH {
+                gnss.record(fix(sequence as u64));
+            }
+            finished.send(()).unwrap();
+            gnss
         });
+        let result = complete.recv_timeout(Duration::from_secs(1));
+        drop(owner);
+        let _gnss = worker.join().unwrap();
+        assert_eq!(result, Ok(()));
         assert!(capture.take_sensor_failed());
         assert!(!capture.take_sensor_failed());
         assert!(capture.take_ready());
@@ -531,103 +818,174 @@ mod tests {
     }
 
     #[test]
-    fn overflow_drains_admitted_records_and_stops_the_export() {
-        let capture = Capture::default();
+    fn overflow_drains_admitted_records_and_retains_the_exact_terminal() {
+        let (mut capture, [_, _, mut gnss]) = fixture([None; 2]);
         capture.enable().unwrap();
-        for sequence in 0..=(QUEUE + 1) {
-            capture.record(fix(sequence as u64));
+        for sequence in 0..=(pooled::CAPACITY + 1) {
+            gnss.record(fix(sequence as u64));
         }
         let mut bytes = [0; MAX_BYTES];
-        for first in (0..QUEUE).step_by(BATCH) {
-            let batch = capture.take(&mut bytes, false, Version::Fixed).unwrap();
+        for first in (0..pooled::CAPACITY).step_by(BATCH) {
+            let batch = capture
+                .take(&mut bytes, false, Version::Fixed)
+                .unwrap()
+                .unwrap();
             assert!(!batch.terminal);
             assert_eq!(batch.len, 4 + BATCH * 29);
             assert_eq!(&bytes[5..9], &(first as u32).to_le_bytes());
         }
-        let failure = capture.take(&mut bytes, false, Version::Compact).unwrap();
-        assert!(failure.terminal);
-        assert_eq!(&bytes[..failure.len], &[0xa5, 2, 5, 0, 3, 0, 2, 0, 0]);
-        let failure = capture.take(&mut bytes, false, Version::Fixed).unwrap();
-        assert!(failure.terminal);
-        assert_eq!(&bytes[..failure.len], &[0xa5, 1, 0, 0]);
+        for version in [Version::Compact, Version::Timed, Version::Fixed] {
+            let failure = capture.take(&mut bytes, false, version).unwrap().unwrap();
+            assert!(failure.terminal);
+            if version == Version::Fixed {
+                assert_eq!(&bytes[..failure.len], &[0xa5, 1, 0, 0]);
+            } else {
+                assert_eq!(
+                    &bytes[..failure.len],
+                    &[0xa5, version as u8, 5, 0, 3, 0, 2, 0, 0]
+                );
+            }
+        }
+        capture.finish();
+        assert!(capture.enable().unwrap());
+        assert!(capture
+            .take(&mut bytes, true, Version::Fixed)
+            .unwrap()
+            .is_none());
+    }
+
+    #[test]
+    fn reconnect_rejects_work_captured_in_the_previous_epoch() {
+        let (mut capture, [_, _, mut gnss]) = fixture([None; 2]);
         capture.enable().unwrap();
-        assert!(capture.take(&mut bytes, true, Version::Fixed).is_none());
-        capture.record(fix(QUEUE as u64 + 2));
+        let old_epoch = gnss.publisher.as_ref().unwrap().captured_epoch();
+        gnss.record(fix(1));
+        assert_eq!(capture.finish(), 1);
+        assert!(capture.enable().unwrap());
+        let rejected = gnss
+            .publisher
+            .as_mut()
+            .unwrap()
+            .offer(old_epoch, Sample::from(fix(2)).record())
+            .unwrap_err();
+        assert_eq!(rejected.reason, pooled::Rejection::Closed);
+        gnss.record(fix(3));
+        let mut bytes = [0; MAX_BYTES];
+        let batch = capture
+            .take(&mut bytes, true, Version::Fixed)
+            .unwrap()
+            .unwrap();
+        assert_eq!(decode(&bytes[..batch.len], [None; 2])[0].sequence, 3);
+    }
+
+    #[test]
+    fn source_retirement_drains_records_then_reports_a_failed_export() {
+        let (mut capture, [a, b, mut gnss]) = fixture([None; 2]);
+        capture.enable().unwrap();
+        gnss.record(fix(1));
+        drop((a, b, gnss));
+        let mut bytes = [0; MAX_BYTES];
+        assert!(
+            !capture
+                .take(&mut bytes, false, Version::Timed)
+                .unwrap()
+                .unwrap()
+                .terminal
+        );
         assert_eq!(
-            capture.take(&mut bytes, true, Version::Fixed).unwrap().len,
-            33
+            capture
+                .take(&mut bytes, true, Version::Timed)
+                .err()
+                .unwrap()
+                .kind(),
+            io::ErrorKind::BrokenPipe
+        );
+        capture.finish();
+        assert_eq!(
+            capture.enable().err().unwrap().kind(),
+            io::ErrorKind::NotConnected
         );
     }
 
     #[test]
-    fn disconnect_releases_queue_and_rejects_work_from_the_old_export() {
-        let capture = Capture::default();
-        capture.enable().unwrap();
-        let old_epoch = capture.epoch.load(Ordering::Relaxed);
-        capture.record(fix(1));
-        assert_eq!(capture.finish(), 1);
-        assert_eq!(capture.samples.lock().unwrap().queue.capacity(), 0);
-
-        capture.enable().unwrap();
-        capture.enqueue(old_epoch, fix(2).into());
-        capture.record(fix(3));
-        let mut bytes = [0; MAX_BYTES];
-        let batch = capture.take(&mut bytes, true, Version::Fixed).unwrap();
-        assert_eq!(batch.len, 33);
-        assert_eq!(&bytes[5..9], &3_u32.to_le_bytes());
-    }
-
-    #[test]
-    fn timed_batch_preserves_native_counts_and_excludes_pre_anchor_samples() {
-        let scale = [0.125_f32.to_bits(), 0.25_f32.to_bits()];
-        let capture = Capture::new([Some(scale), None]);
-        capture.enable().unwrap();
-        let first = u64::from(u32::MAX);
-        let imu = |sequence, time| {
-            Measurement::Imu(
-                0,
-                imu::ImuSample {
-                    sequence,
-                    timestamp_us: time * 1_000 + 700,
-                    is_capture_time: true,
-                    sample_interval_us: 10_000,
-                    accel_mps2: [-4096.0, 0.0, 4095.875],
-                    gyro_rps: [-0.25, 1.0, 8191.75],
-                },
-            )
-        };
-        capture.record(imu(1, first));
-        let Measurement::Gnss(mut fix) = fix(1) else {
+    fn no_export_reservation_still_publishes_clock_and_faults() {
+        let (mut capture, [_, _, mut gnss]) = Capture::new([None; 2], [None; 2], false).unwrap();
+        assert!(capture.owner.is_none());
+        let view = capture.view();
+        let Measurement::Gnss(mut point) = fix(1) else {
             unreachable!()
         };
-        fix.timestamp_us = (first + 3) * 1_000;
-        fix.receiver_utc_ms = Some(1_767_225_600_000);
-        capture.record(Measurement::Gnss(fix));
-        capture.record(imu(2, first + 9));
-
-        let mut bytes = [0; MAX_BYTES];
-        let frame = capture.take(&mut bytes, true, Version::Timed).unwrap();
-        assert_eq!(frame.len, 4 + 8 + 25 + 33 + 14);
-        let expected_offset = 1_767_225_600_000 - (first + 3) as i64;
-        assert_eq!(bytes[4..12], expected_offset.to_le_bytes());
-        assert_eq!(bytes[12], 1 | COUNTS | NO_UTC);
-        assert_eq!(bytes[17..25], first.to_le_bytes());
+        point.receiver_utc_ms = Some(1_767_225_600_000);
+        gnss.record(Measurement::Gnss(point));
+        assert_eq!(view.clock().unwrap().utc_ms(500), point.receiver_utc_ms);
+        gnss.sensor_failed();
+        assert!(capture.take_sensor_failed());
         assert_eq!(
-            bytes[25..37],
-            [0, 128, 0, 0, 255, 127, 255, 255, 4, 0, 255, 127]
-        );
-        assert_eq!(bytes[37], 3);
-        assert_eq!(bytes[42..50], (first + 3).to_le_bytes());
-        assert_eq!(bytes[70..72], [1 | COUNTS | DELTA, 9]);
-        assert_eq!(capture.clock().unwrap().utc_ms(first), None);
-        assert_eq!(
-            capture.clock().unwrap().utc_ms(first + 9),
-            Some(1_767_225_600_006)
+            capture.enable().err().unwrap().kind(),
+            io::ErrorKind::Unsupported
         );
     }
 
     #[test]
-    fn counts_are_bit_exact_or_use_the_float_record() {
+    fn all_wire_versions_preserve_source_order_wraps_gaps_and_scalar_bits() {
+        let scale = [0.125_f32.to_bits(), 0.25_f32.to_bits()];
+        let scales = [Some(scale), None];
+        let origin = u64::from(u32::MAX) - 2;
+        for version in [Version::Fixed, Version::Compact, Version::Timed] {
+            let (mut capture, mut publishers) = fixture(scales);
+            let Measurement::Gnss(mut anchor) = fix(0) else {
+                unreachable!()
+            };
+            anchor.timestamp_us = (origin + 3) * 1_000;
+            anchor.receiver_utc_ms = Some(1_767_225_600_000);
+            publishers[2].record(Measurement::Gnss(anchor));
+            capture.enable().unwrap();
+            let mut expected: [Vec<Decoded>; 3] = std::array::from_fn(|_| Vec::new());
+            for (sequence, elapsed) in [(u32::MAX, 0), (0, 9), (2, 300)] {
+                for source in (0..3).rev() {
+                    let time = origin + elapsed + source as u64;
+                    let measurement = if source < 2 {
+                        let mut value = imu(source, u64::from(sequence), time);
+                        if let Measurement::Imu(1, point) = &mut value {
+                            point.accel_mps2 = [-0.0, f32::from_bits(0x7fc01234), 0.1];
+                        }
+                        value
+                    } else {
+                        let Measurement::Gnss(mut point) = fix(0) else {
+                            unreachable!()
+                        };
+                        point.timestamp_us = time * 1_000;
+                        point.sequence = u64::from(sequence);
+                        Measurement::Gnss(point)
+                    };
+                    let sample = Sample::from(measurement);
+                    publishers[source].record(measurement);
+                    expected[source].push(Decoded {
+                        source,
+                        sequence,
+                        time: if version == Version::Timed {
+                            time
+                        } else {
+                            u64::from(time as u32)
+                        },
+                        utc: (version == Version::Timed && time >= origin + 3)
+                            .then(|| 1_767_225_600_000 + time as i64 - (origin + 3) as i64),
+                        values: sample.values,
+                    });
+                }
+            }
+            let mut bytes = [0; MAX_BYTES];
+            let batch = capture.take(&mut bytes, true, version).unwrap().unwrap();
+            let mut actual: [Vec<Decoded>; 3] = std::array::from_fn(|_| Vec::new());
+            for record in decode(&bytes[..batch.len], scales) {
+                actual[record.source].push(record);
+            }
+            assert_eq!(actual, expected);
+        }
+    }
+
+    #[test]
+    fn counts_are_bit_exact_or_keep_float_records() {
         let scale = [f32::to_bits(0.125), f32::to_bits(0.25)];
         let mut payload = [0; 24];
         for (axis, slot) in payload.chunks_exact_mut(4).enumerate() {
@@ -643,30 +1001,16 @@ mod tests {
     }
 
     #[test]
-    fn compact_records_preserve_floats_and_use_full_headers_across_gaps() {
-        let capture = Capture::default();
-        capture.enable().unwrap();
-        let point = |sequence, timestamp_ms: u64| {
-            Measurement::Imu(
-                0,
-                imu::ImuSample {
-                    sequence,
-                    timestamp_us: timestamp_ms * 1_000,
-                    is_capture_time: true,
-                    sample_interval_us: 10_000,
-                    accel_mps2: [1.25, -0.5, 9.75],
-                    gyro_rps: [0., 1., -2.],
-                },
-            )
-        };
-        for sample in [point(15, 100), point(16, 111), point(18, 130)] {
-            capture.record(sample);
-        }
-        let mut bytes = [0; MAX_BYTES];
-        let frame = capture.take(&mut bytes, true, Version::Compact).unwrap();
-        assert_eq!(frame.len, 4 + 33 + 26 + 33);
-        assert_eq!(&bytes[37..39], &[0x81, 11]);
-        assert_eq!(&bytes[39..63], &bytes[13..37]);
-        assert_eq!(&bytes[63..72], &[1, 18, 0, 0, 0, 130, 0, 0, 0]);
+    #[should_panic(expected = "capture source mismatch")]
+    fn oversized_source_ordinal_cannot_alias_a_configured_lane() {
+        let (_, [mut primary, _, _]) = fixture([None; 2]);
+        primary.record(imu(256, 1, 10));
+    }
+
+    #[test]
+    #[should_panic(expected = "capture source mismatch")]
+    fn publisher_rejects_a_measurement_from_another_source() {
+        let (_, [mut primary, _, _]) = fixture([None; 2]);
+        primary.record(fix(0));
     }
 }
