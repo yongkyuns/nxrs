@@ -1,0 +1,14 @@
+qemu-system-arm: warning: nic lan9118.0 has no peer
+
+NuttShell (NSH) NuttX-13.1.1
+nsh> [Kuname
+NuttX
+nsh> [Kuname -a
+NuttX 13.1.1 4268617f28ad-nxrs Nov 28 2026 23:25:56 arm mps2-an521
+nsh> [Ktime_sync
+TIME_SYNC {"kind":"begin","schema":1,"variant":"baseline","tick_us":100}
+TIME_SYNC {"kind":"observation","name":"baseline","request_us":0,"reference_ns":250005175,"monotonic_ns":250005000,"wall_ns":250000000,"uncertainty_ns":234950,"reads":10071,"max_read_span_ns":41100,"max_pair_bound_ns":258615}
+TIME_SYNC {"kind":"complete","schema":1,"variant":"baseline","reference_elapsed_ns":251181350}
+nsh> [Kecho NXRS_STATUS_$?
+NXRS_STATUS_0
+nsh> [K

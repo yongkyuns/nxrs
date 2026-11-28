@@ -1,0 +1,10 @@
+--- a/lib/rustlib/src/rust/library/Cargo.toml
++++ b/lib/rustlib/src/rust/library/Cargo.toml
+@@ -85,6 +85,7 @@
+ rustc-std-workspace-core = { path = 'rustc-std-workspace-core' }
+ rustc-std-workspace-alloc = { path = 'rustc-std-workspace-alloc' }
+ rustc-std-workspace-std = { path = 'rustc-std-workspace-std' }
++libc = { path = 'libc-nuttx' }
+ 
+ # See comments in `library/windows-sys/Cargo.toml` for why this is patched
+ windows-sys = { path = 'windows-sys' }

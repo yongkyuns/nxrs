@@ -1,0 +1,60 @@
+# Production time-control/service qualification, not a physical RTC claim.
+extends = "mps2-an521-mock"
+
+[hal]
+time = "nuttx"
+
+# Profile inheritance replaces this table. Preserve the runtime proxy's full
+# admission, including DEBUG_SCHED off so it does not seed a clock-wrap stress.
+[kconfig]
+enable = [
+  "DEBUG_FEATURES",
+  "DEBUG_ASSERTIONS",
+  "DEBUG_SYMBOLS",
+  "DEBUG_LINK_MAP",
+  "SCHED_BACKTRACE",
+  "UNWINDER_ARM",
+  "STACK_COLORATION",
+  "FS_PROCFS",
+  "CLOCK_TIMEKEEPING",
+  "CLOCK_ADJTIME",
+]
+disable = [
+  "ARCH_FPU",
+  "SMP",
+  "NET",
+  "DISABLE_PTHREAD",
+  "DEBUG_SCHED",
+  "DEBUG_SCHED_ERROR",
+  "FS_PROCFS_EXCLUDE_PROCESS",
+  "FS_PROCFS_EXCLUDE_MEMINFO",
+  "RTC",
+  "RTC_HIRES",
+]
+set = [
+  "PTHREAD_STACK_DEFAULT=65536",
+  "MM_BACKTRACE=8",
+  "MM_BACKTRACE_DEFAULT=y",
+  "USEC_PER_TICK=100",
+]
+require = [
+  "CONFIG_ARCH_ARM=y",
+  "CONFIG_ARCH_BOARD_MPS2_AN521=y",
+  "CONFIG_ARCH_CHIP_MPS2_AN521=y",
+  "CONFIG_RAM_SIZE=2097152",
+  "CONFIG_PTHREAD_STACK_DEFAULT=65536",
+  "CONFIG_MM_BACKTRACE=8",
+  "CONFIG_MM_BACKTRACE_DEFAULT=y",
+  "CONFIG_SCHED_BACKTRACE=y",
+  "CONFIG_UNWINDER_ARM=y",
+  "# CONFIG_UNWINDER_FRAME_POINTER is not set",
+  "CONFIG_FS_PROCFS=y",
+  "CONFIG_STACK_COLORATION=y",
+  "# CONFIG_FS_PROCFS_EXCLUDE_PROCESS is not set",
+  "# CONFIG_FS_PROCFS_EXCLUDE_MEMINFO is not set",
+  "CONFIG_CLOCK_TIMEKEEPING=y",
+  "CONFIG_CLOCK_ADJTIME=y",
+  "CONFIG_USEC_PER_TICK=100",
+  "# CONFIG_RTC is not set",
+]
+forbid-regex = "^CONFIG_(ARCH_FPU|SMP|NET|DISABLE_PTHREAD|DEBUG_SCHED|DEBUG_SCHED_ERROR|RTC|RTC_HIRES)=y$"

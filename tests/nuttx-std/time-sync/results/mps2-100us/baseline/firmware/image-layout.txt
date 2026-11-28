@@ -1,0 +1,52 @@
+ELF Header:
+  Magic:   7f 45 4c 46 01 01 01 00 00 00 00 00 00 00 00 00 
+  Class:                             ELF32
+  Data:                              2's complement, little endian
+  Version:                           1 (current)
+  OS/ABI:                            UNIX - System V
+  ABI Version:                       0
+  Type:                              EXEC (Executable file)
+  Machine:                           ARM
+  Version:                           0x1
+  Entry point address:               0x10000299
+  Start of program headers:          52 (bytes into file)
+  Start of section headers:          6536744 (bytes into file)
+  Flags:                             0x5000200, Version5 EABI, soft-float ABI
+  Size of this header:               52 (bytes)
+  Size of program headers:           32 (bytes)
+  Number of program headers:         5
+  Size of section headers:           40 (bytes)
+  Number of section headers:         21
+  Section header string table index: 20
+
+Program Headers:
+  Type           Offset   VirtAddr   PhysAddr   FileSiz MemSiz  Flg Align
+  ARM_EXIDX      0x055304 0x10045304 0x10045304 0x03a48 0x03a48 R   0x4
+  LOAD           0x010000 0x10000000 0x10000000 0x48d4c 0x48d4c R E 0x10000
+  LOAD           0x060000 0x38000000 0x10048d4c 0x00524 0x00524 RW  0x10000
+  LOAD           0x000530 0x38000530 0x10049270 0x00000 0x02528 RW  0x10000
+  GNU_STACK      0x000000 0x00000000 0x00000000 0x00000 0x00000 RWE 0x10
+
+ Section to Segment mapping:
+  Segment Sections...
+   00     .ARM.exidx 
+   01     .text .ARM.extab .ARM.exidx 
+   02     .data 
+   03     .bss 
+   04     
+Attribute Section: aeabi
+File Attributes
+  Tag_CPU_name: "8-M.MAIN"
+  Tag_CPU_arch: v8-M.mainline
+  Tag_CPU_arch_profile: Microcontroller
+  Tag_THUMB_ISA_use: Yes
+  Tag_ABI_PCS_GOT_use: direct
+  Tag_ABI_PCS_wchar_t: 4
+  Tag_ABI_FP_denormal: Needed
+  Tag_ABI_FP_exceptions: Needed
+  Tag_ABI_FP_number_model: IEEE 754
+  Tag_ABI_align_needed: 8-byte
+  Tag_ABI_enum_size: small
+  Tag_ABI_optimization_goals: Aggressive Debug
+  Tag_CPU_unaligned_access: v6
+  Tag_ABI_FP_16bit_format: IEEE 754

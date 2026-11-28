@@ -1,0 +1,155 @@
+{
+  "component": "nuttx-apps",
+  "patches": [
+    {
+      "files": {
+        "nshlib/nsh_command.c": {
+          "after": "52dc6c81780a8abc9eec70087a6337c55ee4cc02629aeaf13ab1c9cfa9496b3f",
+          "before": "19793fd33689e3092008a4751fd0dca3462498e73db315f4bb4873f3ce56c51d"
+        },
+        "nshlib/nsh_fscmds.c": {
+          "after": "fd47b91993e5e3ebea22c8d43b2f35a8f0feb0f5f661ec99066ff457e1322e49",
+          "before": "692b9ad00dec1a60a0973ea5528dd0a52d824cccb9a97be0aaf0f7d34dfe3a04"
+        }
+      },
+      "name": "0002-nsh-dmesg-reset-options.patch",
+      "sha256": "e6b5d7acc5e549d411ad0fe828fadb302ff514dd05d47a13070009a81a435fa1"
+    },
+    {
+      "files": {
+        "netutils/dhcpc/dhcpc.c": {
+          "after": "8719711f8a6487db71a45d4b96412a28e7e3c938d656117a615855eb6ea5bbe9",
+          "before": "8fdb04cd5fed09816d0ea9f2007e717cff6d00d0d074f0e3818fc9751ebf83d4"
+        }
+      },
+      "name": "0003-dhcpc-pad-option.patch",
+      "sha256": "3f0aaa26c11e6b8085fb67f76ba249a885e5761381a9c96fd6935fbdbb60db69"
+    },
+    {
+      "files": {
+        "boot/mcuboot/Makefile": {
+          "after": "b520bf1b5c0797bd41e8f9ef6904b1f44be1b61f047c16740cfd03eaf7217264",
+          "before": "cfe5761f84d7f2e4af3c3df3990b0934c8b2eb455f8d20e750956fe6b2d2c67c"
+        }
+      },
+      "name": "0004-mcuboot-current-helpers.patch",
+      "sha256": "84bdfe49c8ce033f6d17e8b92c8a6bf868a8319676f4c84d584e8eff3ddc1851"
+    },
+    {
+      "files": {
+        "netutils/dropbear/CMakeLists.txt": {
+          "after": "8fa7c0f97de55db3e3914dc086e84f4958ddda574a0289dced8957761d93686d",
+          "before": "2d4ae2fc82582afba637b1484946e6cb443fd6aecf66c09c7dff1a5168a63c7a"
+        },
+        "netutils/dropbear/Kconfig": {
+          "after": "7d7daeb242cbe1c07d2afcf9246f41f0e009c5acd8788a464f27f24ea4e137ee",
+          "before": "35ed00850c3de6051cb82fee83a81b0903bc12f6b5d5d400e0ec4d09c1541660"
+        },
+        "netutils/dropbear/Makefile": {
+          "after": "6bd9e28b696fce0dea72926928990b6e164759aefd07dd14d31a7b0df109e8e2",
+          "before": "4aacdd14a4bc43b84ef1ee1531944dd1d4abfa2bb693aad6d6d80a570333e158"
+        },
+        "netutils/dropbear/dropbear_main.c": {
+          "after": "5dfb5bb071bc45b444721fe6d34b42be7683723d02159c08ded8e982812c9284",
+          "before": "ae721415f3630621e2a332feed898e2522f45d31357a9f771da997f0bf419431"
+        },
+        "netutils/dropbear/dropbear_nshsession.c": {
+          "after": "9a6059bb085c44e50f370f3058d7794c67c6ca44466145a2245736305f065115",
+          "before": "2bf3d801dc4a9c4ca34976bc546e36da22686c9d205e1be2ba997fae1388f6be"
+        },
+        "netutils/dropbear/patch/0002-use-nuttx-passwd-auth.patch": {
+          "after": "c5ef04f0a1502a7ab62693645b05bdc7a328214cc0c0bd03c63645aeac56ac67",
+          "before": "47f56660a9a2ef7fe1c1d218079e952c73d0ddd520ad6fc8eb1d49238bb93c47"
+        },
+        "netutils/dropbear/patch/0005-nuttx-bounded-service.patch": {
+          "after": "f8b719611439b1227d2939ab5d459782bf424b6eefca32d44a65c651c6e97c12",
+          "before": null
+        },
+        "netutils/dropbear/patch/0006-limit-kex-deferred-replies.patch": {
+          "after": "0b4e955d62f291fbc89969ff6e0f3e4c570d4fdc28263ed9379e73944088e254",
+          "before": null
+        },
+        "netutils/dropbear/patch/0007-validate-ecdsa-curve-identifier.patch": {
+          "after": "2aa970f987d6f3ce5220d2357a0d27ba17d3545194d86abaae8f498c659b383f",
+          "before": null
+        },
+        "netutils/dropbear/patch/0008-enforce-channel-packet-bounds.patch": {
+          "after": "61e506627037c1e15d7cfd7b132cd8f31d56f37f3b584cb0d1d20b6e6d87d042",
+          "before": null
+        },
+        "netutils/dropbear/port/dropbear_control.c": {
+          "after": "bd8d503d9735b30c177e9fb81bf2ede484f580a02005eba7380c8de7fc21d65a",
+          "before": null
+        },
+        "netutils/dropbear/port/dropbear_control.h": {
+          "after": "65a6d77e786f29299f62bb0040b2155870fde664829046190ddb7c0f2eaf2ff6",
+          "before": null
+        },
+        "netutils/dropbear/port/dropbear_entropy.c": {
+          "after": "ef2dded95ae597509ebdcf355cc798131f0569022c6f6c795b51f5e4331a956c",
+          "before": null
+        },
+        "netutils/dropbear/port/dropbear_ltc_hmac_sha256.c": {
+          "after": "030237e47a85ba4834f13b754420cfa2a7efba493c66bdc8a1a2a6bc8e79e570",
+          "before": "7c0909b9df77232e38356615df245d4f819207810a9cc03cddc856efb9fe987c"
+        },
+        "netutils/dropbear/port/localoptions.h": {
+          "after": "9ff9371bfa74549b02bc2d6cbf31a388bb3c41d3d3df24f730f8dbe242bb5e70",
+          "before": "d9e2cffdf95664737ab56167f077274c9aa581bdeab7f8b522d19b1a62ae82c3"
+        },
+        "netutils/dropbear/port/nuttx_auth.c": {
+          "after": "4e9b34904b7f005d1647d8367e4c50178cf11bf3b906b772ffadce4f66df2b3e",
+          "before": "bf80ad81244d769c98a3888742d4c8d829fc475593573f262e505db1477a3936"
+        },
+        "nshlib/nsh_builtin.c": {
+          "after": "b8d21bab02ba87fff50233b62b860459b8f3d0ec9f13da355bc78e2cdf35a6a0",
+          "before": "91024ea1486c284975161098f004797edb567f71132f2155e12ae1e5bb6c053b"
+        }
+      },
+      "name": "0005-dropbear-bounded-service.patch",
+      "sha256": "1f06c8b9e05e8d7d1d4d9b4b767621a57277e97d6146cc111827313a1273bffc"
+    },
+    {
+      "files": {
+        "netutils/dropbear/dropbear_nshsession.c": {
+          "after": "eaef74bf771a79d58a223bfd0d59fef57020f629352c63fc6b7698c92cf36a95",
+          "before": "9a6059bb085c44e50f370f3058d7794c67c6ca44466145a2245736305f065115"
+        }
+      },
+      "name": "0006-dropbear-initialize-remote-prompt.patch",
+      "sha256": "38feffe0ffbbec2e2b2ace53870b5a88f7bcee60c0f4fe7babe27749ac9d495d"
+    },
+    {
+      "files": {
+        "system/trace/CMakeLists.txt": {
+          "after": "f0eff32b37a1726009f59f412eaa32bc8546b59304f60e063394c4cd1538575c",
+          "before": "b5a209c8d6a3215ad885092c953fe67e9e05bf739da6b289fca341264435be3e"
+        },
+        "system/trace/Kconfig": {
+          "after": "210733f9234bbf5fac1ad5bd03da543aecebfc5b01ce3caa3ab143a2bced3032",
+          "before": "61ab530824678bd5d3da085ddb8c3ed11f05b7e2e7a5b35abaca9f8a9a7c582a"
+        },
+        "system/trace/Makefile": {
+          "after": "3656b0f0cc17b02dc5472d3a830f781869e910a05ba99285d7b5ed0ba5ee6469",
+          "before": "5454be189513aad9742bcb512e862678ebe97ea9b32e855099ca4ed4822825ee"
+        },
+        "system/trace/trace.c": {
+          "after": "0b326a5bd23fc54eeed5e9c09b9bd92c74b1155b6e4464bfdb74d960b8eb5187",
+          "before": "5124669c3053a2905225c7f82ae6f123a087c58189217f7c622632d7c9f530cf"
+        },
+        "system/trace/trace.h": {
+          "after": "80eddc8cb10054fca7052f948cfe1ef01416e96d0310946f51d2625b9e8ec91b",
+          "before": "6dcd00405efee91214c5d45c6f450cf9f97d775027ceae6d22facfff2b125d33"
+        },
+        "system/trace/trace_capture.c": {
+          "after": "cc617c4d510a97a0cc9963e35ee42c10117da8a3de74c77d98c50ddd0ee21c6c",
+          "before": null
+        }
+      },
+      "name": "0007-trace-capture-window.patch",
+      "sha256": "38a1841f38ce2a0be3a81c6df8671ea946d052b38f4ae04ef4c4d3d0ded17cbd"
+    }
+  ],
+  "schema": 1,
+  "upstream_revision": "3c772ea35b9245972e18999828f7b533e6fc57cc"
+}

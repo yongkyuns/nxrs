@@ -2538,6 +2538,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "nxrs-time"
+version = "0.1.0"
+dependencies = [
+ "cfg-if",
+ "nxrs-build-support",
+]
+
+[[package]]
+name = "nxrs-time-sync-service"
+version = "0.1.0"
+dependencies = [
+ "nxrs-time",
+]
+
+[[package]]
 name = "nxrs-tls"
 version = "0.1.0"
 dependencies = [

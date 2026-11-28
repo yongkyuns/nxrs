@@ -1,0 +1,606 @@
+{
+  "schema": 1,
+  "variant": "controller",
+  "runs": [
+    {
+      "qualified": true,
+      "variant": "controller",
+      "observations": [
+        {
+          "kind": "observation",
+          "name": "baseline",
+          "request_us": 0,
+          "reference_ns": 250001900,
+          "monotonic_ns": 250002000,
+          "wall_ns": 250000000,
+          "uncertainty_ns": 282400,
+          "reads": 10000,
+          "max_read_span_ns": 41600,
+          "max_pair_bound_ns": 259365
+        },
+        {
+          "kind": "observation",
+          "name": "positive",
+          "request_us": 2000,
+          "reference_ns": 1250006500,
+          "monotonic_ns": 1250007000,
+          "wall_ns": 1250625000,
+          "uncertainty_ns": 237900,
+          "reads": 47121,
+          "max_read_span_ns": 43950,
+          "max_pair_bound_ns": 262966
+        },
+        {
+          "kind": "observation",
+          "name": "negative",
+          "request_us": -2000,
+          "reference_ns": 1250009650,
+          "monotonic_ns": 1250010000,
+          "wall_ns": 1249375000,
+          "uncertainty_ns": 238200,
+          "reads": 46536,
+          "max_read_span_ns": 44350,
+          "max_pair_bound_ns": 263516
+        },
+        {
+          "kind": "observation",
+          "name": "controller_positive",
+          "request_us": 1980,
+          "reference_ns": 4500019400,
+          "monotonic_ns": 4500020000,
+          "wall_ns": 4501979700,
+          "uncertainty_ns": 236700,
+          "reads": 170165,
+          "max_read_span_ns": 43950,
+          "max_pair_bound_ns": 262966
+        },
+        {
+          "kind": "observation",
+          "name": "controller_negative",
+          "request_us": -2019,
+          "reference_ns": 4500012675,
+          "monotonic_ns": 4500013000,
+          "wall_ns": 4497981300,
+          "uncertainty_ns": 236850,
+          "reads": 168899,
+          "max_read_span_ns": 44350,
+          "max_pair_bound_ns": 263516
+        }
+      ],
+      "controller_states": [
+        {
+          "kind": "controller",
+          "name": "seed",
+          "state": "Checking",
+          "initialized": true,
+          "source": 0,
+          "age_ns": 65000,
+          "bound_ns": -1,
+          "pending_known": true,
+          "pending_us": 0
+        },
+        {
+          "kind": "controller",
+          "name": "seed_checked",
+          "state": "Synchronized",
+          "initialized": true,
+          "source": 0,
+          "age_ns": 606000,
+          "bound_ns": 358007,
+          "pending_known": true,
+          "pending_us": 0
+        },
+        {
+          "kind": "controller",
+          "name": "controller_positive",
+          "state": "Adjusting",
+          "initialized": true,
+          "source": 0,
+          "age_ns": 259000,
+          "bound_ns": 2276953,
+          "pending_known": true,
+          "pending_us": 1980
+        },
+        {
+          "kind": "controller",
+          "name": "positive_settled",
+          "state": "Synchronized",
+          "initialized": true,
+          "source": 0,
+          "age_ns": 4501368000,
+          "bound_ns": 374015,
+          "pending_known": true,
+          "pending_us": 0
+        },
+        {
+          "kind": "controller",
+          "name": "before_replacement",
+          "state": "Adjusting",
+          "initialized": true,
+          "source": 0,
+          "age_ns": 1000271000,
+          "bound_ns": 1899953,
+          "pending_known": true,
+          "pending_us": 1576
+        },
+        {
+          "kind": "controller",
+          "name": "controller_negative",
+          "state": "Adjusting",
+          "initialized": true,
+          "source": 0,
+          "age_ns": 264000,
+          "bound_ns": 2354053,
+          "pending_known": true,
+          "pending_us": -2019
+        },
+        {
+          "kind": "controller",
+          "name": "negative_settled",
+          "state": "Synchronized",
+          "initialized": true,
+          "source": 0,
+          "age_ns": 4501374000,
+          "bound_ns": 369115,
+          "pending_known": true,
+          "pending_us": 0
+        },
+        {
+          "kind": "controller",
+          "name": "holdover",
+          "state": "Holdover",
+          "initialized": true,
+          "source": 0,
+          "age_ns": 6502184000,
+          "bound_ns": 384923,
+          "pending_known": true,
+          "pending_us": 0
+        },
+        {
+          "kind": "controller",
+          "name": "refreshed",
+          "state": "Synchronized",
+          "initialized": true,
+          "source": 0,
+          "age_ns": 175000,
+          "bound_ns": 342002,
+          "pending_known": true,
+          "pending_us": 0
+        },
+        {
+          "kind": "controller",
+          "name": "resumed",
+          "state": "Synchronized",
+          "initialized": true,
+          "source": 0,
+          "age_ns": 176000,
+          "bound_ns": 362002,
+          "pending_known": true,
+          "pending_us": 0
+        }
+      ],
+      "complete": {
+        "kind": "complete",
+        "schema": 1,
+        "variant": "controller",
+        "reference_elapsed_ns": 14763707550
+      },
+      "limits": [
+        "Explicit instruction-driven QEMU model; no physical RTC/sleep qualification.",
+        "Dense sample extrema and API failure checks are enforced by target Rust assertions.",
+        "Source observations are synthetic policy inputs; GNSS/NTP source quality is not measured."
+      ]
+    },
+    {
+      "qualified": true,
+      "variant": "controller",
+      "observations": [
+        {
+          "kind": "observation",
+          "name": "baseline",
+          "request_us": 0,
+          "reference_ns": 250007600,
+          "monotonic_ns": 250008000,
+          "wall_ns": 250000000,
+          "uncertainty_ns": 235500,
+          "reads": 10001,
+          "max_read_span_ns": 41600,
+          "max_pair_bound_ns": 259365
+        },
+        {
+          "kind": "observation",
+          "name": "positive",
+          "request_us": 2000,
+          "reference_ns": 1250015525,
+          "monotonic_ns": 1250015000,
+          "wall_ns": 1250625000,
+          "uncertainty_ns": 237950,
+          "reads": 47101,
+          "max_read_span_ns": 43950,
+          "max_pair_bound_ns": 262966
+        },
+        {
+          "kind": "observation",
+          "name": "negative",
+          "request_us": -2000,
+          "reference_ns": 1250003025,
+          "monotonic_ns": 1250003000,
+          "wall_ns": 1249375000,
+          "uncertainty_ns": 281250,
+          "reads": 46509,
+          "max_read_span_ns": 44300,
+          "max_pair_bound_ns": 263466
+        },
+        {
+          "kind": "observation",
+          "name": "controller_positive",
+          "request_us": 1976,
+          "reference_ns": 4500001575,
+          "monotonic_ns": 4500002000,
+          "wall_ns": 4501975700,
+          "uncertainty_ns": 236650,
+          "reads": 171303,
+          "max_read_span_ns": 43950,
+          "max_pair_bound_ns": 262966
+        },
+        {
+          "kind": "observation",
+          "name": "controller_negative",
+          "request_us": -2018,
+          "reference_ns": 4500015375,
+          "monotonic_ns": 4500016000,
+          "wall_ns": 4497982300,
+          "uncertainty_ns": 236850,
+          "reads": 168846,
+          "max_read_span_ns": 44350,
+          "max_pair_bound_ns": 263516
+        }
+      ],
+      "controller_states": [
+        {
+          "kind": "controller",
+          "name": "seed",
+          "state": "Checking",
+          "initialized": true,
+          "source": 0,
+          "age_ns": 65000,
+          "bound_ns": -1,
+          "pending_known": true,
+          "pending_us": 0
+        },
+        {
+          "kind": "controller",
+          "name": "seed_checked",
+          "state": "Synchronized",
+          "initialized": true,
+          "source": 0,
+          "age_ns": 487000,
+          "bound_ns": 339005,
+          "pending_known": true,
+          "pending_us": 0
+        },
+        {
+          "kind": "controller",
+          "name": "controller_positive",
+          "state": "Adjusting",
+          "initialized": true,
+          "source": 0,
+          "age_ns": 255000,
+          "bound_ns": 2272953,
+          "pending_known": true,
+          "pending_us": 1976
+        },
+        {
+          "kind": "controller",
+          "name": "positive_settled",
+          "state": "Synchronized",
+          "initialized": true,
+          "source": 0,
+          "age_ns": 4501206000,
+          "bound_ns": 392013,
+          "pending_known": true,
+          "pending_us": 0
+        },
+        {
+          "kind": "controller",
+          "name": "before_replacement",
+          "state": "Adjusting",
+          "initialized": true,
+          "source": 0,
+          "age_ns": 1000311000,
+          "bound_ns": 1839904,
+          "pending_known": true,
+          "pending_us": 1476
+        },
+        {
+          "kind": "controller",
+          "name": "controller_negative",
+          "state": "Adjusting",
+          "initialized": true,
+          "source": 0,
+          "age_ns": 264000,
+          "bound_ns": 2354053,
+          "pending_known": true,
+          "pending_us": -2018
+        },
+        {
+          "kind": "controller",
+          "name": "negative_settled",
+          "state": "Synchronized",
+          "initialized": true,
+          "source": 0,
+          "age_ns": 4501376000,
+          "bound_ns": 368115,
+          "pending_known": true,
+          "pending_us": 0
+        },
+        {
+          "kind": "controller",
+          "name": "holdover",
+          "state": "Holdover",
+          "initialized": true,
+          "source": 0,
+          "age_ns": 6502184000,
+          "bound_ns": 383923,
+          "pending_known": true,
+          "pending_us": 0
+        },
+        {
+          "kind": "controller",
+          "name": "refreshed",
+          "state": "Synchronized",
+          "initialized": true,
+          "source": 0,
+          "age_ns": 175000,
+          "bound_ns": 342002,
+          "pending_known": true,
+          "pending_us": 0
+        },
+        {
+          "kind": "controller",
+          "name": "resumed",
+          "state": "Synchronized",
+          "initialized": true,
+          "source": 0,
+          "age_ns": 176000,
+          "bound_ns": 361002,
+          "pending_known": true,
+          "pending_us": 0
+        }
+      ],
+      "complete": {
+        "kind": "complete",
+        "schema": 1,
+        "variant": "controller",
+        "reference_elapsed_ns": 14763693550
+      },
+      "limits": [
+        "Explicit instruction-driven QEMU model; no physical RTC/sleep qualification.",
+        "Dense sample extrema and API failure checks are enforced by target Rust assertions.",
+        "Source observations are synthetic policy inputs; GNSS/NTP source quality is not measured."
+      ]
+    },
+    {
+      "qualified": true,
+      "variant": "controller",
+      "observations": [
+        {
+          "kind": "observation",
+          "name": "baseline",
+          "request_us": 0,
+          "reference_ns": 250012875,
+          "monotonic_ns": 250035000,
+          "wall_ns": 250100000,
+          "uncertainty_ns": 279250,
+          "reads": 10001,
+          "max_read_span_ns": 41600,
+          "max_pair_bound_ns": 259365
+        },
+        {
+          "kind": "observation",
+          "name": "positive",
+          "request_us": 2000,
+          "reference_ns": 1250000200,
+          "monotonic_ns": 1250000000,
+          "wall_ns": 1250625000,
+          "uncertainty_ns": 237900,
+          "reads": 47086,
+          "max_read_span_ns": 43950,
+          "max_pair_bound_ns": 262966
+        },
+        {
+          "kind": "observation",
+          "name": "negative",
+          "request_us": -2000,
+          "reference_ns": 1250001650,
+          "monotonic_ns": 1250001000,
+          "wall_ns": 1249375000,
+          "uncertainty_ns": 238200,
+          "reads": 46489,
+          "max_read_span_ns": 44350,
+          "max_pair_bound_ns": 263516
+        },
+        {
+          "kind": "observation",
+          "name": "controller_positive",
+          "request_us": 1976,
+          "reference_ns": 4500000400,
+          "monotonic_ns": 4500001000,
+          "wall_ns": 4501975700,
+          "uncertainty_ns": 236700,
+          "reads": 171245,
+          "max_read_span_ns": 43950,
+          "max_pair_bound_ns": 262966
+        },
+        {
+          "kind": "observation",
+          "name": "controller_negative",
+          "request_us": -2018,
+          "reference_ns": 4500012875,
+          "monotonic_ns": 4500013000,
+          "wall_ns": 4497982300,
+          "uncertainty_ns": 236850,
+          "reads": 168804,
+          "max_read_span_ns": 44350,
+          "max_pair_bound_ns": 263516
+        }
+      ],
+      "controller_states": [
+        {
+          "kind": "controller",
+          "name": "seed",
+          "state": "Checking",
+          "initialized": true,
+          "source": 0,
+          "age_ns": 66000,
+          "bound_ns": -1,
+          "pending_known": true,
+          "pending_us": 0
+        },
+        {
+          "kind": "controller",
+          "name": "seed_checked",
+          "state": "Synchronized",
+          "initialized": true,
+          "source": 0,
+          "age_ns": 487000,
+          "bound_ns": 438005,
+          "pending_known": true,
+          "pending_us": 0
+        },
+        {
+          "kind": "controller",
+          "name": "controller_positive",
+          "state": "Adjusting",
+          "initialized": true,
+          "source": 0,
+          "age_ns": 252000,
+          "bound_ns": 2269953,
+          "pending_known": true,
+          "pending_us": 1976
+        },
+        {
+          "kind": "controller",
+          "name": "positive_settled",
+          "state": "Synchronized",
+          "initialized": true,
+          "source": 0,
+          "age_ns": 4501202000,
+          "bound_ns": 388013,
+          "pending_known": true,
+          "pending_us": 0
+        },
+        {
+          "kind": "controller",
+          "name": "before_replacement",
+          "state": "Adjusting",
+          "initialized": true,
+          "source": 0,
+          "age_ns": 1000311000,
+          "bound_ns": 1839904,
+          "pending_known": true,
+          "pending_us": 1476
+        },
+        {
+          "kind": "controller",
+          "name": "controller_negative",
+          "state": "Adjusting",
+          "initialized": true,
+          "source": 0,
+          "age_ns": 264000,
+          "bound_ns": 2354053,
+          "pending_known": true,
+          "pending_us": -2018
+        },
+        {
+          "kind": "controller",
+          "name": "negative_settled",
+          "state": "Synchronized",
+          "initialized": true,
+          "source": 0,
+          "age_ns": 4501374000,
+          "bound_ns": 370115,
+          "pending_known": true,
+          "pending_us": 0
+        },
+        {
+          "kind": "controller",
+          "name": "holdover",
+          "state": "Holdover",
+          "initialized": true,
+          "source": 0,
+          "age_ns": 6502184000,
+          "bound_ns": 383923,
+          "pending_known": true,
+          "pending_us": 0
+        },
+        {
+          "kind": "controller",
+          "name": "refreshed",
+          "state": "Synchronized",
+          "initialized": true,
+          "source": 0,
+          "age_ns": 175000,
+          "bound_ns": 342002,
+          "pending_known": true,
+          "pending_us": 0
+        },
+        {
+          "kind": "controller",
+          "name": "resumed",
+          "state": "Synchronized",
+          "initialized": true,
+          "source": 0,
+          "age_ns": 176000,
+          "bound_ns": 361002,
+          "pending_known": true,
+          "pending_us": 0
+        }
+      ],
+      "complete": {
+        "kind": "complete",
+        "schema": 1,
+        "variant": "controller",
+        "reference_elapsed_ns": 14763618550
+      },
+      "limits": [
+        "Explicit instruction-driven QEMU model; no physical RTC/sleep qualification.",
+        "Dense sample extrema and API failure checks are enforced by target Rust assertions.",
+        "Source observations are synthetic policy inputs; GNSS/NTP source quality is not measured."
+      ]
+    }
+  ],
+  "build_sha256": "8cf52d18aea3694134764e916e727d802f4e6ee98fef194185c1d4d943e06a11",
+  "artifacts": {
+    "firmware/nuttx/.config": "1173320db2f0f06557548473c871f7ecb7e13e6d7e112f17b2f8cfb6b6002a14",
+    "firmware/nuttx/nuttx": "247d3b3287ab0cc1779890af51c9f2a8a25684d47e8fd2b20599814d9a2882a1",
+    "firmware/nuttx/nuttx.bin": "6107a2a18a848efaed3d37b3367d76c547454ad8df05b0725afdf4850bb823cf",
+    "firmware/resolved.config": "1173320db2f0f06557548473c871f7ecb7e13e6d7e112f17b2f8cfb6b6002a14",
+    "firmware/abi-report.json": "7c192beec4c00cb4fc9fb621d0c50eb896c6ac927a13fe101cb867ecfc3d36ef",
+    "firmware/provenance.txt": "57f924fd96f3e5cb53c43630b8c90327a2c18df6e6f48897c99ac7d267b72c62",
+    "firmware/nuttx-patches.json": "c69fde1194a880c93229e25d39d9f588b4fe9e3ab0007aa16b530e1a9eb7666a",
+    "firmware/nuttx-apps-patches.json": "b7ba86fa4249d39e2ac3862261b16f24cd490dfd265275bc34e99e046f46531c",
+    "firmware/std-patch.json": "1ef7e777cfbf4243404cfa0e8321fc5512ccd1662f858a95308d029f3297b094",
+    "firmware/std-source.json": "3681f237bc549e079e0454adef98276262c50f872db9e2df82f8339454a56497",
+    "firmware/provider-selection.json": "608d282fa063922bd400e094a8f243800953c9f3a3f78bd3b03897b05563af67",
+    "firmware/resolved-profile.json": "0a4ef001a4156570c6700145eb9880c53821d6063054baa66a1d57b608bb07aa",
+    "firmware/native-context.json": "07069f3615e8c7adb182d939c6169c8ef01c4fe7965313a4e171494c73f1ea8f",
+    "firmware/rust-link.json": "d803941b16a21dc0b80ac089842abe1c5724dceaf5682259a628be20239a850c",
+    "firmware/image-size.txt": "d97f2c5a4a43eab5f3681daa4ce0a2fe4e81ac614dfd32246a9757e926848bcc",
+    "firmware/image-layout.txt": "6ca15e52dccb0944c75392f30a159024fe259d228bf8e3bac16586deeced9190",
+    "firmware/symbols.txt": "01f6b96162ebc958adf068c15f9962a9f873e8c574a92b2b3a82f6eb3c9f1652"
+  },
+  "oracle_sha256": "c1409673b66da7d1f68e2bc5c3a5046362434268507e5dff59b11e02594f76de",
+  "workflow_sha256": "b817cd68bf929b3ea806b4951d99aa46fb7324937e0faa7c4ac8d8e9d9362770",
+  "harness_sha256": "1bcb982dcba2b747661c20d278a8d2f96e6bb240fa16f8899d4f30e16655c8eb",
+  "qemu_version": "QEMU emulator version 10.0.13 (Debian 1:10.0.13+ds-0+deb13u1)\nCopyright (c) 2003-2025 Fabrice Bellard and the QEMU Project developers\n",
+  "qemu_sha256": "0dfd6c04c472cf2e6478092caf090a963a6e9ae354ffe39cfc309966430c093e",
+  "qemu_clock_options": [
+    "-icount",
+    "shift=3,sleep=off"
+  ],
+  "virtual_ns_per_instruction": 8,
+  "cycle_accurate": false,
+  "physical_rtc_retention_qualified": false,
+  "qualified": true
+}

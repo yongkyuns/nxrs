@@ -1,0 +1,38 @@
+deployment=nxrs-time-sync-contract-mps2-an521-time-sync
+nxrs=33adc2248b267163c140ecedcda9c1e99b220c27
+nxrs_dirty=yes
+nuttx=4268617f28ad0ed7e900a081ea1b33c9347458b3
+apps=3c772ea35b9245972e18999828f7b533e6fc57cc
+app_package=nxrs-time-sync-contract
+app_bin=nxrs-time-sync-contract
+platform=mps2-an521-time-sync
+platform_profile=tests/profiles/mps2-an521-time-sync.toml
+provider_selection=provider-selection.json
+app_command=time_sync
+abi_profile=active
+nuttx_build_mode=flat
+size_optimized=0
+trace_only_backtrace=1
+panic_immediate_abort=1
+target=thumbv8m.main-nuttx-eabi
+board=mps2-an521:nsh
+mutex_policy=inherit
+kconfig_enable=CLOCK_TIMEKEEPING
+kconfig_enable=CLOCK_ADJTIME
+kconfig_set=USEC_PER_TICK=100
+target_c_source=/workspace/scratch/706f9e3bc115/nxrs/tests/nuttx-std/time-sync/reference.c
+4459cc13ff7bb5384d0a89836d6f22ad09c65b0d432002383ab7e2ed50446e19  /workspace/scratch/706f9e3bc115/nxrs/tests/nuttx-std/time-sync/reference.c
+target_c_source=/workspace/scratch/706f9e3bc115/nxrs/tests/nuttx-std/clock-control/qemu_systick_clock.c
+3e6e49b7d4e47da9713e902218a623f54ef406ea3d8aec279b935a05d4d067b2  /workspace/scratch/706f9e3bc115/nxrs/tests/nuttx-std/clock-control/qemu_systick_clock.c
+target_c_source=/workspace/scratch/706f9e3bc115/nxrs/tests/nuttx-std/memory-timing/qemu_timer_clock.c
+703cb28f21b28b4af4974c129163856aee6f04545d8d72304f25e404c09e606d  /workspace/scratch/706f9e3bc115/nxrs/tests/nuttx-std/memory-timing/qemu_timer_clock.c
+target_c_source=/workspace/scratch/706f9e3bc115/nxrs/target/time-sync-tools/prepared-sdk/toolchain/lib/rustlib/src/rust/library/std/src/sys/sync/mpmc/nuttx/ffi/lock.c
+1aa166b28f4c01f6bfb21a8733ec2ab22960438f84f7236c0033b7898729ba8c  /workspace/scratch/706f9e3bc115/nxrs/target/time-sync-tools/prepared-sdk/toolchain/lib/rustlib/src/rust/library/std/src/sys/sync/mpmc/nuttx/ffi/lock.c
+rustc 1.102.0-nightly (6c709eb42 2026-11-25)
+binary: rustc
+commit-hash: 6c709eb428d472a3c3d93681c1ba37d44a1c27cf
+commit-date: 2026-11-25
+host: x86_64-unknown-linux-gnu
+release: 1.102.0-nightly
+LLVM version: 23.1.6
+arm-none-eabi-gcc (15:14.2.rel1-1) 14.2.1 20241119

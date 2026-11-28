@@ -1,0 +1,80 @@
+[
+  {
+    "mode": "controller",
+    "success": true,
+    "command": [
+      "qemu-system-arm",
+      "-M",
+      "mps2-an521",
+      "-display",
+      "none",
+      "-serial",
+      "stdio",
+      "-monitor",
+      "none",
+      "-nic",
+      "none",
+      "-no-reboot",
+      "-kernel",
+      "/dev/shm/nxrs-time-sync-next/controller/firmware/nuttx/nuttx",
+      "-gdb",
+      "tcp:127.0.0.1:36313",
+      "-icount",
+      "shift=3,sleep=off"
+    ],
+    "image_sha256": "247d3b3287ab0cc1779890af51c9f2a8a25684d47e8fd2b20599814d9a2882a1",
+    "uname": "uname -a\r\nNuttX 13.1.1 4268617f28ad-nxrs Nov 28 2026 23:30:25 arm mps2-an521\r\nnsh> \u001b[K"
+  },
+  {
+    "mode": "controller",
+    "success": true,
+    "command": [
+      "qemu-system-arm",
+      "-M",
+      "mps2-an521",
+      "-display",
+      "none",
+      "-serial",
+      "stdio",
+      "-monitor",
+      "none",
+      "-nic",
+      "none",
+      "-no-reboot",
+      "-kernel",
+      "/dev/shm/nxrs-time-sync-next/controller/firmware/nuttx/nuttx",
+      "-gdb",
+      "tcp:127.0.0.1:38761",
+      "-icount",
+      "shift=3,sleep=off"
+    ],
+    "image_sha256": "247d3b3287ab0cc1779890af51c9f2a8a25684d47e8fd2b20599814d9a2882a1",
+    "uname": "uname -a\r\nNuttX 13.1.1 4268617f28ad-nxrs Nov 28 2026 23:30:25 arm mps2-an521\r\nnsh> \u001b[K"
+  },
+  {
+    "mode": "controller",
+    "success": true,
+    "command": [
+      "qemu-system-arm",
+      "-M",
+      "mps2-an521",
+      "-display",
+      "none",
+      "-serial",
+      "stdio",
+      "-monitor",
+      "none",
+      "-nic",
+      "none",
+      "-no-reboot",
+      "-kernel",
+      "/dev/shm/nxrs-time-sync-next/controller/firmware/nuttx/nuttx",
+      "-gdb",
+      "tcp:127.0.0.1:37149",
+      "-icount",
+      "shift=3,sleep=off"
+    ],
+    "image_sha256": "247d3b3287ab0cc1779890af51c9f2a8a25684d47e8fd2b20599814d9a2882a1",
+    "uname": "uname -a\r\nNuttX 13.1.1 4268617f28ad-nxrs Nov 28 2026 23:30:25 arm mps2-an521\r\nnsh> \u001b[K"
+  }
+]

@@ -33,6 +33,7 @@ pub const CAPABILITIES: &[&str] = &[
     "watchdog",
     "battery",
     "rtc",
+    "time",
     "flash",
     "display",
     "touch",

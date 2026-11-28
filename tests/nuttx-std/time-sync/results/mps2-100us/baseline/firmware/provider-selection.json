@@ -1,0 +1,64 @@
+{
+  "app_manifest": "/workspace/scratch/706f9e3bc115/nxrs/tests/nuttx-std/time-sync/Cargo.toml",
+  "app_package": "nxrs-time-sync-contract",
+  "configuration": null,
+  "dependency_resolution": {
+    "diagnostic_features": [],
+    "driver_features": [],
+    "model_features": [],
+    "packages": [
+      "nxrs-time-sync-contract v0.1.0 (/workspace/scratch/706f9e3bc115/nxrs/tests/nuttx-std/time-sync)"
+    ],
+    "status": "resolved"
+  },
+  "detector": null,
+  "diagnostic_features": [],
+  "driver_features": [],
+  "model_features": [],
+  "mutex_policy": {
+    "default_pthread_mutex_protocol": "inherit",
+    "holder_tracking": "embedded-single-holder",
+    "kconfig": {
+      "PRIORITY_INHERITANCE": "y",
+      "PTHREAD_MUTEX_DEFAULT_PRIO_INHERIT": "y",
+      "PTHREAD_MUTEX_DEFAULT_PRIO_NONE": "n",
+      "SEM_PREALLOCHOLDERS": "0"
+    },
+    "mode": "inherit",
+    "priority_inheritance": true,
+    "reason": null,
+    "source": "default",
+    "version": 1
+  },
+  "native-resources": [],
+  "nuttx-build-mode": "flat",
+  "platform": "mps2-an521-time-sync",
+  "profiles": [
+    {
+      "path": "/workspace/scratch/706f9e3bc115/nxrs/tests/profiles/mps2-an521-mock.toml",
+      "sha256": "d4a6150940726256d8c3e55b27e6a3f1d9d47dc059a6070a226e48992a933482"
+    },
+    {
+      "path": "/workspace/scratch/706f9e3bc115/nxrs/tests/profiles/mps2-an521-time-sync.toml",
+      "sha256": "df2b842f85485de98d52a105dc241ae955d76570cc7152aee9aae409e7b46609"
+    }
+  ],
+  "providers": [
+    {
+      "capability": "gnss",
+      "implementation": "mock",
+      "package": "nxrs-gnss"
+    },
+    {
+      "capability": "imu",
+      "implementation": "mock",
+      "package": "nxrs-imu"
+    },
+    {
+      "capability": "time",
+      "implementation": "nuttx",
+      "package": "nxrs-time"
+    }
+  ],
+  "target_os": "nuttx"
+}

@@ -1,0 +1,170 @@
+{
+  "bounded_channel_backend": "native-transaction-v1",
+  "files": [
+    {
+      "original_blob": "35d17d56ddd493c06676ca69f22e410a195a05f4",
+      "patched_blob": "d0ab4dd8912df40a8add055ff5b4b6bef4c8be5d",
+      "patches": [
+        "std-main-thread-once.patch"
+      ],
+      "source_path": "lib/rustlib/src/rust/library/std/src/rt.rs"
+    },
+    {
+      "original_blob": "dffa0ade947ee12b5f694c4ec20ee9f05d52b8f9",
+      "patched_blob": "3d62e19fec9e76743f01ca376f29c3138c00622e",
+      "patches": [
+        "std-parker.patch",
+        "std-parker-selection.patch"
+      ],
+      "source_path": "lib/rustlib/src/rust/library/std/src/sys/sync/thread_parking/mod.rs"
+    },
+    {
+      "original_blob": "a34eabbccb1fc39b82393c62720b6d923c3a1fd0",
+      "patched_blob": "066232ba1a1ab9a237a811888e26610046f6da04",
+      "patches": [
+        "std-bounded-channel.patch"
+      ],
+      "source_path": "lib/rustlib/src/rust/library/std/src/sync/mpmc/mod.rs"
+    },
+    {
+      "original_blob": "050f26b097a0ef14ecbe26ca1b72f461f55dfe91",
+      "patched_blob": "70270c9700b5e882ffabdaf85855f91ad13d81f0",
+      "patches": [
+        "std-unbounded-boundaries.patch"
+      ],
+      "source_path": "lib/rustlib/src/rust/library/std/src/sync/mpmc/list.rs"
+    },
+    {
+      "original_blob": "4f645e16fbb6fd790d4a3218fa0cf8307becaeb6",
+      "patched_blob": "568c2aba77b975090dccb4187fc278a3655922d7",
+      "patches": [
+        "std-rendezvous-boundaries.patch"
+      ],
+      "source_path": "lib/rustlib/src/rust/library/std/src/sync/mpmc/zero.rs"
+    },
+    {
+      "original_blob": "9b6eec8e322b82000b8d04dda30f703220a2f5d1",
+      "patched_blob": "26758db543f5b3007e70c744ff8703dc53ea47d8",
+      "patches": [
+        "std-fd-sanitization.patch",
+        "std-sigign.patch"
+      ],
+      "source_path": "lib/rustlib/src/rust/library/std/src/sys/pal/unix/mod.rs"
+    },
+    {
+      "original_blob": "9c8b9e6f3a2e6dbd0e9eb0e1cf202089277c28ad",
+      "patched_blob": "9c8b9e6f3a2e6dbd0e9eb0e1cf202089277c28ad",
+      "patches": [],
+      "source_path": "lib/rustlib/src/rust/library/std/src/sys/net/connection/socket/unix.rs"
+    },
+    {
+      "original_blob": null,
+      "patched_blob": "bd3ab6b7d8977bf6470ef7f93aa75fa33f5e8bb8",
+      "patches": [
+        "std-parker.patch"
+      ],
+      "source_path": "lib/rustlib/src/rust/library/std/src/sys/sync/thread_parking/nuttx.rs"
+    },
+    {
+      "original_blob": null,
+      "patched_blob": "ba7c8e71db6c0990fe4573d09a366e36d6d51439",
+      "patches": [
+        "std-bounded-channel.patch"
+      ],
+      "source_path": "lib/rustlib/src/rust/library/std/src/sys/sync/mpmc/nuttx/mod.rs"
+    },
+    {
+      "original_blob": null,
+      "patched_blob": "a42a1b0f64418fa4ae687b330e68cfbbf9fdb29b",
+      "patches": [
+        "std-bounded-channel.patch"
+      ],
+      "source_path": "lib/rustlib/src/rust/library/std/src/sys/sync/mpmc/nuttx/ffi/lock.c"
+    }
+  ],
+  "installed_toolchain_unchanged": true,
+  "libc": {
+    "alignment": 8,
+    "crate_sha256": "65cd87c9a6d60536580b316ad985726104730a5151c99845f2490428ef91240a",
+    "directory_abi": "nuttx-13.1",
+    "directory_sources": [
+      {
+        "original_blob": "213cb709ec1ba94a202c746ab6f2b1989a2ecbc3",
+        "patched_blob": "1ad15104f6e8fa498e5d556117ca8bb8bcd75822",
+        "path": "src/unix/nuttx/mod.rs"
+      }
+    ],
+    "libc_version": "0.2.191",
+    "open_flags_abi": "nuttx-13.1",
+    "patched_blob": "0484eb66c3fd1e7181458ecb04eb5d2512d0aff7",
+    "patches": [
+      "libc-sockaddr-storage.patch",
+      "libc-nuttx-poll.patch",
+      "libc-nuttx-directory.patch",
+      "libc-nuttx-wchar.patch",
+      "libc-nuttx-pi-holder-capacity.patch",
+      "std-libc-override.patch",
+      "std-libc-lock.patch"
+    ],
+    "path": "lib/rustlib/src/rust/library/libc-nuttx",
+    "poll_sources": [
+      {
+        "original_blob": "62d48c9eb8692ee69d38e29a1e9f4b829a22072a",
+        "patched_blob": "a6b770451d5912fd7192963a700101acf5fbdff4",
+        "path": "src/unix/mod.rs"
+      },
+      {
+        "original_blob": "dee1c97c4df20b798f212e2a475b71a95bce5e7d",
+        "patched_blob": "213cb709ec1ba94a202c746ab6f2b1989a2ecbc3",
+        "path": "src/unix/nuttx/mod.rs"
+      }
+    ],
+    "pollfd_abi": "nuttx-13.1",
+    "source_blob": "4970511599f7da3ab4b9ab7c24fd09b586197454",
+    "synchronization_abi": "nuttx-13.1-embedded-pi-holder",
+    "synchronization_sources": [
+      {
+        "original_blob": "7197c9eafd1830a3921d4307848b868cb1af54b4",
+        "patched_blob": "0484eb66c3fd1e7181458ecb04eb5d2512d0aff7",
+        "path": "src/unix/nuttx/mod.rs"
+      }
+    ],
+    "upstream_locked_version": "0.2.191",
+    "wchar_sources": [
+      {
+        "original_blob": "1ad15104f6e8fa498e5d556117ca8bb8bcd75822",
+        "patched_blob": "7197c9eafd1830a3921d4307848b868cb1af54b4",
+        "path": "src/unix/nuttx/mod.rs",
+        "xtensa_type": "u16"
+      }
+    ]
+  },
+  "libc_sockaddr_storage_alignment": 8,
+  "main_thread_initialization": "nuttx-image-once",
+  "mode": "nuttx-parker-fcntl-sigign-and-libc-socket-align",
+  "native_sources": [
+    {
+      "path": "lib/rustlib/src/rust/library/std/src/sys/sync/mpmc/nuttx/ffi/lock.c",
+      "sha256": "1aa166b28f4c01f6bfb21a8733ec2ab22960438f84f7236c0033b7898729ba8c"
+    }
+  ],
+  "patchset_sha256": {
+    "libc-nuttx-directory.patch": "bb590cf85bc04f62d90c29d9c29912201303ba9daa9adf1c694af2b54d9c40ee",
+    "libc-nuttx-pi-holder-capacity.patch": "51651c4eadac033333878ae9a6923b062a43639042f5f324ff2313d9d75d68d6",
+    "libc-nuttx-poll.patch": "1835e87c689d9903ed5e1f975a93658f689691b27c1e88a56ba76732f317a189",
+    "libc-nuttx-wchar.patch": "5d032dd038d19d68b8e6002d144d99caa47f0626dc941a2f1abef11587423126",
+    "libc-sockaddr-storage.patch": "acfba7d2c3b04d098617df81de0a1874675ac1cf2f463a419ac1eb7f641a213b",
+    "std-bounded-channel.patch": "a05906ef679a3c3f0185b879d91687d7346988e90b4ee08ad5adc861723fb28f",
+    "std-fd-sanitization.patch": "22c704e7e3ea32675ba5b0e60d8eb6e7a6cd2fcd85c827b6a4af8af19f8f740a",
+    "std-libc-lock.patch": "f6442ad4948e2864f0da0343a1a14398534bcb8a0d499e2ce3976ab4665ff9fb",
+    "std-libc-override.patch": "c1613ea405143a520ddd04fcca73662270c0a8eb99f976a549ac57cab166eea6",
+    "std-main-thread-once.patch": "01b9d323e29ae263eabec58625a64917c0170b19f288c430a7b294928409fe4b",
+    "std-parker-selection.patch": "d1562cb2b8e81994adf71f28e143db9e95d6ec48743cf9d31687d8eb10fbed2b",
+    "std-parker.patch": "48eebe76d3bcfcf296a80d3c7031a6f24607ccd2a01407a0bbdd0e80c51320dc",
+    "std-rendezvous-boundaries.patch": "4ebe82b65bfb3f57558198784a913f4b482ebd36305195573a97ed79cc2b932b",
+    "std-sigign.patch": "ce2a863f01cfefcd8c1013981e63c62d8c5604ea99f48914506471f4e0a950f1",
+    "std-unbounded-boundaries.patch": "423f1fad806c3fc983d95e973e67fb0d47a5842debe7998d82e3ac52124c43ef"
+  },
+  "sdk": "nightly-2026-11-26",
+  "startup_sig_ign": 0
+}

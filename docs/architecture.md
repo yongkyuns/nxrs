@@ -185,6 +185,34 @@ checks linked flash, the unpadded image and static RAM on its existing tracker
 builds. See [memory and image size](rust-std-footprint.md) for the accounting
 and the difference between linked and measured runtime memory.
 
+### Time synchronization ownership
+
+[`service/time-sync`](../service/time-sync/README.md) owns reusable UTC
+discipline separately from navigation or connectivity. A
+`Controller<C, N>` receives one `time::Control` and retains exactly `N` source
+slots. It creates no worker, queue or heap allocation. The caller admits trusted
+sources, correlates each UTC observation with its local `Instant`, and drives
+`observe` and `poll` from an existing execution owner. The caller schedules
+source refresh from `refresh_at`, clock readback from `check_at`, and its own
+acquisition retries. A status describes its recorded check time and needs another
+poll to establish current quality.
+
+The controller owns uncertainty accounting, selection, bounded slew and
+readback. An unknown startup clock permits one intentional seed step; preserving
+an existing clock does not certify its UTC accuracy. Later corrections that
+cannot be slewed within policy report `StepRequired`. Suspending invalidates
+observations; pending adjustment must be cancelled successfully before sleep.
+After OS/BSP clock restoration, resuming establishes a new observation epoch.
+A reset requires a new controller, and `Instant` must not be persisted across it.
+
+[`hal/time`](../hal/time/README.md) supplies mutation controls;
+`hal/rtc` retains direct hardware-clock access. RTC writes that also change OS
+time must share the synchronization owner's lifecycle. Product activation,
+GNSS timestamp correlation, NTP acquisition and physical sleep qualification
+remain follow-up work; the standalone
+[qualification fixture](../tests/nuttx-std/time-sync/README.md) defines the
+current evidence scope.
+
 ### Camera inference
 
 `hal/detector` owns the portable detector API, models and platform-specific
@@ -444,8 +472,9 @@ Without a selected profile or resolved-profile receipt, portable contracts still
 compile and no mock is selected implicitly. Acquisition reports its documented
 unavailable result when no implementation is bound.
 
-Ordinary `std::time` is not a HAL capability. Services use it directly where
-qualified; sensor timestamp domains remain explicit device/data contracts.
+Ordinary time reads and waits use Rust std directly where qualified.
+`hal/time` supplies the system-clock mutation controls absent from std;
+sensor timestamp domains remain explicit device/data contracts.
 
 ## Providers and drivers
 

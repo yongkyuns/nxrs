@@ -52,6 +52,11 @@ kind = "abi"
 reason = "Target RTC ioctls and calendar ABI conversion through NuttX libc. Rust owns the descriptor, time validation and clock contract."
 
 [[bridge]]
+path = "hal/time/src/platform/nuttx/ffi/time.c"
+kind = "abi"
+reason = "Target clock configuration, timespec/timeval layouts and individual realtime set/adjust calls. Rust owns exclusive admission, validation and errors; the synchronization service owns source and correction policy."
+
+[[bridge]]
 path = "hal/flash/src/platform/nuttx/ffi/flash.c"
 kind = "abi"
 reason = "Target direct-open flags and MTD geometry, erase and cache ioctls. Rust owns the descriptor, geometry/range validation and std data transfers."
