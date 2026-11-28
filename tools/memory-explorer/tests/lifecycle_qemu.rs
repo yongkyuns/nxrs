@@ -2,6 +2,9 @@
 //! fixture-specific oracle decodes saved native marker bytes and raw UART text
 //! without calling the Python binder, trace converter, or debugger exporter.
 
+#[path = "support/atomic_stack.rs"]
+mod atomic_stack;
+
 use nxrs_memory_explorer::{
     correlate_checkpoints, load_inputs, load_timing, Snapshot, SpanKind, TimeConfidence,
     TimingEventKind,
@@ -292,6 +295,13 @@ fn links_actual_stopped_heap_states_to_independent_native_and_uart_markers() {
     );
     let build_dir = elf.parent().unwrap();
     let build = json(&build_dir.join("build.json"));
+    let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    atomic_stack::validate(
+        &build,
+        build_dir,
+        &repo,
+        "tools/memory-explorer/tests/build_timing_nuttx.py",
+    );
     let report = json(&evidence.join("report.json"));
     let run = json(&evidence.join("run.json"));
     let recording_id = text(&run, "recording_id");

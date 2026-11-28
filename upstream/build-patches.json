@@ -131,7 +131,8 @@
       "0144-ram-uart-report-only-new-rx-bytes.patch",
       "0145-cores3-timestamp-gpio10-edges.patch",
       "0148-trace-heap-allocation-requests.patch",
-      "0149-armv8m-systick-coherent-status.patch"
+      "0149-armv8m-systick-coherent-status.patch",
+      "0150-armv8m-atomic-stack-transition.patch"
     ]
   },
   "mcuboot": {

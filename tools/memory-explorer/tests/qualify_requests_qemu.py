@@ -21,6 +21,7 @@ import subprocess
 import sys
 import time
 
+from build_timing_nuttx import validate_atomic_stack_patch
 from qemu_console import nsh_prompt_ready
 
 
@@ -260,6 +261,7 @@ def run(args):
     repository = Path(__file__).resolve().parents[3]
     qemu, build_path, output = [getattr(args, name).resolve() for name in ("qemu", "build", "output")]
     build = json.loads(build_path.read_text())
+    validate_atomic_stack_patch(build, repository, build_path.parent)
     image, config = build_path.parent / "nuttx", build_path.parent / "resolved.config"
     digest = lambda path: hashlib.sha256(path.read_bytes()).hexdigest()
     require(digest(image) == build["elf_sha256"] and digest(config) == build["config_sha256"],

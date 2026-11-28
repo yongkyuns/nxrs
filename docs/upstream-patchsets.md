@@ -42,6 +42,24 @@ and retired investigation tools are not silently renumbered.
 | Espressif I²S receive and GDMA | 0126 | Roll back failed receive submissions and terminate a short ESP32-S3 descriptor list within its capacity |
 | ESP32-S3 I²S receive interrupt | 0127 | Keep the RX interrupt on its registering CPU and serialize DMA completion with task-context queue operations |
 | ESP32-S3 I²S receive stop | 0128 | Keep active buffers until GDMA is parked and submissions and callbacks have retired, then cancel and release the queued buffers |
+| ARMv8-M initial stack transition | 0150 | Preserve PRIMASK while excluding maskable interrupts across the initial PSP, MSP and hardware stack-limit updates |
+
+Patch 0150 closes an ARMv8-M startup interrupt window. The scheduler timer can
+already be running when `arm_initialize_stack()` selects PSP and then moves MSP
+to the interrupt stack. An interrupt between those changes saves its exception
+context below PSP while its C handler still uses the overlapping old MSP. The
+handler can overwrite the saved context, causing an exception-return integrity
+fault before the first task starts. An exact-image MPS2-AN521 QEMU boot trace
+retained a SysTick return using PSP followed by an exception-return integrity
+fault. The source and linked instructions show the unmasked transition
+described above; the trace does not identify the precise entry instruction.
+
+The patch saves PRIMASK, masks interrupts in the existing assembly block, and
+restores the incoming mask after both stacks and their limits are ready. It
+preserves BASEPRI and hardware stack checking; PRIMASK also excludes the
+high-priority interrupts that a BASEPRI-only critical section can admit. The
+assembly declares its scratch registers, condition codes and memory effects.
+QEMU evidence does not establish physical hardware startup timing.
 
 Patch 0090 bounds each RP2350 TRNG block's polling and health-rejection retries,
 including startup. Failure disables the source, clears partial output and keeps

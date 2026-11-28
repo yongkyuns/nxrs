@@ -2,6 +2,9 @@
 //! The small oracle understands this single-core qualification fixture only; it
 //! does not call the converter or manufacture target observations.
 
+#[path = "support/atomic_stack.rs"]
+mod atomic_stack;
+
 use nxrs_memory_explorer::{load_inputs, load_timing, TimingEventKind};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -100,6 +103,12 @@ fn imports_real_timing_and_matches_independent_uart_endpoints() {
     let build = json(&build_dir.join("build.json"));
     let report = json(&evidence.join("report.json"));
     let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    atomic_stack::validate(
+        &build,
+        build_dir,
+        &repo,
+        "tools/memory-explorer/tests/build_timing_nuttx.py",
+    );
     let sources = &report["capture_sources_sha256"];
     assert_eq!(sources.as_object().unwrap().len(), 2);
     for source in [

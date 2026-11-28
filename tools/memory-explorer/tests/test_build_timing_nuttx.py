@@ -1,5 +1,6 @@
 """Admission checks for reproducible native timing-witness builds."""
 
+from contextlib import nullcontext
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from types import SimpleNamespace
@@ -68,6 +69,7 @@ class BuildEvidenceChecks(unittest.TestCase):
             args = SimpleNamespace(nuttx=nuttx, apps=apps, output=root / "evidence",
                                    qemu_timer_clock=True)
             with patch("build_timing_nuttx.source_identity", return_value={}), \
+                 patch("build_timing_nuttx.atomic_stack_transition", return_value=nullcontext({})), \
                  patch("build_timing_nuttx.subprocess.run", side_effect=configure):
                 with self.assertRaisesRegex(RuntimeError, "fresh configure reached olddefconfig"):
                     run(args)

@@ -15,7 +15,8 @@ import shutil
 import subprocess
 
 from build_timing_nuttx import (
-    APPS_REVISION, NUTTX_REVISION, source_identity, validate_apps_directory, validate_configuration,
+    APPS_REVISION, NUTTX_REVISION, atomic_stack_transition, source_identity,
+    validate_apps_directory, validate_configuration,
 )
 
 
@@ -94,46 +95,53 @@ def run(args):
                      "SCHED_INSTRUMENTATION_FILTER_DEFAULT_MODE": "0x0", "TASK_NAME_SIZE": "31",
                      "MM_REGIONS": "1", "MM_BACKTRACE": "8", "MM_BACKTRACE_DEFAULT": "y",
                      "MM_DEFAULT_ALIGNMENT": "8", "MM_NODE_GUARDSIZE": "0", "MM_FREE_DELAYCOUNT_MAX": "0"})
-    with (output / "configure.log").open("w") as log:
-        if not config.exists():
-            execute(["bash", "tools/configure.sh", "-l", "-a", os.path.relpath(apps, nuttx), "mps2-an521:nsh"], log)
-        if "CONFIG_ARCH_BOARD_MPS2_AN521=y" not in config.read_text().splitlines():
-            raise RuntimeError("The disposable tree is configured for another board")
-        validate_apps_directory(nuttx, apps, config.read_text())
-        execute(["make", "-C", str(apps / "examples"), "APPDIR=" + str(apps),
-                 "TOPDIR=" + str(nuttx), "preconfig"], log)
-        lines = [line for line in config.read_text().splitlines() if not any(
-            line.startswith("CONFIG_" + key + "=") or line == "# CONFIG_" + key + " is not set" for key in settings)]
-        lines.extend("# CONFIG_" + key + " is not set" if value == "n" else "CONFIG_" + key + "=" + value
-                     for key, value in settings.items())
-        config.write_text("\n".join(lines) + "\n")
-        execute(["make", "olddefconfig"], log)
-        configured_apps = validate_apps_directory(nuttx, apps, config.read_text())
-        checks = validate_configuration(config.read_text(), settings)
-        shutil.copy2(config, output / "resolved.config")
-    with (output / "build.log").open("w") as log:
-        execute(["make", "-j4", "EXTRALINKCMDS=--wrap=up_perf_gettime --wrap=up_perf_getfreq --wrap=up_perf_convert"], log)
-    for name in ("nuttx", "nuttx.map"):
-        shutil.copy2(nuttx / name, output / name)
-    disassembly = subprocess.check_output(["arm-none-eabi-objdump", "-d", str(output / "nuttx")], text=True)
-    (output / "disassembly.txt").write_text(disassembly)
-    symbols = subprocess.check_output(["arm-none-eabi-nm", "-S", "--size-sort", str(output / "nuttx")], text=True)
-    (output / "symbols.txt").write_text(symbols)
-    owned = {"g_mm_request_id", "mm_request_begin", "mm_request_end", "mm_alloc_requests",
-             "sched_note_heap_request", "sched_note_heap_result"}
-    linked = []
-    for line in symbols.splitlines():
-        parts = line.split()
-        if len(parts) == 4 and parts[3] in owned:
-            linked.append({"name": parts[3], "address": int(parts[0], 16),
-                           "size": int(parts[1], 16), "kind": parts[2]})
-    if {item["name"] for item in linked} != owned or len(linked) != len(owned):
-        raise RuntimeError("Required production recorder symbols are missing or ambiguous")
-    if next(item["size"] for item in linked if item["name"] == "g_mm_request_id") != 8:
-        raise RuntimeError("Unexpected boot-global recorder ID storage ABI")
+    build_sources = {name: sha256(repo / name) for name in (
+        "tools/memory-explorer/tests/build_timing_nuttx.py",
+        "tools/memory-explorer/tests/build_requests_nuttx.py")}
+    with atomic_stack_transition(nuttx, repo, output, commands) as atomic_stack:
+        with (output / "configure.log").open("w") as log:
+            if not config.exists():
+                execute(["bash", "tools/configure.sh", "-l", "-a", os.path.relpath(apps, nuttx), "mps2-an521:nsh"], log)
+            if "CONFIG_ARCH_BOARD_MPS2_AN521=y" not in config.read_text().splitlines():
+                raise RuntimeError("The disposable tree is configured for another board")
+            validate_apps_directory(nuttx, apps, config.read_text())
+            execute(["make", "-C", str(apps / "examples"), "APPDIR=" + str(apps),
+                     "TOPDIR=" + str(nuttx), "preconfig"], log)
+            lines = [line for line in config.read_text().splitlines() if not any(
+                line.startswith("CONFIG_" + key + "=") or line == "# CONFIG_" + key + " is not set" for key in settings)]
+            lines.extend("# CONFIG_" + key + " is not set" if value == "n" else "CONFIG_" + key + "=" + value
+                         for key, value in settings.items())
+            config.write_text("\n".join(lines) + "\n")
+            execute(["make", "olddefconfig"], log)
+            configured_apps = validate_apps_directory(nuttx, apps, config.read_text())
+            checks = validate_configuration(config.read_text(), settings)
+            shutil.copy2(config, output / "resolved.config")
+        with (output / "build.log").open("w") as log:
+            execute(["make", "-j4", "EXTRALINKCMDS=--wrap=up_perf_gettime --wrap=up_perf_getfreq --wrap=up_perf_convert"], log)
+        for name in ("nuttx", "nuttx.map"):
+            shutil.copy2(nuttx / name, output / name)
+        disassembly = subprocess.check_output(["arm-none-eabi-objdump", "-d", str(output / "nuttx")], text=True)
+        (output / "disassembly.txt").write_text(disassembly)
+        symbols = subprocess.check_output(["arm-none-eabi-nm", "-S", "--size-sort", str(output / "nuttx")], text=True)
+        (output / "symbols.txt").write_text(symbols)
+        owned = {"g_mm_request_id", "mm_request_begin", "mm_request_end", "mm_alloc_requests",
+                 "sched_note_heap_request", "sched_note_heap_result"}
+        linked = []
+        for line in symbols.splitlines():
+            parts = line.split()
+            if len(parts) == 4 and parts[3] in owned:
+                linked.append({"name": parts[3], "address": int(parts[0], 16),
+                               "size": int(parts[1], 16), "kind": parts[2]})
+        if {item["name"] for item in linked} != owned or len(linked) != len(owned):
+            raise RuntimeError("Required production recorder symbols are missing or ambiguous")
+        if next(item["size"] for item in linked if item["name"] == "g_mm_request_id") != 8:
+            raise RuntimeError("Unexpected boot-global recorder ID storage ABI")
+    if build_sources != {name: sha256(repo / name) for name in build_sources}:
+        raise RuntimeError("Native build helpers changed during the build")
     report = {"schema_version": 1, "workload": "native allocator request/result qualification",
         "nuttx_revision": NUTTX_REVISION, "apps_revision": APPS_REVISION,
-        "source_identity_before_patch": identities, "configuration_checks": checks, "commands": commands,
+        "source_identity_before_patch": identities, "configuration_checks": checks, "atomic_stack_patch": atomic_stack,
+        "build_sources_sha256": build_sources, "commands": commands,
         "configured_apps_directory": str(configured_apps),
         "production_patch": {"path": PATCH, "sha256": sha256(patch), "changed_paths": paths,
                              "original_sources": original_hashes, "patched_sources": patched_hashes},

@@ -1,5 +1,8 @@
 //! Compare production finite captures with native bytes and independent work.
 
+#[path = "support/atomic_stack.rs"]
+mod atomic_stack;
+
 use nxrs_memory_explorer::{load_inputs, load_timing, TimingEventKind, TimingRange};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -162,6 +165,12 @@ fn ascii_notes(console: &str) -> Vec<NativeNote> {
 }
 
 fn validate_build(build: &Value, report: &Value, build_dir: &Path, repo: &Path) {
+    atomic_stack::validate(
+        build,
+        build_dir,
+        repo,
+        "tools/memory-explorer/tests/build_timed_capture_nuttx.py",
+    );
     assert_eq!(
         build["nuttx_revision"],
         "2b5c0de5e933281c209f954a63b99cf10c132346"

@@ -22,6 +22,7 @@ import subprocess
 import time
 
 from build_replay_nuttx import NUTTX_REVISION, hook_coverage, sha256
+from build_timing_nuttx import validate_atomic_stack_patch
 from qualify_qemu import drain_console, version
 from replay_trace import write_trace
 
@@ -50,6 +51,7 @@ def geometry(event):
 def validate_build(build_path):
     build = json.loads(build_path.read_text())
     directory = build_path.parent
+    validate_atomic_stack_patch(build, Path(__file__).resolve().parents[3], directory)
     require(build.get("schema_version") == 1 and build.get("nuttx_revision") == NUTTX_REVISION,
             "Unqualified allocator revision or build receipt")
     for filename, key in (("nuttx", "elf_sha256"), ("resolved.config", "config_sha256")):

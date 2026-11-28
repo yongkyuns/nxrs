@@ -3,6 +3,9 @@
 //! ELF's Thumb branch destinations are checked without invoking the Python
 //! collector, journal constructor, or its disassembly parser.
 
+#[path = "support/atomic_stack.rs"]
+mod atomic_stack;
+
 use nxrs_memory_explorer::{
     load_heap_journal, load_inputs, load_timing, HeapChunk, HeapChunkState, HeapEvidence,
     HeapRecord, HeapReplay, HeapState, HeapUnknownReason, ReplayCursor, TimingEventKind,
@@ -391,6 +394,12 @@ fn real_qemu_heap_journal_matches_native_headers_and_every_sequence() {
         sha256(&build_dir.join("disassembly.txt"))
     );
     let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    atomic_stack::validate(
+        &build,
+        &build_dir,
+        &repo,
+        "tools/memory-explorer/tests/build_replay_nuttx.py",
+    );
     for (name, hash) in build["fixture_sha256"].as_object().unwrap() {
         assert!(!name.contains('/') && !name.contains('\\'));
         assert_eq!(

@@ -10,6 +10,8 @@ import unittest
 from unittest.mock import Mock, patch
 
 from build_timed_capture_nuttx import SYSTICK_PATCH, SYSTICK_SOURCE
+from build_timing_nuttx import (ATOMIC_STACK_AFTER, ATOMIC_STACK_BEFORE,
+                                ATOMIC_STACK_PATCH, ATOMIC_STACK_SOURCE)
 import qualify_timed_capture_qemu as timed_capture
 from qualify_timed_capture_qemu import native_evidence, validate_build_sources
 
@@ -113,35 +115,52 @@ def synthetic_console(duplicate_operation=False):
 
 
 class TimedConsoleCapture(unittest.TestCase):
-    def capture(self, *chunks):
-        remaining = [b"NuttShell\r\nnsh> \x1b[K", *chunks]
+    def capture(self, *chunks, boot=b"NuttShell\r\nnsh> \x1b[K", command_sent=True,
+                timeout=10, clock_step=0.05):
+        remaining = [boot, *chunks]
         consumed = []
         process = Mock(stdin=io.BytesIO(), stdout=Mock(), pid=1234)
-        clock = itertools.count()
+        clock = itertools.count(0, clock_step)
+        self.clock_samples = []
 
-        def read(_descriptor, _size):
+        def read(_descriptor, size):
             data = remaining.pop(0)
+            if isinstance(data, Exception):
+                raise data
+            if len(data) > size:
+                remaining.insert(0, data[size:])
+                data = data[:size]
             consumed.append(data)
             return data
 
         def ready(*_args):
             return ([process.stdout] if remaining else [], [], [])
 
+        def monotonic():
+            now = next(clock)
+            self.clock_samples.append(now)
+            return now
+
         with TemporaryDirectory() as directory:
             output = Path(directory)
             with patch.object(timed_capture.subprocess, "Popen", return_value=process), \
                  patch.object(timed_capture.select, "select", side_effect=ready), \
                  patch.object(timed_capture.os, "read", side_effect=read), \
-                 patch.object(timed_capture.os, "killpg", create=True), \
+                 patch.object(timed_capture.os, "killpg", create=True) as killpg, \
                  patch.object(timed_capture.signal, "SIGKILL", 9, create=True), \
-                 patch.object(timed_capture.time, "monotonic", side_effect=lambda: next(clock)), \
+                 patch.object(timed_capture.time, "monotonic", side_effect=monotonic), \
                  patch.object(timed_capture.time, "sleep"):
                 try:
                     return timed_capture.capture(Path("qemu"), Path("nuttx"),
-                                                 "timed_capture 2 recorded normal", output, 10)
+                                                 "timed_capture 2 recorded normal", output, timeout)
                 finally:
-                    self.assertEqual((output / "console.log").read_bytes(), b"".join(consumed))
-                    self.assertEqual(process.stdin.getvalue(), b"timed_capture 2 recorded normal\n")
+                    self.retained_console = (output / "console.log").read_bytes()
+                    self.remaining_chunks = remaining
+                    self.assertEqual(self.retained_console, b"".join(consumed))
+                    self.assertEqual(process.stdin.getvalue(),
+                                     b"timed_capture 2 recorded normal\n" if command_sent else b"")
+                    killpg.assert_called_once_with(process.pid, 9)
+                    process.wait.assert_called_once_with(timeout=5)
 
     def test_complete_erase_line_prompt_finishes_without_losing_raw_bytes(self):
         # The failed native overflow capture ended with this exact suffix.
@@ -172,6 +191,50 @@ class TimedConsoleCapture(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "Native boot/workload failed"):
             self.capture(b"NXRS_TIMED_WITNESS FAIL\r\nnsh> \x1b[K")
 
+    def test_split_assertion_retains_location_and_backtrace_then_fails(self):
+        # The native boot failure was cut off at this first chunk.
+        assertion = b"dump_assert_info: Assertion failed"
+        location = b" at file: sched/example.c:123 task: init\r\n"
+        backtrace = b"up_dump_register: PC: 10001234\r\nbacktrace: 10001234 10005678\r\n"
+        with self.assertRaisesRegex(RuntimeError, "Native boot/workload failed"):
+            self.capture(location, backtrace, b"", boot=assertion, command_sent=False)
+        self.assertEqual(self.retained_console, assertion + location + backtrace)
+
+    def test_boot_failure_cannot_send_a_command_or_accept_later_success(self):
+        success = b"\r\nNXRS_TIMED_WITNESS PASS\r\nnsh> \x1b[K"
+        with self.assertRaisesRegex(RuntimeError, "Native boot/workload failed"):
+            self.capture(success, b"", boot=b"Assertion failed", command_sent=False)
+        self.assertTrue(self.retained_console.endswith(success))
+
+    def test_fatal_diagnostic_grace_is_bounded_even_with_continuous_output(self):
+        with self.assertRaisesRegex(RuntimeError, "Native boot/workload failed"):
+            self.capture(*([b"diagnostic row\r\n"] * 100),
+                         boot=b"Assertion failed", command_sent=False)
+        self.assertIn(b"diagnostic row", self.retained_console)
+        self.assertTrue(self.remaining_chunks)
+        self.assertLessEqual(max(self.clock_samples), 1.2)
+
+    def test_fatal_diagnostics_do_not_extend_the_original_deadline(self):
+        with self.assertRaisesRegex(RuntimeError, "Native boot/workload failed"):
+            self.capture(*([b"diagnostic row\r\n"] * 100), boot=b"Assertion failed",
+                         command_sent=False, timeout=0.2)
+        self.assertTrue(self.remaining_chunks)
+        self.assertLessEqual(max(self.clock_samples), 0.25)
+
+    def test_fatal_diagnostics_keep_the_console_cap_and_original_failure(self):
+        limit = 4 * 1024 * 1024
+        with self.assertRaisesRegex(RuntimeError, "Native boot/workload failed"):
+            self.capture(b"x" * limit, boot=b"Assertion failed", command_sent=False,
+                         clock_step=0.001)
+        self.assertEqual(len(self.retained_console), limit)
+        self.assertTrue(self.remaining_chunks)
+
+    def test_fatal_diagnostic_read_error_preserves_the_native_failure(self):
+        with self.assertRaisesRegex(RuntimeError, "Native boot/workload failed") as failed:
+            self.capture(OSError("diagnostic pipe closed"), boot=b"Assertion failed",
+                         command_sent=False)
+        self.assertTrue(any("diagnostic pipe closed" in note for note in failed.exception.__notes__))
+
 
 class NativeMarkerAdmission(unittest.TestCase):
     def test_synthetic_control_covers_each_independent_operation(self):
@@ -192,7 +255,7 @@ class NativeBuildIdentityAdmission(unittest.TestCase):
         self.addCleanup(temporary.cleanup)
         self.repository = Path(temporary.name)
         fixture_names = ("Kconfig", "Make.defs", "Makefile", "timed_main.c")
-        sources = [PATCH, SYSTICK_PATCH, *COPIED.values(), *BUILDERS,
+        sources = [PATCH, SYSTICK_PATCH, ATOMIC_STACK_PATCH, *COPIED.values(), *BUILDERS,
                    *(f"{FIXTURE}/{name}" for name in fixture_names)]
         for source in sources:
             path = self.repository / source
@@ -200,6 +263,11 @@ class NativeBuildIdentityAdmission(unittest.TestCase):
             path.write_text(f"synthetic source identity: {source}\n")
         fixture_hashes = {name: self.digest(f"{FIXTURE}/{name}") for name in fixture_names}
         self.build = {
+            "atomic_stack_patch": {
+                "path": ATOMIC_STACK_PATCH, "sha256": self.digest(ATOMIC_STACK_PATCH),
+                "source": ATOMIC_STACK_SOURCE, "before": ATOMIC_STACK_BEFORE,
+                "after": ATOMIC_STACK_AFTER, "source_restored": True,
+            },
             "production_patch": {"path": PATCH, "sha256": self.digest(PATCH)},
             "systick_patch": {"path": SYSTICK_PATCH, "sha256": self.digest(SYSTICK_PATCH),
                               "source": SYSTICK_SOURCE},
@@ -226,6 +294,7 @@ class NativeBuildIdentityAdmission(unittest.TestCase):
 
     def test_stale_production_fixture_copied_or_builder_source_is_rejected(self):
         for source, message in (
+            (ATOMIC_STACK_PATCH, "atomic stack patch/source identity differs"),
             (PATCH, "current production capture patch"),
             (SYSTICK_PATCH, "current production SysTick patch"),
             (f"{FIXTURE}/timed_main.c", "fixture source/installed identity"),
@@ -266,6 +335,20 @@ class NativeBuildIdentityAdmission(unittest.TestCase):
                         build[key]["unrecorded-input"] = "0" * 64
                     with self.assertRaisesRegex(RuntimeError, "differs"):
                         validate_build_sources(build, self.repository)
+
+    def test_atomic_stack_source_restoration_and_retained_patch_are_required(self):
+        build_dir = self.repository / "native-build"
+        build_dir.mkdir()
+        retained = build_dir / "atomic-stack.patch"
+        retained.write_bytes((self.repository / ATOMIC_STACK_PATCH).read_bytes())
+        validate_build_sources(self.build, self.repository, build_dir)
+        build = deepcopy(self.build)
+        build["atomic_stack_patch"]["source_restored"] = False
+        with self.assertRaisesRegex(RuntimeError, "atomic stack patch/source identity differs"):
+            validate_build_sources(build, self.repository, build_dir)
+        retained.write_bytes(retained.read_bytes() + b"changed after native build\n")
+        with self.assertRaisesRegex(RuntimeError, "Retained atomic stack patch differs"):
+            validate_build_sources(self.build, self.repository, build_dir)
 
 
 if __name__ == "__main__":

@@ -18,6 +18,7 @@ import signal
 import subprocess
 import time
 
+from build_timing_nuttx import validate_atomic_stack_patch
 from qemu_console import nsh_prompt_ready
 
 
@@ -114,6 +115,11 @@ def run(args):
     for path in (qemu, image, config):
         if not path.is_file():
             raise FileNotFoundError(path)
+    build = json.loads((image.parent / "build.json").read_text())
+    validate_atomic_stack_patch(build, repository, image.parent)
+    if (build["elf_sha256"] != hashlib.sha256(image.read_bytes()).hexdigest() or
+            build["config_sha256"] != hashlib.sha256(config.read_bytes()).hexdigest()):
+        raise RuntimeError("Native timing image/configuration differ from the build receipt")
     configuration = config.read_text().splitlines()
     for symbol in ("EXAMPLES_MEMORY_TIMING", "DRIVERS_NOTERAM_DEFAULT_NOOVERWRITE", "ARCH_BOARD_MPS2_AN521"):
         if "CONFIG_" + symbol + "=y" not in configuration:

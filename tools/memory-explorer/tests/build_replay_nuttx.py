@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Build an isolated native heap witness in supplied disposable NuttX trees.
 
-No tracked upstream source is modified. This fixture build is deliberately
-separate from the production profile and preserves source/config/ELF receipts.
+The exact ARM startup patch is applied temporarily and its source restored.
+This fixture build is deliberately separate from the production profile and
+preserves source/config/ELF receipts.
 """
 
 import argparse
@@ -15,8 +16,8 @@ import re
 import shutil
 import subprocess
 
-from build_timing_nuttx import (APPS_REVISION, NUTTX_REVISION, source_identity,
-                                validate_configuration)
+from build_timing_nuttx import (APPS_REVISION, NUTTX_REVISION, atomic_stack_transition,
+                                source_identity, validate_configuration)
 
 
 WRAPPERS = ("mm_lock", "mm_unlock", "up_perf_gettime", "up_perf_getfreq", "up_perf_convert")
@@ -115,46 +116,53 @@ def run(args):
         commands.append(command)
         subprocess.run(command, cwd=nuttx, stdout=log, stderr=subprocess.STDOUT, check=True)
 
-    with (output / "configure.log").open("w") as log:
-        config = nuttx / ".config"
-        if not config.exists():
-            execute(["bash", "tools/configure.sh", "-l", "-a", os.path.relpath(apps, nuttx), "mps2-an521:nsh"], log)
-        elif "CONFIG_ARCH_BOARD_MPS2_AN521=y" not in config.read_text().splitlines():
-            raise RuntimeError("The supplied build tree is configured for another board")
-        # An already configured disposable tree may retain an examples index
-        # generated before this fixture was installed. Use the native preconfig
-        # target to regenerate it; do not edit upstream Kconfig source files.
-        execute(["make", "-C", str(apps / "examples"), "APPDIR=" + str(apps),
-                 "TOPDIR=" + str(nuttx), "preconfig"], log)
-        lines = [line for line in config.read_text().splitlines() if not any(
-            line.startswith("CONFIG_" + key + "=") or line == "# CONFIG_" + key + " is not set" for key in settings)]
-        lines.extend("# CONFIG_" + key + " is not set" if value == "n" else "CONFIG_" + key + "=" + value
-                     for key, value in settings.items())
-        config.write_text("\n".join(lines) + "\n")
-        execute(["make", "olddefconfig"], log)
-        checks = validate_configuration(config.read_text(), settings)
-        shutil.copy2(config, output / "resolved.config")
-    with (output / "build.log").open("w") as log:
-        execute(["make", "-j4", "EXTRALINKCMDS=" + " ".join("--wrap=" + name for name in WRAPPERS)], log)
-    shutil.copy2(nuttx / "nuttx", output / "nuttx")
-    shutil.copy2(nuttx / "nuttx.map", output / "nuttx.map")
-    disassembly = subprocess.check_output(["arm-none-eabi-objdump", "-d", str(output / "nuttx")], text=True)
-    (output / "disassembly.txt").write_text(disassembly)
-    coverage = hook_coverage(disassembly)
-    symbols = subprocess.check_output(["arm-none-eabi-nm", "-S", "--size-sort", str(output / "nuttx")], text=True)
-    (output / "symbols.txt").write_text(symbols)
-    fixture_functions = {"heap_replay_main", "replay_probe_stop", "probe", "safe_point", "arguments",
-                         "__wrap_mm_lock", "__wrap_mm_unlock", "timing_clock_initialize", "timing_clock_stop",
-                         "__wrap_up_perf_gettime", "__wrap_up_perf_getfreq", "__wrap_up_perf_convert"}
-    linked_symbols = []
-    for line in symbols.splitlines():
-        parts = line.split()
-        if len(parts) == 4 and (parts[3].startswith("g_replay_") or parts[3] == "g_clock_ready" or parts[3] in fixture_functions):
-            linked_symbols.append({"name": parts[3], "address": int(parts[0], 16),
-                                   "size": int(parts[1], 16), "kind": parts[2]})
+    build_sources = {name: sha256(repo / name) for name in (
+        "tools/memory-explorer/tests/build_timing_nuttx.py",
+        "tools/memory-explorer/tests/build_replay_nuttx.py")}
+    with atomic_stack_transition(nuttx, repo, output, commands) as atomic_stack:
+        with (output / "configure.log").open("w") as log:
+            config = nuttx / ".config"
+            if not config.exists():
+                execute(["bash", "tools/configure.sh", "-l", "-a", os.path.relpath(apps, nuttx), "mps2-an521:nsh"], log)
+            elif "CONFIG_ARCH_BOARD_MPS2_AN521=y" not in config.read_text().splitlines():
+                raise RuntimeError("The supplied build tree is configured for another board")
+            # An already configured disposable tree may retain an examples index
+            # generated before this fixture was installed. Use the native preconfig
+            # target to regenerate it; do not edit upstream Kconfig source files.
+            execute(["make", "-C", str(apps / "examples"), "APPDIR=" + str(apps),
+                     "TOPDIR=" + str(nuttx), "preconfig"], log)
+            lines = [line for line in config.read_text().splitlines() if not any(
+                line.startswith("CONFIG_" + key + "=") or line == "# CONFIG_" + key + " is not set" for key in settings)]
+            lines.extend("# CONFIG_" + key + " is not set" if value == "n" else "CONFIG_" + key + "=" + value
+                         for key, value in settings.items())
+            config.write_text("\n".join(lines) + "\n")
+            execute(["make", "olddefconfig"], log)
+            checks = validate_configuration(config.read_text(), settings)
+            shutil.copy2(config, output / "resolved.config")
+        with (output / "build.log").open("w") as log:
+            execute(["make", "-j4", "EXTRALINKCMDS=" + " ".join("--wrap=" + name for name in WRAPPERS)], log)
+        shutil.copy2(nuttx / "nuttx", output / "nuttx")
+        shutil.copy2(nuttx / "nuttx.map", output / "nuttx.map")
+        disassembly = subprocess.check_output(["arm-none-eabi-objdump", "-d", str(output / "nuttx")], text=True)
+        (output / "disassembly.txt").write_text(disassembly)
+        coverage = hook_coverage(disassembly)
+        symbols = subprocess.check_output(["arm-none-eabi-nm", "-S", "--size-sort", str(output / "nuttx")], text=True)
+        (output / "symbols.txt").write_text(symbols)
+        fixture_functions = {"heap_replay_main", "replay_probe_stop", "probe", "safe_point", "arguments",
+                             "__wrap_mm_lock", "__wrap_mm_unlock", "timing_clock_initialize", "timing_clock_stop",
+                             "__wrap_up_perf_gettime", "__wrap_up_perf_getfreq", "__wrap_up_perf_convert"}
+        linked_symbols = []
+        for line in symbols.splitlines():
+            parts = line.split()
+            if len(parts) == 4 and (parts[3].startswith("g_replay_") or parts[3] == "g_clock_ready" or parts[3] in fixture_functions):
+                linked_symbols.append({"name": parts[3], "address": int(parts[0], 16),
+                                       "size": int(parts[1], 16), "kind": parts[2]})
+    if build_sources != {name: sha256(repo / name) for name in build_sources}:
+        raise RuntimeError("Native build helpers changed during the build")
     report = {"schema_version": 1, "workload": "native isolated heap replay qualification",
         "nuttx_revision": NUTTX_REVISION, "apps_revision": APPS_REVISION,
-        "source_identity": identities, "configuration_checks": checks, "commands": commands,
+        "source_identity": identities, "configuration_checks": checks, "atomic_stack_patch": atomic_stack,
+        "build_sources_sha256": build_sources, "commands": commands,
         "compiler": subprocess.check_output(["arm-none-eabi-gcc", "--version"], text=True).splitlines()[0],
         "fixture_sha256": {path.name: sha256(path) for path in sorted(fixture.iterdir()) if path.is_file()},
         "shared_clock_sha256": sha256(clock),

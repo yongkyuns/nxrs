@@ -8,6 +8,7 @@ Put the ARM cross tools and kconfig-conf on PATH before invocation.
 """
 
 import argparse
+from contextlib import contextmanager
 import hashlib
 import json
 import os
@@ -19,6 +20,67 @@ import subprocess
 
 NUTTX_REVISION = "2b5c0de5e933281c209f954a63b99cf10c132346"
 APPS_REVISION = "3c772ea35b9245972e18999828f7b533e6fc57cc"
+ATOMIC_STACK_PATCH = "upstream/nuttx/patches/0150-armv8m-atomic-stack-transition.patch"
+ATOMIC_STACK_SOURCE = "arch/arm/src/armv8-m/arm_initialstate.c"
+ATOMIC_STACK_BEFORE = "bad2478f501954bdf252ca71280b4025c5ed29ade912b4d94fc8f0957946520f"
+ATOMIC_STACK_AFTER = "f1a091dd7bf23825cdb5e9563cc37718a2c90b38014049919d0e7eb2d9528666"
+
+
+def sha256(path):
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+@contextmanager
+def atomic_stack_transition(nuttx, repository, output, commands):
+    """Temporarily apply the exact pinned ARM startup fix for a native build."""
+    patch = repository / ATOMIC_STACK_PATCH
+    retained = output / "atomic-stack.patch"
+    shutil.copy2(patch, retained)
+    patch_bytes = retained.read_bytes()
+    paths = re.findall(r"^diff --git a/(\S+) b/(\S+)$", patch_bytes.decode(), re.MULTILINE)
+    if paths != [(ATOMIC_STACK_SOURCE, ATOMIC_STACK_SOURCE)]:
+        raise RuntimeError("Atomic stack patch changes an unexpected source")
+    source = nuttx / ATOMIC_STACK_SOURCE
+    if sha256(source) != ATOMIC_STACK_BEFORE:
+        raise RuntimeError("Atomic stack source differs from its pinned preimage")
+    record = {"path": ATOMIC_STACK_PATCH, "sha256": sha256(retained),
+              "source": ATOMIC_STACK_SOURCE, "before": ATOMIC_STACK_BEFORE,
+              "after": ATOMIC_STACK_AFTER, "source_restored": False}
+    with (output / "atomic-stack-patch.log").open("w") as log:
+        def apply(*flags):
+            command = ["git", "-c", "core.autocrlf=false", "apply", *flags, "-"]
+            commands.append(command)
+            subprocess.run(command, input=patch_bytes, cwd=nuttx, stdout=log,
+                           stderr=subprocess.STDOUT, check=True)
+
+        apply("--check")
+        apply()
+        try:
+            if sha256(source) != ATOMIC_STACK_AFTER:
+                raise RuntimeError("Atomic stack patch produced an unexpected source")
+            yield record
+            if sha256(source) != ATOMIC_STACK_AFTER:
+                raise RuntimeError("Atomic stack source changed during the native build")
+            if sha256(patch) != record["sha256"] or sha256(retained) != record["sha256"]:
+                raise RuntimeError("Atomic stack patch changed during the native build")
+        finally:
+            # Reverse the bytes actually applied, even if the repository patch
+            # changes or the compiler fails while this context is active.
+            apply("--reverse", "--check")
+            apply("--reverse")
+            if sha256(source) != ATOMIC_STACK_BEFORE:
+                raise RuntimeError("Atomic stack source was not restored exactly")
+            record["source_restored"] = True
+
+
+def validate_atomic_stack_patch(build, repository, build_dir=None):
+    expected = {"path": ATOMIC_STACK_PATCH, "sha256": sha256(repository / ATOMIC_STACK_PATCH),
+                "source": ATOMIC_STACK_SOURCE, "before": ATOMIC_STACK_BEFORE,
+                "after": ATOMIC_STACK_AFTER, "source_restored": True}
+    if build.get("atomic_stack_patch") != expected:
+        raise RuntimeError("Native build atomic stack patch/source identity differs")
+    if build_dir is not None and sha256(build_dir / "atomic-stack.patch") != expected["sha256"]:
+        raise RuntimeError("Retained atomic stack patch differs from the build receipt")
 
 
 def validate_configuration(text, settings):
@@ -124,35 +186,40 @@ def run(args):
         commands.append(command)
         subprocess.run(command, cwd=nuttx, stdout=log, stderr=subprocess.STDOUT, check=True)
 
-    with (output / "configure.log").open("w") as log:
-        config = nuttx / ".config"
-        if not config.exists():
-            # The pinned configure.sh prepends TOPDIR to -a even for absolute
-            # input; its documented contract requires a relative apps path.
-            execute(["bash", "tools/configure.sh", "-l", "-a", os.path.relpath(apps, nuttx),
-                     "mps2-an521:nsh"], log)
-        elif "CONFIG_ARCH_BOARD_MPS2_AN521=y" not in config.read_text().splitlines():
-            raise RuntimeError("The supplied build tree is configured for another board")
-        original = config.read_text().splitlines()
-        lines = [line for line in original if not any(line.startswith("CONFIG_" + key + "=") or
-                 line == "# CONFIG_" + key + " is not set" for key in settings)]
-        lines.extend("# CONFIG_" + key + " is not set" if value == "n" else "CONFIG_" + key + "=" + value
-                     for key, value in settings.items())
-        config.write_text("\n".join(lines) + "\n")
-        execute(["make", "olddefconfig"], log)
-        checks = validate_configuration(config.read_text(), settings)
-        shutil.copy2(config, output / "resolved.config")
-    command = ["make", "-j4"]
-    if args.qemu_timer_clock:
-        command.append("EXTRALINKCMDS=--wrap=up_perf_gettime --wrap=up_perf_getfreq --wrap=up_perf_convert")
-    with (output / "build.log").open("w") as log:
-        execute(command, log)
-    shutil.copy2(nuttx / "nuttx", output / "nuttx")
-    if (nuttx / "nuttx.map").is_file():
-        shutil.copy2(nuttx / "nuttx.map", output / "nuttx.map")
+    build_sources = {name: sha256(repository / name) for name in ('tools/memory-explorer/tests/build_timing_nuttx.py',)}
+    with atomic_stack_transition(nuttx, repository, output, commands) as atomic_stack:
+        with (output / "configure.log").open("w") as log:
+            config = nuttx / ".config"
+            if not config.exists():
+                # The pinned configure.sh prepends TOPDIR to -a even for absolute
+                # input; its documented contract requires a relative apps path.
+                execute(["bash", "tools/configure.sh", "-l", "-a", os.path.relpath(apps, nuttx),
+                         "mps2-an521:nsh"], log)
+            elif "CONFIG_ARCH_BOARD_MPS2_AN521=y" not in config.read_text().splitlines():
+                raise RuntimeError("The supplied build tree is configured for another board")
+            original = config.read_text().splitlines()
+            lines = [line for line in original if not any(line.startswith("CONFIG_" + key + "=") or
+                     line == "# CONFIG_" + key + " is not set" for key in settings)]
+            lines.extend("# CONFIG_" + key + " is not set" if value == "n" else "CONFIG_" + key + "=" + value
+                         for key, value in settings.items())
+            config.write_text("\n".join(lines) + "\n")
+            execute(["make", "olddefconfig"], log)
+            checks = validate_configuration(config.read_text(), settings)
+            shutil.copy2(config, output / "resolved.config")
+        command = ["make", "-j4"]
+        if args.qemu_timer_clock:
+            command.append("EXTRALINKCMDS=--wrap=up_perf_gettime --wrap=up_perf_getfreq --wrap=up_perf_convert")
+        with (output / "build.log").open("w") as log:
+            execute(command, log)
+        shutil.copy2(nuttx / "nuttx", output / "nuttx")
+        if (nuttx / "nuttx.map").is_file():
+            shutil.copy2(nuttx / "nuttx.map", output / "nuttx.map")
+    if build_sources != {name: sha256(repository / name) for name in build_sources}:
+        raise RuntimeError("Native build helpers changed during the build")
     report = {"schema_version": 1, "workload": "native NuttX memory_timing qualification fixture",
               "nuttx_revision": NUTTX_REVISION, "apps_revision": APPS_REVISION,
-              "source_identity": identities, "configuration_checks": checks,
+              "source_identity": identities, "configuration_checks": checks, "atomic_stack_patch": atomic_stack,
+              "build_sources_sha256": build_sources,
               "qemu_cmsdk_clock_adapter": args.qemu_timer_clock, "commands": commands,
               "clock_contract": {"resource": "otherwise unused AN521 CMSDK APB timer1",
                                  "secure_address": 0x50001000, "frequency_hz": 20000000,
