@@ -11,6 +11,7 @@ use triple_buffer::{triple_buffer, Input as WriteSlot, Output};
 struct Faults<const IMUS: usize> {
     imu: [AtomicBool; IMUS],
     gnss: AtomicBool,
+    gnss_no_fix: AtomicBool, // Recoverable validity, separate from the terminal fault.
 }
 
 impl<const IMUS: usize> Faults<IMUS> {
@@ -86,7 +87,12 @@ impl<const IMUS: usize> Publisher<IMUS> {
             (SourceSlots::Gnss(fixes, satellites), Input::Gnss(event)) => match *event {
                 gnss::Event::Fix(value) => {
                     fixes.publish(value, received);
+                    self.faults.gnss_no_fix.store(false, Ordering::Release);
                     return Ok(observation.measurement());
+                }
+                gnss::Event::NoFix => {
+                    self.faults.gnss_no_fix.store(true, Ordering::Release);
+                    return Ok(None);
                 }
                 gnss::Event::Satellites(report) => {
                     satellites.write(Some(Sample {
@@ -123,19 +129,27 @@ impl<const IMUS: usize> FixedReader<IMUS> {
     pub fn snapshot(&mut self, now: Instant) -> Snapshot<IMUS> {
         Snapshot {
             imu: std::array::from_fn(|index| {
-                read(&mut self.imu[index], &self.faults.imu[index], now, |_| {
+                read(*self.imu[index].read(), &self.faults.imu[index], now, |_| {
                     self.imu_fresh_for
                 })
             }),
-            gnss: Some(read(&mut self.gnss, &self.faults.gnss, now, |_| {
-                self.gnss_fresh_for
-            })),
+            gnss: Some({
+                // Bracket the slot read so a partially published recovery stays stale.
+                let no_fix_before = self.faults.gnss_no_fix.load(Ordering::Acquire);
+                let sample = *self.gnss.read();
+                let no_fix_after = self.faults.gnss_no_fix.load(Ordering::Acquire);
+                match read(sample, &self.faults.gnss, now, |_| self.gnss_fresh_for) {
+                    Reading::Fault => Reading::Fault,
+                    _ if no_fix_before || no_fix_after => Reading::Stale,
+                    reading => reading,
+                }
+            }),
         }
     }
 
     pub fn satellites(&mut self, now: Instant) -> Reading<gnss::SatelliteReport> {
         self.satellites.as_mut().map_or(Reading::Waiting, |slot| {
-            read(slot, &self.faults.gnss, now, |report| {
+            read(*slot.read(), &self.faults.gnss, now, |report| {
                 Duration::from_millis(2 * u64::from(report.interval_ms.max(3_000)))
             })
         })
@@ -148,12 +162,11 @@ impl<const IMUS: usize> FixedReader<IMUS> {
 }
 
 fn read<T: Copy + Send>(
-    slot: &mut Output<Slot<T>>,
+    sample: Slot<T>,
     fault: &AtomicBool,
     now: Instant,
     fresh_for: impl FnOnce(&T) -> Duration,
 ) -> Reading<T> {
-    let sample = *slot.read();
     if fault.load(Ordering::Acquire) {
         return Reading::Fault;
     }
@@ -181,6 +194,7 @@ pub fn fixed_readers<const IMUS: usize>(
     let faults = Arc::new(Faults {
         imu: std::array::from_fn(|_| AtomicBool::new(false)),
         gnss: AtomicBool::new(false),
+        gnss_no_fix: AtomicBool::new(false),
     });
     let (gnss, [display_fix, links_fix]) = Pair::new();
     let (satellites, display_satellites) = triple_buffer(&None);

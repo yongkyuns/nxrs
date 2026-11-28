@@ -39,6 +39,30 @@ def main():
     assert frames[-1]["imu"][1]["state"] == "live", frames[-1]
     print(f"Motion Tracker exited cleanly after {len(frames)} frames. Live IMU sequences {live}.")
 
+    # A closed diagnostic reader must not stop healthy acquisition.
+    root = Path(__file__).resolve().parents[2]
+    target = Path(os.environ.get("CARGO_TARGET_DIR", root / "target"))
+    process = subprocess.Popen(
+        [str(target / "debug" / "motion-tracker"), "--interval-ms", "100",
+         "--frames", "12", "--stream-usb"],
+        cwd=root, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+    )
+    try:
+        for _ in range(4):
+            frame = json.loads(process.stdout.readline())
+        assert frame["imu"][0]["state"] == "live", frame
+        process.stdout.close()
+        status = process.wait(timeout=10)
+        stderr = process.stderr.read()
+        assert status == 0 and "motion-tracker: 12 frames" in stderr, stderr
+    finally:
+        if process.poll() is None:
+            process.kill()
+            process.wait()
+        process.stdout.close()
+        process.stderr.close()
+    print("Closing the diagnostic reader preserved acquisition and clean shutdown.")
+
 
 if __name__ == "__main__":
     main()

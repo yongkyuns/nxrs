@@ -31,6 +31,8 @@ ABI = {"common_bytes": 16, "clock_offset": 8, "clock_bytes": 8,
        "pid_offset": 4, "pid_bytes": 4, "event_bytes": 32, "data_offset": 24,
        "begin_type": 31, "end_type": 32, "mark_type": 33, "word_bytes": 4}
 MARKER = re.compile(r"^.+-(\d+)\s+\[0\]\s+(\d+)\.(\d{9}): tracing_mark_write: ([BEI])\|(\d+)\|(.+)$")
+# NSH may append an erase-line sequence after its otherwise complete prompt.
+NSH_PROMPT = re.compile(rb"(?:^|\n)nsh>[ \t]*(?:\x1b\[K)?[ \t\r\n]*\Z")
 
 
 def sha256(path):
@@ -255,7 +257,7 @@ def capture(qemu, image, command, output, timeout):
                     process.stdin.flush()
                     time.sleep(0.01)
                 sent = True
-            if sent and b"NXRS_TIMED_WITNESS " in console and console.rstrip().endswith(b"nsh>"):
+            if sent and b"NXRS_TIMED_WITNESS " in console and NSH_PROMPT.search(console):
                 return bytes(console)
         raise TimeoutError("Native timed capture exceeded its bounded host deadline")
     finally:
