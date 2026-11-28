@@ -247,7 +247,8 @@ class DeviceClosureFixture(unittest.TestCase):
         write_json(out / "provider-selection.json", selection)
         self.put(case, "resolved.config", "CONFIG_ARCH_BOARD_CUSTOM=y\n"
                  'CONFIG_ARCH_BOARD_CUSTOM_NAME="esp32s3-m5-cores3"\n')
-        write_json(out / (TARGET + ".json"), {"arch": "xtensa", "os": "nuttx", "target-pointer-width": "32"})
+        width = "32" if case == "lsm6dso" else 32
+        write_json(out / (TARGET + ".json"), {"arch": "xtensa", "os": "nuttx", "target-pointer-width": width})
         provenance = {"nxrs": REVISION, "nxrs_dirty": "no", "nuttx": "b" * 40, "apps": "c" * 40,
                       "app_package": app_package, "app_bin": app_bin, "platform": "m5stack-cores3-gnss",
                       "target": TARGET, "board": "esp32s3-m5-cores3:nsh", "nuttx_build_mode": "flat",
@@ -276,8 +277,11 @@ class DeviceClosureFixture(unittest.TestCase):
                 self.elf_output[str(path)] = text
         write_json(out / "link-reuse.json", {"reused": False, "artifact_sha256": CHECK.digest(rust)})
         write_json(out / "rust-symbol-pruning.json", {"after_sha256": CHECK.digest(rust), "removed_local_undefined": []})
+        release = old / "cargo" / TARGET / "release"
+        link_output = (release / "deps/event_demo-a1" if case == "lsm6dso" else
+                       release / "build" / app_package / "0123456789abcdef/out" / app_bin.replace("-", "_"))
         write_json(out / "rust-link.json", {"linker": str(RECORDED / "target/qemu-tools/gcc/bin/xtensa-esp32s3-elf-ld"),
-                   "effective": ["input.o", "-o", str(old / "cargo" / TARGET / "release/deps/event_demo-a1"), "-r", "--gc-sections"]})
+                   "effective": ["input.o", "-o", str(link_output), "-r", "--gc-sections"]})
         write_json(out / "std-source.json", {"std_source": str(std_root / "src/lib.rs"), "expected_source": str(std_root / "src/lib.rs"),
                                              "selected_source_matches": True, "rustc": str(old / "toolchain/bin/rustc")})
         self.put(case, "downloads.sha256", CHECK.digest(self.root / "target/qemu-tools/gcc.tar.xz")
@@ -507,6 +511,14 @@ class DeviceClosureTests(DeviceClosureFixture):
         copied = out / "cargo" / TARGET / "release/build/nxrs-composition-f1/out/imu_config.rs"
         copied.write_text(copied.read_text().replace("::r#bmi270", "::r#lsm6dso"))
         with self.assertRaisesRegex(ValueError, "stale or mismatched"):
+            self.check()
+
+    def test_cargo_link_output_cannot_belong_to_a_different_package(self):
+        path = self.outputs["bmi270"] / "rust-link.json"
+        link = read_json(path)
+        link["effective"][2] = link["effective"][2].replace("/build/nxrs-event-demo/", "/build/nxrs-imu/")
+        write_json(path, link)
+        with self.assertRaisesRegex(ValueError, "Rust link invocation belongs to another target output"):
             self.check()
 
     def test_wrong_target_machine_and_missing_static_object_are_rejected(self):
