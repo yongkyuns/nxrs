@@ -372,10 +372,6 @@ Returned display, touch, USB diagnostic and communications-start errors disable
 the affected output and leave acquisition running. An unavailable modem does
 not prevent BLE pairing. Errors are logged; there is no automatic output restart.
 
-The BMI270 retries an ambiguous FIFO snapshot on up to three later delivery
-periods (about 30 ms at 100 Hz). Persistent ambiguity, overflow and device I/O
-errors still stop that sensor; the FIFO is not silently reset.
-
 The CoreS3 tracker uses a 30-second hardware watchdog. The previous eight-second
 timeout was shorter than the modem's roughly 10.2-second cleanup sequence. The
 tracker feeds after a report iteration and once before blocking cleanup, then

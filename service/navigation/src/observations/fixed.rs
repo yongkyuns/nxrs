@@ -6,7 +6,7 @@ use std::sync::{
     Arc,
 };
 use std::time::{Duration, Instant};
-use triple_buffer::{triple_buffer, Input as WriteSlot, Output};
+use triple_buffer::{Input as WriteSlot, Output, TripleBuffer};
 
 struct Faults<const IMUS: usize> {
     imu: [AtomicBool; IMUS],
@@ -30,17 +30,16 @@ struct Sample<T> {
     received: Instant,
 }
 
-// Keep freshness at the reader and initialize the shared storage with None.
-// Copying the initialized Source into the padded buffers triggered Xtensa
-// stack realignment when the pinned compiler inlined tracker startup.
+// Default constructs None directly. Cloning an initial value can materialize
+// cache-padded storage on the stack and trigger unsafe Xtensa stack realignment.
 type Slot<T> = Option<Sample<T>>;
 
 struct Pair<T: Copy + Send>([WriteSlot<Slot<T>>; 2]);
 
 impl<T: Copy + Send> Pair<T> {
     fn new() -> (Self, [Output<Slot<T>>; 2]) {
-        let (left, display) = triple_buffer(&None);
-        let (right, links) = triple_buffer(&None);
+        let (left, display) = TripleBuffer::<Slot<T>>::default().split();
+        let (right, links) = TripleBuffer::<Slot<T>>::default().split();
         (Self([left, right]), [display, links])
     }
 
@@ -197,7 +196,8 @@ pub fn fixed_readers<const IMUS: usize>(
         gnss_no_fix: AtomicBool::new(false),
     });
     let (gnss, [display_fix, links_fix]) = Pair::new();
-    let (satellites, display_satellites) = triple_buffer(&None);
+    let (satellites, display_satellites) =
+        TripleBuffer::<Slot<gnss::SatelliteReport>>::default().split();
     let mut display = std::array::from_fn(|_| None);
     let mut links = std::array::from_fn(|_| None);
     let imus = std::array::from_fn(|index| {

@@ -4,6 +4,7 @@ import argparse
 from pathlib import Path
 import re
 import subprocess
+import tempfile
 
 
 SYMBOL = re.compile(r'^[0-9a-f]+ <(.+)>:$')
@@ -33,12 +34,23 @@ def check_windowed_stack(disassembly):
         raise ValueError('Motion Tracker windowed entry was absent from the disassembly')
 
 
+def disassemble(elf, objdump, objcopy):
+    # Linked .xt.prop records can misclassify Rust function bodies as data,
+    # hiding their instructions even with objdump -D. Preserve symbols and
+    # literal ranges, but ignore these records in a disposable copy.
+    with tempfile.TemporaryDirectory() as directory:
+        checked = Path(directory) / 'firmware.elf'
+        subprocess.check_call([objcopy, '--remove-section=.xt.prop', elf, checked])
+        return subprocess.check_output([objdump, '-d', '-C', checked], text=True)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('elf', type=Path)
     parser.add_argument('--objdump', default='xtensa-esp32s3-elf-objdump')
+    parser.add_argument('--objcopy', default='xtensa-esp32s3-elf-objcopy')
     args = parser.parse_args()
-    disassembly = subprocess.check_output([args.objdump, '-d', '-C', args.elf], text=True)
+    disassembly = disassemble(args.elf, args.objdump, args.objcopy)
     try:
         check_windowed_stack(disassembly)
     except ValueError as error:
