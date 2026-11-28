@@ -11,7 +11,7 @@ pub enum Error {
     InvalidData,
     Io,
     Timeout,
-    /// No measurements were consumed or offered; retry at the delivery cadence.
+    /// A drain could not make a coherent observation. The caller can retry.
     WouldBlock,
     Overflow,
 }
@@ -52,8 +52,9 @@ pub trait Imu {
     /// evidence of data. `Some(n)` counts offered measurements (zero is allowed);
     /// `None` means the consumer returned false and acquisition must stop.
     /// `now_us` supplies the same monotonic microsecond clock for every drain.
-    /// Never invoke the consumer again after false. Errors may follow an emitted
-    /// prefix; they must not silently imply that sample continuity was retained.
+    /// Never invoke the consumer again after false. `Error::WouldBlock` defers
+    /// the drain before consuming or offering samples. Other errors may follow
+    /// an emitted prefix and must not imply that sample continuity was retained.
     fn read_available(
         &mut self,
         now_us: impl FnMut() -> u64,

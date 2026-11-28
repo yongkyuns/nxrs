@@ -30,6 +30,7 @@ struct Fake {
     fail_stop: bool,
     fail_reference: bool,
     irq_asserted: bool,
+    irq_wake: bool,
     periodic_wake: bool,
     repeat_periodic: bool,
     ambiguous_lengths: u8,
@@ -58,6 +59,7 @@ impl Fake {
             fail_stop: false,
             fail_reference: false,
             irq_asserted: true,
+            irq_wake: false,
             periodic_wake: false,
             repeat_periodic: false,
             ambiguous_lengths: 0,
@@ -149,7 +151,10 @@ pub(super) mod ffi {
     }
 
     pub(crate) fn wait(_: i32, _: i32) -> io::Result<bool> {
-        Ok(false)
+        let mut fake = FAKE.lock().unwrap();
+        let wake = std::mem::take(&mut fake.irq_wake);
+        fake.irq_asserted |= wake;
+        Ok(wake)
     }
     pub(crate) fn tick(_: i32, timeout: i32) -> io::Result<bool> {
         let wake = {
@@ -711,6 +716,10 @@ fn ambiguous_bmi_snapshots_retry_at_the_delivery_cadence_and_remain_cancellable(
                 let mut fake = FAKE.lock().unwrap();
                 fake.fifo.extend_from_slice(&[0; 12]);
                 fake.ambiguous_lengths = edges;
+                // The GPIO starts low and provides one edge. Further drains
+                // must work while the acknowledged watermark remains high.
+                fake.irq_asserted = false;
+                fake.irq_wake = irq.is_some();
                 fake.periodic_wake = irq.is_none();
                 fake.repeat_periodic = timer;
             }
@@ -740,6 +749,7 @@ fn ambiguous_bmi_snapshots_retry_at_the_delivery_cadence_and_remain_cancellable(
                 assert!(samples.is_empty());
                 assert_eq!(fake.fifo.len(), (usize::from(edges) + 1) * 12);
             }
+            assert!(!fake.irq_wake);
             assert_eq!(fake.ambiguous_lengths, 0);
             assert_eq!(
                 fake.ops,
