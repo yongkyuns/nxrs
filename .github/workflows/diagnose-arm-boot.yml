@@ -1,0 +1,44 @@
+name: Diagnose retained ARM boot assertion
+
+on:
+  push:
+    branches: ['diagnose/477-arm-boot-b423']
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Install the same ARM emulator package
+        run: bash .github/scripts/install-ubuntu-packages.sh qemu-system-arm
+      - name: Download the original failed qualification artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          artifact-ids: 15250340281
+          run-id: 46110830976
+          github-token: ${{ github.token }}
+          merge-multiple: true
+          path: target/retained-arm
+      - name: Diagnose repeated fresh boots of the exact retained image
+        run: >-
+          python3 .github/scripts/diagnose-retained-arm-boot.py
+          --image target/retained-arm/mps2-an521-mock/timed-capture/build/nuttx
+          --config target/retained-arm/mps2-an521-mock/timed-capture/build/resolved.config
+          --output target/arm-boot-diagnostics
+      - name: Retain every diagnostic and the exact image
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: retained-b423-arm-boot-diagnostics
+          path: |
+            target/arm-boot-diagnostics
+            target/retained-arm/mps2-an521-mock/timed-capture/build/nuttx
+            target/retained-arm/mps2-an521-mock/timed-capture/build/resolved.config
+          if-no-files-found: error
