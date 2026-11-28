@@ -58,7 +58,7 @@ pub struct Capture {
     // acquisition task paused during encoding cannot enqueue into it.
     epoch: AtomicUsize,
     ready: AtomicBool,
-    sensor_failed: AtomicBool,
+    sensor_failed: AtomicBool, // Terminal for recording; pairing cannot clear it.
     owner: OnceLock<Mutex<Thread>>,
     samples: Mutex<Samples>,
     scales: [Option<[u32; 2]>; 2],
@@ -184,11 +184,14 @@ impl Capture {
         self.notify_owner();
     }
 
-    pub fn take_sensor_failed(&self) -> bool {
-        self.sensor_failed.swap(false, Ordering::AcqRel)
+    pub fn failed(&self) -> bool {
+        self.sensor_failed.load(Ordering::Acquire)
     }
 
     pub fn enable(&self) -> io::Result<()> {
+        if self.failed() {
+            return Err(io::ErrorKind::NotConnected.into());
+        }
         // An export reconnect may overlap an acquisition callback. Reserve
         // before touching the queue lock, and retire the old queue outside it.
         let mut queue = VecDeque::new();
@@ -452,8 +455,8 @@ mod tests {
             };
             assert_eq!(notified, Ok(()));
         });
-        assert!(capture.take_sensor_failed());
-        assert!(!capture.take_sensor_failed());
+        assert!(capture.failed());
+        assert!(capture.failed());
     }
 
     #[test]
@@ -472,7 +475,7 @@ mod tests {
                     loop {
                         // A wake arriving before park must leave a token too.
                         thread::park_timeout(deadline.saturating_duration_since(Instant::now()));
-                        if capture.take_sensor_failed() {
+                        if capture.failed() {
                             notified.send(()).unwrap();
                             break;
                         }
@@ -496,7 +499,7 @@ mod tests {
                 owner.unpark();
                 worker.join().unwrap();
                 assert_eq!(result, Ok(()));
-                assert!(!capture.take_sensor_failed());
+                assert!(capture.failed());
                 previous = Some(owner.id());
             });
         }
@@ -523,11 +526,15 @@ mod tests {
             };
             assert_eq!(result, Ok(()));
         });
-        assert!(capture.take_sensor_failed());
-        assert!(!capture.take_sensor_failed());
+        assert!(capture.failed());
         assert!(capture.take_ready());
         assert!(!capture.take_ready());
         assert_eq!(capture.finish(), BATCH);
+        assert!(capture.failed());
+        assert_eq!(
+            capture.enable().unwrap_err().kind(),
+            io::ErrorKind::NotConnected
+        );
     }
 
     #[test]
