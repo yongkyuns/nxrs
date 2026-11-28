@@ -1,9 +1,8 @@
-/* Compile the actual port callback against MCUboot's UUID/FIH contract. */
+/* Link the owned callback against MCUboot's UUID/FIH contract. */
 #include <assert.h>
 #include <stddef.h>
 #include <string.h>
 #include <bootutil/mcuboot_uuid.h>
-#include "class.inc"
 
 int main(void)
 {

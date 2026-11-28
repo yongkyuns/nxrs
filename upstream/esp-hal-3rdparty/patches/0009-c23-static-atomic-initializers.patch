@@ -1,0 +1,92 @@
+From: nxrs contributors
+Subject: [PATCH] use direct static atomic initializers with C23
+
+GCC 16 defaults to C23 and removes ATOMIC_VAR_INIT from its stdatomic.h.
+NuttX consumes the compiler header rather than ESP-IDF's compatibility wrapper.
+Use direct constant initialization for the same static atomic objects and
+members. Preserve every initial value and all subsequent atomic operations.
+
+Source: b90b1837cb5ad24747deb4c895246037cc206ce5
+
+--- a/components/esp_adc/adc_oneshot.c
++++ b/components/esp_adc/adc_oneshot.c
+@@ -55,9 +55,9 @@
+ } adc_oneshot_ctx_t;
+ 
+ static adc_oneshot_ctx_t s_ctx;    //ADC oneshot mode context
+-static atomic_bool s_adc_unit_claimed[SOC_ADC_PERIPH_NUM] = {ATOMIC_VAR_INIT(false),
++static atomic_bool s_adc_unit_claimed[SOC_ADC_PERIPH_NUM] = {false,
+ #if (SOC_ADC_PERIPH_NUM >= 2)
+-                                                             ATOMIC_VAR_INIT(false)
++                                                             false
+ #endif
+                                                             };
+ 
+--- a/components/esp_adc/adc_filter.c
++++ b/components/esp_adc/adc_filter.c
+@@ -21,9 +21,9 @@
+ static portMUX_TYPE s_filter_spinlock = portMUX_INITIALIZER_UNLOCKED;
+ 
+ #if SOC_ADC_DIG_IIR_FILTER_UNIT_BINDED
+-static atomic_bool s_adc_filter_claimed[SOC_ADC_DIGI_IIR_FILTER_NUM] = {ATOMIC_VAR_INIT(false),
++static atomic_bool s_adc_filter_claimed[SOC_ADC_DIGI_IIR_FILTER_NUM] = {false,
+ #if (SOC_ADC_DIGI_IIR_FILTER_NUM >= 2)
+-                                                                        ATOMIC_VAR_INIT(false)
++                                                                        false
+ #endif
+                                                                        };
+ 
+--- a/components/upper_hal_i2s/lp_i2s_vad.c
++++ b/components/upper_hal_i2s/lp_i2s_vad.c
+@@ -31,7 +31,7 @@
+     vad_fsm_t fsm;
+ } vad_unit_ctx_t;
+ 
+-static atomic_bool s_vad_id_claimed[SOC_ADC_PERIPH_NUM] = {ATOMIC_VAR_INIT(false)};
++static atomic_bool s_vad_id_claimed[SOC_ADC_PERIPH_NUM] = {false};
+ 
+ static bool s_vad_claim(lp_vad_t vad_id)
+ {
+--- a/components/esp_hw_support/spi_share_hw_ctrl.c
++++ b/components/esp_hw_support/spi_share_hw_ctrl.c
+@@ -15,12 +15,12 @@
+ ESP_LOG_ATTR_TAG(SPI_TAG, "spi_share_hw_ctrl");
+ 
+ //Periph 1 is 'claimed' by SPI flash code.
+-static atomic_bool spi_periph_claimed[SOC_SPI_PERIPH_NUM] = { ATOMIC_VAR_INIT(true), ATOMIC_VAR_INIT(false),
++static atomic_bool spi_periph_claimed[SOC_SPI_PERIPH_NUM] = { true, false,
+ #if (SOC_SPI_PERIPH_NUM >= 3)
+-                                                              ATOMIC_VAR_INIT(false),
++                                                              false,
+ #endif
+ #if (SOC_SPI_PERIPH_NUM >= 4)
+-                                                              ATOMIC_VAR_INIT(false),
++                                                              false,
+ #endif
+                                                             };
+ 
+--- a/components/esp_hw_support/esp_gpio_reserve.c
++++ b/components/esp_hw_support/esp_gpio_reserve.c
+@@ -10,7 +10,7 @@
+ #include "esp_bit_defs.h"
+ #include "esp_private/esp_gpio_reserve.h"
+ 
+-static _Atomic uint64_t s_reserved_pin_mask = ATOMIC_VAR_INIT(~(SOC_GPIO_VALID_GPIO_MASK));
++static _Atomic uint64_t s_reserved_pin_mask = ~(SOC_GPIO_VALID_GPIO_MASK);
+ 
+ uint64_t esp_gpio_reserve(uint64_t gpio_mask)
+ {
+--- a/components/esp_hw_support/spi_bus_lock.c
++++ b/components/esp_hw_support/spi_bus_lock.c
+@@ -860,9 +860,9 @@
+      * the main bus cache is permanently required, this flag is set here and never clear so that the
+      * cache will always be enabled if acquiring devices yield.
+      */
+-    .status = ATOMIC_VAR_INIT(WEAK_BG_FLAG),
++    .status = WEAK_BG_FLAG,
+     .acquiring_dev = NULL,
+-    .dev = {ATOMIC_VAR_INIT((intptr_t)&lock_main_flash_dev)},
++    .dev = {(intptr_t)&lock_main_flash_dev},
+     .new_req = 0,
+     .periph_cs_num = SOC_SPI_PERIPH_CS_NUM(0),
+ };

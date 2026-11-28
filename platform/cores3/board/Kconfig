@@ -1,0 +1,24 @@
+# CoreS3 resources are configured by the ESP32-S3 UART/I2C Kconfig.
+
+config ESP32S3_M5_CORES3_GPIO10_IRQ
+	bool "Register GPIO10 as a rising edge input"
+	depends on DEV_GPIO && ESPRESSIF_GPIO_IRQ && BOARD_LATE_INITIALIZE
+	---help---
+		Register M-Bus pin 2 as /dev/gpio10.
+
+config ESP32S3_M5_CORES3_LCD
+	bool "Register the built-in CoreS3 SPI LCD endpoint"
+	depends on ESP32S3_I2C0_MASTER_MODE && ESP32S3_SPI2
+	depends on ESP32S3_SPI_SWCS && !ESP32S3_SPI_UDCS
+	depends on SPI_DRIVER && SPI_CMDDATA && BOARD_LATE_INITIALIZE
+	depends on !MMCSD_SPI && ESP32S3_SPI2_MISOPIN = -1
+	---help---
+		Bring up the panel rails and register SPI2 for the write-only LCD.
+		GPIO35 is LCD D/C in this mode, so SD card SPI is unavailable.
+
+config ESP32S3_M5_CORES3_TOUCH
+	bool "Register the built-in CoreS3 touchscreen"
+	depends on ESP32S3_M5_CORES3_LCD && INPUT_FT5X06
+	depends on FT5X06_POLLMODE && FT5X06_SINGLEPOINT
+	---help---
+		Enable the FT6336 reset line on the AW9523 and register /dev/input0.

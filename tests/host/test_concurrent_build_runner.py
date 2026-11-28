@@ -208,7 +208,7 @@ class SourceAndOutputTests(unittest.TestCase):
 
     def test_child_cargo_uses_the_installed_host_toolchain(self):
         with mock.patch.dict(os.environ, {"RUSTUP_TOOLCHAIN": "nightly"}, clear=True):
-            self.assertEqual(RUNNER.environment()["RUSTUP_TOOLCHAIN"], "1.90.0")
+            self.assertEqual(RUNNER.environment()["RUSTUP_TOOLCHAIN"], "1.100.0")
 
     def test_source_requires_exact_revision_and_clean_inputs(self):
         source = RUNNER.checked_source(self.root, self.revision, ("input.txt",))

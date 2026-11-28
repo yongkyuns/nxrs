@@ -4,7 +4,7 @@ const PACKET_BYTES: usize = 200;
 fn encode(packet: &mut [u8; PACKET_BYTES], sequence: u32, samples: &[i16; SAMPLES]) {
     packet[..4].copy_from_slice(&sequence.to_le_bytes());
     packet[4..8].copy_from_slice(&[32, 0, 1, 0]);
-    for (bytes, sample) in packet[8..].chunks_exact_mut(2).zip(samples) {
+    for (bytes, sample) in packet[8..].as_chunks_mut::<2>().0.iter_mut().zip(samples) {
         bytes.copy_from_slice(&sample.to_le_bytes());
     }
 }
@@ -14,7 +14,7 @@ fn parse(packet: &[u8], samples: &mut [i16; SAMPLES], sequence: &mut u32) -> boo
         return false;
     }
     *sequence = u32::from_le_bytes([packet[0], packet[1], packet[2], packet[3]]);
-    for (bytes, sample) in packet[8..].chunks_exact(2).zip(samples) {
+    for (bytes, sample) in packet[8..].as_chunks::<2>().0.iter().zip(samples) {
         *sample = i16::from_le_bytes([bytes[0], bytes[1]]);
     }
     true
@@ -31,7 +31,7 @@ fn filter(samples: &[i16; SAMPLES], state: &mut [i32; 3], output: &mut [i32; SAM
 }
 
 fn filter_xyz(samples: &[i16; SAMPLES], state: &mut [i32; 3], output: &mut [i32; SAMPLES]) {
-    for (frame, filtered) in samples.chunks_exact(3).zip(output.chunks_exact_mut(3)) {
+    for (frame, filtered) in samples.as_chunks::<3>().0.iter().zip(output.as_chunks_mut::<3>().0.iter_mut()) {
         for ((sample, result), component) in frame.iter().zip(filtered).zip(state.iter_mut()) {
             *component += (i32::from(*sample) - *component) / 8;
             *result = *component;

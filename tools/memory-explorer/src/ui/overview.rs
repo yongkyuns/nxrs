@@ -111,7 +111,7 @@ impl MemoryExplorer {
                     ui.label(RichText::new("Board capacity and alias relationships are not declared. The views above show linked CPU ranges; unobserved gaps are not free RAM. A matching layout adds physical-bank accounting.").small().color(MUTED));
                 }
                 for resource in &model.physical_resources {
-                    egui::Frame::new().fill(PANEL).stroke(Stroke::new(1.0, LINE)).corner_radius(8).inner_margin(14).show(ui, |ui| {
+                    egui::Frame::new().fill(PANEL).stroke(Stroke::new(1.0_f32, LINE)).corner_radius(8).inner_margin(14).show(ui, |ui| {
                         ui.horizontal(|ui| {
                             ui.label(RichText::new(&resource.name).size(16.0).strong());
                             ui.label(RichText::new(format_bytes(resource.size)).color(ACCENT));
@@ -150,7 +150,7 @@ impl MemoryExplorer {
                         for bank in &resource.banks {
                             let a = at(bank.offset);
                             let b = at(bank.offset + bank.size);
-                            painter.line_segment([Pos2::new(a, rect.top() + 19.0), Pos2::new(a, band.bottom())], Stroke::new(1.0, MUTED));
+                            painter.line_segment([Pos2::new(a, rect.top() + 19.0), Pos2::new(a, band.bottom())], Stroke::new(1.0_f32, MUTED));
                             let label = format!("{} · {}", bank.name, format_bytes(bank.size));
                             let available = (b - a - 8.0).max(0.0);
                             let full = painter.layout_no_wrap(label.clone(), FontId::proportional(10.0), MUTED);
@@ -500,7 +500,7 @@ fn linked_memory_overview(
         }
         egui::Frame::new()
             .fill(PANEL)
-            .stroke(Stroke::new(1.0, LINE))
+            .stroke(Stroke::new(1.0_f32, LINE))
             .corner_radius(8)
             .inner_margin(14)
             .show(ui, |ui| {

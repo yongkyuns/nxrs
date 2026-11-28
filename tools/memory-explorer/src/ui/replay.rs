@@ -370,14 +370,14 @@ impl MemoryExplorer {
                                 for point in &points {
                                     let x = at(point.time_ns);
                                     let point_color = if point.evidence == HeapEvidence::ObservedCheckpoint { Color32::WHITE } else { ACCENT };
-                                    painter.line_segment([Pos2::new(x, y - 3.0), Pos2::new(x, y + 16.0)], Stroke::new(1.0, point_color));
+                                    painter.line_segment([Pos2::new(x, y - 3.0), Pos2::new(x, y + 16.0)], Stroke::new(1.0_f32, point_color));
                                     if selected_point == Some(point.id) {
-                                        painter.circle_stroke(Pos2::new(x, y + 6.5), 8.0, Stroke::new(1.5, Color32::WHITE));
+                                        painter.circle_stroke(Pos2::new(x, y + 6.5), 8.0, Stroke::new(1.5_f32, Color32::WHITE));
                                     }
                                 }
                                 if let Some(time) = self.time_ns.filter(|time| *time >= bounds.start && *time <= bounds.end) {
                                     let x = at(time);
-                                    painter.line_segment([Pos2::new(x, y - 8.0), Pos2::new(x, y + 20.0)], Stroke::new(2.0, color));
+                                    painter.line_segment([Pos2::new(x, y - 8.0), Pos2::new(x, y + 20.0)], Stroke::new(2.0_f32, color));
                                 }
                                 painter.text(Pos2::new(plot.left(), y + 24.0), Align2::LEFT_TOP,
                                     format!("{} ns", bounds.start), FontId::monospace(10.0), MUTED);

@@ -48,10 +48,10 @@ def run(prepared, out):
     compiler = sdk / "bin" / ("rustc.exe" if os.name == "nt" else "rustc")
     identity = subprocess.check_output([compiler, "-vV"], text=True)
     target = next(line.removeprefix("host: ") for line in identity.splitlines() if line.startswith("host: "))
-    env = {**os.environ, "RUSTC": str(compiler), "RUSTC_BOOTSTRAP": "1", "RUSTFLAGS": "-C panic=abort"}
+    env = {**os.environ, "RUSTC": str(compiler), "RUSTC_BOOTSTRAP": "1", "RUSTFLAGS": "-C panic=immediate-abort -Zunstable-options"}
     command = ["cargo", "build", "--locked", "--release", "--manifest-path", str(crate / "Cargo.toml"),
                "--target", target, "--target-dir", str(out / "target"), "-Zbuild-std=std,panic_abort",
-               "-Zbuild-std-features=panic_immediate_abort", "--message-format=json"]
+               "--message-format=json"]
     with (out / "build.jsonl").open("w") as messages, (out / "build.log").open("w") as log:
         subprocess.run(command, cwd=ROOT, env=env, stdout=messages, stderr=log, timeout=180, check=True)
     artifacts = [json.loads(line) for line in (out / "build.jsonl").read_text().splitlines()]

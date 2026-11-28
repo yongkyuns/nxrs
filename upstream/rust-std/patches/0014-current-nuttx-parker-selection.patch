@@ -1,0 +1,13 @@
+--- a/lib/rustlib/src/rust/library/std/src/sys/sync/thread_parking/mod.rs
++++ b/lib/rustlib/src/rust/library/std/src/sys/sync/thread_parking/mod.rs
+@@ -36,6 +36,10 @@
+         mod xous;
+         pub use xous::Parker;
+     }
++    target_os = "nuttx" => {
++        mod nuttx;
++        pub use nuttx::Parker;
++    }
+     any(target_family = "unix", target_os = "teeos") => {
+         mod pthread;
+         pub use pthread::Parker;

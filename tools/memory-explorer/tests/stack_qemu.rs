@@ -10,6 +10,9 @@ use sha2::{Digest, Sha256};
 use std::fs;
 use std::path::{Path, PathBuf};
 
+mod support;
+use support::source_pins;
+
 fn json(path: &Path) -> Value {
     serde_json::from_slice(&fs::read(path).unwrap()).unwrap()
 }
@@ -55,14 +58,9 @@ fn stack_depth_and_coloration_match_independent_stopped_bytes() {
     assert_eq!(build["config_sha256"], config_hash);
     assert_eq!(report["config_sha256"], config_hash);
     assert_eq!(sha256(&evidence.join("resolved.config")), config_hash);
-    assert_eq!(
-        build["nuttx_revision"],
-        "2b5c0de5e933281c209f954a63b99cf10c132346"
-    );
-    assert_eq!(
-        build["apps_revision"],
-        "3c772ea35b9245972e18999828f7b533e6fc57cc"
-    );
+    let pins = source_pins();
+    assert_eq!(build["nuttx_revision"], pins["nuttx"]);
+    assert_eq!(build["apps_revision"], pins["apps"]);
     assert_eq!(
         build["configuration_checks"]["DEBUG_SYMBOLS_LEVEL"]["effective"],
         "\"-g3\""

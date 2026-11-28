@@ -18,9 +18,10 @@ pub(crate) fn nuttx_headers(include: &Path) -> Result<()> {
 pub fn build(here: &Path, out: &Path, target: &str) -> Result<()> {
     let root = nxrs_build_support::sdk_root(here)?;
     let pin = read_json(&root.join("upstream/mbedtls/source.json"))?;
+    let version = pin["version"].as_str().ok_or("invalid TLS version")?;
     let archive = env::var_os("NXRS_TLS_ARCHIVE")
         .map(std::path::PathBuf::from)
-        .unwrap_or_else(|| root.join("target/mbedtls-4.2.0.tar.bz2"));
+        .unwrap_or_else(|| root.join("target").join(format!("mbedtls-{version}.tar.bz2")));
     if !archive.is_file()
         || archive.metadata().map_err(|e| e.to_string())?.len()
             != pin["size"].as_u64().ok_or("invalid TLS source size")?
@@ -30,10 +31,7 @@ pub fn build(here: &Path, out: &Path, target: &str) -> Result<()> {
     }
     println!("cargo:rerun-if-changed={}", archive.display());
     fs::create_dir_all(out).map_err(|e| e.to_string())?;
-    let source = out.join(format!(
-        "mbedtls-{}",
-        pin["version"].as_str().ok_or("invalid TLS version")?
-    ));
+    let source = out.join(format!("mbedtls-{version}"));
     if !source.exists() {
         archive::bzip2(&archive, &source)?;
     }

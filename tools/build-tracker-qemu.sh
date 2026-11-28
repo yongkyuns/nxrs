@@ -22,8 +22,8 @@ unpack() {
 }
 
 source_dir="$stage/source"
-unpack espressif/qemu 093b0c343e5457f16ead57d89cf2a75361cf3acf \
-  28e04d3eb55358d5a67726b68b4fb32943af1f2a761766e06180674499168498 "$source_dir"
+unpack espressif/qemu 7411393a2f61e6f0b05af00276d30780769e0839 \
+  ffa041a08d2eb964efbcc15e0b0fc3b5141344757f5ee22ab4e89f0c4083cf20 "$source_dir"
 unpack qemu/keycodemapdb f5772a62ec52591ff6870b7e8ef32482371f22c6 \
   d014b53382dbb17b8196ad12f50de7f20d0ef1b9f7d54b0be51a6cbb14209195 "$source_dir/subprojects/keycodemapdb"
 unpack qemu/berkeley-softfloat-3 b64af41c3276f97f0e181920400ee056b9c88037 \
@@ -40,6 +40,10 @@ cd "$stage/build"
 "$source_dir/configure" --target-list=xtensa-softmmu --without-default-features \
   --enable-tcg --enable-gcrypt --enable-fdt=system --enable-slirp \
   --disable-download --disable-docs --disable-werror
-ninja qemu-system-xtensa
+build_jobs=()
+if [[ -n ${NXRS_QEMU_BUILD_JOBS:-} ]]; then
+  build_jobs=(-j "$NXRS_QEMU_BUILD_JOBS")
+fi
+ninja "${build_jobs[@]}" qemu-system-xtensa
 install -m 755 qemu-system-xtensa "$out/"
 install -m 644 "$source_dir/pc-bios/esp32s3_rev0_rom.bin" "$out/"

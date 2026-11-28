@@ -125,6 +125,13 @@ kernel_size=$(sed -n 's/^CONFIG_ESP32S3_KERNEL_IMAGE_SIZE=//p' .config)
 [[ "$kernel_size" =~ ^0x[0-9a-fA-F]+$ ]]
 user_address=$(printf '0x%x' "$((0x3c000030 + kernel_size))")
 kconfig-tweak --file .config --set-val NUTTX_USERSPACE "$user_address"
+# Prepare the release-matched HAL before compiling it, then use the same
+# isolated-checkout validation and registered patches as the product frontend.
+make PREBUILD= context > "$OUT/context.log" 2>&1
+env -u RUSTC -u CARGO_BUILD_RUSTC -u RUSTFLAGS -u CARGO_ENCODED_RUSTFLAGS -u CARGO_BUILD_TARGET \
+  cargo +1.100.0 run --quiet --locked --manifest-path "$ROOT/tools/build/Cargo.toml" \
+    --target-dir "$ROOT/target" --bin nxrs-build -- --workspace-root "$ROOT" \
+    patch-esp-hal --nuttx "$NUTTX" --record "$OUT/esp-hal-patches.json" >> "$OUT/context.log" 2>&1
 if ! make PREBUILD= -j"${NXRS_IMU_WITNESS_JOBS:-4}" > "$OUT/build.log" 2>&1; then
   tail -n 40 "$OUT/build.log" >&2
   exit 1

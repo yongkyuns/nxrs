@@ -26,7 +26,7 @@ def main():
         env['RUSTFLAGS'] = (env.get('RUSTFLAGS', '') +
                             f' -Lnative={output} -lstatic=transport_host').strip()
         executable = output / 'native-thread-tests'
-        subprocess.run(['rustup','run','1.90.0','rustc','--edition=2024','--test',
+        subprocess.run(['rustup','run','1.100.0','rustc','--edition=2024','--test',
                         str(here/'src/native_thread.rs'),'-Lnative='+str(output),
                         '-lstatic=transport_host','-o',str(executable)],check=True)
         subprocess.run([str(executable)],check=True)

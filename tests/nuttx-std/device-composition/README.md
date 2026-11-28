@@ -33,20 +33,20 @@ root, build each image through the common frontend into a separate output
 directory:
 
 ```sh
-cargo +1.90.0 nxrs build \
+cargo +1.100.0 nxrs build \
   --manifest-path tests/nuttx-std/device-composition/imu/Cargo.toml \
   --platform cores3 \
   --overlay tests/nuttx-std/device-composition/overlays/two-bmi270.toml \
   --out target/firmware/device-composition/two-bmi270
 
-cargo +1.90.0 nxrs build \
+cargo +1.100.0 nxrs build \
   --manifest-path tests/nuttx-std/device-composition/imu/Cargo.toml \
   --platform cores3 \
   --overlay tests/nuttx-std/device-composition/overlays/two-bmi270.toml \
   --overlay tests/nuttx-std/device-composition/overlays/mixed-imu.toml \
   --out target/firmware/device-composition/mixed-imu
 
-cargo +1.90.0 nxrs build \
+cargo +1.100.0 nxrs build \
   --manifest-path tests/nuttx-std/device-composition/gnss/Cargo.toml \
   --platform cores3 \
   --overlay tests/nuttx-std/device-composition/overlays/two-bmi270.toml \
@@ -103,9 +103,9 @@ The fixed host mock catalogue supplies primary/secondary IMUs and one GNSS
 source. Each consumer can also run through those existing mocks:
 
 ```sh
-NXRS_PLATFORM=mock cargo +1.90.0 run --locked --release \
+NXRS_PLATFORM=mock cargo +1.100.0 run --locked --release \
   -p nxrs-device-composition-imu
-NXRS_PLATFORM=mock cargo +1.90.0 run --locked --release \
+NXRS_PLATFORM=mock cargo +1.100.0 run --locked --release \
   -p nxrs-device-composition-gnss
 ```
 

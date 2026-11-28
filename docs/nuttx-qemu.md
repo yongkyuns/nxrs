@@ -4,7 +4,9 @@ ESP32-S3 QEMU now qualifies the full camera/storage/telemetry integration throug
 an ordinary Rust `main()` and the patched NuttX `std` runtime. QEMU remains a
 board/execution profile, not a separate application backend.
 
-## Current result
+<a id="current-result"></a>
+
+## Recorded result
 
 Trusted self-hosted run **36375036817** passed at
 `7e0c26a8a19c2ace54de2c172a5c5691965af754`.
@@ -48,8 +50,8 @@ the old test-local `transport.c`, and final-link inspection rejects
 `rc_nx_udp_open` and `rc_nx_send`.
 
 The socket gate is compiled from the exact C headers and exact rebuilt Rust
-libc used by this image. Xtensa currently uses pinned libc 0.2.174; RV32 uses
-0.2.175. Both source bindings are blob-pinned and receive the same private
+libc used by each image. Current SDK preparation uses pinned libc 0.2.191 on
+Xtensa and RV32. Both source bindings are blob-pinned and receive the same private
 `sockaddr_storage` alignment correction before qualification.
 
 ## Coverage

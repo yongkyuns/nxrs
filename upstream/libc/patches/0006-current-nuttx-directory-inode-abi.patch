@@ -1,0 +1,22 @@
+--- a/src/unix/nuttx/mod.rs
++++ b/src/unix/nuttx/mod.rs
+@@ -12,9 +12,9 @@
+ 
+ pub type pid_t = c_int;
+ pub type nlink_t = u16;
+-pub type ino_t = u16;
++pub type ino_t = u32;
+ pub type blkcnt_t = u64;
+-pub type blksize_t = i16;
++pub type blksize_t = i32;
+ pub type cc_t = u8;
+ pub type clock_t = i64;
+ pub type dev_t = i32;
+@@ -193,6 +193,7 @@
+     }
+ 
+     pub struct dirent {
++        pub d_ino: ino_t,
+         pub d_type: u8,
+         pub d_name: [c_char; __NAME_MAX__ + 1],
+     }

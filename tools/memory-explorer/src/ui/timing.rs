@@ -831,7 +831,7 @@ impl TimingView {
         self.viewport = Some(viewport);
         let painter = ui.painter().with_clip_rect(rect);
         painter.rect_filled(rect, 8, PANEL);
-        painter.rect_stroke(rect, 8, Stroke::new(1.0, LINE), StrokeKind::Inside);
+        painter.rect_stroke(rect, 8, Stroke::new(1.0_f32, LINE), StrokeKind::Inside);
         let at = |time| plot.left() + viewport.fraction(time) as f32 * plot.width();
         let ticks = ((plot.width() / 110.0) as u64).max(1).min(viewport.span());
         for index in 0..=ticks {
@@ -840,7 +840,7 @@ impl TimingView {
             let x = at(time);
             painter.line_segment(
                 [Pos2::new(x, plot.top()), Pos2::new(x, plot.bottom())],
-                Stroke::new(1.0, LINE),
+                Stroke::new(1.0_f32, LINE),
             );
         }
         let mut top = plot.top();
@@ -877,7 +877,7 @@ impl TimingView {
                     Pos2::new(rect.left() + 8.0, top + height),
                     Pos2::new(plot.right(), top + height),
                 ],
-                Stroke::new(1.0, LINE),
+                Stroke::new(1.0_f32, LINE),
             );
             for event in indexed.visible(trace, range(viewport)) {
                 let y = top + 16.0 + event.depth as f32 * 27.0;
@@ -892,7 +892,7 @@ impl TimingView {
                     if (plot.left()..=plot.right()).contains(&x0) {
                         painter.line_segment(
                             [Pos2::new(x0, y), Pos2::new(x0, y + 23.0)],
-                            Stroke::new(2.0, color),
+                            Stroke::new(2.0_f32, color),
                         );
                         painter.circle_filled(Pos2::new(x0, y + 2.0), 3.0, color);
                     }
@@ -902,7 +902,7 @@ impl TimingView {
                         painter.rect_stroke(
                             block,
                             3,
-                            Stroke::new(2.0, Color32::WHITE),
+                            Stroke::new(2.0_f32, Color32::WHITE),
                             StrokeKind::Inside,
                         );
                     }
@@ -982,7 +982,7 @@ impl TimingView {
                     Pos2::new(plot.left(), top + 72.0),
                     Pos2::new(plot.right(), top + 72.0),
                 ],
-                Stroke::new(1.0, LINE),
+                Stroke::new(1.0_f32, LINE),
             );
             for (index, sample) in visible {
                 // Scale before subtracting so two finite extreme values cannot
@@ -996,7 +996,7 @@ impl TimingView {
                 let point = Pos2::new(at(sample.time_ns), top + 68.0 - fraction as f32 * 48.0);
                 painter.line_segment(
                     [Pos2::new(point.x, top + 72.0), point],
-                    Stroke::new(1.0, ACCENT.linear_multiply(0.35)),
+                    Stroke::new(1.0_f32, ACCENT.linear_multiply(0.35)),
                 );
                 painter.circle_filled(point, 3.0, ACCENT);
                 if response
@@ -1018,7 +1018,7 @@ impl TimingView {
                 for x in [a, b] {
                     painter.line_segment(
                         [Pos2::new(x, plot.top()), Pos2::new(x, plot.bottom())],
-                        Stroke::new(1.0, ACCENT),
+                        Stroke::new(1.0_f32, ACCENT),
                     );
                 }
             }
@@ -1030,7 +1030,7 @@ impl TimingView {
             let x = at(cursor);
             painter.line_segment(
                 [Pos2::new(x, plot.top()), Pos2::new(x, plot.bottom())],
-                Stroke::new(1.0, ACCENT),
+                Stroke::new(1.0_f32, ACCENT),
             );
         }
         // Keep the time scale visible while the user scrolls through tracks.
@@ -1043,7 +1043,7 @@ impl TimingView {
         painter.rect_filled(ruler, 0, PANEL);
         painter.line_segment(
             [ruler.left_bottom(), ruler.right_bottom()],
-            Stroke::new(1.0, LINE),
+            Stroke::new(1.0_f32, LINE),
         );
         painter.text(
             Pos2::new(rect.left() + 12.0, ruler.center().y),

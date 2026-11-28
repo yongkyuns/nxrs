@@ -203,6 +203,22 @@ folders and regular log-only folders can be adopted for qualification drivers.
 Rebuilds clear old success evidence. Provider/profile hashes, SDK patch records,
 ABI/source checks and final image hashes accompany NuttX artifacts.
 
+A NuttX profile can select a project-owned board with `board-dir = "board"`.
+The directory is relative to the profile that declares it, including through
+inheritance, and must remain inside the selected profile workspace. The existing
+`board = "esp32s3-m5-cores3:nsh"` value supplies the board identity and configuration.
+CoreS3 uses this mechanism for its source under `platform/cores3/board/`.
+The builder copies those files to the owned output's `board/` directory and
+configures NuttX through its native custom-board interface. It does not insert
+the board into the upstream source tree.
+
+Every board file is a hashed profile input. Resolution rejects symlinks and
+unsupported file types; staging checks for edits, additions and removals since
+resolution. `board-source.json` records the source inventory and staged identity.
+The copied board, including headers reached through NuttX's board symlink, is
+part of native cache validation and final build evidence. Configuration owns the
+custom-board path so an overlay cannot redirect compilation to another tree.
+
 Use `--manifest-path` and optional `--bin` for qualification binaries. The Web
 builder accepts an optional `--html` template containing one `__NXRS_SCRIPT__`
 marker and publishes its verified JS/WASM pair under `site/`.
@@ -503,7 +519,7 @@ separate qualification requirements.
 Normal builds preserve Cargo output. NuttX also retains its configured native
 trees and private SDK, and Web retains its private SDK, when a completed build's
 inputs and retained bytes still match. The identity includes profile/Kconfig,
-entry settings, user features, pinned upstream/patch inputs, selected SDK and
+project-owned board files, entry settings, user features, pinned upstream/patch inputs, selected SDK and
 compiler, and the build controller. Cargo and Make still run on every invocation;
 they decide which compilation units are fresh. Generated files retain their
 modification time when their content is unchanged.
@@ -551,7 +567,7 @@ python3 tools/qualify-concurrent-builds.py \
 
 The output parent must be fresh, ignored by Git and below this checkout's
 `target/`. The runner first compiles one source-bound frontend with native
-Rust/Cargo 1.90.0, then launches both builds with two Cargo jobs and two NuttX
+Rust/Cargo 1.100.0, then launches both builds with two Cargo jobs and two NuttX
 jobs per build. Both children use the installed host toolchain for Cargo
 catalogue discovery. Each child owns its NuttX/apps trees, patched Rust SDK, generated
 configuration, native helpers, Cargo output and firmware. The installed tool

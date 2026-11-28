@@ -1,15 +1,41 @@
 """Admission checks for reproducible native timing-witness builds."""
 
 from pathlib import Path
+import json
+import subprocess
 from tempfile import TemporaryDirectory
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
-from build_timing_nuttx import run, source_identity, validate_configuration
+from build_timing_nuttx import pinned_revisions, run, source_identity, validate_configuration
 
 
 class BuildEvidenceChecks(unittest.TestCase):
+    def test_release_and_gitlink_pins_must_agree(self):
+        with TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            subprocess.run(["git", "init", "-q", str(root)], check=True)
+            expected = {"nuttx": "1" * 40, "apps": "2" * 40}
+            for component, revision in (("nuttx", expected["nuttx"]), ("nuttx-apps", expected["apps"])):
+                subprocess.run(["git", "-C", str(root), "update-index", "--add", "--cacheinfo",
+                                "160000," + revision + ",external/" + component], check=True)
+            manifest = root / "upstream/nuttx/release.json"
+            manifest.parent.mkdir(parents=True)
+            release = {"schema": 1, "version": "1.2.3", "revision": expected["nuttx"]}
+            manifest.write_text(json.dumps(release))
+            self.assertEqual(pinned_revisions(root), expected)
+            release["revision"] = "3" * 40
+            manifest.write_text(json.dumps(release))
+            with self.assertRaisesRegex(RuntimeError, "does not match"):
+                pinned_revisions(root)
+
+    def test_wrong_revision_is_rejected_before_source_inspection(self):
+        with patch("build_timing_nuttx.subprocess.check_output", return_value="wrong\n") as command:
+            with self.assertRaisesRegex(RuntimeError, "Expected pinned source"):
+                source_identity(Path("source"), "expected")
+            self.assertEqual(command.call_count, 1)
+
     def test_validates_enabled_disabled_and_numeric_settings(self):
         settings = {"TRACE": "y", "SMP": "n", "HIDDEN": "n", "CAPACITY": "32768", "MASK": "0x0"}
         text = "CONFIG_TRACE=y\n# CONFIG_SMP is not set\nCONFIG_CAPACITY=0x8000\nCONFIG_MASK=0\n"
@@ -67,7 +93,8 @@ class BuildEvidenceChecks(unittest.TestCase):
 
             args = SimpleNamespace(nuttx=nuttx, apps=apps, output=root / "evidence",
                                    qemu_timer_clock=True)
-            with patch("build_timing_nuttx.source_identity", return_value={}), \
+            with patch("build_timing_nuttx.pinned_revisions", return_value={"nuttx": "1" * 40, "apps": "2" * 40}), \
+                 patch("build_timing_nuttx.source_identity", return_value={}), \
                  patch("build_timing_nuttx.subprocess.run", side_effect=configure):
                 with self.assertRaisesRegex(RuntimeError, "fresh configure reached olddefconfig"):
                     run(args)

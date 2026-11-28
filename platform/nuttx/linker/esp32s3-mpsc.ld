@@ -85,6 +85,8 @@
 *(.literal.*std3sys4sync* .text.*std3sys4sync*)
 *(.literal.__rust_nuttx_spin_* .text.__rust_nuttx_spin_*)
 *(.literal.*std6thread7current18current_or_unnamed* .text.*std6thread7current18current_or_unnamed* .literal.*std6thread6Thread4park* .text.*std6thread6Thread4park*)
+/* Current Rust uses v0 backreferences and the private thread::thread module. */
+*(.literal._R*std6thread6thread*6Thread4park* .text._R*std6thread6thread*6Thread4park*)
 *(.literal.tls_get_info .text.tls_get_info)
 
 /* Shared hot-path contract for the frozen Rust MPSC comparison fixture.
@@ -98,6 +100,13 @@
  */
 *(.literal.*transport..ordinary_std* .text.*transport..ordinary_std*)
 *(.literal.*transport..Native* .text.*transport..Native*)
+/* Rust v0 Channel::send/receive owners use lengths and backreferences.
+ * Keep setup/retirement and other traits mentioning the adapter unchanged.
+ */
+*(.literal._RNvX*mpsc_comparison9transport12ordinary_stdINtB*_3Std*7Channel*4send* .text._RNvX*mpsc_comparison9transport12ordinary_stdINtB*_3Std*7Channel*4send*)
+*(.literal._RNvX*mpsc_comparison9transport12ordinary_stdINtB*_3Std*7Channel*7receive* .text._RNvX*mpsc_comparison9transport12ordinary_stdINtB*_3Std*7Channel*7receive*)
+*(.literal._RNvX*mpsc_comparison9transportINtB*_6Native*7Channel*4send* .text._RNvX*mpsc_comparison9transportINtB*_6Native*7Channel*4send*)
+*(.literal._RNvX*mpsc_comparison9transportINtB*_6Native*7Channel*7receive* .text._RNvX*mpsc_comparison9transportINtB*_6Native*7Channel*7receive*)
 *(.literal.*mpsc_comparison8arrivals4tick* .text.*mpsc_comparison8arrivals4tick*)
 *(.literal.*mpsc_comparison8arrivals5start* .text.*mpsc_comparison8arrivals5start*)
 *(.literal.*mpsc_comparison8arrivals7release* .text.*mpsc_comparison8arrivals7release*)

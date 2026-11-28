@@ -18,7 +18,7 @@ pub(super) const BUILTIN_LAYOUTS: &[BuiltinLayout] = &[
         id: "mps2-an521-qemu",
         label: "MPS2-AN521 QEMU",
         nuttx_board: "mps2-an521:nsh",
-        nuttx_revision: "2b5c0de5e933281c209f954a63b99cf10c132346",
+        nuttx_revision: "4268617f28ad0ed7e900a081ea1b33c9347458b3",
         required_config: &[
             ("CONFIG_ARCH_BOARD_MPS2_AN521", "y"),
             ("CONFIG_ARCH_CHIP_MPS2_AN521", "y"),
@@ -29,10 +29,12 @@ pub(super) const BUILTIN_LAYOUTS: &[BuiltinLayout] = &[
         id: "esp32s3-cores3",
         label: "ESP32-S3 CoreS3",
         nuttx_board: "esp32s3-m5-cores3:nsh",
-        nuttx_revision: "2b5c0de5e933281c209f954a63b99cf10c132346",
+        nuttx_revision: "4268617f28ad0ed7e900a081ea1b33c9347458b3",
         required_config: &[
             ("CONFIG_ARCH_CHIP_ESP32S3", "y"),
-            ("CONFIG_ARCH_BOARD_ESP32S3_M5_CORES3", "y"),
+            ("CONFIG_ARCH_BOARD_CUSTOM", "y"),
+            ("CONFIG_ARCH_BOARD_CUSTOM_NAME", "\"esp32s3-m5-cores3\""),
+            ("CONFIG_ARCH_BOARD_COMMON", "y"),
         ],
         json: include_str!("../layouts/esp32s3.json"),
     },
@@ -40,7 +42,7 @@ pub(super) const BUILTIN_LAYOUTS: &[BuiltinLayout] = &[
         id: "esp32s3-devkit",
         label: "ESP32-S3 DevKit / WROOM",
         nuttx_board: "esp32s3-devkit:nsh",
-        nuttx_revision: "2b5c0de5e933281c209f954a63b99cf10c132346",
+        nuttx_revision: "4268617f28ad0ed7e900a081ea1b33c9347458b3",
         required_config: &[
             ("CONFIG_ARCH_CHIP_ESP32S3", "y"),
             ("CONFIG_ARCH_BOARD_ESP32S3_DEVKIT", "y"),
@@ -51,7 +53,7 @@ pub(super) const BUILTIN_LAYOUTS: &[BuiltinLayout] = &[
         id: "raspberrypi-pico-2",
         label: "Raspberry Pi Pico 2 (NSH)",
         nuttx_board: "raspberrypi-pico-2:nsh",
-        nuttx_revision: "2b5c0de5e933281c209f954a63b99cf10c132346",
+        nuttx_revision: "4268617f28ad0ed7e900a081ea1b33c9347458b3",
         required_config: &[
             ("CONFIG_ARCH_BOARD_RASPBERRYPI_PICO_2", "y"),
             ("CONFIG_ARCH_CHIP_RP23XX", "y"),
@@ -62,7 +64,7 @@ pub(super) const BUILTIN_LAYOUTS: &[BuiltinLayout] = &[
         id: "raspberrypi-pico-2-usbnsh",
         label: "Raspberry Pi Pico 2 / 2 W (USB NSH)",
         nuttx_board: "raspberrypi-pico-2:usbnsh",
-        nuttx_revision: "2b5c0de5e933281c209f954a63b99cf10c132346",
+        nuttx_revision: "4268617f28ad0ed7e900a081ea1b33c9347458b3",
         required_config: &[
             ("CONFIG_ARCH_BOARD_RASPBERRYPI_PICO_2", "y"),
             ("CONFIG_ARCH_CHIP_RP23XX", "y"),

@@ -26,7 +26,7 @@ jobs:
           submodules: true
       - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
         with:
-          toolchain: 1.90.0
+          toolchain: 1.100.0
           components: rust-src
           targets: x86_64-unknown-none
       - name: Install NuttX simulator build dependencies
@@ -69,7 +69,7 @@ jobs:
           submodules: true
       - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
         with:
-          toolchain: 1.90.0
+          toolchain: 1.100.0
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: '3.12'
@@ -92,7 +92,7 @@ jobs:
           chmod +x "$kconfig_bin/kconfig-tweak"
           echo "$kconfig_bin" >> "$GITHUB_PATH"
           python -m pip install kconfiglib==14.1.0 lief==0.17.6
-          rustup toolchain install nightly-2025-09-15 --profile minimal --component rust-src
+          rustup toolchain install nightly-2026-11-26 --profile minimal --component rust-src
       - name: Build the tracker with NuttX and Rust std
         run: |
           for tool in make sed kconfig-tweak cmake genromfs flock; do

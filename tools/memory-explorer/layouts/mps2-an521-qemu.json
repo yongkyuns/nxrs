@@ -4,16 +4,16 @@
     "name": "MPS2 AN521 RAM storage map",
     "machine": "mps2-an521",
     "qemu_version": "10.0.13",
-    "nuttx_revision": "2b5c0de5e933281c209f954a63b99cf10c132346",
+    "nuttx_revision": "4268617f28ad0ed7e900a081ea1b33c9347458b3",
     "scope": "QEMU board-model storage and aliases. Selection requires explicit board choice or matching build identity and effective configuration; it does not establish a physical-device map.",
     "sources": [
       "https://github.com/qemu/qemu/blob/98f88efe8f07067667b8d9b1a5ce9551d34036c1/hw/arm/mps2-tz.c",
       "https://github.com/qemu/qemu/blob/98f88efe8f07067667b8d9b1a5ce9551d34036c1/hw/arm/armsse.c",
       "https://github.com/qemu/qemu/blob/98f88efe8f07067667b8d9b1a5ce9551d34036c1/hw/arm/armv7m.c",
       "https://github.com/qemu/qemu/blob/98f88efe8f07067667b8d9b1a5ce9551d34036c1/include/hw/elf_ops.h.inc",
-      "https://github.com/apache/nuttx/blob/2b5c0de5e933281c209f954a63b99cf10c132346/arch/arm/src/mps/hardware/mps_memorymap.h",
-      "https://github.com/apache/nuttx/blob/2b5c0de5e933281c209f954a63b99cf10c132346/boards/arm/mps/mps2-an521/scripts/flash.ld",
-      "https://github.com/apache/nuttx/blob/2b5c0de5e933281c209f954a63b99cf10c132346/arch/arm/src/mps/mps_allocateheap.c"
+      "https://github.com/apache/nuttx/blob/4268617f28ad0ed7e900a081ea1b33c9347458b3/arch/arm/src/mps/hardware/mps_memorymap.h",
+      "https://github.com/apache/nuttx/blob/4268617f28ad0ed7e900a081ea1b33c9347458b3/boards/arm/mps/mps2-an521/scripts/flash.ld",
+      "https://github.com/apache/nuttx/blob/4268617f28ad0ed7e900a081ea1b33c9347458b3/arch/arm/src/mps/mps_allocateheap.c"
     ],
     "qemu_revision": "98f88efe8f07067667b8d9b1a5ce9551d34036c1"
   },
@@ -24,7 +24,7 @@
     "Secure and nonsecure address windows describe shared storage, not current access permissions. MPC/SAU/IDAU state and CPU security state are not attested by this descriptor.",
     "Linked-load windows explicitly use the QEMU ARMv7-M ELF loader address map (PT_LOAD p_paddr); CPU and linked-load intervals sharing a backing are counted once. Startup copying and current byte contents are not observed.",
     "Unobserved banks and unowned bytes are unknown, not free heap. Full declared capacity does not establish that firmware allocators can use it.",
-    "Layout applies to QEMU mps2-an521 v10.0.13 and NuttX 2b5c0de5e933281c209f954a63b99cf10c132346. Exact source URLs and scope are recorded in this descriptor's qualification object."
+    "Layout applies to QEMU mps2-an521 v10.0.13 and NuttX 4268617f28ad0ed7e900a081ea1b33c9347458b3. Exact source URLs and scope are recorded in this descriptor's qualification object."
   ],
   "physical_resources": [
     {

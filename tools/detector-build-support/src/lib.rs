@@ -7,6 +7,7 @@ use std::{
     process::Command,
 };
 mod graph;
+mod kernels;
 pub fn qualify_context(header: &Path) -> Result<()> {
     let config = read(&header.join("nuttx/config.h"))?;
     let enabled = |name: &str| regex_match(&config, &format!(r"(?m)^\s*#\s*define\s+{name}\s+1\b"));
@@ -158,6 +159,7 @@ pub fn build(root: &Path, sdk: &Path, out: &Path, target: &str) -> Result<()> {
     )
     .map_err(|e| e.to_string())?;
     let base = sdk.join("esp-dl");
+    kernels::generate(&root.join("upstream/esp-dl/kernels.json"), &port, optimized)?;
     let ffi = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/ffi");
     println!("cargo:rerun-if-changed={}", ffi.display());
     let mut includes = vec![port, ffi];
@@ -168,6 +170,7 @@ pub fn build(root: &Path, sdk: &Path, out: &Path, target: &str) -> Result<()> {
             "dl/tensor/include",
             "dl/base",
             "dl/base/isa",
+            "dl/base/isa/c",
             "dl/math/include",
             "dl/model/include",
             "dl/module/include",
@@ -183,14 +186,17 @@ pub fn build(root: &Path, sdk: &Path, out: &Path, target: &str) -> Result<()> {
             "dl/tensor/src/dl_tensor_base.cpp",
             "dl/model/src/dl_model_context.cpp",
             "dl/module/src/dl_module_base.cpp",
+            "dl/base/dl_kernel.cpp",
         ]
         .iter()
         .map(|p| base.join(p)),
     );
     sources.extend(
         [
-            "conv2d",
-            "depthwise_conv2d",
+            "conv_loop",
+            "dwconv_loop",
+            "conv_select",
+            "lut",
             "mul",
             "mul2d",
             "avg_pool2d",
@@ -203,6 +209,13 @@ pub fn build(root: &Path, sdk: &Path, out: &Path, target: &str) -> Result<()> {
         .iter()
         .map(|n| base.join(format!("dl/base/dl_base_{n}.cpp"))),
     );
+    if !optimized {
+        sources.extend(
+            ["dl_c_conv.cpp", "dl_c_dwconv.cpp", "dl_c_conv_tail.cpp"]
+                .iter()
+                .map(|p| base.join("dl/base/isa/c").join(p)),
+        );
+    }
     let compiler = env::var("CXX").unwrap_or_else(|_| {
         if optimized {
             "xtensa-esp32s3-elf-g++"

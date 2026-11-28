@@ -587,7 +587,7 @@ fn draw_band(
             MUTED,
         );
     }
-    painter.rect_stroke(bar, 3, Stroke::new(1.0, LINE), StrokeKind::Inside);
+    painter.rect_stroke(bar, 3, Stroke::new(1.0_f32, LINE), StrokeKind::Inside);
 }
 
 #[cfg(test)]

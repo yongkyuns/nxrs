@@ -91,61 +91,61 @@ diff --git a/drivers/note/note_driver.c b/drivers/note/note_driver.c
 diff --git a/drivers/note/noteram_driver.c b/drivers/note/noteram_driver.c
 --- a/drivers/note/noteram_driver.c
 +++ b/drivers/note/noteram_driver.c
-@@ -1251,6 +1251,54 @@
-       break;
+@@ -1256,6 +1256,54 @@
+         break;
  #endif
  #ifdef CONFIG_SCHED_INSTRUMENTATION_HEAP
 +#  ifdef CONFIG_MM_ALLOC_REQUEST_TRACE
-+    case NOTE_HEAP_REQUEST:
-+      {
-+        FAR struct note_heap_request_s *request =
-+          (FAR struct note_heap_request_s *)p;
-+        static FAR const char * const ops[] =
-+          {
-+            "malloc", "memalign", "realloc"
-+          };
++      case NOTE_HEAP_REQUEST:
++        {
++          FAR struct note_heap_request_s *request =
++            (FAR struct note_heap_request_s *)p;
++          static FAR const char * const ops[] =
++            {
++              "malloc", "memalign", "realloc"
++            };
 +
-+        FAR const char *op = request->operation < sizeof(ops) / sizeof(ops[0])
-+                             ? ops[request->operation] : "unknown";
++          FAR const char *op = request->operation < sizeof(ops) / sizeof(ops[0])
++                               ? ops[request->operation] : "unknown";
 +
-+        ret += noteram_dump_header(s, &request->nhq_cmn, ctx);
-+        ret += lib_sprintf(s, "heap_request: %s heap: %p id:%llu size:%zu"
-+                           " caller: %p old: %p align:%zu\n",
-+                           op, request->heap,
-+                           (unsigned long long)request->request_id,
-+                           request->size, request->caller, request->oldmem,
-+                           request->alignment);
-+      }
-+      break;
++          ret += noteram_dump_header(s, &request->nhq_cmn, ctx);
++          ret += lib_sprintf(s, "heap_request: %s heap: %p id:%llu size:%zu"
++                             " caller: %p old: %p align:%zu\n",
++                             op, request->heap,
++                             (unsigned long long)request->request_id,
++                             request->size, request->caller, request->oldmem,
++                             request->alignment);
++        }
++        break;
 +
-+    case NOTE_HEAP_RESULT:
-+      {
-+        FAR struct note_heap_result_s *result =
-+          (FAR struct note_heap_result_s *)p;
-+        static FAR const char * const ops[] =
-+          {
-+            "malloc", "memalign", "realloc"
-+          };
-+        FAR const char *op = result->operation < sizeof(ops) / sizeof(ops[0])
-+                             ? ops[result->operation] : "unknown";
++      case NOTE_HEAP_RESULT:
++        {
++          FAR struct note_heap_result_s *result =
++            (FAR struct note_heap_result_s *)p;
++          static FAR const char * const ops[] =
++            {
++              "malloc", "memalign", "realloc"
++            };
++          FAR const char *op = result->operation < sizeof(ops) / sizeof(ops[0])
++                               ? ops[result->operation] : "unknown";
 +
-+        /* The admitted native allocator returns NULL only on failure. Its
-+         * zero-size requests are minimum-size allocations, not releases.
-+         */
++          /* The admitted native allocator returns NULL only on failure. Its
++           * zero-size requests are minimum-size allocations, not releases.
++           */
 +
-+        ret += noteram_dump_header(s, &result->nhr_cmn, ctx);
-+        ret += lib_sprintf(s, "heap_result: %s heap: %p id:%llu"
-+                           " result: %p outcome:%s\n",
-+                           op, result->heap,
-+                           (unsigned long long)result->request_id,
-+                           result->result,
-+                           result->result != NULL ? "success" : "failure");
-+      }
-+      break;
++          ret += noteram_dump_header(s, &result->nhr_cmn, ctx);
++          ret += lib_sprintf(s, "heap_result: %s heap: %p id:%llu"
++                             " result: %p outcome:%s\n",
++                             op, result->heap,
++                             (unsigned long long)result->request_id,
++                             result->result,
++                             result->result != NULL ? "success" : "failure");
++        }
++        break;
 +#  endif
-     case NOTE_HEAP_ADD:
-     case NOTE_HEAP_REMOVE:
-     case NOTE_HEAP_ALLOC:
+       case NOTE_HEAP_ADD:
+       case NOTE_HEAP_REMOVE:
+       case NOTE_HEAP_ALLOC:
 diff --git a/fs/procfs/fs_procfsmeminfo.c b/fs/procfs/fs_procfsmeminfo.c
 --- a/fs/procfs/fs_procfsmeminfo.c
 +++ b/fs/procfs/fs_procfsmeminfo.c

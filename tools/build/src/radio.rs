@@ -196,7 +196,7 @@ pub fn prepare_cached(
         fetch_bounded(&url, bt_hash, 2_000_000, Some(bt_size), &header)?;
         let blob = bluetooth(&read(&header)?, bt_length)?;
         atomic(path, &blob)?;
-        record["bluetooth"] = json!({"source":url,"header_sha256":bt_hash,"header_length":bt_size,"binary":path,"binary_sha256":hash(&path)?,"binary_length":blob.len(),"version":std::str::from_utf8(&blob[1..blob[0] as usize]).map_err(|e|e.to_string())?});
+        record["bluetooth"] = json!({"source":url,"header_sha256":bt_hash,"header_length":bt_size,"binary":path,"binary_sha256":hash(path)?,"binary_length":blob.len(),"version":std::str::from_utf8(&blob[1..blob[0] as usize]).map_err(|e|e.to_string())?});
     }
     fs::create_dir_all(record_path.parent().ok_or("radio record needs a parent")?)
         .map_err(|e| e.to_string())?;

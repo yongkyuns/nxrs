@@ -83,4 +83,6 @@
 *(.literal.*std3sys4sync* .text.*std3sys4sync*)
 *(.literal.__rust_nuttx_spin_* .text.__rust_nuttx_spin_*)
 *(.literal.*std6thread7current18current_or_unnamed* .text.*std6thread7current18current_or_unnamed* .literal.*std6thread6Thread4park* .text.*std6thread6Thread4park*)
+/* Current Rust uses v0 backreferences and the private thread::thread module. */
+*(.literal._R*std6thread6thread*6Thread4park* .text._R*std6thread6thread*6Thread4park*)
 *(.literal.tls_get_info .text.tls_get_info)

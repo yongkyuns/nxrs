@@ -2,6 +2,10 @@ pub use super::native::*;
 pub const NAME: &str = "nuttx";
 pub const HEAP_SCOPE: &str = "nuttx-mallinfo-arena";
 pub fn configure() -> u32 {
+    // The controller's warmup sends can all take the queue's fast path. Its
+    // timed terminal send may block, so initialize its Thread before warmup
+    // and the heap baseline, just as Rust already does for spawned workers.
+    drop(std::thread::current());
     restore([1, 180]);
     let p = priority();
     crate::check(p == 180, "FIFO-priority");

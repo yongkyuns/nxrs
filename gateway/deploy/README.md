@@ -42,7 +42,7 @@ review remain gates. The four-reader MediaMTX path cap is not a per-user quota.
 
 Prerequisites for generation: Python 3 and `wg` from wireguard-tools. Target profile:
 Linux with systemd credentials support (Ubuntu 24.04 is the CI target), nginx,
-nftables, the locked Rust service and checksum-verified MediaMTX 1.21.2. OS packages
+nftables, the locked Rust service and checksum-verified MediaMTX 1.21.4. OS packages
 must receive security updates; the workflow records versions, not a reproducible
 OS image. The pinned Linux MediaMTX asset currently covers amd64 only.
 
@@ -170,4 +170,4 @@ Primary references: [WireGuard](https://www.wireguard.com/quickstart/),
 [nginx proxy](https://nginx.org/en/docs/http/ngx_http_proxy_module.html),
 [nftables](https://netfilter.org/projects/nftables/manpage.html),
 [systemd credentials](https://www.freedesktop.org/software/systemd/man/latest/systemd.exec.html),
-[MediaMTX 1.21.2 WHEP session locations](https://github.com/bluenviron/mediamtx/blob/v1.21.2/internal/servers/webrtc/http_server.go).
+[MediaMTX 1.21.4 WHEP session locations](https://github.com/bluenviron/mediamtx/blob/v1.21.4/internal/servers/webrtc/http_server.go).

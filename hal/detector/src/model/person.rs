@@ -84,7 +84,7 @@ mod tests {
             [31; INPUT_BYTES]
         );
         let red = resize_rgb::<INPUT_SIDE, INPUT_BYTES>(&[255, 0, 0], 1, 1, 3).unwrap();
-        assert!(red.chunks_exact(3).all(|v| v == [255, 0, 0]));
+        assert!(red.as_chunks::<3>().0.iter().all(|v| *v == [255, 0, 0]));
         assert!(resize_rgb::<INPUT_SIDE, INPUT_BYTES>(&[0], 2, 2, 1).is_err());
     }
     #[test]

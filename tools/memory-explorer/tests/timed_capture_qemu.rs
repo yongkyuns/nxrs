@@ -7,6 +7,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
+mod support;
+use support::source_pins;
+
 type Fields = BTreeMap<String, String>;
 
 fn json(path: &Path) -> Value {
@@ -162,14 +165,9 @@ fn ascii_notes(console: &str) -> Vec<NativeNote> {
 }
 
 fn validate_build(build: &Value, report: &Value, build_dir: &Path, repo: &Path) {
-    assert_eq!(
-        build["nuttx_revision"],
-        "2b5c0de5e933281c209f954a63b99cf10c132346"
-    );
-    assert_eq!(
-        build["apps_revision"],
-        "3c772ea35b9245972e18999828f7b533e6fc57cc"
-    );
+    let pins = source_pins();
+    assert_eq!(build["nuttx_revision"], pins["nuttx"]);
+    assert_eq!(build["apps_revision"], pins["apps"]);
     for source in ["nuttx", "apps"] {
         assert_eq!(
             build["source_identity_before_patch"][source]["tracked_sources_clean"],

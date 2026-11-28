@@ -1,0 +1,8 @@
+# SPDX-License-Identifier: Apache-2.0
+CSRCS = esp32s3_boot.c
+DEPPATH += --dep-path board
+VPATH += :board
+
+ifeq ($(CONFIG_ESP32S3_M5_CORES3_LCD),y)
+  CSRCS += esp32s3_lcd_bus.c
+endif

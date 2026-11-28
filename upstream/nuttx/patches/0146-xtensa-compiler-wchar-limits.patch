@@ -1,0 +1,21 @@
+From: nxrs contributors
+Subject: [PATCH] xtensa: use the compiler wchar_t minimum when available
+
+GCC 16 defines a 16-bit unsigned wchar_t and __WCHAR_MIN__=0 on ESP32-S3,
+but does not define __WCHAR_UNSIGNED__. Prefer its explicit minimum so
+WCHAR_MIN matches the actual type. Keep the existing older-compiler fallbacks.
+
+Source: 4268617f28ad0ed7e900a081ea1b33c9347458b3
+
+--- a/arch/xtensa/include/limits.h
++++ b/arch/xtensa/include/limits.h
+@@ -73,6 +73,9 @@
+ #if !defined(__WCHAR_TYPE__)
+ #  define WCHAR_MIN INT_MIN
+ #  define WCHAR_MAX INT_MAX
++#elif defined(__WCHAR_MIN__)
++#  define WCHAR_MIN __WCHAR_MIN__
++#  define WCHAR_MAX __WCHAR_MAX__
+ #elif defined(__WCHAR_UNSIGNED__)
+ #  define WCHAR_MIN 0
+ #  define WCHAR_MAX __WCHAR_MAX__

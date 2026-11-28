@@ -31,19 +31,19 @@ jobs:
           ref: ${{ env.SOURCE_SHA }}
       - name: Install isolated qualification toolchains
         run: |
-          rustup toolchain install 1.90.0 --profile minimal --component rustfmt
-          rustup toolchain install nightly-2026-09-25 --profile minimal --component rust-src
+          rustup toolchain install 1.100.0 --profile minimal --component rustfmt
+          rustup toolchain install nightly-2026-11-26 --profile minimal --component rust-src
       - name: Check probe formatting and oracle negative controls
         run: |
-          cargo +1.90.0 fmt --check -p nxrs-browser-threads
+          cargo +1.100.0 fmt --check -p nxrs-browser-threads
           python3 tests/browser-threads/run.py --self-test
           python3 tests/browser-threads/prepare-std.py --self-test
       - name: Execute identical source natively
         shell: bash
         run: |
-          timeout 30 cargo +1.90.0 run --locked --release -p nxrs-browser-threads
+          timeout 30 cargo +1.100.0 run --locked --release -p nxrs-browser-threads
           set +e
-          timeout 30 cargo +1.90.0 run --locked --release -p nxrs-browser-threads -- fail
+          timeout 30 cargo +1.100.0 run --locked --release -p nxrs-browser-threads -- fail
           result=$?
           set -e
           test "$result" -eq 7
@@ -51,14 +51,14 @@ jobs:
         with:
           persist-credentials: false
           repository: emscripten-core/emsdk
-          ref: 389a68bc35dcff7ebae4614e1615099dafda00d1
+          ref: a7c808831a666cc903fedb906c171a718cd97341 # 7.0.1
           path: target/emsdk
       - name: Build matched pthread std and ordinary main
         shell: bash
         run: |
           SDK="$PWD/target/emsdk"
-          "$SDK/emsdk" install 4.0.15
-          "$SDK/emsdk" activate 4.0.15
+          "$SDK/emsdk" install 7.0.1
+          "$SDK/emsdk" activate 7.0.1
           source "$SDK/emsdk_env.sh"
           bash tests/browser-threads/build.sh
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

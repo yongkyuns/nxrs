@@ -57,6 +57,7 @@ pub struct Profile {
     sdk_root: Option<PathBuf>,
     origins: overlay::Origins,
     native_config: Option<NativeConfig>,
+    native_board: Option<NativeBoard>,
     native_overlays: Vec<(PathBuf, String)>,
     pub(crate) cli_overlays: Vec<PathBuf>,
     pub(crate) product_manifest: Option<PathBuf>,
@@ -67,6 +68,64 @@ pub struct NativeConfig {
     pub declared_in: PathBuf,
     pub path: PathBuf,
     pub contents: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct NativeBoard {
+    pub directory: PathBuf,
+    pub name: String,
+    pub configuration: String,
+    pub files: BTreeMap<String, String>,
+}
+
+impl NativeBoard {
+    fn inventory(directory: &Path) -> Result<BTreeMap<String, String>> {
+        fn visit(base: &Path, path: &Path, files: &mut BTreeMap<String, String>) -> Result<()> {
+            let metadata = fs::symlink_metadata(path)
+                .map_err(|error| format!("board source {}: {error}", path.display()))?;
+            if metadata.is_symlink() {
+                return Err(format!(
+                    "board source must not be a symlink: {}",
+                    path.display()
+                ));
+            }
+            if metadata.is_dir() {
+                for entry in entries(path)? {
+                    visit(base, &entry, files)?;
+                }
+            } else if metadata.is_file() {
+                let relative = path.strip_prefix(base).map_err(|error| error.to_string())?;
+                let components = relative
+                    .iter()
+                    .map(|component| {
+                        component
+                            .to_str()
+                            .filter(|name| !name.contains(['\r', '\n', '\\']))
+                            .ok_or_else(|| format!("invalid board source path {}", path.display()))
+                    })
+                    .collect::<Result<Vec<_>>>()?;
+                // Receipt paths use one spelling on every host; platform path
+                // separators are not part of an individual filename component.
+                files.insert(components.join("/"), crate::hash(path)?);
+            } else {
+                return Err(format!("unsupported board source: {}", path.display()));
+            }
+            Ok(())
+        }
+        let mut files = BTreeMap::new();
+        visit(directory, directory, &mut files)?;
+        Ok(files)
+    }
+
+    pub fn verify(&self) -> Result<()> {
+        if Self::inventory(&self.directory)? != self.files {
+            return Err(format!(
+                "board sources changed after profile resolution: {}",
+                self.directory.display()
+            ));
+        }
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -84,6 +143,7 @@ enum InputKind {
     CommandLineOverlay,
     BspResources,
     NativeConfig,
+    NativeBoard,
 }
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Detector {
@@ -306,6 +366,7 @@ impl Profile {
             sdk_root: None,
             origins,
             native_config: None,
+            native_board: None,
             native_overlays: Vec::new(),
             cli_overlays: Vec::new(),
             product_manifest: None,
@@ -428,6 +489,7 @@ impl Profile {
             return Err("at most 64 overlays can be selected for a profile".into());
         }
         profile.load_native_config(edits)?;
+        profile.load_native_board(root)?;
         for (path, kind) in declared
             .into_iter()
             .map(|path| (path, InputKind::DeclaredOverlay))
@@ -491,7 +553,12 @@ impl Profile {
             .filter(|s| !s.is_empty() && !s.contains(['\0', '\r', '\n']))
             .map(Path::new)
             .filter(|path| path.is_relative())
-            .ok_or_else(|| format!("{}: nuttx-config must be a relative file path", declared_in.display()))?;
+            .ok_or_else(|| {
+                format!(
+                    "{}: nuttx-config must be a relative file path",
+                    declared_in.display()
+                )
+            })?;
         let path = declared_in.parent().unwrap().join(relative);
         let path = if edits.contains_key(&path) {
             path
@@ -510,6 +577,80 @@ impl Profile {
 
     pub fn native_config(&self) -> Option<&NativeConfig> {
         self.native_config.as_ref()
+    }
+
+    fn load_native_board(&mut self, root: &Path) -> Result<()> {
+        let Some(reference) = self.data.get("board-dir") else {
+            return Ok(());
+        };
+        let declared_in = self
+            .origins
+            .get("board-dir")
+            .ok_or("missing board-dir source")?;
+        let relative = reference
+            .as_str()
+            .filter(|name| !name.is_empty() && !name.contains(['\0', '\r', '\n']))
+            .map(Path::new)
+            .filter(|path| path.is_relative())
+            .ok_or_else(|| {
+                format!(
+                    "{}: board-dir must be a relative directory",
+                    declared_in.display()
+                )
+            })?;
+        let (name, configuration) = self.data["board"]
+            .as_str()
+            .and_then(|board| board.split_once(':'))
+            .filter(|(name, config)| {
+                matches(name, r"^[a-z0-9][a-z0-9-]*$")
+                    && matches(config, r"^[A-Za-z0-9][A-Za-z0-9_-]*$")
+            })
+            .ok_or("board-dir requires a NuttX board:configuration selection")?;
+        let path = declared_in.parent().unwrap().join(relative);
+        if fs::symlink_metadata(&path)
+            .map_err(|error| error.to_string())?
+            .is_symlink()
+        {
+            return Err("board-dir must not be a symlink".into());
+        }
+        let directory = path
+            .canonicalize()
+            .map_err(|error| format!("{}: {error}", path.display()))?;
+        if !directory.starts_with(root.canonicalize().map_err(|error| error.to_string())?) {
+            return Err("board-dir must remain inside the profile workspace".into());
+        }
+        let files = NativeBoard::inventory(&directory)?;
+        for required in [
+            "Kconfig".to_owned(),
+            "include/board.h".into(),
+            "scripts/Make.defs".into(),
+            format!("configs/{configuration}/defconfig"),
+        ] {
+            if !files.contains_key(&required) {
+                return Err(format!(
+                    "custom board is missing {required}: {}",
+                    directory.display()
+                ));
+            }
+        }
+        for (relative, sha256) in &files {
+            self.inputs.push(Input {
+                path: directory.join(relative),
+                kind: InputKind::NativeBoard,
+                sha256: sha256.clone(),
+            });
+        }
+        self.native_board = Some(NativeBoard {
+            directory,
+            name: name.into(),
+            configuration: configuration.into(),
+            files,
+        });
+        Ok(())
+    }
+
+    pub fn native_board(&self) -> Option<&NativeBoard> {
+        self.native_board.as_ref()
     }
 
     /// The profile's native config followed by declared and CLI Kconfig overlays.
@@ -631,7 +772,10 @@ impl Profile {
                 }
                 _ => {
                     resolved.data[k] = v.clone();
-                    if matches!(k.as_str(), "composition" | "imu" | "kconfig" | "nuttx-config") {
+                    if matches!(
+                        k.as_str(),
+                        "composition" | "imu" | "kconfig" | "nuttx-config" | "board-dir"
+                    ) {
                         resolved.origins.insert(k.clone(), path.clone());
                     }
                 }
@@ -674,10 +818,16 @@ impl Profile {
         )
     }
 
-    /// All filesystem inputs for Cargo reruns, receipts, and build identity.
+    /// All regular-file inputs for receipts and build identity.
     pub fn source_paths(&self) -> impl Iterator<Item = &PathBuf> {
         self.profile_source_paths()
             .chain(self.catalogs.source_paths())
+    }
+
+    /// Cargo must also notice newly added files inside the selected board.
+    pub fn watch_paths(&self) -> impl Iterator<Item = &PathBuf> {
+        self.source_paths()
+            .chain(self.native_board.iter().map(|board| &board.directory))
     }
 
     /// Ordered profile and overlay provenance for deployment reports.
@@ -1247,7 +1397,7 @@ impl Profile {
             _ => {}
         }
         output.extend(
-            self.source_paths()
+            self.watch_paths()
                 .map(|p| format!("cargo:rerun-if-changed={}", p.display())),
         );
         let mut manifests: BTreeSet<PathBuf> = self.data["hal"]
@@ -1311,6 +1461,80 @@ mod tests {
         assert_eq!(replaced.native_config().unwrap().path, child_fragment);
         assert!(!replaced.source_paths().any(|path| path == &parent_fragment));
         assert_eq!(replaced.data["kconfig"], inherited.data["kconfig"]);
+    }
+
+    #[test]
+    fn custom_board_inheritance_tracks_source_edits_additions_and_removals() {
+        let temporary = crate::TempDir::new(&std::env::temp_dir()).unwrap();
+        let root = temporary.0.canonicalize().unwrap();
+        fs::write(root.join("Cargo.toml"), "[workspace]\n").unwrap();
+        let platform = root.join("platform/example");
+        let board = platform.join("board");
+        for directory in ["configs/nsh", "include", "scripts", "src"] {
+            fs::create_dir_all(board.join(directory)).unwrap();
+        }
+        fs::create_dir(platform.join("profiles")).unwrap();
+        fs::write(
+            platform.join("profile.toml"),
+            "name='example'\nboard='example:nsh'\nboard-dir='board'\n",
+        )
+        .unwrap();
+        fs::write(
+            platform.join("profiles/variant.toml"),
+            "extends='example'\n",
+        )
+        .unwrap();
+        for (file, contents) in [
+            ("Kconfig", "# board\n"),
+            ("include/board.h", "#define BOARD 1\n"),
+            ("scripts/Make.defs", "# make\n"),
+            ("configs/nsh/defconfig", "CONFIG_ARCH_BOARD_CUSTOM=y\n"),
+            ("src/board.c", "void board(void) {}\n"),
+        ] {
+            fs::write(board.join(file), contents).unwrap();
+        }
+        let initial = Profile::resolve(&root, "variant").unwrap();
+        assert_eq!(initial.native_board().unwrap().directory, board);
+        assert!(initial
+            .source_paths()
+            .any(|path| path == &board.join("src/board.c")));
+        fs::write(
+            board.join("src/board.c"),
+            "void board(void) { initialize(); }\n",
+        )
+        .unwrap();
+        assert!(initial.native_board().unwrap().verify().is_err());
+        let edited = Profile::resolve(&root, "variant").unwrap();
+        assert_ne!(initial.input_fingerprint(), edited.input_fingerprint());
+        fs::write(board.join("src/extra.h"), "#define DEVICE 1\n").unwrap();
+        assert!(edited.native_board().unwrap().verify().is_err());
+        let added = Profile::resolve(&root, "variant").unwrap();
+        assert_ne!(edited.input_fingerprint(), added.input_fingerprint());
+        fs::remove_file(board.join("src/extra.h")).unwrap();
+        assert!(added.native_board().unwrap().verify().is_err());
+        assert_eq!(
+            edited.input_fingerprint(),
+            Profile::resolve(&root, "variant")
+                .unwrap()
+                .input_fingerprint()
+        );
+        fs::remove_file(board.join("configs/nsh/defconfig")).unwrap();
+        assert!(Profile::resolve(&root, "variant")
+            .unwrap_err()
+            .contains("configs/nsh/defconfig"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn custom_board_rejects_linked_sources() {
+        let temporary = crate::TempDir::new(&std::env::temp_dir()).unwrap();
+        let board = temporary.0.join("board");
+        fs::create_dir(&board).unwrap();
+        fs::write(temporary.0.join("outside.h"), "outside\n").unwrap();
+        std::os::unix::fs::symlink(temporary.0.join("outside.h"), board.join("header.h")).unwrap();
+        assert!(NativeBoard::inventory(&board)
+            .unwrap_err()
+            .contains("symlink"));
     }
     #[test]
     fn stamp_uses_its_own_bsp_uart_at_the_fixed_modem_baud() {
