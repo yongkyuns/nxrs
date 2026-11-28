@@ -6,6 +6,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
 
+from build_timed_capture_nuttx import SYSTICK_PATCH, SYSTICK_SOURCE
 from qualify_timed_capture_qemu import native_evidence, validate_build_sources
 
 
@@ -126,7 +127,7 @@ class NativeBuildIdentityAdmission(unittest.TestCase):
         self.addCleanup(temporary.cleanup)
         self.repository = Path(temporary.name)
         fixture_names = ("Kconfig", "Make.defs", "Makefile", "timed_main.c")
-        sources = [PATCH, *COPIED.values(), *BUILDERS,
+        sources = [PATCH, SYSTICK_PATCH, *COPIED.values(), *BUILDERS,
                    *(f"{FIXTURE}/{name}" for name in fixture_names)]
         for source in sources:
             path = self.repository / source
@@ -135,6 +136,8 @@ class NativeBuildIdentityAdmission(unittest.TestCase):
         fixture_hashes = {name: self.digest(f"{FIXTURE}/{name}") for name in fixture_names}
         self.build = {
             "production_patch": {"path": PATCH, "sha256": self.digest(PATCH)},
+            "systick_patch": {"path": SYSTICK_PATCH, "sha256": self.digest(SYSTICK_PATCH),
+                              "source": SYSTICK_SOURCE},
             "fixture_sha256": fixture_hashes,
             "installed_fixture_sha256": dict(fixture_hashes),
             "copied_sources": {
@@ -147,6 +150,7 @@ class NativeBuildIdentityAdmission(unittest.TestCase):
                 name: {"tracked_sources_clean": True} for name in ("nuttx", "apps")
             },
             "apps_tracked_sources_restored": True,
+            "nuttx_tracked_sources_restored": True,
         }
 
     def digest(self, source):
@@ -158,6 +162,7 @@ class NativeBuildIdentityAdmission(unittest.TestCase):
     def test_stale_production_fixture_copied_or_builder_source_is_rejected(self):
         for source, message in (
             (PATCH, "current production capture patch"),
+            (SYSTICK_PATCH, "current production SysTick patch"),
             (f"{FIXTURE}/timed_main.c", "fixture source/installed identity"),
             *((source, "bridge/clock source identity") for source in COPIED.values()),
             *((source, "helper identity") for source in BUILDERS),

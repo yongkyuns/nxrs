@@ -22,6 +22,7 @@ import signal
 import subprocess
 import time
 
+from build_timed_capture_nuttx import SYSTICK_PATCH, SYSTICK_SOURCE
 from build_timing_nuttx import APPS_REVISION, NUTTX_REVISION
 
 
@@ -278,6 +279,10 @@ def validate_build_sources(build, repository):
     if patch["path"] != "upstream/nuttx-apps/patches/0007-trace-capture-window.patch" or \
        patch["sha256"] != sha256(repository / patch["path"]):
         raise RuntimeError("Native build does not contain the current production capture patch")
+    systick = build["systick_patch"]
+    if (systick["path"] != SYSTICK_PATCH or systick["source"] != SYSTICK_SOURCE or
+            systick["sha256"] != sha256(repository / SYSTICK_PATCH)):
+        raise RuntimeError("Native build does not contain the current production SysTick patch")
     fixture = repository / "tests/nuttx-std/timed-capture"
     expected = {path.name: sha256(path) for path in fixture.iterdir() if path.is_file()}
     if build["fixture_sha256"] != expected or build["installed_fixture_sha256"] != expected:
@@ -295,7 +300,7 @@ def validate_build_sources(build, repository):
     if build["build_sources_sha256"] != {path: sha256(repository / path) for path in helpers}:
         raise RuntimeError("Native build helper identity differs")
     if any(build["source_identity_before_patch"][name]["tracked_sources_clean"] is not True
-           for name in ("nuttx", "apps")) or build["apps_tracked_sources_restored"] is not True:
+           or build[f"{name}_tracked_sources_restored"] is not True for name in ("nuttx", "apps")):
         raise RuntimeError("Native build source cleanliness was not established")
 
 
@@ -311,6 +316,8 @@ def run(args):
     if build["elf_sha256"] != sha256(image) or build["config_sha256"] != sha256(build_dir / "resolved.config"):
         raise RuntimeError("Native build ELF/config identity differs")
     validate_build_sources(build, repository)
+    if sha256(build_dir / "systick.patch") != build["systick_patch"]["sha256"]:
+        raise RuntimeError("Retained native SysTick patch differs from the build receipt")
     output.mkdir(parents=True, exist_ok=False)
     sources = capture_sources(repository)
     report = {"schema_version": 1, "evidence": "production_nuttx_timed_capture_in_qemu",
