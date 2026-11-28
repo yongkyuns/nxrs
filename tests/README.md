@@ -10,6 +10,7 @@ Use the [performance guide](../website/guide/performance.md) to choose the quest
 | Evaluate messaging, resources, progress and recovery together | [RTOS characterization](rtos-characterization/README.md) | Fixed campaign and [physical results](rtos-characterization/PHYSICAL-RESULTS.md) |
 | Measure std workers, inboxes and multi-queue selection | [Ordinary Rust RAM](ram-footprint-std/README.md) | Owner/queue scaling and lifecycle, with host and target observers |
 | Find hidden allocation or retained memory | [Allocation probes](../docs/memory-qualification.md) | Rust allocator boundary; separate [NuttX heap/stack checks](../docs/nuttx-memory-qualification.md) |
+| Measure wall-clock steps, adjustment and monotonic time | [Clock control qualification](nuttx-std/clock-control/README.md) | MPS2-AN521 QEMU with an independent timer; separate API and behavior gates |
 | Qualify priority progress, overload and joined shutdown | [Owner qualification](owner-qualification/README.md) | Finite owner controls; read its input and target boundaries |
 | Check native C/Rust service lifecycle | [Service qualification](service-qualification/README.md) | Lean LED fixture, delivery, restart and faults |
 

@@ -13,6 +13,7 @@ This integration is broader than compiling Rust syntax for an MCU. Runtime initi
 | Understand preparation, linking and build receipts | [Build system](build-system.md) |
 | Understand device-specific operations | [NuttX device access](nuttx-device-access.md) |
 | Assess threads, channels and memory | [Bounded channels](std-channel-performance.md), [memory and image size](rust-std-footprint.md) |
+| Assess wall-clock steps, adjustment and monotonic time | [Clock control qualification](../tests/nuttx-std/clock-control/README.md) |
 | Reproduce the original integration probes | [Historical qualification](history/nuttx-std-integration.md#reproduce) |
 
 <a id="scope-and-linking"></a>

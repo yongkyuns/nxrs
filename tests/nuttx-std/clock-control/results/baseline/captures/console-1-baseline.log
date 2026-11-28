@@ -1,0 +1,32 @@
+qemu-system-arm: warning: nic lan9118.0 has no peer
+
+NuttShell (NSH) NuttX-13.1.1
+nsh> [Kuname
+NuttX
+nsh> [Kuname -a
+NuttX 13.1.1 4268617f28ad-nxrs Nov 28 2026 21:25:33 arm mps2-an521
+nsh> [Kclock_probe
+CLOCK_PROBE {"kind":"begin","schema":1,"build_id":"unbound","timekeeping":false,"adjtime_header":false,"rtc":false,"rtc_hires":false,"direct_implementation_only":false,"tick_us":1000,"reported_realtime_resolution_ns":1000000,"reference_hz":20000000}
+CLOCK_PROBE {"kind":"sample","phase":"seed","point":"before","index":0,"realtime_ns":1682380800208220000,"monotonic_ns":2125000,"reference_ns":3665975,"read_span_ns":481950}
+CLOCK_PROBE {"kind":"sample","phase":"seed","point":"after","index":0,"realtime_ns":1800000000000160000,"monotonic_ns":2687000,"reference_ns":4376550,"read_span_ns":9500}
+CLOCK_PROBE {"kind":"set","name":"seed","target_ns":1800000000000000000,"result":0,"errno":0}
+CLOCK_PROBE {"kind":"sample","phase":"forward","point":"before","index":0,"realtime_ns":1800000000001113000,"monotonic_ns":3641000,"reference_ns":5901300,"read_span_ns":7800}
+CLOCK_PROBE {"kind":"sample","phase":"forward","point":"after","index":0,"realtime_ns":1800000003001093000,"monotonic_ns":3650000,"reference_ns":5915825,"read_span_ns":6650}
+CLOCK_PROBE {"kind":"set","name":"forward","target_ns":1800000003001088000,"result":0,"errno":0}
+CLOCK_PROBE {"kind":"sample","phase":"backward","point":"before","index":0,"realtime_ns":1800000003001967000,"monotonic_ns":4524000,"reference_ns":7314100,"read_span_ns":7000}
+CLOCK_PROBE {"kind":"sample","phase":"backward","point":"after","index":0,"realtime_ns":1800000001001955000,"monotonic_ns":4533000,"reference_ns":7328625,"read_span_ns":6750}
+CLOCK_PROBE {"kind":"set","name":"backward","target_ns":1800000001001950000,"result":0,"errno":0}
+CLOCK_PROBE {"kind":"sample","phase":"baseline_sleep","point":"before","index":0,"realtime_ns":1800000001002957000,"monotonic_ns":5533000,"reference_ns":8929175,"read_span_ns":13950}
+CLOCK_PROBE {"kind":"sample","phase":"baseline_sleep","point":"after","index":0,"realtime_ns":1800000001103665000,"monotonic_ns":106240000,"reference_ns":170062400,"read_span_ns":21700}
+CLOCK_PROBE {"kind":"sleep","name":"baseline_sleep","requested_ns":100000000}
+CLOCK_PROBE {"kind":"sample","phase":"baseline","point":"start","index":0,"realtime_ns":1800000001104771000,"monotonic_ns":107346000,"reference_ns":171830650,"read_span_ns":18900}
+CLOCK_PROBE {"kind":"sample","phase":"baseline","point":"checkpoint","index":0,"realtime_ns":1800000001261021000,"monotonic_ns":263599000,"reference_ns":421834250,"read_span_ns":6500}
+CLOCK_PROBE {"kind":"sample","phase":"baseline","point":"end","index":0,"realtime_ns":1800000001417270000,"monotonic_ns":419847000,"reference_ns":671832400,"read_span_ns":6500}
+CLOCK_PROBE {"kind":"phase","name":"baseline","duration_ms":500,"reads":66366,"realtime_regressions":0,"monotonic_regressions":0,"min_realtime_delta_ns":0,"min_positive_realtime_delta_ns":1000,"min_positive_monotonic_delta_ns":1000,"max_read_span_ns":268100}
+CLOCK_PROBE {"kind":"sample","phase":"initial_query","point":"before","index":0,"realtime_ns":1800000001419270000,"monotonic_ns":421844000,"reference_ns":675017800,"read_span_ns":43200}
+CLOCK_PROBE {"kind":"sample","phase":"initial_query","point":"after","index":0,"realtime_ns":1800000001419313000,"monotonic_ns":421890000,"reference_ns":675100175,"read_span_ns":8150}
+CLOCK_PROBE {"kind":"adjust","name":"initial_query","has_delta":false,"delta_us":0,"result":-1,"errno":38,"old_seconds":1234567,"old_microseconds":7654321}
+CLOCK_PROBE {"kind":"complete","schema":1,"phases":1,"reference_elapsed_ns":677101450}
+nsh> [Kecho NXRS_STATUS_$?
+NXRS_STATUS_0
+nsh> [K

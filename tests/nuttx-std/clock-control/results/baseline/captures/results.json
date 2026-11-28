@@ -1,0 +1,74 @@
+[
+  {
+    "mode": "baseline",
+    "success": true,
+    "command": [
+      "qemu-system-arm",
+      "-M",
+      "mps2-an521",
+      "-display",
+      "none",
+      "-serial",
+      "stdio",
+      "-monitor",
+      "none",
+      "-nic",
+      "none",
+      "-no-reboot",
+      "-kernel",
+      "/dev/shm/nxrs-time-sync-phase1/baseline-verified/firmware/nuttx/nuttx",
+      "-gdb",
+      "tcp:127.0.0.1:48203"
+    ],
+    "image_sha256": "72336f5c7e78fcf8dc8190ae65956cf02ce6512868e655e5fca8f86df277f65c",
+    "uname": "uname -a\r\nNuttX 13.1.1 4268617f28ad-nxrs Nov 28 2026 21:25:33 arm mps2-an521\r\nnsh> \u001b[K"
+  },
+  {
+    "mode": "baseline",
+    "success": true,
+    "command": [
+      "qemu-system-arm",
+      "-M",
+      "mps2-an521",
+      "-display",
+      "none",
+      "-serial",
+      "stdio",
+      "-monitor",
+      "none",
+      "-nic",
+      "none",
+      "-no-reboot",
+      "-kernel",
+      "/dev/shm/nxrs-time-sync-phase1/baseline-verified/firmware/nuttx/nuttx",
+      "-gdb",
+      "tcp:127.0.0.1:36025"
+    ],
+    "image_sha256": "72336f5c7e78fcf8dc8190ae65956cf02ce6512868e655e5fca8f86df277f65c",
+    "uname": "uname -a\r\nNuttX 13.1.1 4268617f28ad-nxrs Nov 28 2026 21:25:33 arm mps2-an521\r\nnsh> \u001b[K"
+  },
+  {
+    "mode": "baseline",
+    "success": true,
+    "command": [
+      "qemu-system-arm",
+      "-M",
+      "mps2-an521",
+      "-display",
+      "none",
+      "-serial",
+      "stdio",
+      "-monitor",
+      "none",
+      "-nic",
+      "none",
+      "-no-reboot",
+      "-kernel",
+      "/dev/shm/nxrs-time-sync-phase1/baseline-verified/firmware/nuttx/nuttx",
+      "-gdb",
+      "tcp:127.0.0.1:42979"
+    ],
+    "image_sha256": "72336f5c7e78fcf8dc8190ae65956cf02ce6512868e655e5fca8f86df277f65c",
+    "uname": "uname -a\r\nNuttX 13.1.1 4268617f28ad-nxrs Nov 28 2026 21:25:33 arm mps2-an521\r\nnsh> \u001b[K"
+  }
+]
