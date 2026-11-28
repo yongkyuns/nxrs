@@ -1,0 +1,352 @@
+From: nxrs contributors
+Subject: [PATCH] pynuttx: restore task inspection state and read native owners
+
+The pinned mutex holder moved into sem.val.mholder. Decode that native
+representation, including the waiter bit and no-owner/reset sentinels.
+Report the ps command's -g3 requirement explicitly when macro data is absent.
+
+Use the connected ARM register description. Xtensa's native offset table
+uses a canonical order and includes reserved slots: it does not match the
+Espressif remote packet, and regs_num is not its array length. Load logical
+a0..a15 from the complete native table, retain the live window base, and
+unwind prior spilled windows only after installing the full saved context.
+
+Task apply commands use the running task's live context and restore the
+original physical register bank, thread, and selected frame in finally,
+including when the inspection command raises. Snapshot register integers
+before changing context. No target firmware code or debugger target calls
+are added.
+
+--- a/tools/pynuttx/nxgdb/thread.py
++++ b/tools/pynuttx/nxgdb/thread.py
+@@ -31,6 +31,9 @@
+ 
+ UINT16_MAX = 0xFFFF
+ SEM_TYPE_MUTEX = 4
++# Native semaphore.h mutex-holder encoding, independent of -g3 macro data.
++NXSEM_MBLOCKING_BIT = 0x80000000
++NXSEM_NO_MHOLDER = 0x7FFFFFFE
+ TSTATE_TASK_RUNNING = utils.get_symbol_value("TSTATE_TASK_RUNNING")
+ CONFIG_SMP_NCPUS = utils.get_symbol_value("CONFIG_SMP_NCPUS") or 1
+ 
+@@ -41,68 +44,28 @@
+     return len(gdb.selected_inferior().threads()) > CONFIG_SMP_NCPUS
+ 
+ 
++def mutex_holder(mutex):
++    """Read the pinned native nxmutex_get_holder representation."""
++    holder = int(mutex["sem"]["val"]["mholder"]) & ~NXSEM_MBLOCKING_BIT
++    return holder if holder & NXSEM_NO_MHOLDER != NXSEM_NO_MHOLDER else -1
++
++
+ class Registers:
+     saved_regs = None
++    saved_thread = None
++    saved_frame = 0
+     reginfo = None
+ 
+     def __init__(self):
+         if not Registers.reginfo:
+-            reginfo = {}
+-
+-            # Switch to second inferior to get the original remote-register layout
+-            state = utils.suppress_cli_notifications(True)
+-            utils.switch_inferior(2)
+-
+-            natural_size = gdb.lookup_type("long").sizeof
+-            tcb_info = gdb.parse_and_eval("g_tcbinfo")
+-            reg_off = tcb_info["reg_off"]["p"]  # Register offsets in tcbinfo
+-            packet_size = tcb_info["regs_num"] * natural_size
+-
+-            lines = gdb.execute("maint print remote-registers", to_string=True)
+-            for line in lines.splitlines()[1:]:
+-                if not line:
+-                    continue
+-
+-                # Name         Nr  Rel Offset    Size  Type            Rmt Nr  g/G Offset
+-                match = re.match(
+-                    r"\s*(\S+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\S+)(?:\s+(\d+)\s+(\d+))?",
+-                    line,
+-                )
+-                if not match:
+-                    continue
+-
+-                name, _, _, _, size, _, rmt_nr, offset = match.groups()
+-
+-                # We only need those registers that have a remote register
+-                if rmt_nr is None:
+-                    continue
+-
+-                rmt_nr = int(rmt_nr)
+-                offset = int(offset)
+-                size = int(size)
+-
+-                # We only have limited number of registers in packet
+-                if offset + size > packet_size:
+-                    continue
+-
+-                index = offset // natural_size
+-                tcb_reg_off = int(reg_off[index])
+-                if tcb_reg_off == UINT16_MAX:
+-                    # This register is not saved in tcb context
+-                    continue
+-
+-                reginfo[name] = {
+-                    "rmt_nr": rmt_nr,  # The register number in remote-registers, Aka the one we saved in g_tcbinfo.
+-                    "tcb_reg_off": tcb_reg_off,
+-                }
+-
+-            Registers.reginfo = reginfo
+-            utils.switch_inferior(1)  # Switch back
+-            utils.suppress_cli_notifications(state)
++            Registers.reginfo = utils.get_register_layout()
+ 
+     def load(self, regs):
+         """Load registers from context register address"""
+         regs = int(regs)
++        if not regs:
++            raise gdb.GdbError("Task has no saved register context")
++        values = {}
+         for name, info in Registers.reginfo.items():
+             addr = regs + info["tcb_reg_off"]
+             # value = *(uintptr_t *)addr
+@@ -111,7 +74,25 @@
+                 .cast(utils.lookup_type("uintptr_t").pointer())
+                 .dereference()
+             )
+-            gdb.execute(f"set ${name}={int(value)}")
++            values[name] = int(value)
++
++        # Read the complete context before mutating the live register bank.
++        gdb.newest_frame().select()
++        window_start = None
++        if utils.is_target_arch("xtensa"):
++            # NuttX spills previous windows before saving a0..a15. Keep the
++            # live window base, use its logical aliases, and make GDB unwind
++            # older windows from those spill slots. RFE clears PS.EXCM.
++            base = int(gdb.newest_frame().read_register("windowbase"))
++            window_start = 1 << base
++            values["ps"] &= ~0x10
++        for name, value in values.items():
++            gdb.execute(f"set ${name}={value}")
++        if window_start is not None:
++            # The stopped live frame may still need its previous window while
++            # GDB evaluates register assignments. Retire it only after loading
++            # the complete saved PC/SP/register context.
++            gdb.execute(f"set $windowstart={window_start}")
+ 
+     def switch(self, pid):
+         """Switch to the specified thread"""
+@@ -137,22 +118,41 @@
+             # Already saved
+             return
+ 
++        selected_frame = gdb.selected_frame().level()
++        selected_thread = gdb.selected_thread()
+         registers = {}
+         frame = gdb.newest_frame()
+-        for name, _ in Registers.reginfo.items():
+-            value = frame.read_register(name)
+-            registers[name] = value
++        names = list(Registers.reginfo)
++        if utils.is_target_arch("xtensa"):
++            # Logical aN aliases share the physical AR bank. Preserve the
++            # physical values, including when inspection changes the window.
++            names = [name for name in names if not re.fullmatch(r"a\d+", name)]
++            names += [f"ar{index}" for index in range(64)]
++            names += ["windowbase", "windowstart"]
++        for name in names:
++            registers[name] = int(frame.read_register(name))
+ 
+         Registers.saved_regs = registers
++        Registers.saved_thread = selected_thread
++        Registers.saved_frame = selected_frame
+ 
+     def restore(self):
+         if not Registers.saved_regs:
+             return
+ 
++        Registers.saved_thread.switch()
++        gdb.newest_frame().select()
+         for name, value in Registers.saved_regs.items():
+             gdb.execute(f"set ${name}={int(value)}")
+ 
+         Registers.saved_regs = None
++        Registers.saved_thread = None
++        frame = gdb.newest_frame()
++        for _ in range(Registers.saved_frame):
++            frame = frame.older()
++            if frame is None:
++                raise gdb.GdbError("Could not restore the selected frame")
++        frame.select()
+ 
+ 
+ g_registers = Registers()
+@@ -252,7 +252,7 @@
+                 mutex = tcb["waitobj"].cast(utils.lookup_type("sem_t").pointer())
+                 if mutex["flags"] & SEM_TYPE_MUTEX:
+                     mutex = tcb["waitobj"].cast(utils.lookup_type("mutex_t").pointer())
+-                    statename = f"Waiting,Mutex:{mutex['holder']}"
++                    statename = f"Waiting,Mutex:{mutex_holder(mutex)}"
+ 
+             try:
+                 """Maybe tcb not have name member, or name is not utf-8"""
+@@ -306,6 +306,16 @@
+         else:
+             super().__init__("nxthread", gdb.COMMAND_USER)
+ 
++    def apply(self, tcb, command):
++        g_registers.save()
++        try:
++            gdb.newest_frame().select()
++            if tcb["task_state"] != TSTATE_TASK_RUNNING:
++                g_registers.load(tcb["xcp"]["regs"])
++            gdb.execute(command)
++        finally:
++            g_registers.restore()
++
+     def invoke(self, args, from_tty):
+         npidhash = gdb.parse_and_eval("g_npidhash")
+         pidhash = gdb.parse_and_eval("g_pidhash")
+@@ -329,13 +339,11 @@
+                     except gdb.error and UnicodeDecodeError:
+                         gdb.write(f"Thread {i}\n")
+ 
+-                    gdb.execute(f"setregs g_pidhash[{i}]->xcp.regs")
+                     cmd_arg = ""
+                     for cmd in arg[2:]:
+                         cmd_arg += cmd + " "
+ 
+-                    gdb.execute(f"{cmd_arg}\n")
+-                    g_registers.restore()
++                    self.apply(tcb, cmd_arg)
+             else:
+                 threadlist = []
+                 i = 0
+@@ -361,9 +369,7 @@
+                         except gdb.error and UnicodeDecodeError:
+                             gdb.write(f"Thread {i}\n")
+ 
+-                        gdb.execute(f"setregs g_pidhash[{i}]->xcp.regs")
+-                        gdb.execute(f"{cmd}\n")
+-                        g_registers.restore()
++                        self.apply(pidhash[i], cmd)
+ 
+         else:
+             if (
+@@ -484,7 +490,7 @@
+         npx = "P" if (tcb["flags"] & get_macro("TCB_FLAG_EXIT_PROCESSING")) else "-"
+ 
+         waiter = (
+-            str(int(cast2ptr(tcb["waitobj"], "mutex_t")["holder"]))
++            str(mutex_holder(cast2ptr(tcb["waitobj"], "mutex_t")))
+             if tcb["waitobj"]
+             and cast2ptr(tcb["waitobj"], "sem_t")["flags"] & get_macro("SEM_TYPE_MUTEX")
+             else ""
+@@ -587,6 +593,11 @@
+         gdb.write("\n")
+ 
+     def invoke(self, args, from_tty):
++        if utils.get_symbol_value("_SIGSET_NELEM") is None:
++            raise gdb.GdbError(
++                "ps requires native macro debug information (-g3); "
++                "use info nxthreads with this ELF"
++            )
+         gdb.write(
+             " ".join(
+                 (
+@@ -634,7 +645,7 @@
+ 
+         # It's waiting on a mutex
+         mutex = tcb["waitobj"].cast(utils.lookup_type("mutex_t").pointer())
+-        holder = mutex["holder"]
++        holder = mutex_holder(mutex)
+         if holder in self.holders:
+             return True
+ 
+--- a/tools/pynuttx/nxgdb/utils.py
++++ b/tools/pynuttx/nxgdb/utils.py
+@@ -739,26 +739,71 @@
+         return not g_current_regs or not g_current_regs[cpuid]
+ 
+ 
++def get_register_layout():
++    """Map saved native context offsets to the connected GDB's registers."""
++    tcbinfo = gdb.parse_and_eval("g_tcbinfo")
++    reg_off = tcbinfo["reg_off"]["p"]
++    layout = {}
++
++    if is_target_arch("xtensa"):
++        # NuttX's table uses its GDB-stub order, not Espressif GDB's remote
++        # packet order (pc, ar0..ar63, ...). regs_num is the saved context's
++        # word count; the offset table also contains the reserved slots.
++        offsets = gdb.parse_and_eval("g_reg_offs")
++        first, last = offsets.type.strip_typedefs().range()
++        if first != 0 or last < 79 or int(offsets.address) != int(reg_off):
++            raise gdb.GdbError("Unsupported Xtensa saved-register offset table")
++        names = [(name, index) for index, name in enumerate(
++            ("pc", "ps", "lbeg", "lend", "lcount", "sar"))]
++        names.extend((f"a{index}", 64 + index) for index in range(16))
++        for name, index in names:
++            offset = int(offsets[index])
++            if offset != 0xFFFF:
++                layout[name] = {"tcb_reg_off": offset}
++        return layout
++
++    # Use the live remote description. An auxiliary file-only inferior can
++    # have a different register packet, even for the same architecture.
++    word_size = gdb.lookup_type("long").sizeof
++    packet_size = int(tcbinfo["regs_num"]) * word_size
++    lines = gdb.execute("maint print remote-registers", to_string=True)
++    for line in lines.splitlines()[1:]:
++        match = re.match(
++            r"\s*(\S+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\S+)(?:\s+(\d+)\s+(\d+))?",
++            line,
++        )
++        if not match:
++            continue
++        name, _, _, _, size, _, remote, offset = match.groups()
++        if remote is None:
++            continue
++        size, offset = int(size), int(offset)
++        if size != word_size or offset % word_size or offset + size > packet_size:
++            continue
++        saved_offset = int(reg_off[offset // word_size])
++        if saved_offset != 0xFFFF:
++            layout[name] = {"rmt_nr": int(remote), "tcb_reg_off": saved_offset}
++    return layout
++
++
+ def get_register_byname(regname, tcb=None):
+-    frame = gdb.selected_frame()
++    frame = gdb.newest_frame()
+ 
+     # If no tcb is given then we can directly use the register from
+     # the cached frame by GDB
+     if not tcb:
+         return int(frame.read_register(regname))
+ 
+-    # Ok, let's take it from the context in the given tcb
+-    arch = frame.architecture()
+-    tcbinfo = gdb.parse_and_eval("g_tcbinfo")
+-
+-    i = 0
+-    for reg in arch.registers():
+-        if reg.name == regname:
+-            break
+-        i += 1
+-
++    # Resolve the same native context layout used by the thread commands.
++    if regname == "sp" and is_target_arch("xtensa"):
++        regname = "a1"
++    saved = get_register_layout().get(regname)
++    if saved is None:
++        raise gdb.GdbError(f"Register {regname} is not saved in the task context")
+     regs = tcb["xcp"]["regs"].cast(gdb.lookup_type("char").pointer())
+-    value = gdb.Value(regs + tcbinfo["reg_off"]["p"][i]).cast(
++    if not regs:
++        raise gdb.GdbError("Task has no saved register context")
++    value = gdb.Value(regs + saved["tcb_reg_off"]).cast(
+         gdb.lookup_type("uintptr_t").pointer()
+     )[0]
+ 

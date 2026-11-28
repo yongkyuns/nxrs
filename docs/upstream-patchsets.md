@@ -84,6 +84,34 @@ and retired investigation tools are not silently renumbered.
 | ESP32-S3 BLE entropy source | 0130 | Admit an active BLE controller through the existing guarded RF entropy path; CoreS3 board wiring is maintained outside the patch |
 | FT5x06 poll ownership | 0132 | Start and stop polling with open consumers and bound its interval; CoreS3 registration is maintained outside the patch |
 | GPIO edge timestamps | 0145 | Retain the generic GPIO timestamp interface; CoreS3 pin registration is maintained outside the patch |
+| Host task debugging | 0151 | Read current native mutex owners, map ARM/Xtensa saved contexts correctly, and restore live debugger registers and selected frame after task inspection, including command errors |
+
+Patch `0151` changes only the Python `pynuttx` host helpers. Use the helpers from
+the private patched NuttX build copy with its exact unstripped firmware ELF;
+sourcing the unmodified submodule does not apply this patch. `info nxthreads`
+and `deadlock` read the current native mutex-holder encoding. The helper's
+`thread apply` / `nxthread apply` commands preserve the live register bank and
+selected frame when a subcommand fails, use the running task's live context,
+and map saved Xtensa logical registers independently of remote-packet order.
+`ps` additionally needs native macro debug data (`-g3`); without it the command
+reports that prerequisite and points to `info nxthreads` instead of assuming
+configuration values.
+
+The focused host regression is
+`python3 -m unittest discover -s tests/host -p test_pynuttx_threads.py`.
+It applies the patch to a private copy, demonstrates
+the old owner/cleanup failures, and checks the corrected behavior with literal
+task/context inputs. Real GDB/QEMU qualification also checks optimized Rust
+mutex wait sites, the native ownership cycle and healthy release/join control,
+all-task inspection, and physical-register/selected-frame restoration after
+injected command failures. These checks concern stopped flat single-core
+targets; they do not qualify physical hardware, SMP inspection, arbitrary
+deadlocks, or every debugger/ABI combination.
+
+The original QEMU qualification used NuttX `2b5c0de5`; the current 13.1.1 pin has
+byte-identical helper preimages, but fresh runtime qualification is required.
+Retire this patch when the selected compatible upstream revision contains the
+repair and the focused host and QEMU controls pass without the backport.
 
 Patch 0090 bounds each RP2350 TRNG block's polling and health-rejection retries,
 including startup. Failure disables the source, clears partial output and keeps
