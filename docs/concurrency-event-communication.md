@@ -74,6 +74,12 @@ Services never poll devices on sampling timers. For an unwired IMU, a HAL timer
 feeds the same FIFO drain/normalization path as an IRQ. It is only a wake hint;
 actual FIFO contents admit samples. Missed ticks coalesce instead of generating
 backfilled measurements. A configured IRQ failure never silently selects a timer.
+If the IMU driver cannot take a coherent FIFO timestamp snapshot, it leaves the
+samples queued. The HAL allows up to three consecutive retries at the delivery
+cadence. The wait is cancellable and can retry an acknowledged watermark
+without a new edge. A successful drain resets the retry count. Persistent
+ambiguity surfaces as a timeout. Hardware overflow and I/O faults still end
+the session immediately. Reading freshness remains independent of retries.
 ISR callbacks only use qualified OS notification; parsing, FIFO/UART I/O and
 bounded sink admission execute in task context. Queue-full measurements follow
 an explicit loss policy with observable counts/sequence gaps; terminal faults
