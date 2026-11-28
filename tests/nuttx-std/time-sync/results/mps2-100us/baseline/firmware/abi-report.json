@@ -1,0 +1,1157 @@
+{
+  "checks": [
+    {
+      "name": "int.size",
+      "native": 4,
+      "rust": 4,
+      "rule": "exact",
+      "status": "compatible"
+    },
+    {
+      "name": "int.align",
+      "native": 4,
+      "rust": 4,
+      "rule": "exact",
+      "status": "compatible"
+    },
+    {
+      "name": "long.size",
+      "native": 4,
+      "rust": 4,
+      "rule": "exact",
+      "status": "compatible"
+    },
+    {
+      "name": "long.align",
+      "native": 4,
+      "rust": 4,
+      "rule": "exact",
+      "status": "compatible"
+    },
+    {
+      "name": "size_t.size",
+      "native": 4,
+      "rust": 4,
+      "rule": "exact",
+      "status": "compatible"
+    },
+    {
+      "name": "size_t.align",
+      "native": 4,
+      "rust": 4,
+      "rule": "exact",
+      "status": "compatible"
+    },
+    {
+      "name": "time_t.size",
+      "native": 8,
+      "rust": 8,
+      "rule": "exact",
+      "status": "compatible"
+    },
+    {
+      "name": "time_t.align",
+      "native": 8,
+      "rust": 8,
+      "rule": "exact",
+      "status": "compatible"
+    },
+    {
+      "name": "off_t.size",
+      "native": 8,
+      "rust": 8,
+      "rule": "exact",
+      "status": "compatible"
+    },
+    {
+      "name": "off_t.align",
+      "native": 8,
+      "rust": 8,
+      "rule": "exact",
+      "status": "compatible"
+    },
+    {
+      "name": "nfds_t.size",
+      "native": 4,
+      "rust": 4,
+      "rule": "exact",
+      "status": "compatible"
+    },
+    {
+      "name": "nfds_t.align",
+      "native": 4,
+      "rust": 4,
+      "rule": "exact",
+      "status": "compatible"
+    },
+    {
+      "name": "pthread_t.size",
+      "native": 4,
+      "rust": 4,
+      "rule": "exact",
+      "status": "compatible"
+    },
+    {
+      "name": "pthread_t.align",
+      "native": 4,
+      "rust": 4,
+      "rule": "exact",
+      "status": "compatible"
+    },
+    {
+      "name": "pthread_key_t.size",
+      "native": 4,
+      "rust": 4,
+      "rule": "exact",
+      "status": "compatible"
+    },
+    {
+      "name": "pthread_key_t.align",
+      "native": 4,
+      "rust": 4,
+      "rule": "exact",
+      "status": "compatible"
+    },
+    {
+      "name": "ino_t.size",
+      "native": 4,
+      "rust": 4,
+      "rule": "exact",
+      "status": "compatible"
+    },
+    {
+      "name": "ino_t.align",
+      "native": 4,
+      "rust": 4,
+      "rule": "exact",
+      "status": "compatible"
+    },
+    {
+      "name": "blksize_t.size",
+      "native": 4,
+      "rust": 4,
+      "rule": "exact",
+      "status": "compatible"
+    },
+    {
+      "name": "blksize_t.align",
+      "native": 4,
+      "rust": 4,
+      "rule": "exact",
+      "status": "compatible"
+    },
+    {
+      "name": "wchar_t.size",
+      "native": 4,
+      "rust": 4,
+      "rule": "exact",
+      "status": "compatible"
+    },
+    {
+      "name": "wchar_t.align",
+      "native": 4,
+      "rust": 4,
+      "rule": "exact",
+      "status": "compatible"
+    },
+    {
+      "name": "pthread_attr_t.size",
+      "native": 16,
+      "rust": 20,
+      "rule": "capacity",
+      "status": "compatible"
+    },
+    {
+      "name": "pthread_attr_t.align",
+      "native": 4,
+      "rust": 4,
+      "rule": "capacity",
+      "status": "compatible"
+    },
+    {
+      "name": "pthread_mutex_t.size",
+      "native": 40,
+      "rust": 48,
+      "rule": "capacity",
+      "status": "compatible"
+    },
+    {
+      "name": "pthread_mutex_t.align",
+      "native": 4,
+      "rust": 4,
+      "rule": "capacity",
+      "status": "compatible"
+    },
+    {
+      "name": "pthread_mutexattr_t.size",
+      "native": 1,
+      "rust": 1,
+      "rule": "capacity",
+      "status": "compatible"
+    },
+    {
+      "name": "pthread_mutexattr_t.align",
+      "native": 1,
+      "rust": 1,
+      "rule": "capacity",
+      "status": "compatible"
+    },
+    {
+      "name": "pthread_cond_t.size",
+      "native": 40,
+      "rust": 40,
+      "rule": "capacity",
+      "status": "compatible"
+    },
+    {
+      "name": "pthread_cond_t.align",
+      "native": 4,
+      "rust": 4,
+      "rule": "capacity",
+      "status": "compatible"
+    },
+    {
+      "name": "pthread_condattr_t.size",
+      "native": 8,
+      "rust": 20,
+      "rule": "capacity",
+      "status": "compatible"
+    },
+    {
+      "name": "pthread_condattr_t.align",
+      "native": 4,
+      "rust": 4,
+      "rule": "capacity",
+      "status": "compatible"
+    },
+    {
+      "name": "pthread_rwlock_t.size",
+      "native": 92,
+      "rust": 96,
+      "rule": "capacity",
+      "status": "compatible"
+    },
+    {
+      "name": "pthread_rwlock_t.align",
+      "native": 4,
+      "rust": 4,
+      "rule": "capacity",
+      "status": "compatible"
+    },
+    {
+      "name": "pthread_rwlockattr_t.size",
+      "native": 4,
+      "rust": 4,
+      "rule": "capacity",
+      "status": "compatible"
+    },
+    {
+      "name": "pthread_rwlockattr_t.align",
+      "native": 4,
+      "rust": 4,
+      "rule": "capacity",
+      "status": "compatible"
+    },
+    {
+      "name": "sem_t.size",
+      "native": 32,
+      "rust": 36,
+      "rule": "capacity",
+      "status": "compatible"
+    },
+    {
+      "name": "sem_t.align",
+      "native": 4,
+      "rust": 4,
+      "rule": "capacity",
+      "status": "compatible"
+    },
+    {
+      "name": "timespec.size",
+      "native": 16,
+      "rust": 16,
+      "rule": "exact",
+      "status": "compatible"
+    },
+    {
+      "name": "timespec.align",
+      "native": 8,
+      "rust": 8,
+      "rule": "exact",
+      "status": "compatible"
+    },
+    {
+      "name": "pollfd.size",
+      "native": 24,
+      "rust": 24,
+      "rule": "exact",
+      "status": "compatible"
+    },
+    {
+      "name": "pollfd.align",
+      "native": 4,
+      "rust": 4,
+      "rule": "exact",
+      "status": "compatible"
+    },
+    {
+      "name": "dirent.size",
+      "native": 40,
+      "rust": 72,
+      "rule": "capacity",
+      "status": "compatible"
+    },
+    {
+      "name": "dirent.align",
+      "native": 4,
+      "rust": 4,
+      "rule": "capacity",
+      "status": "compatible"
+    },
+    {
+      "name": "stat.size",
+      "native": 104,
+      "rust": 112,
+      "rule": "capacity",
+      "status": "compatible"
+    },
+    {
+      "name": "stat.align",
+      "native": 8,
+      "rust": 8,
+      "rule": "capacity",
+      "status": "compatible"
+    },
+    {
+      "name": "pollevent_t.size",
+      "native": 4,
+      "rust": 4,
+      "rule": "exact",
+      "status": "compatible"
+    },
+    {
+      "name": "pollevent_t.align",
+      "native": 4,
+      "rust": 4,
+      "rule": "exact",
+      "status": "compatible"
+    },
+    {
+      "name": "pollcb_t.size",
+      "native": 4,
+      "rust": 4,
+      "rule": "exact",
+      "status": "compatible"
+    },
+    {
+      "name": "pollcb_t.align",
+      "native": 4,
+      "rust": 4,
+      "rule": "exact",
+      "status": "compatible"
+    },
+    {
+      "name": "dirent.d_ino",
+      "native": 0,
+      "rust": 0,
+      "rule": "exact",
+      "status": "compatible"
+    },
+    {
+      "name": "dirent.d_ino.size",
+      "native": 4,
+      "rust": 4,
+      "rule": "exact",
+      "status": "compatible"
+    },
+    {
+      "name": "dirent.d_type",
+      "native": 4,
+      "rust": 4,
+      "rule": "exact",
+      "status": "compatible"
+    },
+    {
+      "name": "dirent.d_type.size",
+      "native": 1,
+      "rust": 1,
+      "rule": "exact",
+      "status": "compatible"
+    },
+    {
+      "name": "dirent.d_name",
+      "native": 5,
+      "rust": 5,
+      "rule": "exact",
+      "status": "compatible"
+    },
+    {
+      "name": "dirent.d_name.size",
+      "native": 33,
+      "rust": 65,
+      "rule": "capacity",
+      "status": "compatible"
+    },
+    {
+      "name": "stat.st_dev",
+      "native": 0,
+      "rust": 0,
+      "rule": "exact",
+      "status": "compatible"
+    },
+    {
+      "name": "stat.st_dev.size",
+      "native": 4,
+      "rust": 4,
+      "rule": "exact",
+      "status": "compatible"
+    },
+    {
+      "name": "stat.st_ino",
+      "native": 4,
+      "rust": 4,
+      "rule": "exact",
+      "status": "compatible"
+    },
+    {
+      "name": "stat.st_ino.size",
+      "native": 4,
+      "rust": 4,
+      "rule": "exact",
+      "status": "compatible"
+    },
+    {
+      "name": "stat.st_mode",
+      "native": 8,
+      "rust": 8,
+      "rule": "exact",
+      "status": "compatible"
+    },
+    {
+      "name": "stat.st_mode.size",
+      "native": 4,
+      "rust": 4,
+      "rule": "exact",
+      "status": "compatible"
+    },
+    {
+      "name": "stat.st_nlink",
+      "native": 12,
+      "rust": 12,
+      "rule": "exact",
+      "status": "compatible"
+    },
+    {
+      "name": "stat.st_nlink.size",
+      "native": 2,
+      "rust": 2,
+      "rule": "exact",
+      "status": "compatible"
+    },
+    {
+      "name": "stat.st_uid",
+      "native": 16,
+      "rust": 16,
+      "rule": "exact",
+      "status": "compatible"
+    },
+    {
+      "name": "stat.st_uid.size",
+      "native": 4,
+      "rust": 4,
+      "rule": "exact",
+      "status": "compatible"
+    },
+    {
+      "name": "stat.st_gid",
+      "native": 20,
+      "rust": 20,
+      "rule": "exact",
+      "status": "compatible"
+    },
+    {
+      "name": "stat.st_gid.size",
+      "native": 4,
+      "rust": 4,
+      "rule": "exact",
+      "status": "compatible"
+    },
+    {
+      "name": "stat.st_rdev",
+      "native": 24,
+      "rust": 24,
+      "rule": "exact",
+      "status": "compatible"
+    },
+    {
+      "name": "stat.st_rdev.size",
+      "native": 4,
+      "rust": 4,
+      "rule": "exact",
+      "status": "compatible"
+    },
+    {
+      "name": "stat.st_size",
+      "native": 32,
+      "rust": 32,
+      "rule": "exact",
+      "status": "compatible"
+    },
+    {
+      "name": "stat.st_size.size",
+      "native": 8,
+      "rust": 8,
+      "rule": "exact",
+      "status": "compatible"
+    },
+    {
+      "name": "stat.st_atim",
+      "native": 40,
+      "rust": 40,
+      "rule": "exact",
+      "status": "compatible"
+    },
+    {
+      "name": "stat.st_atim.size",
+      "native": 16,
+      "rust": 16,
+      "rule": "exact",
+      "status": "compatible"
+    },
+    {
+      "name": "stat.st_mtim",
+      "native": 56,
+      "rust": 56,
+      "rule": "exact",
+      "status": "compatible"
+    },
+    {
+      "name": "stat.st_mtim.size",
+      "native": 16,
+      "rust": 16,
+      "rule": "exact",
+      "status": "compatible"
+    },
+    {
+      "name": "stat.st_ctim",
+      "native": 72,
+      "rust": 72,
+      "rule": "exact",
+      "status": "compatible"
+    },
+    {
+      "name": "stat.st_ctim.size",
+      "native": 16,
+      "rust": 16,
+      "rule": "exact",
+      "status": "compatible"
+    },
+    {
+      "name": "stat.st_blksize",
+      "native": 88,
+      "rust": 88,
+      "rule": "exact",
+      "status": "compatible"
+    },
+    {
+      "name": "stat.st_blksize.size",
+      "native": 4,
+      "rust": 4,
+      "rule": "exact",
+      "status": "compatible"
+    },
+    {
+      "name": "stat.st_blocks",
+      "native": 96,
+      "rust": 96,
+      "rule": "exact",
+      "status": "compatible"
+    },
+    {
+      "name": "stat.st_blocks.size",
+      "native": 8,
+      "rust": 8,
+      "rule": "exact",
+      "status": "compatible"
+    },
+    {
+      "name": "timespec.tv_sec",
+      "native": 0,
+      "rust": 0,
+      "rule": "exact",
+      "status": "compatible"
+    },
+    {
+      "name": "timespec.tv_nsec",
+      "native": 8,
+      "rust": 8,
+      "rule": "exact",
+      "status": "compatible"
+    },
+    {
+      "name": "pollfd.fd",
+      "native": 0,
+      "rust": 0,
+      "rule": "exact",
+      "status": "compatible"
+    },
+    {
+      "name": "pollfd.events",
+      "native": 4,
+      "rust": 4,
+      "rule": "exact",
+      "status": "compatible"
+    },
+    {
+      "name": "pollfd.revents",
+      "native": 8,
+      "rust": 8,
+      "rule": "exact",
+      "status": "compatible"
+    },
+    {
+      "name": "pollfd.arg",
+      "native": 12,
+      "rust": 12,
+      "rule": "exact",
+      "status": "compatible"
+    },
+    {
+      "name": "pollfd.cb",
+      "native": 16,
+      "rust": 16,
+      "rule": "exact",
+      "status": "compatible"
+    },
+    {
+      "name": "pollfd.priv",
+      "native": 20,
+      "rust": 20,
+      "rule": "exact",
+      "status": "compatible"
+    },
+    {
+      "name": "pollfd.events.size",
+      "native": 4,
+      "rust": 4,
+      "rule": "exact",
+      "status": "compatible"
+    },
+    {
+      "name": "pollfd.revents.size",
+      "native": 4,
+      "rust": 4,
+      "rule": "exact",
+      "status": "compatible"
+    },
+    {
+      "name": "CLOCK_MONOTONIC",
+      "native": 1,
+      "rust": 1,
+      "rule": "exact",
+      "status": "compatible"
+    },
+    {
+      "name": "CLOCK_REALTIME",
+      "native": 0,
+      "rust": 0,
+      "rule": "exact",
+      "status": "compatible"
+    },
+    {
+      "name": "ETIMEDOUT",
+      "native": 110,
+      "rust": 110,
+      "rule": "exact",
+      "status": "compatible"
+    },
+    {
+      "name": "EINTR",
+      "native": 4,
+      "rust": 4,
+      "rule": "exact",
+      "status": "compatible"
+    },
+    {
+      "name": "EBADF",
+      "native": 9,
+      "rust": 9,
+      "rule": "exact",
+      "status": "compatible"
+    },
+    {
+      "name": "F_GETFD",
+      "native": 1,
+      "rust": 1,
+      "rule": "exact",
+      "status": "compatible"
+    },
+    {
+      "name": "PTHREAD_MUTEX_NORMAL",
+      "native": 0,
+      "rust": 0,
+      "rule": "exact",
+      "status": "compatible"
+    },
+    {
+      "name": "SIGPIPE",
+      "native": 13,
+      "rust": 13,
+      "rule": "exact",
+      "status": "compatible"
+    },
+    {
+      "name": "O_RDONLY",
+      "native": 0,
+      "rust": 0,
+      "rule": "exact",
+      "status": "compatible"
+    },
+    {
+      "name": "O_WRONLY",
+      "native": 1,
+      "rust": 1,
+      "rule": "exact",
+      "status": "compatible"
+    },
+    {
+      "name": "O_RDWR",
+      "native": 2,
+      "rust": 2,
+      "rule": "exact",
+      "status": "compatible"
+    },
+    {
+      "name": "O_CREAT",
+      "native": 64,
+      "rust": 64,
+      "rule": "exact",
+      "status": "compatible"
+    },
+    {
+      "name": "O_EXCL",
+      "native": 128,
+      "rust": 128,
+      "rule": "exact",
+      "status": "compatible"
+    },
+    {
+      "name": "O_NOCTTY",
+      "native": 256,
+      "rust": 256,
+      "rule": "exact",
+      "status": "compatible"
+    },
+    {
+      "name": "O_TRUNC",
+      "native": 512,
+      "rust": 512,
+      "rule": "exact",
+      "status": "compatible"
+    },
+    {
+      "name": "O_APPEND",
+      "native": 1024,
+      "rust": 1024,
+      "rule": "exact",
+      "status": "compatible"
+    },
+    {
+      "name": "O_NONBLOCK",
+      "native": 2048,
+      "rust": 2048,
+      "rule": "exact",
+      "status": "compatible"
+    },
+    {
+      "name": "O_DSYNC",
+      "native": 4096,
+      "rust": 4096,
+      "rule": "exact",
+      "status": "compatible"
+    },
+    {
+      "name": "O_DIRECT",
+      "native": 16384,
+      "rust": 16384,
+      "rule": "exact",
+      "status": "compatible"
+    },
+    {
+      "name": "O_LARGEFILE",
+      "native": 32768,
+      "rust": 32768,
+      "rule": "exact",
+      "status": "compatible"
+    },
+    {
+      "name": "O_DIRECTORY",
+      "native": 65536,
+      "rust": 65536,
+      "rule": "exact",
+      "status": "compatible"
+    },
+    {
+      "name": "O_NOFOLLOW",
+      "native": 131072,
+      "rust": 131072,
+      "rule": "exact",
+      "status": "compatible"
+    },
+    {
+      "name": "O_NOATIME",
+      "native": 262144,
+      "rust": 262144,
+      "rule": "exact",
+      "status": "compatible"
+    },
+    {
+      "name": "O_CLOEXEC",
+      "native": 524288,
+      "rust": 524288,
+      "rule": "exact",
+      "status": "compatible"
+    },
+    {
+      "name": "O_ACCMODE",
+      "native": 3,
+      "rust": 3,
+      "rule": "exact",
+      "status": "compatible"
+    },
+    {
+      "name": "SOL_SOCKET",
+      "native": 1,
+      "rust": 1,
+      "rule": "exact",
+      "status": "compatible"
+    },
+    {
+      "name": "SO_BROADCAST",
+      "native": 1,
+      "rust": 1,
+      "rule": "exact",
+      "status": "compatible"
+    },
+    {
+      "name": "POLLIN",
+      "native": 1,
+      "rust": 1,
+      "rule": "exact",
+      "status": "compatible"
+    },
+    {
+      "name": "POLLRDNORM",
+      "native": 1,
+      "rust": 1,
+      "rule": "exact",
+      "status": "compatible"
+    },
+    {
+      "name": "POLLRDBAND",
+      "native": 1,
+      "rust": 1,
+      "rule": "exact",
+      "status": "compatible"
+    },
+    {
+      "name": "POLLPRI",
+      "native": 2,
+      "rust": 2,
+      "rule": "exact",
+      "status": "compatible"
+    },
+    {
+      "name": "POLLOUT",
+      "native": 4,
+      "rust": 4,
+      "rule": "exact",
+      "status": "compatible"
+    },
+    {
+      "name": "POLLWRNORM",
+      "native": 4,
+      "rust": 4,
+      "rule": "exact",
+      "status": "compatible"
+    },
+    {
+      "name": "POLLWRBAND",
+      "native": 4,
+      "rust": 4,
+      "rule": "exact",
+      "status": "compatible"
+    },
+    {
+      "name": "POLLERR",
+      "native": 8,
+      "rust": 8,
+      "rule": "exact",
+      "status": "compatible"
+    },
+    {
+      "name": "POLLHUP",
+      "native": 16,
+      "rust": 16,
+      "rule": "exact",
+      "status": "compatible"
+    },
+    {
+      "name": "POLLRDHUP",
+      "native": 16,
+      "rust": 16,
+      "rule": "exact",
+      "status": "compatible"
+    },
+    {
+      "name": "POLLNVAL",
+      "native": 32,
+      "rust": 32,
+      "rule": "exact",
+      "status": "compatible"
+    },
+    {
+      "name": "SEM_PRIO_NONE",
+      "native": 0,
+      "rust": 0,
+      "rule": "exact",
+      "status": "compatible"
+    },
+    {
+      "name": "SIG_IGN",
+      "native": 0,
+      "rust": 1,
+      "rule": "exact",
+      "status": "known-unsupported-SIG_IGN"
+    },
+    {
+      "name": "SIG_DFL",
+      "native": 0,
+      "rust": 0,
+      "rule": "exact",
+      "status": "compatible"
+    },
+    {
+      "name": "SIG_ERR",
+      "native": 4294967295,
+      "rust": 4294967295,
+      "rule": "exact",
+      "status": "compatible"
+    }
+  ],
+  "errors": [],
+  "probe_abi_compatible": true,
+  "poll_abi_compatible": true,
+  "general_signal_api_qualified": false,
+  "unavailable_bindings": [
+    "PTHREAD_MUTEX_RECURSIVE"
+  ],
+  "scope": "listed layouts/constants; trailing filesystem storage may be larger only with exact public offsets/widths; opaque capacity is not initializer equivalence; raw SIG_IGN remains wrong",
+  "target": "thumbv8m.main-nuttx-eabi",
+  "libc_package": "path+file:///workspace/scratch/706f9e3bc115/nxrs/target/time-sync-tools/prepared-sdk/toolchain/lib/rustlib/src/rust/library/libc-nuttx#libc@0.2.191",
+  "libc_source": "/workspace/scratch/706f9e3bc115/nxrs/target/time-sync-tools/prepared-sdk/toolchain/lib/rustlib/src/rust/library/libc-nuttx/src/lib.rs",
+  "libc_rlib": "/dev/shm/nxrs-time-sync-next/baseline/firmware/cargo/thumbv8m.main-nuttx-eabi/release/build/libc/d5ef2de9b014fe31/out/liblibc-d5ef2de9b014fe31.rlib",
+  "libc_rlib_sha256": "a152eb8e05bd2e611ac838a557befe580ee5120f150ec1b28e6583e22a5dfeae",
+  "target_artifacts": "/dev/shm/nxrs-time-sync-next/baseline/firmware/cargo/thumbv8m.main-nuttx-eabi",
+  "rust_metadata": [
+    {
+      "crate": "core",
+      "package_id": "path+file:///workspace/scratch/706f9e3bc115/nxrs/target/time-sync-tools/prepared-sdk/toolchain/lib/rustlib/src/rust/library/core#0.0.0",
+      "path": "/dev/shm/nxrs-time-sync-next/baseline/firmware/cargo/thumbv8m.main-nuttx-eabi/release/build/core/9aa9f0d5b4f08f3b/out/libcore-9aa9f0d5b4f08f3b.rmeta",
+      "sha256": "e97b8f0505e4e7dc466e2b5355397c1aec90a39c5b595e333cdb1ca788a0b6ed"
+    },
+    {
+      "crate": "compiler_builtins",
+      "package_id": "path+file:///workspace/scratch/706f9e3bc115/nxrs/target/time-sync-tools/prepared-sdk/toolchain/lib/rustlib/src/rust/library/compiler-builtins/compiler-builtins#compiler_builtins@0.1.160",
+      "path": "/dev/shm/nxrs-time-sync-next/baseline/firmware/cargo/thumbv8m.main-nuttx-eabi/release/build/compiler_builtins/23160b7cd70140c2/out/libcompiler_builtins-23160b7cd70140c2.rmeta",
+      "sha256": "b827aa0849f05fd6dc6fc7af391b3828b5683d331b7326e683778e203c3d108e"
+    },
+    {
+      "crate": "rustc_std_workspace_core",
+      "package_id": "path+file:///workspace/scratch/706f9e3bc115/nxrs/target/time-sync-tools/prepared-sdk/toolchain/lib/rustlib/src/rust/library/rustc-std-workspace-core#1.99.0",
+      "path": "/dev/shm/nxrs-time-sync-next/baseline/firmware/cargo/thumbv8m.main-nuttx-eabi/release/build/rustc-std-workspace-core/55b1ba78d0f2005f/out/librustc_std_workspace_core-55b1ba78d0f2005f.rmeta",
+      "sha256": "9e5503f1923ab54bb8b35916b8926abec4a660abfbaa7daafedf26b3de95c7eb"
+    },
+    {
+      "crate": "alloc",
+      "package_id": "path+file:///workspace/scratch/706f9e3bc115/nxrs/target/time-sync-tools/prepared-sdk/toolchain/lib/rustlib/src/rust/library/alloc#0.0.0",
+      "path": "/dev/shm/nxrs-time-sync-next/baseline/firmware/cargo/thumbv8m.main-nuttx-eabi/release/build/alloc/def7cefddcb51c7d/out/liballoc-def7cefddcb51c7d.rmeta",
+      "sha256": "6510c9db11efa945595eab66da81aec9002e543bbde4721cd02a0cf0888761b7"
+    },
+    {
+      "crate": "libc",
+      "package_id": "path+file:///workspace/scratch/706f9e3bc115/nxrs/target/time-sync-tools/prepared-sdk/toolchain/lib/rustlib/src/rust/library/libc-nuttx#libc@0.2.191",
+      "path": "/dev/shm/nxrs-time-sync-next/baseline/firmware/cargo/thumbv8m.main-nuttx-eabi/release/build/libc/d5ef2de9b014fe31/out/liblibc-d5ef2de9b014fe31.rmeta",
+      "sha256": "38d21608d8cb90284c8ebf5679007451639329c7360f23215881c976d670e0c3"
+    },
+    {
+      "crate": "rustc_std_workspace_alloc",
+      "package_id": "path+file:///workspace/scratch/706f9e3bc115/nxrs/target/time-sync-tools/prepared-sdk/toolchain/lib/rustlib/src/rust/library/rustc-std-workspace-alloc#1.99.0",
+      "path": "/dev/shm/nxrs-time-sync-next/baseline/firmware/cargo/thumbv8m.main-nuttx-eabi/release/build/rustc-std-workspace-alloc/5a63e74bbd97b2b9/out/librustc_std_workspace_alloc-5a63e74bbd97b2b9.rmeta",
+      "sha256": "c82a8bf031dcb3a2e0bf77ba00b422d1b2c33b790af2ac69c2379b6377a6ee64"
+    },
+    {
+      "crate": "unwind",
+      "package_id": "path+file:///workspace/scratch/706f9e3bc115/nxrs/target/time-sync-tools/prepared-sdk/toolchain/lib/rustlib/src/rust/library/unwind#0.0.0",
+      "path": "/dev/shm/nxrs-time-sync-next/baseline/firmware/cargo/thumbv8m.main-nuttx-eabi/release/build/unwind/7ebc2e5b54726b92/out/libunwind-7ebc2e5b54726b92.rmeta",
+      "sha256": "0774de5ef2e7b5647f467fecd22fd51168f4f1485d016fda979e74c897db3b20"
+    },
+    {
+      "crate": "hashbrown",
+      "package_id": "registry+https://github.com/rust-lang/crates.io-index#hashbrown@0.17.1",
+      "path": "/dev/shm/nxrs-time-sync-next/baseline/firmware/cargo/thumbv8m.main-nuttx-eabi/release/build/hashbrown/c58f84ec9e7b2e4d/out/libhashbrown-c58f84ec9e7b2e4d.rmeta",
+      "sha256": "615d8bc43b995129d3ee748c7c990457bf8e03e99f2eac38c1720f396ef757e5"
+    },
+    {
+      "crate": "std_detect",
+      "package_id": "path+file:///workspace/scratch/706f9e3bc115/nxrs/target/time-sync-tools/prepared-sdk/toolchain/lib/rustlib/src/rust/library/std_detect#0.1.5",
+      "path": "/dev/shm/nxrs-time-sync-next/baseline/firmware/cargo/thumbv8m.main-nuttx-eabi/release/build/std_detect/16eb9fb62c82abe5/out/libstd_detect-16eb9fb62c82abe5.rmeta",
+      "sha256": "d6cf9f8273a14492de67b4dd97f4460b626ef663cf8a24e0159bdf6844784379"
+    },
+    {
+      "crate": "panic_abort",
+      "package_id": "path+file:///workspace/scratch/706f9e3bc115/nxrs/target/time-sync-tools/prepared-sdk/toolchain/lib/rustlib/src/rust/library/panic_abort#0.0.0",
+      "path": "/dev/shm/nxrs-time-sync-next/baseline/firmware/cargo/thumbv8m.main-nuttx-eabi/release/build/panic_abort/94be526a32d68f62/out/libpanic_abort-94be526a32d68f62.rmeta",
+      "sha256": "9796c75c12ec5ba356d8247cb41484e0643021115ec1b5e292ba47a23436826d"
+    },
+    {
+      "crate": "cfg_if",
+      "package_id": "registry+https://github.com/rust-lang/crates.io-index#cfg-if@1.0.4",
+      "path": "/dev/shm/nxrs-time-sync-next/baseline/firmware/cargo/thumbv8m.main-nuttx-eabi/release/build/cfg-if/4b6285a2cf3c0113/out/libcfg_if-4b6285a2cf3c0113.rmeta",
+      "sha256": "4451e2ff1e31d6da0f171151ece9e65d4841b10e97d2d430fe7db4301a539718"
+    },
+    {
+      "crate": "rustc_demangle",
+      "package_id": "registry+https://github.com/rust-lang/crates.io-index#rustc-demangle@0.1.28",
+      "path": "/dev/shm/nxrs-time-sync-next/baseline/firmware/cargo/thumbv8m.main-nuttx-eabi/release/build/rustc-demangle/3ac1ed9212745523/out/librustc_demangle-3ac1ed9212745523.rmeta",
+      "sha256": "45120769224b7c9a6645678d9ca8ca1ac22ff39aeb9fde7dea492ac69e051771"
+    },
+    {
+      "crate": "std",
+      "package_id": "path+file:///workspace/scratch/706f9e3bc115/nxrs/target/time-sync-tools/prepared-sdk/toolchain/lib/rustlib/src/rust/library/std#0.0.0",
+      "path": "/dev/shm/nxrs-time-sync-next/baseline/firmware/cargo/thumbv8m.main-nuttx-eabi/release/build/std/810e51de6d4fcd11/out/libstd-810e51de6d4fcd11.rmeta",
+      "sha256": "6ffe2035f2820c2c2b05454497940389680a5f4730a8a2d62062bd5218adcbbd"
+    },
+    {
+      "crate": "rustc_literal_escaper",
+      "package_id": "registry+https://github.com/rust-lang/crates.io-index#rustc-literal-escaper@0.0.8",
+      "path": "/dev/shm/nxrs-time-sync-next/baseline/firmware/cargo/thumbv8m.main-nuttx-eabi/release/build/rustc-literal-escaper/557f82c77fc368f3/out/librustc_literal_escaper-557f82c77fc368f3.rmeta",
+      "sha256": "13ebf1ecee2dd67ee3f47baeae9a53fb42b91040696bb34689273064fded0984"
+    },
+    {
+      "crate": "proc_macro",
+      "package_id": "path+file:///workspace/scratch/706f9e3bc115/nxrs/target/time-sync-tools/prepared-sdk/toolchain/lib/rustlib/src/rust/library/proc_macro#0.0.0",
+      "path": "/dev/shm/nxrs-time-sync-next/baseline/firmware/cargo/thumbv8m.main-nuttx-eabi/release/build/proc_macro/baa19918ee3d6c7d/out/libproc_macro-baa19918ee3d6c7d.rmeta",
+      "sha256": "541accaa6db1456327dfb292a16aa2f4a5b23b7a77cafbc3776706dc7c70c4ce"
+    },
+    {
+      "crate": "panic_unwind",
+      "package_id": "path+file:///workspace/scratch/706f9e3bc115/nxrs/target/time-sync-tools/prepared-sdk/toolchain/lib/rustlib/src/rust/library/panic_unwind#0.0.0",
+      "path": "/dev/shm/nxrs-time-sync-next/baseline/firmware/cargo/thumbv8m.main-nuttx-eabi/release/build/panic_unwind/ed138f023f51f358/out/libpanic_unwind-ed138f023f51f358.rmeta",
+      "sha256": "8a3d6371cb3134737e72b8a81e193d8f7d5b1435cd72af2b31b30f1eebb72787"
+    }
+  ],
+  "config_sha256": "1173320db2f0f06557548473c871f7ecb7e13e6d7e112f17b2f8cfb6b6002a14",
+  "commands": [
+    [
+      "arm-none-eabi-gcc",
+      "-std=c11",
+      "-mcpu=cortex-m33",
+      "-mthumb",
+      "-mfloat-abi=soft",
+      "-c",
+      "-I/dev/shm/nxrs-time-sync-next/baseline/firmware/nuttx/include",
+      "/dev/shm/nxrs-time-sync-next/baseline/firmware/abi-native.c",
+      "-o",
+      "/dev/shm/nxrs-time-sync-next/baseline/firmware/abi-native.o"
+    ],
+    [
+      "/workspace/scratch/706f9e3bc115/nxrs/target/time-sync-tools/prepared-sdk/toolchain/bin/rustc",
+      "--edition=2021",
+      "-Zunstable-options",
+      "--target",
+      "thumbv8m.main-nuttx-eabi",
+      "--crate-type=lib",
+      "--emit=obj",
+      "-Cpanic=abort",
+      "--extern",
+      "core=/dev/shm/nxrs-time-sync-next/baseline/firmware/cargo/thumbv8m.main-nuttx-eabi/release/build/core/9aa9f0d5b4f08f3b/out/libcore-9aa9f0d5b4f08f3b.rmeta",
+      "--extern",
+      "compiler_builtins=/dev/shm/nxrs-time-sync-next/baseline/firmware/cargo/thumbv8m.main-nuttx-eabi/release/build/compiler_builtins/23160b7cd70140c2/out/libcompiler_builtins-23160b7cd70140c2.rmeta",
+      "--extern",
+      "libc=/dev/shm/nxrs-time-sync-next/baseline/firmware/cargo/thumbv8m.main-nuttx-eabi/release/build/libc/d5ef2de9b014fe31/out/liblibc-d5ef2de9b014fe31.rmeta",
+      "-Ldependency=/dev/shm/nxrs-time-sync-next/baseline/firmware/cargo/thumbv8m.main-nuttx-eabi/release/build/alloc/def7cefddcb51c7d/out",
+      "-Ldependency=/dev/shm/nxrs-time-sync-next/baseline/firmware/cargo/thumbv8m.main-nuttx-eabi/release/build/cfg-if/4b6285a2cf3c0113/out",
+      "-Ldependency=/dev/shm/nxrs-time-sync-next/baseline/firmware/cargo/thumbv8m.main-nuttx-eabi/release/build/compiler_builtins/23160b7cd70140c2/out",
+      "-Ldependency=/dev/shm/nxrs-time-sync-next/baseline/firmware/cargo/thumbv8m.main-nuttx-eabi/release/build/core/9aa9f0d5b4f08f3b/out",
+      "-Ldependency=/dev/shm/nxrs-time-sync-next/baseline/firmware/cargo/thumbv8m.main-nuttx-eabi/release/build/hashbrown/c58f84ec9e7b2e4d/out",
+      "-Ldependency=/dev/shm/nxrs-time-sync-next/baseline/firmware/cargo/thumbv8m.main-nuttx-eabi/release/build/libc/d5ef2de9b014fe31/out",
+      "-Ldependency=/dev/shm/nxrs-time-sync-next/baseline/firmware/cargo/thumbv8m.main-nuttx-eabi/release/build/panic_abort/94be526a32d68f62/out",
+      "-Ldependency=/dev/shm/nxrs-time-sync-next/baseline/firmware/cargo/thumbv8m.main-nuttx-eabi/release/build/panic_unwind/ed138f023f51f358/out",
+      "-Ldependency=/dev/shm/nxrs-time-sync-next/baseline/firmware/cargo/thumbv8m.main-nuttx-eabi/release/build/proc_macro/baa19918ee3d6c7d/out",
+      "-Ldependency=/dev/shm/nxrs-time-sync-next/baseline/firmware/cargo/thumbv8m.main-nuttx-eabi/release/build/rustc-demangle/3ac1ed9212745523/out",
+      "-Ldependency=/dev/shm/nxrs-time-sync-next/baseline/firmware/cargo/thumbv8m.main-nuttx-eabi/release/build/rustc-literal-escaper/557f82c77fc368f3/out",
+      "-Ldependency=/dev/shm/nxrs-time-sync-next/baseline/firmware/cargo/thumbv8m.main-nuttx-eabi/release/build/rustc-std-workspace-alloc/5a63e74bbd97b2b9/out",
+      "-Ldependency=/dev/shm/nxrs-time-sync-next/baseline/firmware/cargo/thumbv8m.main-nuttx-eabi/release/build/rustc-std-workspace-core/55b1ba78d0f2005f/out",
+      "-Ldependency=/dev/shm/nxrs-time-sync-next/baseline/firmware/cargo/thumbv8m.main-nuttx-eabi/release/build/std/810e51de6d4fcd11/out",
+      "-Ldependency=/dev/shm/nxrs-time-sync-next/baseline/firmware/cargo/thumbv8m.main-nuttx-eabi/release/build/std_detect/16eb9fb62c82abe5/out",
+      "-Ldependency=/dev/shm/nxrs-time-sync-next/baseline/firmware/cargo/thumbv8m.main-nuttx-eabi/release/build/unwind/7ebc2e5b54726b92/out",
+      "/dev/shm/nxrs-time-sync-next/baseline/firmware/abi-rust.rs",
+      "-o",
+      "/dev/shm/nxrs-time-sync-next/baseline/firmware/abi-rust.o"
+    ],
+    [
+      "arm-none-eabi-objcopy",
+      "--dump-section",
+      ".nxrs_abi=/dev/shm/nxrs-time-sync-next/baseline/firmware/abi-native.bin",
+      "/dev/shm/nxrs-time-sync-next/baseline/firmware/abi-native.o"
+    ],
+    [
+      "arm-none-eabi-objcopy",
+      "--dump-section",
+      ".nxrs_abi=/dev/shm/nxrs-time-sync-next/baseline/firmware/abi-rust.bin",
+      "/dev/shm/nxrs-time-sync-next/baseline/firmware/abi-rust.o"
+    ]
+  ],
+  "config_header_sha256": "565207f97a29412869fc37941077509804957ec4119a16ed44d4b079a7aca265",
+  "headers_sha256": "a37b23b2bdc7d210d74155a08f7932631561205baa0037fe73fc637536ad6d46",
+  "rust_imports": [
+    "__aeabi_unwind_cpp_pr0",
+    "__errno",
+    "abort",
+    "calloc",
+    "clock_gettime",
+    "dup",
+    "fcntl",
+    "free",
+    "malloc",
+    "nxsem_post",
+    "nxsem_wait",
+    "open",
+    "posix_memalign",
+    "pthread_getspecific",
+    "pthread_key_create",
+    "pthread_key_delete",
+    "pthread_mutex_destroy",
+    "pthread_mutex_init",
+    "pthread_mutex_lock",
+    "pthread_mutex_trylock",
+    "pthread_mutex_unlock",
+    "pthread_mutexattr_destroy",
+    "pthread_mutexattr_init",
+    "pthread_mutexattr_settype",
+    "pthread_setspecific",
+    "realloc",
+    "sched_yield",
+    "sem_destroy",
+    "sem_init",
+    "sem_setprotocol",
+    "signal",
+    "strerror_r",
+    "strlen",
+    "time_reference_ns",
+    "timing_clock_initialize",
+    "timing_clock_stop",
+    "write"
+  ]
+}

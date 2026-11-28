@@ -1,0 +1,22 @@
+/dev/shm/nxrs-time-sync-next/controller/firmware/nuttx/nuttx  :
+section              size        addr
+.text              282754   268435456
+.ARM.extab          20520   268718212
+.ARM.exidx          15056   268738732
+.data                1312   939524096
+.bss                 9516   939525408
+.comment               91           0
+.ARM.attributes        52           0
+.debug_abbrev      280782           0
+.debug_info       2696856           0
+.debug_line       1107484           0
+.debug_aranges      51832           0
+.debug_rnglists     19625           0
+.debug_str        1319897           0
+.debug_frame       172228           0
+.debug_line_str       296           0
+.debug_loclists     10088           0
+.debug_ranges      351488           0
+Total             6339877
+
+

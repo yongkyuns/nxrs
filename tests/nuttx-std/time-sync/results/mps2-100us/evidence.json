@@ -1,0 +1,168 @@
+{
+  "schema": 1,
+  "kind": "supplemental-original-receipt-validation",
+  "created_utc": "2026-11-28T15:37:47.380987+00:00",
+  "verifier_sha256": "0f39ed2852ecde6214246a777fc09c8673b4effc6f805271388f0eb9c84c471c",
+  "retained_files": {
+    "baseline/analysis.json": "db7b7c543f26397c7ba8f93f1106f2bdfed606aa40d277d76d954f0dddcedbe1",
+    "baseline/build.json": "b714b929266ff5f99d7781d9fc30058034cc75bb7a190702f6d54b91c09f429d",
+    "baseline/build.log": "a0c21fd499044ccb0a114cbcf53f031224aff76645f33482aa8858305d5b2ce8",
+    "baseline/captures/console-0-baseline.log": "30244ec3fd2eed15c270b6bd6013fda45e13d9fbee1969432f2c5c9f061df954",
+    "baseline/captures/console-1-baseline.log": "d6a73c77abe85875bdaabde2e5cda465d70747924f46bed4768702ce40b75c94",
+    "baseline/captures/console-2-baseline.log": "732a9b18a1e6d6fa518f313c31c4feb3ba8ab30831475cd370eb83b196a54dae",
+    "baseline/captures/results.json": "fa5dc02a9161076c47bacb269a7e5b04962f34ab9e1584056cc0b98feee7e966",
+    "baseline/firmware/.editor-cargo.json": "7b7d1f66c1c87975bad3e0894ca8019bc637118b5d46e543e9382dbb0d8a7504",
+    "baseline/firmware/.nxrs-build.json": "3d9a455b2f550ea9a8e7cc70e4f610f385e419e59f6c1cf856231dc31d1c9d15",
+    "baseline/firmware/abi-native.c": "58ad035edbb9533e3f63d818ccb252e80c52e2891b88e584fd3a4fdc87a6b7e4",
+    "baseline/firmware/abi-report.json": "d14686e3ddc3a54b393553ae775ff0d02eecdb86dd2a06012d741166dfa88a19",
+    "baseline/firmware/abi-rust.rs": "d57c956a68e57061f63e6e7611a20cbb3e88ea6dd84a54454dafed986e547aa9",
+    "baseline/firmware/binaries.sha256": "332d1a137edfa129e1c80a08cb24480c72da3ff94be44b0b2cb24d894de76c00",
+    "baseline/firmware/cargo-messages.jsonl": "cb3e22c4795c3142866d9b074e8dd6be336fbfd5e6270361920d5a8009561c30",
+    "baseline/firmware/image-layout.txt": "a555490dda53a0bd08142518f565aec8ee51a518be69f663ac2a4ab13542efbb",
+    "baseline/firmware/image-size.txt": "84b185a818ed709807a56f97354c78ab0a41e715e6afd890e021fc2e3dd1aa72",
+    "baseline/firmware/kconfig-requests.json": "2366aaa176cc35cd0b4b0e87a9d3089e567fdd95ce03f697784b2178ca5d10c7",
+    "baseline/firmware/libc-nuttx-directory.patch": "bb590cf85bc04f62d90c29d9c29912201303ba9daa9adf1c694af2b54d9c40ee",
+    "baseline/firmware/libc-nuttx-pi-holder-capacity.patch": "51651c4eadac033333878ae9a6923b062a43639042f5f324ff2313d9d75d68d6",
+    "baseline/firmware/libc-nuttx-poll.patch": "1835e87c689d9903ed5e1f975a93658f689691b27c1e88a56ba76732f317a189",
+    "baseline/firmware/libc-nuttx-wchar.patch": "5d032dd038d19d68b8e6002d144d99caa47f0626dc941a2f1abef11587423126",
+    "baseline/firmware/libc-sockaddr-storage.patch": "acfba7d2c3b04d098617df81de0a1874675ac1cf2f463a419ac1eb7f641a213b",
+    "baseline/firmware/link-reuse.json": "1778cb732f1a499115ff669ff77290a84d81d21ed5da979876dd22a9c362d85e",
+    "baseline/firmware/native-context.json": "c72e1166afc5a99b32ab1b658baffc64cbdc560b712230f79e8a3a6de47ee62b",
+    "baseline/firmware/native-receipt-projection.json": "1086b0db06cd5e7ae780c3614bcb5524d43228cfe84343c930c15e281ec7197f",
+    "baseline/firmware/nuttx/.config": "1173320db2f0f06557548473c871f7ecb7e13e6d7e112f17b2f8cfb6b6002a14",
+    "baseline/firmware/nuttx-apps-patches.json": "b7ba86fa4249d39e2ac3862261b16f24cd490dfd265275bc34e99e046f46531c",
+    "baseline/firmware/nuttx-patches.json": "c69fde1194a880c93229e25d39d9f588b4fe9e3ab0007aa16b530e1a9eb7666a",
+    "baseline/firmware/provenance.txt": "57f924fd96f3e5cb53c43630b8c90327a2c18df6e6f48897c99ac7d267b72c62",
+    "baseline/firmware/provider-selection.json": "0a224be69f2d3b50a043fda78c8b5a3fe6c1b298b5b2e3650f47c08df7cb8454",
+    "baseline/firmware/resolved-profile.json": "0a4ef001a4156570c6700145eb9880c53821d6063054baa66a1d57b608bb07aa",
+    "baseline/firmware/resolved.config": "1173320db2f0f06557548473c871f7ecb7e13e6d7e112f17b2f8cfb6b6002a14",
+    "baseline/firmware/rust-elf-header.txt": "8932fc2ed9fcd606721d78c75542c1e72f3ecd288e9b21220a4ed6ba1fc5b8af",
+    "baseline/firmware/rust-link.json": "4672348bc9c933b5ecd2802353a62f436238a8fd10251f6e92c9d25a006ec2a2",
+    "baseline/firmware/rust-symbols.txt": "c31be5fc625048e94064d9eca6ccf720eb7e1aa44e60936ee5b265c93155814b",
+    "baseline/firmware/std-bounded-channel.patch": "a05906ef679a3c3f0185b879d91687d7346988e90b4ee08ad5adc861723fb28f",
+    "baseline/firmware/std-fd-sanitization.patch": "22c704e7e3ea32675ba5b0e60d8eb6e7a6cd2fcd85c827b6a4af8af19f8f740a",
+    "baseline/firmware/std-libc-lock.patch": "f6442ad4948e2864f0da0343a1a14398534bcb8a0d499e2ce3976ab4665ff9fb",
+    "baseline/firmware/std-libc-override.patch": "c1613ea405143a520ddd04fcca73662270c0a8eb99f976a549ac57cab166eea6",
+    "baseline/firmware/std-main-thread-once.patch": "01b9d323e29ae263eabec58625a64917c0170b19f288c430a7b294928409fe4b",
+    "baseline/firmware/std-parker-selection.patch": "d1562cb2b8e81994adf71f28e143db9e95d6ec48743cf9d31687d8eb10fbed2b",
+    "baseline/firmware/std-parker.patch": "48eebe76d3bcfcf296a80d3c7031a6f24607ccd2a01407a0bbdd0e80c51320dc",
+    "baseline/firmware/std-patch.json": "1ef7e777cfbf4243404cfa0e8321fc5512ccd1662f858a95308d029f3297b094",
+    "baseline/firmware/std-rendezvous-boundaries.patch": "4ebe82b65bfb3f57558198784a913f4b482ebd36305195573a97ed79cc2b932b",
+    "baseline/firmware/std-sigign.patch": "ce2a863f01cfefcd8c1013981e63c62d8c5604ea99f48914506471f4e0a950f1",
+    "baseline/firmware/std-source.json": "3681f237bc549e079e0454adef98276262c50f872db9e2df82f8339454a56497",
+    "baseline/firmware/std-unbounded-boundaries.patch": "423f1fad806c3fc983d95e973e67fb0d47a5842debe7998d82e3ac52124c43ef",
+    "baseline/firmware/symbols.txt": "64e7e837401269ae17351098ea6b583ee5d73d6d76ace47ccf2ed4283c901806",
+    "controller/analysis.json": "6a22d9a8ae8b624e74027ef9ebf55ab007820baed40879f541634aa8a0104858",
+    "controller/build.json": "8cf52d18aea3694134764e916e727d802f4e6ee98fef194185c1d4d943e06a11",
+    "controller/build.log": "f2b9004aebf4b9af5dbabe3d705761935df5b3b70c21c0d88facf25d6d376ebb",
+    "controller/captures/console-0-controller.log": "140dd1c2a1326cf475ec3c3844e4a1773b94a247d2298e50389e977d82de7f6d",
+    "controller/captures/console-1-controller.log": "a7f3e557e192ce517509fd0ea11e3cf2cb1aa5bae2adc9e3fb700ae62e872c64",
+    "controller/captures/console-2-controller.log": "da7dedf25a0b37b6d8fbb2856699abd3bfbec4d9e0fbad68361919f727b04024",
+    "controller/captures/results.json": "202d55d5373e1ae1b6fcfd7fd46e97f4922d54f930bcd3efe2595191b0b3f808",
+    "controller/firmware/.editor-cargo.json": "7df06223c2adef53e0481941600ed2c035f8a181d80a7807676c5c36ce175742",
+    "controller/firmware/.nxrs-build.json": "3d9a455b2f550ea9a8e7cc70e4f610f385e419e59f6c1cf856231dc31d1c9d15",
+    "controller/firmware/abi-native.c": "58ad035edbb9533e3f63d818ccb252e80c52e2891b88e584fd3a4fdc87a6b7e4",
+    "controller/firmware/abi-report.json": "7c192beec4c00cb4fc9fb621d0c50eb896c6ac927a13fe101cb867ecfc3d36ef",
+    "controller/firmware/abi-rust.rs": "d57c956a68e57061f63e6e7611a20cbb3e88ea6dd84a54454dafed986e547aa9",
+    "controller/firmware/binaries.sha256": "59e3cee9edebc1118af5160f77b3c303852cf1d63988094db465789911f7c73f",
+    "controller/firmware/cargo-messages.jsonl": "be88eaaabb768e79a65c2fae2d009a1159b2d3c49ef343fb0307474661ae18d2",
+    "controller/firmware/image-layout.txt": "6ca15e52dccb0944c75392f30a159024fe259d228bf8e3bac16586deeced9190",
+    "controller/firmware/image-size.txt": "d97f2c5a4a43eab5f3681daa4ce0a2fe4e81ac614dfd32246a9757e926848bcc",
+    "controller/firmware/kconfig-requests.json": "2366aaa176cc35cd0b4b0e87a9d3089e567fdd95ce03f697784b2178ca5d10c7",
+    "controller/firmware/libc-nuttx-directory.patch": "bb590cf85bc04f62d90c29d9c29912201303ba9daa9adf1c694af2b54d9c40ee",
+    "controller/firmware/libc-nuttx-pi-holder-capacity.patch": "51651c4eadac033333878ae9a6923b062a43639042f5f324ff2313d9d75d68d6",
+    "controller/firmware/libc-nuttx-poll.patch": "1835e87c689d9903ed5e1f975a93658f689691b27c1e88a56ba76732f317a189",
+    "controller/firmware/libc-nuttx-wchar.patch": "5d032dd038d19d68b8e6002d144d99caa47f0626dc941a2f1abef11587423126",
+    "controller/firmware/libc-sockaddr-storage.patch": "acfba7d2c3b04d098617df81de0a1874675ac1cf2f463a419ac1eb7f641a213b",
+    "controller/firmware/link-reuse.json": "0aec9403165ee5cdc903da99787a9248744fe32fb79c3bf0a7f678a1df67e77b",
+    "controller/firmware/native-context.json": "07069f3615e8c7adb182d939c6169c8ef01c4fe7965313a4e171494c73f1ea8f",
+    "controller/firmware/native-receipt-projection.json": "f8bc1eb13f3a3ba908645a73fdd9b2a69a8b89d915ce608fb7fa4b4011c0ab2e",
+    "controller/firmware/nuttx/.config": "1173320db2f0f06557548473c871f7ecb7e13e6d7e112f17b2f8cfb6b6002a14",
+    "controller/firmware/nuttx-apps-patches.json": "b7ba86fa4249d39e2ac3862261b16f24cd490dfd265275bc34e99e046f46531c",
+    "controller/firmware/nuttx-patches.json": "c69fde1194a880c93229e25d39d9f588b4fe9e3ab0007aa16b530e1a9eb7666a",
+    "controller/firmware/provenance.txt": "57f924fd96f3e5cb53c43630b8c90327a2c18df6e6f48897c99ac7d267b72c62",
+    "controller/firmware/provider-selection.json": "608d282fa063922bd400e094a8f243800953c9f3a3f78bd3b03897b05563af67",
+    "controller/firmware/resolved-profile.json": "0a4ef001a4156570c6700145eb9880c53821d6063054baa66a1d57b608bb07aa",
+    "controller/firmware/resolved.config": "1173320db2f0f06557548473c871f7ecb7e13e6d7e112f17b2f8cfb6b6002a14",
+    "controller/firmware/rust-elf-header.txt": "6228ef44aad24eff2330f04bee0efc9bb7c320a4e36cb82a821b5f023f3c5888",
+    "controller/firmware/rust-link.json": "d803941b16a21dc0b80ac089842abe1c5724dceaf5682259a628be20239a850c",
+    "controller/firmware/rust-symbols.txt": "e2e665a5fd23d65e61c71e49617fd2b23d937238df58cdde71515e776177c8a5",
+    "controller/firmware/std-bounded-channel.patch": "a05906ef679a3c3f0185b879d91687d7346988e90b4ee08ad5adc861723fb28f",
+    "controller/firmware/std-fd-sanitization.patch": "22c704e7e3ea32675ba5b0e60d8eb6e7a6cd2fcd85c827b6a4af8af19f8f740a",
+    "controller/firmware/std-libc-lock.patch": "f6442ad4948e2864f0da0343a1a14398534bcb8a0d499e2ce3976ab4665ff9fb",
+    "controller/firmware/std-libc-override.patch": "c1613ea405143a520ddd04fcca73662270c0a8eb99f976a549ac57cab166eea6",
+    "controller/firmware/std-main-thread-once.patch": "01b9d323e29ae263eabec58625a64917c0170b19f288c430a7b294928409fe4b",
+    "controller/firmware/std-parker-selection.patch": "d1562cb2b8e81994adf71f28e143db9e95d6ec48743cf9d31687d8eb10fbed2b",
+    "controller/firmware/std-parker.patch": "48eebe76d3bcfcf296a80d3c7031a6f24607ccd2a01407a0bbdd0e80c51320dc",
+    "controller/firmware/std-patch.json": "1ef7e777cfbf4243404cfa0e8321fc5512ccd1662f858a95308d029f3297b094",
+    "controller/firmware/std-rendezvous-boundaries.patch": "4ebe82b65bfb3f57558198784a913f4b482ebd36305195573a97ed79cc2b932b",
+    "controller/firmware/std-sigign.patch": "ce2a863f01cfefcd8c1013981e63c62d8c5604ea99f48914506471f4e0a950f1",
+    "controller/firmware/std-source.json": "3681f237bc549e079e0454adef98276262c50f872db9e2df82f8339454a56497",
+    "controller/firmware/std-unbounded-boundaries.patch": "423f1fad806c3fc983d95e973e67fb0d47a5842debe7998d82e3ac52124c43ef",
+    "controller/firmware/symbols.txt": "01f6b96162ebc958adf068c15f9962a9f873e8c574a92b2b3a82f6eb3c9f1652",
+    "footprint.json": "eee97260e4b3e64c337fff890953010a7b4e4df5cfcb26b4e0c041e314519a08",
+    "native-inputs.json": "35449b5d96b66d693ed6c0b1ebebe3f9320fc62f2002a48a624ff61e76e58d11"
+  },
+  "omitted_binaries": {
+    "baseline/firmware/nuttx/nuttx": {
+      "sha256": "d2e84f6613056aa7b3a0dadb147312efceb7652659a3378837724dec82b69b4e",
+      "bytes": 6537584,
+      "local_path": "/dev/shm/nxrs-time-sync-next/baseline/firmware/nuttx/nuttx"
+    },
+    "baseline/firmware/nuttx/nuttx.bin": {
+      "sha256": "0c9be279498bbbcae1fe70053dea4282e6465c5a80a00e53b686cb0038b1c75b",
+      "bytes": 299632,
+      "local_path": "/dev/shm/nxrs-time-sync-next/baseline/firmware/nuttx/nuttx.bin"
+    },
+    "baseline/firmware/nxrs-nuttx-link": {
+      "sha256": "7486e6b9c73f6a22eeaf906b9270334f9fe8058240d5dcaf1bc7512677bc3dc1",
+      "bytes": 17172720,
+      "local_path": "/dev/shm/nxrs-time-sync-next/baseline/firmware/nxrs-nuttx-link"
+    },
+    "controller/firmware/nuttx/nuttx": {
+      "sha256": "247d3b3287ab0cc1779890af51c9f2a8a25684d47e8fd2b20599814d9a2882a1",
+      "bytes": 6611976,
+      "local_path": "/dev/shm/nxrs-time-sync-next/controller/firmware/nuttx/nuttx"
+    },
+    "controller/firmware/nuttx/nuttx.bin": {
+      "sha256": "6107a2a18a848efaed3d37b3367d76c547454ad8df05b0725afdf4850bb823cf",
+      "bytes": 319644,
+      "local_path": "/dev/shm/nxrs-time-sync-next/controller/firmware/nuttx/nuttx.bin"
+    },
+    "controller/firmware/nxrs-nuttx-link": {
+      "sha256": "7486e6b9c73f6a22eeaf906b9270334f9fe8058240d5dcaf1bc7512677bc3dc1",
+      "bytes": 17172720,
+      "local_path": "/dev/shm/nxrs-time-sync-next/controller/firmware/nxrs-nuttx-link"
+    }
+  },
+  "original_receipts": {
+    "baseline": {
+      "sha256": "413510a0d4d23ce77ccb1a2a5c425f991419d0255218a87b13790669cd43eadb",
+      "bytes": 5115947,
+      "local_path": "/dev/shm/nxrs-time-sync-next/baseline/firmware/.nxrs-build-cache.json"
+    },
+    "controller": {
+      "sha256": "043ea244d560f6c1c22c93c5c0d974e92dd7698e05b6f7b8819dc334b1f0b37e",
+      "bytes": 5116139,
+      "local_path": "/dev/shm/nxrs-time-sync-next/controller/firmware/.nxrs-build-cache.json"
+    }
+  },
+  "original_receipt_check": {
+    "same_inputs_except_features": true,
+    "frontend_sha256": "7486e6b9c73f6a22eeaf906b9270334f9fe8058240d5dcaf1bc7512677bc3dc1",
+    "build_input_count": 273,
+    "sdk_input_count": 4416,
+    "expected_features": [
+      [],
+      [
+        "controller"
+      ]
+    ]
+  },
+  "notes": [
+    "Original build/capture records and selected native receipts are copied unchanged.",
+    "This later check verifies contemporaneous build-tool/SDK/native identities.",
+    "Full native receipts and binaries remain local; git retains their hashes and lengths.",
+    "All original native input fields are retained once with exact feature differences and canonical per-build hashes."
+  ]
+}

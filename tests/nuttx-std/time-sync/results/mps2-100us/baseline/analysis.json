@@ -1,0 +1,129 @@
+{
+  "schema": 1,
+  "variant": "baseline",
+  "runs": [
+    {
+      "qualified": true,
+      "variant": "baseline",
+      "observations": [
+        {
+          "kind": "observation",
+          "name": "baseline",
+          "request_us": 0,
+          "reference_ns": 250018400,
+          "monotonic_ns": 250018000,
+          "wall_ns": 250000000,
+          "uncertainty_ns": 235000,
+          "reads": 10073,
+          "max_read_span_ns": 41100,
+          "max_pair_bound_ns": 258615
+        }
+      ],
+      "controller_states": [],
+      "complete": {
+        "kind": "complete",
+        "schema": 1,
+        "variant": "baseline",
+        "reference_elapsed_ns": 251194600
+      },
+      "limits": [
+        "Explicit instruction-driven QEMU model; no physical RTC/sleep qualification.",
+        "Dense sample extrema and API failure checks are enforced by target Rust assertions.",
+        "Source observations are synthetic policy inputs; GNSS/NTP source quality is not measured."
+      ]
+    },
+    {
+      "qualified": true,
+      "variant": "baseline",
+      "observations": [
+        {
+          "kind": "observation",
+          "name": "baseline",
+          "request_us": 0,
+          "reference_ns": 250005175,
+          "monotonic_ns": 250005000,
+          "wall_ns": 250000000,
+          "uncertainty_ns": 234950,
+          "reads": 10071,
+          "max_read_span_ns": 41100,
+          "max_pair_bound_ns": 258615
+        }
+      ],
+      "controller_states": [],
+      "complete": {
+        "kind": "complete",
+        "schema": 1,
+        "variant": "baseline",
+        "reference_elapsed_ns": 251181350
+      },
+      "limits": [
+        "Explicit instruction-driven QEMU model; no physical RTC/sleep qualification.",
+        "Dense sample extrema and API failure checks are enforced by target Rust assertions.",
+        "Source observations are synthetic policy inputs; GNSS/NTP source quality is not measured."
+      ]
+    },
+    {
+      "qualified": true,
+      "variant": "baseline",
+      "observations": [
+        {
+          "kind": "observation",
+          "name": "baseline",
+          "request_us": 0,
+          "reference_ns": 250018125,
+          "monotonic_ns": 250019000,
+          "wall_ns": 250000000,
+          "uncertainty_ns": 234950,
+          "reads": 10073,
+          "max_read_span_ns": 41100,
+          "max_pair_bound_ns": 258615
+        }
+      ],
+      "controller_states": [],
+      "complete": {
+        "kind": "complete",
+        "schema": 1,
+        "variant": "baseline",
+        "reference_elapsed_ns": 251194300
+      },
+      "limits": [
+        "Explicit instruction-driven QEMU model; no physical RTC/sleep qualification.",
+        "Dense sample extrema and API failure checks are enforced by target Rust assertions.",
+        "Source observations are synthetic policy inputs; GNSS/NTP source quality is not measured."
+      ]
+    }
+  ],
+  "build_sha256": "b714b929266ff5f99d7781d9fc30058034cc75bb7a190702f6d54b91c09f429d",
+  "artifacts": {
+    "firmware/nuttx/.config": "1173320db2f0f06557548473c871f7ecb7e13e6d7e112f17b2f8cfb6b6002a14",
+    "firmware/nuttx/nuttx": "d2e84f6613056aa7b3a0dadb147312efceb7652659a3378837724dec82b69b4e",
+    "firmware/nuttx/nuttx.bin": "0c9be279498bbbcae1fe70053dea4282e6465c5a80a00e53b686cb0038b1c75b",
+    "firmware/resolved.config": "1173320db2f0f06557548473c871f7ecb7e13e6d7e112f17b2f8cfb6b6002a14",
+    "firmware/abi-report.json": "d14686e3ddc3a54b393553ae775ff0d02eecdb86dd2a06012d741166dfa88a19",
+    "firmware/provenance.txt": "57f924fd96f3e5cb53c43630b8c90327a2c18df6e6f48897c99ac7d267b72c62",
+    "firmware/nuttx-patches.json": "c69fde1194a880c93229e25d39d9f588b4fe9e3ab0007aa16b530e1a9eb7666a",
+    "firmware/nuttx-apps-patches.json": "b7ba86fa4249d39e2ac3862261b16f24cd490dfd265275bc34e99e046f46531c",
+    "firmware/std-patch.json": "1ef7e777cfbf4243404cfa0e8321fc5512ccd1662f858a95308d029f3297b094",
+    "firmware/std-source.json": "3681f237bc549e079e0454adef98276262c50f872db9e2df82f8339454a56497",
+    "firmware/provider-selection.json": "0a224be69f2d3b50a043fda78c8b5a3fe6c1b298b5b2e3650f47c08df7cb8454",
+    "firmware/resolved-profile.json": "0a4ef001a4156570c6700145eb9880c53821d6063054baa66a1d57b608bb07aa",
+    "firmware/native-context.json": "c72e1166afc5a99b32ab1b658baffc64cbdc560b712230f79e8a3a6de47ee62b",
+    "firmware/rust-link.json": "4672348bc9c933b5ecd2802353a62f436238a8fd10251f6e92c9d25a006ec2a2",
+    "firmware/image-size.txt": "84b185a818ed709807a56f97354c78ab0a41e715e6afd890e021fc2e3dd1aa72",
+    "firmware/image-layout.txt": "a555490dda53a0bd08142518f565aec8ee51a518be69f663ac2a4ab13542efbb",
+    "firmware/symbols.txt": "64e7e837401269ae17351098ea6b583ee5d73d6d76ace47ccf2ed4283c901806"
+  },
+  "oracle_sha256": "c1409673b66da7d1f68e2bc5c3a5046362434268507e5dff59b11e02594f76de",
+  "workflow_sha256": "b817cd68bf929b3ea806b4951d99aa46fb7324937e0faa7c4ac8d8e9d9362770",
+  "harness_sha256": "1bcb982dcba2b747661c20d278a8d2f96e6bb240fa16f8899d4f30e16655c8eb",
+  "qemu_version": "QEMU emulator version 10.0.13 (Debian 1:10.0.13+ds-0+deb13u1)\nCopyright (c) 2003-2025 Fabrice Bellard and the QEMU Project developers\n",
+  "qemu_sha256": "0dfd6c04c472cf2e6478092caf090a963a6e9ae354ffe39cfc309966430c093e",
+  "qemu_clock_options": [
+    "-icount",
+    "shift=3,sleep=off"
+  ],
+  "virtual_ns_per_instruction": 8,
+  "cycle_accurate": false,
+  "physical_rtc_retention_qualified": false,
+  "qualified": true
+}

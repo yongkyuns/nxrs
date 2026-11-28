@@ -389,11 +389,26 @@ the HAL retains descriptor ownership, termios rollback and per-receiver faults.
 
 ## RTC, watchdog and raw NOR
 
-- Use `SystemTime::now()` for OS wall time and `Instant` for elapsed time.
-  `rtc::open()` accesses the hardware clock directly when an application needs
+- Use `SystemTime::now()` for OS wall time, `Instant` for elapsed time and std
+  waits for deadlines. [`time::open()`](../hal/time/README.md) acquires exclusive
+  system-clock control for stepping and supported signed microsecond adjustment.
+  The Rust provider owns validation and admission; its private C helper uses
+  target `timespec`/`timeval` layouts for `clock_settime` and `adjtime`. These
+  controls are absent from std. A profile selects `time = "nuttx"` in `[hal]`;
+  no device path is required. Software slew requires the repaired
+  `CLOCK_TIMEKEEPING` plus `CLOCK_ADJTIME` configuration. Other admitted
+  configurations support stepping. `RTC_HIRES` is rejected because setting
+  that RTC can alter monotonic time.
+- `rtc::open()` accesses the hardware clock directly when an application needs
   to check whether it was set or set it from a trusted source. It exchanges
   `SystemTime` values at whole-second resolution. NuttX updates its system clock
-  after a successful set.
+  after a successful set, so those writes must be coordinated with the time
+  control owner. Conversely, successful system-clock setting does not confirm
+  that NuttX's hardware RTC retention write has completed. Source policy belongs
+  in [`service/time-sync`](../service/time-sync/README.md); board sleep retention
+  and restoration remain OS/BSP responsibilities. See the
+  [time synchronization fixture](../tests/nuttx-std/time-sync/README.md) for the
+  current evidence and exclusions.
 - Use `watchdog::arm(Duration)` with a runtime watchdog binding. The owner
   explicitly feeds the timer after verifying health and calls `disarm` to stop
   it. Closing the descriptor leaves it running. Inherited bindings use

@@ -1,0 +1,36 @@
+qemu-system-arm: warning: nic lan9118.0 has no peer
+
+NuttShell (NSH) NuttX-13.1.1
+nsh> [Kuname
+NuttX
+nsh> [Kuname -a
+NuttX 13.1.1 4268617f28ad-nxrs Nov 28 2026 23:30:25 arm mps2-an521
+nsh> [Ktime_sync
+TIME_SYNC {"kind":"begin","schema":1,"variant":"controller","tick_us":100}
+TIME_SYNC {"kind":"observation","name":"baseline","request_us":0,"reference_ns":250007600,"monotonic_ns":250008000,"wall_ns":250000000,"uncertainty_ns":235500,"reads":10001,"max_read_span_ns":41600,"max_pair_bound_ns":259365}
+TIME_SYNC {"kind":"hal_admission","slew_rate_ppm":500,"exclusive":true,"pre_epoch":true}
+TIME_SYNC {"kind":"observation","name":"positive","request_us":2000,"reference_ns":1250015525,"monotonic_ns":1250015000,"wall_ns":1250625000,"uncertainty_ns":237950,"reads":47101,"max_read_span_ns":43950,"max_pair_bound_ns":262966}
+TIME_SYNC {"kind":"hal_pending","name":"positive","request_us":2000,"elapsed_ns":1250646100,"pending_us":1375,"uncertainty_us":2,"cancelled_us":1375}
+TIME_SYNC {"kind":"observation","name":"negative","request_us":-2000,"reference_ns":1250003025,"monotonic_ns":1250003000,"wall_ns":1249375000,"uncertainty_ns":281250,"reads":46509,"max_read_span_ns":44300,"max_pair_bound_ns":263466}
+TIME_SYNC {"kind":"hal_pending","name":"negative","request_us":-2000,"elapsed_ns":1250659500,"pending_us":-1375,"uncertainty_us":2,"cancelled_us":-1375}
+TIME_SYNC {"kind":"hal_range","request_us":2500123,"pending_us":2500123,"rejected_unchanged":true}
+TIME_SYNC {"kind":"hal_range","request_us":-2500123,"pending_us":-2500123,"rejected_unchanged":true}
+TIME_SYNC {"kind":"hal_lifecycle","reopened":true,"drop_preserved":true,"set_cleared":true,"reference_elapsed_ns":2754493950}
+TIME_SYNC {"kind":"controller","name":"seed","state":"Checking","initialized":true,"source":0,"age_ns":65000,"bound_ns":-1,"pending_known":true,"pending_us":0}
+TIME_SYNC {"kind":"controller","name":"seed_checked","state":"Synchronized","initialized":true,"source":0,"age_ns":487000,"bound_ns":339005,"pending_known":true,"pending_us":0}
+TIME_SYNC {"kind":"controller","name":"controller_positive","state":"Adjusting","initialized":true,"source":0,"age_ns":255000,"bound_ns":2272953,"pending_known":true,"pending_us":1976}
+TIME_SYNC {"kind":"observation","name":"controller_positive","request_us":1976,"reference_ns":4500001575,"monotonic_ns":4500002000,"wall_ns":4501975700,"uncertainty_ns":236650,"reads":171303,"max_read_span_ns":43950,"max_pair_bound_ns":262966}
+TIME_SYNC {"kind":"controller","name":"positive_settled","state":"Synchronized","initialized":true,"source":0,"age_ns":4501206000,"bound_ns":392013,"pending_known":true,"pending_us":0}
+TIME_SYNC {"kind":"controller","name":"before_replacement","state":"Adjusting","initialized":true,"source":0,"age_ns":1000311000,"bound_ns":1839904,"pending_known":true,"pending_us":1476}
+TIME_SYNC {"kind":"controller","name":"controller_negative","state":"Adjusting","initialized":true,"source":0,"age_ns":264000,"bound_ns":2354053,"pending_known":true,"pending_us":-2018}
+TIME_SYNC {"kind":"observation","name":"controller_negative","request_us":-2018,"reference_ns":4500015375,"monotonic_ns":4500016000,"wall_ns":4497982300,"uncertainty_ns":236850,"reads":168846,"max_read_span_ns":44350,"max_pair_bound_ns":263516}
+TIME_SYNC {"kind":"controller","name":"negative_settled","state":"Synchronized","initialized":true,"source":0,"age_ns":4501376000,"bound_ns":368115,"pending_known":true,"pending_us":0}
+TIME_SYNC {"kind":"rejected","name":"reordered","unchanged":true}
+TIME_SYNC {"kind":"controller","name":"holdover","state":"Holdover","initialized":true,"source":0,"age_ns":6502184000,"bound_ns":383923,"pending_known":true,"pending_us":0}
+TIME_SYNC {"kind":"controller","name":"refreshed","state":"Synchronized","initialized":true,"source":0,"age_ns":175000,"bound_ns":342002,"pending_known":true,"pending_us":0}
+TIME_SYNC {"kind":"controller","name":"resumed","state":"Synchronized","initialized":true,"source":0,"age_ns":176000,"bound_ns":361002,"pending_known":true,"pending_us":0}
+TIME_SYNC {"kind":"lifecycle","old_epoch_rejected":true,"controller_bytes":328,"reference_elapsed_ns":14763382250}
+TIME_SYNC {"kind":"complete","schema":1,"variant":"controller","reference_elapsed_ns":14763693550}
+nsh> [Kecho NXRS_STATUS_$?
+NXRS_STATUS_0
+nsh> [K

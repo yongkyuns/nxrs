@@ -12,7 +12,9 @@ may use their native OS or SDK. Native code does not all belong in `driver/`.
 
 | Responsibility | Owner |
 | --- | --- |
-| Ordinary files, sockets, threads, synchronization and time | Rust `std`, used directly |
+| Ordinary files, sockets, threads, synchronization, time reads and waits | Rust `std`, used directly |
+| System wall-clock mutation | `hal/time`, with one exclusive control owner |
+| Direct retained hardware-clock access | `hal/rtc` |
 | Reusable chip protocols and hardware-resource adapters | `driver/<device-or-resource>` |
 | Managed capability behavior and private OS/SDK adapters | Owning `hal/<capability>` |
 | Task lifetimes, cancellation and native readiness | `shared/acquisition`, an internal dependency of the acquiring HALs |
@@ -205,6 +207,34 @@ Console byte-stream ownership belongs to the console HAL; calling-thread
 scheduling belongs to the execution HAL. Standard Rust still owns files,
 sockets, thread creation, waiting and joins. Device-specific qualification stays
 under `tests/`.
+
+## System time and retained clocks
+
+[`hal/time`](../hal/time/README.md) exposes wall-clock mutation through
+`time::Control`; ordinary reads and waits continue to use Rust std directly.
+Its provider owns exclusive acquisition, signed correction validation and
+native-error translation. The private NuttX helper constructs target
+`timespec`/`timeval` values and calls the clock controls absent from std.
+The system clock needs no physical-device catalogue or descriptor wrapper.
+
+The NuttX provider admits software slew only with the repaired
+`CLOCK_TIMEKEEPING` and `CLOCK_ADJTIME` path. Other admitted configurations
+support stepping. `RTC_HIRES` is unsupported because its monotonic time can be
+changed by writing the RTC. Provider capabilities describe these configured
+semantics; board accuracy and retention require separate evidence.
+
+`hal/rtc` continues to own direct hardware-clock access. Its NuttX setter also
+changes system time, so RTC writes must be coordinated with the same clock
+owner. The control lease excludes other users of this HAL in one Rust image;
+it cannot exclude native writers or another process. Dropping the handle leaves
+an ongoing correction in place.
+
+[`service/time-sync`](../service/time-sync/README.md) receives the control
+handle and owns synchronization policy. Its caller supplies correlated source
+observations and progress; the service adds no worker. Product scheduling and
+OS/BSP sleep restoration remain outside the HAL. The
+[time synchronization fixture](../tests/nuttx-std/time-sync/README.md) records
+the applicable evidence without extending the earlier frozen clock studies.
 
 ## One platform selection
 
@@ -633,7 +663,7 @@ completion must preserve FIFO ordering; terminal state remains observable if
 delivery is temporarily full. Discovery is bounded/best-effort, not a claim
 that every radio report is delivered.
 
-Ordinary files, sockets, threads and time use qualified Rust std facilities.
+Ordinary files, sockets, threads, time reads and waits use qualified Rust std facilities.
 UDP uses one shared std implementation across the native and NuttX platforms;
 only the existing constructors and empty-packet contracts differ. Device-control
 adapters retain target-header bindings rather than guessed numeric constants.

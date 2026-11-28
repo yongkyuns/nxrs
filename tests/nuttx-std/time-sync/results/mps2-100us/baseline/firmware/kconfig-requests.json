@@ -1,0 +1,53 @@
+{
+  "effective_config_sha256": "1173320db2f0f06557548473c871f7ecb7e13e6d7e112f17b2f8cfb6b6002a14",
+  "mutex_policy": {
+    "default_pthread_mutex_protocol": "inherit",
+    "holder_tracking": "embedded-single-holder",
+    "kconfig": {
+      "PRIORITY_INHERITANCE": "y",
+      "PTHREAD_MUTEX_DEFAULT_PRIO_INHERIT": "y",
+      "PTHREAD_MUTEX_DEFAULT_PRIO_NONE": "n",
+      "SEM_PREALLOCHOLDERS": "0"
+    },
+    "mode": "inherit",
+    "priority_inheritance": true,
+    "reason": null,
+    "source": "default",
+    "version": 1
+  },
+  "requests": {
+    "CLOCK_ADJTIME": {
+      "effective": "y",
+      "history": [
+        {
+          "command_line": true,
+          "fragment_order": 0,
+          "source": "command line",
+          "value": "y"
+        }
+      ]
+    },
+    "CLOCK_TIMEKEEPING": {
+      "effective": "y",
+      "history": [
+        {
+          "command_line": true,
+          "fragment_order": 0,
+          "source": "command line",
+          "value": "y"
+        }
+      ]
+    },
+    "USEC_PER_TICK": {
+      "effective": "100",
+      "history": [
+        {
+          "command_line": true,
+          "fragment_order": 0,
+          "source": "command line",
+          "value": "100"
+        }
+      ]
+    }
+  }
+}

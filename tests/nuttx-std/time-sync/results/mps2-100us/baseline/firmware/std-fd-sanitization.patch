@@ -1,0 +1,12 @@
+--- a/lib/rustlib/src/rust/library/std/src/sys/pal/unix/mod.rs
++++ b/lib/rustlib/src/rust/library/std/src/sys/pal/unix/mod.rs
+@@ -83,6 +83,9 @@
+             target_os = "horizon",
+             target_os = "vita",
+             target_os = "rtems",
++            // NuttX needs its extended poll descriptor; use the existing
++            // fcntl fallback to preserve standard-fd sanitization.
++            target_os = "nuttx",
+             // The poll on Darwin doesn't set POLLNVAL for closed fds when `events == 0`.
+             target_vendor = "apple",
+         )))]

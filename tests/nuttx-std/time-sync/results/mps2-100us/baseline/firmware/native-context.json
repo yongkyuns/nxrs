@@ -1,0 +1,50 @@
+{
+  "ar": [
+    "/workspace/scratch/47a087f14644/tools-followup/debian-prefix/usr/bin/arm-none-eabi-ar",
+    "rcs"
+  ],
+  "cc": [
+    "/workspace/scratch/47a087f14644/tools-followup/debian-prefix/usr/bin/arm-none-eabi-gcc"
+  ],
+  "cflags": [
+    "-Wstrict-prototypes",
+    "-Wno-attributes",
+    "-Wno-unknown-pragmas",
+    "-Wno-psabi",
+    "-fno-omit-frame-pointer",
+    "-fno-optimize-sibling-calls",
+    "-funwind-tables",
+    "-fasynchronous-unwind-tables",
+    "--param=min-pagesize=0",
+    "-fno-common",
+    "-Wall",
+    "-Wshadow",
+    "-Wundef",
+    "-ffunction-sections",
+    "-fdata-sections",
+    "-g",
+    "-mlittle-endian",
+    "-march=armv8-m.main",
+    "-mtune=cortex-m33",
+    "-mfloat-abi=soft",
+    "-mthumb",
+    "-Wa,-mthumb",
+    "-Wa,-mimplicit-it=always",
+    "-isystem",
+    "/dev/shm/nxrs-time-sync-next/baseline/firmware/nuttx/include",
+    "-D__NuttX__",
+    "-I",
+    "/dev/shm/nxrs-time-sync-next/baseline/firmware/apps/include",
+    "-I",
+    "/dev/shm/nxrs-time-sync-next/baseline/firmware/nuttx",
+    "-I",
+    "/dev/shm/nxrs-time-sync-next/baseline/firmware/nuttx"
+  ],
+  "config_sha256": "565207f97a29412869fc37941077509804957ec4119a16ed44d4b079a7aca265",
+  "directory": "/dev/shm/nxrs-time-sync-next/baseline/firmware/apps/examples/nxrs_std_app",
+  "effective_config_sha256": "1173320db2f0f06557548473c871f7ecb7e13e6d7e112f17b2f8cfb6b6002a14",
+  "headers_sha256": "a37b23b2bdc7d210d74155a08f7932631561205baa0037fe73fc637536ad6d46",
+  "include": "/dev/shm/nxrs-time-sync-next/baseline/firmware/nuttx/include",
+  "schema": 1,
+  "target": "thumbv8m.main-nuttx-eabi"
+}

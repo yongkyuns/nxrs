@@ -1,0 +1,29 @@
+[workspace]
+resolver = "2"
+
+[package]
+name = "nxrs-time-sync-contract"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[features]
+default = []
+controller = ["dep:time", "dep:time-sync"]
+
+[dependencies]
+time = { package = "nxrs-time", path = "../../../hal/time", optional = true }
+time-sync = { package = "nxrs-time-sync-service", path = "../../../service/time-sync", optional = true }
+
+[package.metadata.nxrs]
+qualification-only = true
+
+[package.metadata.nxrs.firmware]
+command = "time_sync"
+priority = 100
+stack-size = 32768
+
+[profile.release]
+opt-level = 2
+lto = false
+panic = "abort"

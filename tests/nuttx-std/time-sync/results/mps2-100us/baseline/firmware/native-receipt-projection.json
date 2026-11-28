@@ -1,0 +1,12 @@
+{
+  "schema": 1,
+  "kind": "original-native-receipt-input-projection",
+  "original_receipt_sha256": "413510a0d4d23ce77ccb1a2a5c425f991419d0255218a87b13790669cd43eadb",
+  "canonical_inputs_sha256": "5a438e2239bf8f9ffed252613956e76dc51d34f289bb53b4f54ae48ad46b2f8a",
+  "features": [],
+  "selected_file_hashes": {
+    "nuttx/nuttx:bytes": "d2e84f6613056aa7b3a0dadb147312efceb7652659a3378837724dec82b69b4e",
+    "nuttx/nuttx.bin:bytes": "0c9be279498bbbcae1fe70053dea4282e6465c5a80a00e53b686cb0038b1c75b",
+    "nuttx/.config:bytes": "1173320db2f0f06557548473c871f7ecb7e13e6d7e112f17b2f8cfb6b6002a14"
+  }
+}

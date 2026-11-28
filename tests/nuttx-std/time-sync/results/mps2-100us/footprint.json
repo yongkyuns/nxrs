@@ -1,0 +1,67 @@
+{
+  "schema": 1,
+  "profile": "mps2-an521-time-sync",
+  "builds": [
+    "/dev/shm/nxrs-time-sync-next/baseline",
+    "/dev/shm/nxrs-time-sync-next/controller"
+  ],
+  "build_sha256": [
+    "b714b929266ff5f99d7781d9fc30058034cc75bb7a190702f6d54b91c09f429d",
+    "8cf52d18aea3694134764e916e727d802f4e6ee98fef194185c1d4d943e06a11"
+  ],
+  "baseline": {
+    "linked_flash_bytes": 299630,
+    "unpadded_image_bytes": 299632,
+    "static_ram_bytes": 10828,
+    "sections": {
+      ".text": 263030,
+      ".ARM.extab": 20364,
+      ".ARM.exidx": 14920,
+      ".data": 1316,
+      ".bss": 9512,
+      ".comment": 91,
+      ".ARM.attributes": 52,
+      ".debug_abbrev": 279085,
+      ".debug_info": 2683094,
+      ".debug_line": 1089752,
+      ".debug_aranges": 51552,
+      ".debug_rnglists": 19520,
+      ".debug_str": 1291382,
+      ".debug_frame": 171312,
+      ".debug_line_str": 294,
+      ".debug_loclists": 10088,
+      ".debug_ranges": 346328
+    }
+  },
+  "controller": {
+    "linked_flash_bytes": 319642,
+    "unpadded_image_bytes": 319644,
+    "static_ram_bytes": 10828,
+    "sections": {
+      ".text": 282754,
+      ".ARM.extab": 20520,
+      ".ARM.exidx": 15056,
+      ".data": 1312,
+      ".bss": 9516,
+      ".comment": 91,
+      ".ARM.attributes": 52,
+      ".debug_abbrev": 280782,
+      ".debug_info": 2696856,
+      ".debug_line": 1107484,
+      ".debug_aranges": 51832,
+      ".debug_rnglists": 19625,
+      ".debug_str": 1319897,
+      ".debug_frame": 172228,
+      ".debug_line_str": 296,
+      ".debug_loclists": 10088,
+      ".debug_ranges": 351488
+    }
+  },
+  "delta": {
+    "linked_flash_bytes": 20012,
+    "unpadded_image_bytes": 20012,
+    "static_ram_bytes": 0
+  },
+  "scope": "Complete Rust qualification image delta, including enabled contract assertions; not an isolated crate cost.",
+  "runtime_heap_stack_measured": false
+}

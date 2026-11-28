@@ -1,0 +1,132 @@
+{
+  "version": 1,
+  "workspace": "/workspace/scratch/706f9e3bc115/nxrs",
+  "profile": "mps2-an521-time-sync",
+  "target": "thumbv8m.main-nuttx-eabi",
+  "os": "nuttx",
+  "cli_overlays": [],
+  "product_manifest": "/workspace/scratch/706f9e3bc115/nxrs/tests/nuttx-std/time-sync/Cargo.toml",
+  "data": {
+    "board": "mps2-an521:nsh",
+    "crossdev": "arm-none-eabi-",
+    "hal": {
+      "gnss": "mock",
+      "imu": "mock",
+      "time": "nuttx"
+    },
+    "image": "nuttx",
+    "kconfig": {
+      "disable": [
+        "ARCH_FPU",
+        "SMP",
+        "NET",
+        "DISABLE_PTHREAD",
+        "DEBUG_SCHED",
+        "DEBUG_SCHED_ERROR",
+        "FS_PROCFS_EXCLUDE_PROCESS",
+        "FS_PROCFS_EXCLUDE_MEMINFO",
+        "RTC",
+        "RTC_HIRES"
+      ],
+      "enable": [
+        "DEBUG_FEATURES",
+        "DEBUG_ASSERTIONS",
+        "DEBUG_SYMBOLS",
+        "DEBUG_LINK_MAP",
+        "SCHED_BACKTRACE",
+        "UNWINDER_ARM",
+        "STACK_COLORATION",
+        "FS_PROCFS",
+        "CLOCK_TIMEKEEPING",
+        "CLOCK_ADJTIME"
+      ],
+      "forbid-regex": "^CONFIG_(ARCH_FPU|SMP|NET|DISABLE_PTHREAD|DEBUG_SCHED|DEBUG_SCHED_ERROR|RTC|RTC_HIRES)=y$",
+      "require": [
+        "CONFIG_ARCH_ARM=y",
+        "CONFIG_ARCH_BOARD_MPS2_AN521=y",
+        "CONFIG_ARCH_CHIP_MPS2_AN521=y",
+        "CONFIG_RAM_SIZE=2097152",
+        "CONFIG_PTHREAD_STACK_DEFAULT=65536",
+        "CONFIG_MM_BACKTRACE=8",
+        "CONFIG_MM_BACKTRACE_DEFAULT=y",
+        "CONFIG_SCHED_BACKTRACE=y",
+        "CONFIG_UNWINDER_ARM=y",
+        "# CONFIG_UNWINDER_FRAME_POINTER is not set",
+        "CONFIG_FS_PROCFS=y",
+        "CONFIG_STACK_COLORATION=y",
+        "# CONFIG_FS_PROCFS_EXCLUDE_PROCESS is not set",
+        "# CONFIG_FS_PROCFS_EXCLUDE_MEMINFO is not set",
+        "CONFIG_CLOCK_TIMEKEEPING=y",
+        "CONFIG_CLOCK_ADJTIME=y",
+        "CONFIG_USEC_PER_TICK=100",
+        "# CONFIG_RTC is not set"
+      ],
+      "set": [
+        "PTHREAD_STACK_DEFAULT=65536",
+        "MM_BACKTRACE=8",
+        "MM_BACKTRACE_DEFAULT=y",
+        "USEC_PER_TICK=100"
+      ]
+    },
+    "machine": "ARM",
+    "name": "mps2-an521-time-sync",
+    "target": "thumbv8m.main-nuttx-eabi"
+  },
+  "graph": null,
+  "semantic_digest": "fe2482795e4d6373e4876b58fd8229b4abab1958fa1e1f440a2e2ba8908a560c",
+  "raw_fingerprint": "da06c3ca6af51b8b51e37f0b0e85f41a043010a3d48845611294ea9102feeb3b",
+  "dependencies": [
+    {
+      "path": "/workspace/scratch/706f9e3bc115/nxrs/Cargo.toml",
+      "sha256": "f9016305edf918034cb5cc281a04068b2851072085e9a50e741ddfc2de71bdd8"
+    },
+    {
+      "path": "/workspace/scratch/706f9e3bc115/nxrs/driver/axp2101/Cargo.toml",
+      "sha256": "446bf1cf01cc7fe6121b8ddadf876cdc5109a11dada80d1acaf166fb707df7a7"
+    },
+    {
+      "path": "/workspace/scratch/706f9e3bc115/nxrs/driver/bmi270/Cargo.toml",
+      "sha256": "4d40b8512690e61484a1da83508391f22442e83fe42b9466b0264088ed3fecf5"
+    },
+    {
+      "path": "/workspace/scratch/706f9e3bc115/nxrs/driver/bmi270/bindings.toml",
+      "sha256": "598cc980763bdba3524bfd1352b79e449a514f65c67b530cdea7adad4fd60bf5"
+    },
+    {
+      "path": "/workspace/scratch/706f9e3bc115/nxrs/driver/lsm6dso/Cargo.toml",
+      "sha256": "318f9f5e3a6f1a7b57a1c558f159ec0d818f5a1bd7e89226f70b531c5854cae0"
+    },
+    {
+      "path": "/workspace/scratch/706f9e3bc115/nxrs/driver/lsm6dso/bindings.toml",
+      "sha256": "358493b1b0cee065a5388be9e1b51f8272ee292cbea6f98cb00bf363e108f5d3"
+    },
+    {
+      "path": "/workspace/scratch/706f9e3bc115/nxrs/driver/ubx/Cargo.toml",
+      "sha256": "4dfccdd9f835de6fcb4d89b6d24683e566a02e311b9ffa2965b2aeda4ba4fa8a"
+    },
+    {
+      "path": "/workspace/scratch/706f9e3bc115/nxrs/driver/ubx/bindings.toml",
+      "sha256": "95daa31ad42a1bfe893e9b5d8f6a63a60b9ca459364ca4bc5453befd661c3014"
+    },
+    {
+      "path": "/workspace/scratch/706f9e3bc115/nxrs/hal/time/Cargo.toml",
+      "sha256": "1c8f3fe6e785460efa7caaab899d31278a59841a5792ba7dbdc0765bb89aa0b9"
+    },
+    {
+      "path": "/workspace/scratch/706f9e3bc115/nxrs/platform/Cargo.toml",
+      "sha256": "28cfd9e5c6d5a09334ee6695377fda5339ad0382d3e849db0796d0b54e16575f"
+    },
+    {
+      "path": "/workspace/scratch/706f9e3bc115/nxrs/tests/nuttx-std/time-sync/Cargo.toml",
+      "sha256": "e3393935d07b23c068fea2de66de03fe1c47f8d83d4af657c332412761214253"
+    },
+    {
+      "path": "/workspace/scratch/706f9e3bc115/nxrs/tests/profiles/mps2-an521-mock.toml",
+      "sha256": "d4a6150940726256d8c3e55b27e6a3f1d9d47dc059a6070a226e48992a933482"
+    },
+    {
+      "path": "/workspace/scratch/706f9e3bc115/nxrs/tests/profiles/mps2-an521-time-sync.toml",
+      "sha256": "df2b842f85485de98d52a105dc241ae955d76570cc7152aee9aae409e7b46609"
+    }
+  ]
+}

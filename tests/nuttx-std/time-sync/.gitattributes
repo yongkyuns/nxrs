@@ -1,0 +1,2 @@
+# Retained console/configuration/patch evidence is hashed byte-for-byte.
+results/** -text -whitespace

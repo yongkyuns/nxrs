@@ -1,0 +1,6 @@
+{
+  "expected_source": "/workspace/scratch/706f9e3bc115/nxrs/target/time-sync-tools/prepared-sdk/toolchain/lib/rustlib/src/rust/library/std/src/lib.rs",
+  "rustc": "/workspace/scratch/706f9e3bc115/nxrs/target/time-sync-tools/prepared-sdk/toolchain/bin/rustc",
+  "selected_source_matches": true,
+  "std_source": "/workspace/scratch/706f9e3bc115/nxrs/target/time-sync-tools/prepared-sdk/toolchain/lib/rustlib/src/rust/library/std/src/lib.rs"
+}
