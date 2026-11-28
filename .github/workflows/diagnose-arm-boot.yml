@@ -10,14 +10,14 @@ permissions:
 
 jobs:
   diagnose:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           persist-credentials: false
       - name: Install the same ARM emulator package
-        run: bash .github/scripts/install-ubuntu-packages.sh qemu-system-arm
+        run: bash .github/scripts/install-ubuntu-packages.sh qemu-system-arm=1:10.2.1+ds-1ubuntu3.3
       - name: Download the original failed qualification artifact
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:

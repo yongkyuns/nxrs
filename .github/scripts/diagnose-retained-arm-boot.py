@@ -20,6 +20,7 @@ import time
 
 ELF_SHA256 = "df780f2e12bed92342f0fdf9693cd46a9cba95c17ebd157bf4f5e48ada38ad78"
 CONFIG_SHA256 = "ada256ac803291d57aad9e317045c43c9212e4ed461d7540aa57cbd0170ea486"
+QEMU_VERSION = "QEMU emulator version 10.2.1 (Debian 1:10.2.1+ds-1ubuntu3.3)"
 LIMIT = 4 * 1024 * 1024
 
 
@@ -95,6 +96,9 @@ def main():
     qemu = shutil.which("qemu-system-arm")
     if qemu is None:
         raise RuntimeError("QEMU executable is unavailable")
+    qemu_version = subprocess.check_output([qemu, "--version"], text=True).splitlines()[0]
+    if qemu_version != QEMU_VERSION:
+        raise RuntimeError(f"Original emulator version mismatch: {qemu_version!r}")
     command = [qemu, "-machine", "mps2-an521", "-kernel", str(args.image.resolve()),
                "-display", "none", "-serial", "stdio", "-monitor", "none", "-nic", "none", "-no-reboot"]
     report = {"purpose": "Native startup diagnosis; not replacement qualification",
@@ -102,7 +106,8 @@ def main():
               "original_run": 46110830976, "original_artifact": 15250340281,
               "diagnostic_commit": os.environ.get("GITHUB_SHA"),
               "elf_sha256": ELF_SHA256, "config_sha256": CONFIG_SHA256,
-              "qemu_version": subprocess.check_output([qemu, "--version"], text=True).splitlines()[0],
+              "qemu_version": qemu_version, "qemu_sha256": digest(Path(qemu)),
+              "os_release": Path("/etc/os-release").read_text(),
               "command": command, "maximum_boots": 50,
               "host_deadline_seconds_per_boot": 10, "assertion_tail_seconds": 2,
               "boots": []}
