@@ -1,0 +1,3 @@
+# Preserve retained evidence bytes, including the UART's CRLF line endings.
+results/** -text
+results/*/captures/console-*.log whitespace=cr-at-eol

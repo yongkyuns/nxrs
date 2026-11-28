@@ -1,0 +1,63 @@
+{
+  "schema": 1,
+  "mode": "baseline",
+  "tick_us": 1000,
+  "qemu_clock_correction": false,
+  "native_environment_sha256": {},
+  "command": [
+    "cargo",
+    "nxrs",
+    "build",
+    "--manifest-path",
+    "/workspace/scratch/706f9e3bc115/nxrs/tests/nuttx-std/clock-control/Cargo.toml",
+    "--profile",
+    "mps2-an521-mock",
+    "--out",
+    "/dev/shm/nxrs-time-sync-phase1/baseline-verified/firmware",
+    "--target-c-source",
+    "/workspace/scratch/706f9e3bc115/nxrs/tests/nuttx-std/clock-control/native.c",
+    "--target-c-source",
+    "/workspace/scratch/706f9e3bc115/nxrs/tests/nuttx-std/memory-timing/qemu_timer_clock.c",
+    "--kconfig-disable",
+    "CLOCK_TIMEKEEPING",
+    "--kconfig-disable",
+    "CLOCK_ADJTIME",
+    "--kconfig-set",
+    "USEC_PER_TICK=1000"
+  ],
+  "identities": {
+    "nxrs": "8f0db0bbe85af7f6239e6568b16b1efce133ad1e",
+    "working_tree": "?? tests/nuttx-std/clock-control/",
+    "nuttx": "4268617f28ad0ed7e900a081ea1b33c9347458b3",
+    "nuttx-apps": "3c772ea35b9245972e18999828f7b533e6fc57cc"
+  },
+  "sources_before": {
+    "tests/nuttx-std/clock-control/Cargo.toml": "e351e4c4f40f226e8b46747db3a9ea43575ede8816c8578f77163fec446502be",
+    "tests/nuttx-std/clock-control/Cargo.lock": "23a056fc292817eb657f0bde3f3c03c3ab67c4735feda3dfcc808b08c415ee2a",
+    "tests/nuttx-std/clock-control/native.c": "595b62ac4e65a908ce3c3e8d1bf6ca4ddd57c7cff78f4e078c08e8e685f5c4aa",
+    "tests/nuttx-std/clock-control/src/main.rs": "f4260f514a132331fc8dcd36db9b1c317a7dd3c583084acb73ea85a785889bfd",
+    "tests/nuttx-std/memory-timing/qemu_timer_clock.c": "703cb28f21b28b4af4974c129163856aee6f04545d8d72304f25e404c09e606d"
+  },
+  "build_complete": true,
+  "image": "firmware/nuttx/nuttx",
+  "sources_after": {
+    "tests/nuttx-std/clock-control/Cargo.toml": "e351e4c4f40f226e8b46747db3a9ea43575ede8816c8578f77163fec446502be",
+    "tests/nuttx-std/clock-control/Cargo.lock": "23a056fc292817eb657f0bde3f3c03c3ab67c4735feda3dfcc808b08c415ee2a",
+    "tests/nuttx-std/clock-control/native.c": "595b62ac4e65a908ce3c3e8d1bf6ca4ddd57c7cff78f4e078c08e8e685f5c4aa",
+    "tests/nuttx-std/clock-control/src/main.rs": "f4260f514a132331fc8dcd36db9b1c317a7dd3c583084acb73ea85a785889bfd",
+    "tests/nuttx-std/memory-timing/qemu_timer_clock.c": "703cb28f21b28b4af4974c129163856aee6f04545d8d72304f25e404c09e606d"
+  },
+  "identities_after": {
+    "nxrs": "8f0db0bbe85af7f6239e6568b16b1efce133ad1e",
+    "working_tree": "?? tests/nuttx-std/clock-control/",
+    "nuttx": "4268617f28ad0ed7e900a081ea1b33c9347458b3",
+    "nuttx-apps": "3c772ea35b9245972e18999828f7b533e6fc57cc"
+  },
+  "artifacts": {
+    "firmware/nuttx/.config": "f2a8675c1b7bf178349b3315302244e60e0f2161c8c062f4a1f9c9bdd254b6e5",
+    "firmware/abi-report.json": "10608d2bcb6669bb4f38aab61f87ef1ee1ae91e87af2a28b497f5a7f22ea4c5e",
+    "firmware/provenance.txt": "fc1ffafeaa4b9fb4f9535c5ace6a4fdf811a9d78d4012042738adfcbd4af9164",
+    "firmware/resolved.config": "f2a8675c1b7bf178349b3315302244e60e0f2161c8c062f4a1f9c9bdd254b6e5",
+    "firmware/nuttx/nuttx": "72336f5c7e78fcf8dc8190ae65956cf02ce6512868e655e5fca8f86df277f65c"
+  }
+}

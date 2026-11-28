@@ -1,0 +1,43 @@
+{
+  "schema": 1,
+  "files": {
+    "baseline/analysis.json": "c59359d0bfc9d257072b2719612e5f82b42d530ca4418b1fccc83161aa388fc5",
+    "baseline/build.json": "383ec4d865f345fe858de43e58f748b835e5e59ee220ed6775bc4fd19cd5fb81",
+    "baseline/build.log": "6a3088e6b1d959359ce0dab350699274dab4b90ed3c42289e83fc00c12293852",
+    "baseline/captures/console-0-baseline.log": "83afea659b1ea16471a845edb86445af536bde511349a5b46ccd3c6b1771b908",
+    "baseline/captures/console-1-baseline.log": "3121a1af6c0952447b1db91b25618b14a72293172fd41862706a0eceab03918e",
+    "baseline/captures/console-2-baseline.log": "f78414de0667490127d18469d34025eea0d3e1ab10393b85652fcad521fa8867",
+    "baseline/captures/results.json": "5e675e53fcaf27da638db21552be9f5df47d3be5c817f1748fd2441a3d072bfe",
+    "baseline/firmware/abi-report.json": "10608d2bcb6669bb4f38aab61f87ef1ee1ae91e87af2a28b497f5a7f22ea4c5e",
+    "baseline/firmware/nuttx/.config": "f2a8675c1b7bf178349b3315302244e60e0f2161c8c062f4a1f9c9bdd254b6e5",
+    "baseline/firmware/provenance.txt": "fc1ffafeaa4b9fb4f9535c5ace6a4fdf811a9d78d4012042738adfcbd4af9164",
+    "baseline/firmware/resolved.config": "f2a8675c1b7bf178349b3315302244e60e0f2161c8c062f4a1f9c9bdd254b6e5",
+    "software-corrected/analysis.json": "8d417d97783df0134890245db82f555d042a05846cf952ffedaecc2d2dcb719a",
+    "software-corrected/build.json": "d32f8d141bf39c23d72c8212e6ad01eb6d667ed83ebf7c53f9d776d446b1655c",
+    "software-corrected/build.log": "4179871b6ed5439ef4c21b0e304c69c35e9210dea0ea3f9a94d07a62a29eb11c",
+    "software-corrected/captures/console-0-software.log": "fa4e36a88737bbedecee3591efaf2fb4be36ed338129cd8f3fa057a96e333e9c",
+    "software-corrected/captures/console-1-software.log": "94bb7cbfd127ff7595baf715ed991242bbf0d700d058c0a72f6859422ebedc8a",
+    "software-corrected/captures/console-2-software.log": "68b374de2101a35d435a2827a149b14f44e978476db35547c6c2dfa10544c775",
+    "software-corrected/captures/results.json": "82628012efaa50dd622b14e402bf3242cb761d651516f881ffc5c9de29144840",
+    "software-corrected/firmware/abi-report.json": "b799f892790b15dbe9b5c698664296d9914564dace93dfaa5a7940745f73dc2c",
+    "software-corrected/firmware/nuttx/.config": "7033aa8b2bf9a7be19e8e91f9e5154045eb3128153aed327bac14e0051546264",
+    "software-corrected/firmware/provenance.txt": "bd991db5002459d466b475fc784d6682a60a49b2e3e1317852e9684b4a6dcf2c",
+    "software-corrected/firmware/resolved.config": "7033aa8b2bf9a7be19e8e91f9e5154045eb3128153aed327bac14e0051546264",
+    "software-fine100us/analysis.json": "1bec5e0834046d7031661a33578bd1eb6a343ffa0a13b473e35d96ffba85dc61",
+    "software-fine100us/build.json": "d7870bfd22901675b1a4480172489b203c0e6aa8437bd6bacbee36b730d02cbd",
+    "software-fine100us/build.log": "305651c293c4247fab650f36c41ea51c574cda549537e98dd6387e9b30c2b71e",
+    "software-fine100us/captures/console-0-software.log": "f892eb495393ac179f75f2ad0e94396761aa91380d9714b1c1ffd885abafb812",
+    "software-fine100us/captures/console-1-software.log": "9d4cfb40c491523e0228e6ff17b3a752fe36135b8771f5c004a89546e582ba45",
+    "software-fine100us/captures/console-2-software.log": "b8337ab211e832721a105973da4981a60766d992a84a3d1519063b2bd852c6cf",
+    "software-fine100us/captures/results.json": "7b093d6dc2db552a0c143b02afe31c6e42a1377a47857d15d96892356c4fc809",
+    "software-fine100us/firmware/abi-report.json": "129bd9ed4bde4f94bb69bd5b97fbabff3039932ff49a49fbde4c22735356dbcb",
+    "software-fine100us/firmware/nuttx/.config": "820f9cfda62160048754ad051b1b8107be2dd318f0cd542f124b0f70a8749224",
+    "software-fine100us/firmware/provenance.txt": "fec5ca36a6debfe6f30400bd05e61cb92af6f117c9dd375fabc92306e9be57fa",
+    "software-fine100us/firmware/resolved.config": "820f9cfda62160048754ad051b1b8107be2dd318f0cd542f124b0f70a8749224"
+  },
+  "omitted_artifacts": [
+    "baseline/firmware/nuttx/nuttx",
+    "software-corrected/firmware/nuttx/nuttx",
+    "software-fine100us/firmware/nuttx/nuttx"
+  ]
+}
