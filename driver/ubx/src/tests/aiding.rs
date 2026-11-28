@@ -4,10 +4,7 @@ use peripheral::gnss::{
     aiding::{Aid, Outcome, PositionAid, Progress, SubmitError, TimeAid},
     Receiver, TimePulse,
 };
-use std::{
-    collections::{BTreeMap, VecDeque},
-    time::UNIX_EPOCH,
-};
+use std::collections::{BTreeMap, VecDeque};
 
 struct Stream {
     input: VecDeque<u8>,
@@ -157,7 +154,7 @@ fn acknowledge(driver: &mut Driver<Stream>, kind: u8, accepted: bool, reason: u8
 
 #[test]
 fn initialization_wire_layout_matches_independent_spec_fixtures() {
-    let utc = UNIX_EPOCH + Duration::new(1_795_869_296, 789_123_456);
+    let utc = Duration::new(1_795_869_296, 789_123_456);
     assert_eq!(
         &*ubx::initial_time(utc, Duration::new(2, 345_678_901)).unwrap(),
         &[
@@ -174,15 +171,14 @@ fn initialization_wire_layout_matches_independent_spec_fixtures() {
         ]
     );
     for (seconds, expected) in [
+        (0, [0xb2, 0x07, 1, 1, 0, 0, 0]),
         (951_782_400, [0xd0, 0x07, 2, 29, 0, 0, 0]),
         (4_107_542_400, [0x34, 0x08, 3, 1, 0, 0, 0]),
         (4_102_444_799, [0x33, 0x08, 12, 31, 23, 59, 59]),
     ] {
-        let encoded =
-            ubx::initial_time(UNIX_EPOCH + Duration::from_secs(seconds), Duration::ZERO).unwrap();
+        let encoded = ubx::initial_time(Duration::from_secs(seconds), Duration::ZERO).unwrap();
         assert_eq!(&encoded[10..17], &expected);
     }
-    assert!(ubx::initial_time(UNIX_EPOCH - Duration::from_secs(1), Duration::ZERO).is_err());
     assert!(ubx::initial_time(utc, Duration::from_secs(65_536)).is_err());
     assert!(ubx::initial_position(91.0, 0.0, 0.0, 1.0).is_err());
     assert!(ubx::initial_position(0.0, f64::NAN, 0.0, 1.0).is_err());
@@ -190,6 +186,69 @@ fn initialization_wire_layout_matches_independent_spec_fixtures() {
     assert!(ubx::initial_position(0.0, 0.0, 0.0, 50_000_000.0).is_err());
     let tiny = ubx::initial_position(0.000_000_049, 0.000_000_049, 0.0049, 0.01).unwrap();
     assert_eq!(u32::from_le_bytes(tiny[22..26].try_into().unwrap()), 2);
+}
+
+#[test]
+fn numeric_utc_keeps_the_full_wire_calendar_and_accuracy_range() {
+    // 65536-01-01 is 2_005_949_145_600 seconds after 1970-01-01, counting
+    // Gregorian years and leap days independently of the March-based codec.
+    let last = ubx::initial_time(
+        Duration::new(2_005_949_145_599, 999_999_999),
+        Duration::new(65_535, 999_999_999),
+    )
+    .unwrap();
+    assert_eq!(&last[10..17], &[0xff, 0xff, 12, 31, 23, 59, 59]);
+    assert_eq!(
+        u32::from_le_bytes(last[18..22].try_into().unwrap()),
+        999_999_999
+    );
+    assert_eq!(&last[22..24], &[0xff, 0xff]);
+    assert_eq!(
+        u32::from_le_bytes(last[26..30].try_into().unwrap()),
+        999_999_999
+    );
+    assert!(ubx::initial_time(Duration::from_secs(2_005_949_145_600), Duration::ZERO).is_err());
+    assert!(ubx::initial_time(Duration::MAX, Duration::ZERO).is_err());
+
+    let mut driver = Driver::new(Stream::default());
+    assert_eq!(
+        driver.begin_aiding(
+            Aid::Time(TimeAid {
+                unix_time_ms: -1,
+                ..time()
+            }),
+            1_000_000,
+            Instant::now() + Duration::from_secs(1),
+        ),
+        Err(SubmitError::InvalidInput)
+    );
+    assert_eq!(driver.io().writes, 0);
+}
+
+#[test]
+fn delivery_rounding_matches_wide_arithmetic_at_fraction_and_overflow_boundaries() {
+    let last_second = u64::MAX / 1_000_000;
+    let last_nanos = (u64::MAX % 1_000_000 * 1_000) as u32;
+    for duration in [
+        Duration::ZERO,
+        Duration::from_nanos(1),
+        Duration::from_nanos(999),
+        Duration::from_nanos(1_000),
+        Duration::from_nanos(1_001),
+        Duration::new(1, 999_999_999),
+        Duration::new(last_second, last_nanos - 1),
+        Duration::new(last_second, last_nanos),
+        Duration::new(last_second, last_nanos + 1),
+        Duration::new(last_second + 1, 0),
+        Duration::MAX,
+    ] {
+        let expected = u64::try_from(duration.as_nanos().div_ceil(1_000)).ok();
+        assert_eq!(
+            crate::aiding::ceil_micros(duration),
+            expected,
+            "{duration:?}"
+        );
+    }
 }
 
 #[test]

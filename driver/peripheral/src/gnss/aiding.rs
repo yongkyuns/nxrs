@@ -109,9 +109,7 @@ pub struct PositionAid {
 impl PositionAid {
     pub fn accuracy_at(self, now_us: u64) -> Result<f64, SubmitError> {
         let elapsed = age(self.observed_at_us, self.max_age, now_us)?;
-        if !self.latitude_deg.is_finite()
-            || !(-90.0..=90.0).contains(&self.latitude_deg)
-            || !self.longitude_deg.is_finite()
+        if !(-90.0..=90.0).contains(&self.latitude_deg)
             || !(-180.0..=180.0).contains(&self.longitude_deg)
             || !self.altitude_m.is_finite()
             || !self.accuracy_m.is_finite()
@@ -183,6 +181,37 @@ mod tests {
     }
 
     #[test]
+    fn time_rounding_carries_seconds_and_rejects_uncertainty_overflow() {
+        let estimate = TimeAid {
+            unix_time_ms: 1_000,
+            observed_at_us: 0,
+            uncertainty: Duration::new(7, 999_999_999),
+            max_age: Duration::from_secs(1),
+            drift_ppm: 1,
+        };
+        // One microsecond loses 1 us in UTC and adds 1 ns of rounded drift.
+        assert_eq!(estimate.at(1), Ok((1_000, Duration::new(8, 1_000))));
+        // At a whole millisecond only the 1 ns drift remains.
+        assert_eq!(estimate.at(1_000), Ok((1_001, Duration::from_secs(8))));
+        assert_eq!(
+            TimeAid {
+                uncertainty: Duration::new(u64::MAX, 999_998_998),
+                ..estimate
+            }
+            .at(1),
+            Ok((1_000, Duration::MAX))
+        );
+        assert_eq!(
+            TimeAid {
+                uncertainty: Duration::new(u64::MAX, 999_998_999),
+                ..estimate
+            }
+            .at(1),
+            Err(SubmitError::InvalidInput)
+        );
+    }
+
+    #[test]
     fn old_positions_widen_and_invalid_coordinates_never_become_seeds() {
         let estimate = PositionAid {
             latitude_deg: 43.4,
@@ -195,6 +224,24 @@ mod tests {
         };
         assert_eq!(estimate.accuracy_at(10_001_000), Ok(410.0));
         assert_eq!(estimate.accuracy_at(30_001_001), Err(SubmitError::Expired));
+        for (latitude_deg, longitude_deg) in [
+            (f64::NAN, 0.0),
+            (0.0, f64::NAN),
+            (f64::INFINITY, 0.0),
+            (0.0, f64::NEG_INFINITY),
+            (90.1, 0.0),
+            (0.0, -180.1),
+        ] {
+            assert_eq!(
+                PositionAid {
+                    latitude_deg,
+                    longitude_deg,
+                    ..estimate
+                }
+                .accuracy_at(1_000),
+                Err(SubmitError::InvalidInput)
+            );
+        }
         assert_eq!(
             PositionAid {
                 altitude_m: f64::NAN,

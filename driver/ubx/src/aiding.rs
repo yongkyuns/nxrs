@@ -3,7 +3,7 @@ use crate::{ubx, DriverError};
 use peripheral::gnss::aiding::{Aid, Outcome, Progress, SubmitError};
 use std::{
     io::{ErrorKind, Write},
-    time::{Duration, Instant, UNIX_EPOCH},
+    time::{Duration, Instant},
 };
 
 #[derive(Default)]
@@ -132,27 +132,30 @@ fn wire_time(bytes: usize, baud: u32) -> Duration {
     Duration::from_nanos((bytes as u64 * 10 * 1_000_000_000).div_ceil(u64::from(baud.max(1))))
 }
 
+pub(super) fn ceil_micros(duration: Duration) -> Option<u64> {
+    duration
+        .as_secs()
+        .checked_mul(1_000_000)?
+        .checked_add(u64::from(duration.subsec_nanos().div_ceil(1_000)))
+}
+
 fn encode(aid: Aid, now_us: u64, transport: Duration) -> Result<ubx::Command, SubmitError> {
-    let latest_us = u64::try_from(transport.as_nanos().div_ceil(1_000))
-        .ok()
+    let latest_us = ceil_micros(transport)
         .and_then(|delay| now_us.checked_add(delay))
         .ok_or(SubmitError::InvalidInput)?;
     // Freshness and uncertainty must hold through the latest claimed receipt,
-    // including partial-write scheduling and complete 8N1 serialization.
-    aid.validate(latest_us)?;
+    // including partial-write scheduling and complete 8N1 serialization. Each
+    // branch validates that receipt while calculating its widened accuracy.
     let command = match aid {
         Aid::Time(time) => {
-            let (unix_ms, _) = time.at(now_us)?;
             let (_, uncertainty) = time.at(latest_us)?;
+            let (unix_ms, _) = time.at(now_us)?;
             let unix_ms = u64::try_from(unix_ms).map_err(|_| SubmitError::InvalidInput)?;
-            let utc = UNIX_EPOCH
-                .checked_add(Duration::from_millis(unix_ms))
-                .ok_or(SubmitError::InvalidInput)?;
             let accuracy = uncertainty
                 .checked_add(transport)
                 .and_then(|accuracy| accuracy.checked_add(Duration::from_millis(1)))
                 .ok_or(SubmitError::InvalidInput)?;
-            ubx::initial_time(utc, accuracy)
+            ubx::initial_time(Duration::from_millis(unix_ms), accuracy)
         }
         Aid::Position(position) => ubx::initial_position(
             position.latitude_deg,

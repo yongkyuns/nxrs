@@ -5,7 +5,7 @@ use crate::{
 };
 use kinavis_ubx::{config, ConfigKey, Layers, Message, PollLayer};
 use peripheral::gnss::{SatelliteReport, SatelliteStatus, TimePulse};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 
 const WEEK_MS: u32 = 604_800_000;
 const DEFAULT_SATELLITE_AGE_MS: u32 = 2_000;
@@ -273,9 +273,7 @@ pub(super) fn initial_position(
     ellipsoid_altitude_m: f64,
     accuracy_m: f64,
 ) -> Result<Command, DriverError> {
-    if !latitude_deg.is_finite()
-        || !(-90.0..=90.0).contains(&latitude_deg)
-        || !longitude_deg.is_finite()
+    if !(-90.0..=90.0).contains(&latitude_deg)
         || !(-180.0..=180.0).contains(&longitude_deg)
         || !ellipsoid_altitude_m.is_finite()
         || !accuracy_m.is_finite()
@@ -300,12 +298,13 @@ pub(super) fn initial_position(
     Ok(initial_message(&payload))
 }
 
-pub(super) fn initial_time(utc: SystemTime, accuracy: Duration) -> Result<Command, DriverError> {
-    let elapsed = utc
-        .duration_since(UNIX_EPOCH)
-        .map_err(|_| DriverError::InvalidData)?;
-    let seconds = elapsed.as_secs();
+pub(super) fn initial_time(
+    since_unix_epoch: Duration,
+    accuracy: Duration,
+) -> Result<Command, DriverError> {
+    let seconds = since_unix_epoch.as_secs();
     let (year, month, day) = utc_date(seconds / 86_400)?;
+    let second_of_day = (seconds % 86_400) as u32;
     let accuracy_seconds =
         u16::try_from(accuracy.as_secs()).map_err(|_| DriverError::InvalidData)?;
     let mut payload = [0; 24];
@@ -314,11 +313,11 @@ pub(super) fn initial_time(utc: SystemTime, accuracy: Duration) -> Result<Comman
     payload[4..6].copy_from_slice(&year.to_le_bytes());
     payload[6] = month;
     payload[7] = day;
-    payload[8] = ((seconds / 3_600) % 24) as u8;
-    payload[9] = ((seconds / 60) % 60) as u8;
-    payload[10] = (seconds % 60) as u8;
+    payload[8] = (second_of_day / 3_600) as u8;
+    payload[9] = ((second_of_day / 60) % 60) as u8;
+    payload[10] = (second_of_day % 60) as u8;
     // trustedSource stays clear: accuracy is not independent spoofing trust.
-    payload[12..16].copy_from_slice(&elapsed.subsec_nanos().to_le_bytes());
+    payload[12..16].copy_from_slice(&since_unix_epoch.subsec_nanos().to_le_bytes());
     payload[16..18].copy_from_slice(&accuracy_seconds.to_le_bytes());
     payload[20..24].copy_from_slice(&accuracy.subsec_nanos().to_le_bytes());
     Ok(initial_message(&payload))
@@ -338,7 +337,9 @@ fn initial_message(payload: &[u8]) -> Command {
 fn utc_date(unix_days: u64) -> Result<(u16, u8, u8), DriverError> {
     // Gregorian 400-year eras, with March as month zero, avoid a calendar
     // dependency and handle the century exceptions (including year 2100).
-    let days = i64::try_from(unix_days)
+    // Every representable U2 year needs fewer than 24 million Unix days, so
+    // checked 32-bit calendar arithmetic covers the complete wire range.
+    let days = i32::try_from(unix_days)
         .ok()
         .and_then(|days| days.checked_add(719_468))
         .ok_or(DriverError::InvalidData)?;
@@ -350,7 +351,7 @@ fn utc_date(unix_days: u64) -> Result<(u16, u8, u8), DriverError> {
     let march_month = (5 * day_of_year + 2) / 153;
     let day = day_of_year - (153 * march_month + 2) / 5 + 1;
     let month = march_month + if march_month < 10 { 3 } else { -9 };
-    let year = year_of_era + era * 400 + i64::from(month <= 2);
+    let year = year_of_era + era * 400 + i32::from(month <= 2);
     Ok((
         u16::try_from(year).map_err(|_| DriverError::InvalidData)?,
         month as u8,
