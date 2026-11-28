@@ -1,0 +1,11 @@
+config EXAMPLES_TIMED_CAPTURE
+	bool "Finite trace capture qualification fixture"
+	default n
+	depends on SYSTEM_TRACE_CAPTURE && ARCH_BOARD_MPS2_AN521
+	depends on SCHED_INSTRUMENTATION_DUMP && DRIVERS_NOTERAM
+	depends on SCHED_WAITPID && !DISABLE_PTHREAD && !SMP
+	depends on SIG_DEFAULT && SIG_SIGKILL_ACTION
+	---help---
+		Qualification only. Run the actual trace capture builtin while a
+		bounded worker emits simulated 1 Hz and 2 Hz GNSS operations. Reserve
+		the otherwise unused QEMU CMSDK timer1 for the explicit perf adapter.

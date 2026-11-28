@@ -142,6 +142,13 @@ impl Trace {
         }
     }
 
+    /// Record one semantic observation in the current acquisition task.
+    /// Labels are bounded and the native recorder controls admission.
+    #[inline]
+    pub fn instant(&self, stage: &str) {
+        self.record(b'I', stage);
+    }
+
     /// Observe a synchronous operation. End notes also run during host unwinding.
     /// On panic-abort targets an unfinished scope remains explicitly incomplete.
     pub fn scope<T>(&self, stage: &str, call: impl FnOnce() -> T) -> T {
