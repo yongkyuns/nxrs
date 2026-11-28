@@ -2199,6 +2199,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "nxrs-lock-order"
+version = "0.1.0"
+
+[[package]]
 name = "nxrs-log-qualification"
 version = "0.1.0"
 dependencies = [

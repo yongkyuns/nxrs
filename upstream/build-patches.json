@@ -130,7 +130,8 @@
       "0143-esp32s3-cores3-register-watchdog.patch",
       "0144-ram-uart-report-only-new-rx-bytes.patch",
       "0145-cores3-timestamp-gpio10-edges.patch",
-      "0148-trace-heap-allocation-requests.patch"
+      "0148-trace-heap-allocation-requests.patch",
+      "0149-armv8m-systick-coherent-status.patch"
     ]
   },
   "mcuboot": {
@@ -149,7 +150,8 @@
       "0003-dhcpc-pad-option.patch",
       "0004-mcuboot-current-helpers.patch",
       "0005-dropbear-bounded-service.patch",
-      "0006-dropbear-initialize-remote-prompt.patch"
+      "0006-dropbear-initialize-remote-prompt.patch",
+      "0007-trace-capture-window.patch"
     ]
   },
   "esp-hal-3rdparty": {

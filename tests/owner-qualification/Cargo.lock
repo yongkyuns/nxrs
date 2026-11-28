@@ -197,6 +197,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "nxrs-lock-order"
+version = "0.1.0"
+
+[[package]]
 name = "nxrs-messaging"
 version = "0.1.0"
 
@@ -206,6 +210,7 @@ version = "0.1.0"
 dependencies = [
  "nxrs-gnss",
  "nxrs-imu",
+ "nxrs-lock-order",
  "nxrs-messaging",
  "nxrs-std-wifi",
  "nxrs-wifi",

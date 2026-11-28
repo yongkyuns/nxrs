@@ -1,0 +1,11 @@
+config EXAMPLES_HEAP_REQUESTS
+	bool "Native allocator request/result qualification fixture"
+	default n
+	depends on ARCH_BOARD_MPS2_AN521 && MM_DEFAULT_MANAGER && BUILD_FLAT && !SMP
+	depends on MM_ALLOC_REQUEST_TRACE && DRIVERS_NOTECTL && DRIVERS_NOTERAM
+	depends on SCHED_INSTRUMENTATION_DUMP
+	---help---
+		Qualification only. Exercise the production allocator note patch in
+		a private fixed heap. Return values and payload preservation are
+		retained separately from the native note stream. This does not
+		produce a heap topology journal or measure product timing costs.

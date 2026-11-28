@@ -15,6 +15,7 @@ pub use nxrs_detector_build_support as detector_sdk;
 pub mod factory;
 pub mod inspect;
 pub mod linker;
+pub mod mutex_policy;
 pub mod nuttx;
 pub mod nuttx_config;
 pub mod radio;

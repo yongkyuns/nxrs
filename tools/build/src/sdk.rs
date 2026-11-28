@@ -196,7 +196,8 @@ pub fn prepare(root: &Path, source: &Path, out: &Path, sdk: &str) -> Result<Path
     expect(&nuttx, original_blob)?;
     let unix = vendored.join("src/unix/mod.rs");
     let original_unix = blob(&unix)?;
-    let (mut flags_blob, mut poll_blob) = (String::new(), String::new());
+    let (mut flags_blob, mut poll_blob, mut directory_blob) =
+        (String::new(), String::new(), String::new());
     let mut patches = vec![];
     for (patch, name) in [
         (
@@ -212,6 +213,10 @@ pub fn prepare(root: &Path, source: &Path, out: &Path, sdk: &str) -> Result<Path
             "0002-nuttx-directory-inode-abi.patch",
             "libc-nuttx-directory.patch",
         ),
+        (
+            "0005-nuttx-pi-holder-capacity.patch",
+            "libc-nuttx-pi-holder-capacity.patch",
+        ),
     ] {
         apply_dependency_patch(
             &vendored,
@@ -224,6 +229,9 @@ pub fn prepare(root: &Path, source: &Path, out: &Path, sdk: &str) -> Result<Path
         }
         if name == "libc-nuttx-poll.patch" {
             poll_blob = blob(&nuttx)?;
+        }
+        if name == "libc-nuttx-directory.patch" {
+            directory_blob = blob(&nuttx)?;
         }
         patches.push(name);
     }
@@ -275,7 +283,7 @@ pub fn prepare(root: &Path, source: &Path, out: &Path, sdk: &str) -> Result<Path
     }
     write_json(
         &out.join("std-patch.json"),
-        &json!({"mode":"nuttx-parker-fcntl-sigign-and-libc-socket-align","sdk":sdk,"files":records,"main_thread_initialization":"nuttx-image-once","bounded_channel_backend":"native-transaction-v1","native_sources":native_sources,"libc":{"libc_version":version,"crate_sha256":checksum,"source_blob":original_blob,"patched_blob":blob(&nuttx)?,"alignment":8,"open_flags_abi":"nuttx-13.1","path":format!("{LIBRARY}/libc-nuttx"),"pollfd_abi":"nuttx-13.1","directory_abi":"nuttx-13.1","patches":patches,"poll_sources":[{"path":"src/unix/mod.rs","original_blob":original_unix,"patched_blob":blob(&unix)?},{"path":"src/unix/nuttx/mod.rs","original_blob":flags_blob,"patched_blob":poll_blob}],"directory_sources":[{"path":"src/unix/nuttx/mod.rs","original_blob":poll_blob,"patched_blob":blob(&nuttx)?}]},"patchset_sha256":patchset,"startup_sig_ign":0,"libc_sockaddr_storage_alignment":8,"installed_toolchain_unchanged":true}),
+        &json!({"mode":"nuttx-parker-fcntl-sigign-and-libc-socket-align","sdk":sdk,"files":records,"main_thread_initialization":"nuttx-image-once","bounded_channel_backend":"native-transaction-v1","native_sources":native_sources,"libc":{"libc_version":version,"crate_sha256":checksum,"source_blob":original_blob,"patched_blob":blob(&nuttx)?,"alignment":8,"open_flags_abi":"nuttx-13.1","path":format!("{LIBRARY}/libc-nuttx"),"pollfd_abi":"nuttx-13.1","directory_abi":"nuttx-13.1","synchronization_abi":"nuttx-13.1-embedded-pi-holder","patches":patches,"poll_sources":[{"path":"src/unix/mod.rs","original_blob":original_unix,"patched_blob":blob(&unix)?},{"path":"src/unix/nuttx/mod.rs","original_blob":flags_blob,"patched_blob":poll_blob}],"directory_sources":[{"path":"src/unix/nuttx/mod.rs","original_blob":poll_blob,"patched_blob":directory_blob}],"synchronization_sources":[{"path":"src/unix/nuttx/mod.rs","original_blob":directory_blob,"patched_blob":blob(&nuttx)?}]},"patchset_sha256":patchset,"startup_sig_ign":0,"libc_sockaddr_storage_alignment":8,"installed_toolchain_unchanged":true}),
     )?;
     Ok(destination)
 }

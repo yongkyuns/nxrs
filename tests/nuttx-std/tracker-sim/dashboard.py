@@ -798,22 +798,101 @@ async def scenario(guest, panel, phone, args):
     print('PASS: orderly release, restart and persisted report interval', flush=True)
 
 
-async def resume_guest(qmp):
-    async with asyncio.timeout(5):
-        reader, writer = await asyncio.open_unix_connection(qmp)
+class Qmp:
+    def __init__(self, reader, writer, greeting):
+        self.reader = reader
+        self.writer = writer
+        self.greeting = greeting
+        self.next_id = 0
+
+    async def command(self, name, arguments=None, *, timeout=2):
+        self.next_id += 1
+        request_id = self.next_id
+        request = {'execute': name, 'id': request_id}
+        if arguments is not None:
+            request['arguments'] = arguments
+        deadline = time.monotonic() + timeout
+        async with asyncio.timeout(timeout):
+            self.writer.write(json.dumps(request).encode() + b'\n')
+            await self.writer.drain()
+            while True:
+                # Also bound a stream of already-buffered asynchronous events.
+                if time.monotonic() >= deadline:
+                    raise TimeoutError(f'QMP {name}')
+                line = await self.reader.readline()
+                if not line:
+                    raise EOFError(f'QMP closed during {name}')
+                reply = json.loads(line)
+                if not isinstance(reply, dict):
+                    raise ValueError('QMP response is not an object')
+                # A timed-out command may still reply during the next request.
+                if 'event' in reply or reply.get('id') != request_id:
+                    continue
+                if 'return' not in reply:
+                    raise RuntimeError(f'QMP {name}: {reply}')
+                return reply['return']
+
+    async def close(self):
         try:
-            assert 'QMP' in json.loads(await reader.readline()), 'missing QMP greeting'
-            for command in ('qmp_capabilities', 'cont'):
-                writer.write(json.dumps({'execute': command}).encode() + b'\n')
-                await writer.drain()
-                while True:
-                    reply = json.loads(await reader.readline())
-                    if 'event' not in reply:
-                        assert 'return' in reply, (command, reply)
-                        break
-        finally:
-            writer.close()
-            await writer.wait_closed()
+            self.writer.close()
+            await asyncio.wait_for(self.writer.wait_closed(), 1)
+        except (OSError, TimeoutError):
+            pass
+
+
+async def resume_guest(path):
+    async with asyncio.timeout(5):
+        reader, writer = await asyncio.open_unix_connection(path)
+        monitor = Qmp(reader, writer, {})
+        try:
+            greeting = json.loads(await reader.readline())
+            assert 'QMP' in greeting, 'missing QMP greeting'
+            monitor.greeting = greeting['QMP']
+            await monitor.command('qmp_capabilities', timeout=5)
+            await monitor.command('cont', timeout=5)
+            return monitor
+        except BaseException:
+            await monitor.close()
+            raise
+
+
+async def retain_failure(monitor, error, log_path, image):
+    """Best-effort evidence before teardown; never replace the scenario failure."""
+    destination = log_path.with_suffix('.failure.json')
+    report = {
+        'failure': {'type': type(error).__name__, 'message': str(error)},
+        'image': str(image),
+        'elf': str(image.with_name('nuttx')),
+        'qmp': monitor.greeting if monitor is not None else None,
+        'stopped': False,
+        'registers': {},
+        'diagnostic_errors': [],
+    }
+    if monitor is None:
+        report['diagnostic_errors'].append('QMP was not connected before the failure')
+    else:
+        try:
+            await monitor.command('stop')
+            report['stopped'] = True
+        except Exception as diagnostic_error:
+            report['diagnostic_errors'].append(f'stop: {diagnostic_error!r}')
+        # DEBUGCAUSE and EPC6 identify a debug exception; retain the other EPC,
+        # EXCCAUSE and EXCVADDR registers too, since BREAK may be in a vector.
+        for core in (0, 1):
+            try:
+                registers = await monitor.command('human-monitor-command', {
+                    'command-line': 'info registers', 'cpu-index': core,
+                })
+                if not isinstance(registers, str):
+                    raise ValueError('register dump is not text')
+                report['registers'][str(core)] = registers
+            except Exception as diagnostic_error:
+                report['diagnostic_errors'].append(f'cpu {core}: {diagnostic_error!r}')
+    try:
+        destination.write_text(json.dumps(report, indent=2) + '\n', encoding='utf-8')
+        error.add_note(f'Guest failure state: {destination}')
+    except Exception as diagnostic_error:
+        error.add_note(f'Could not retain guest failure state: {diagnostic_error!r}')
 
 
 async def run(args, log, exercise=scenario, attach_controller=None):
@@ -842,6 +921,8 @@ async def run(args, log, exercise=scenario, attach_controller=None):
                 *command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
             guest = Guest(process, log)
             tasks = [asyncio.create_task(guest.read_console())]
+            monitor = None
+            controller_wire = None
             try:
                 loop = asyncio.get_running_loop()
                 gps.setblocking(False)
@@ -868,7 +949,7 @@ async def run(args, log, exercise=scenario, attach_controller=None):
                 await phone.power_on()
                 # NuttX sends HCI commands during boot. Start its timeout only
                 # once the host has installed the controller and its pumps.
-                await resume_guest(path / 'qmp')
+                monitor = await resume_guest(path / 'qmp')
                 start = time.monotonic()
                 test = asyncio.create_task(exercise(guest, panel, phone, args))
                 tasks.append(test)
@@ -879,12 +960,15 @@ async def run(args, log, exercise=scenario, attach_controller=None):
                     task.result()
                 assert test in done, 'guest console or UART terminated during the test'
                 print(f'PASS: full tracker in {time.monotonic() - start:.2f} host seconds')
-            except TrackerStartupError as error:
-                if attach_controller is not None:
+            except Exception as error:
+                if (isinstance(error, TrackerStartupError) and controller_wire is not None
+                        and attach_controller is not None):
                     try:
                         error.add_note(await asyncio.wait_for(controller_wire.describe_rings(), 1))
-                    except (OSError, AssertionError, ValueError, struct.error):
-                        error.add_note('Could not read RAM UART ring offsets')
+                    except Exception as diagnostic_error:
+                        details = repr(diagnostic_error)[:256]
+                        error.add_note(f'Could not read RAM UART ring offsets: {details}')
+                await retain_failure(monitor, error, args.log, args.image)
                 raise
             finally:
                 for task in tasks:
@@ -893,6 +977,8 @@ async def run(args, log, exercise=scenario, attach_controller=None):
                 if process.returncode is None:
                     process.kill()
                 await process.wait()
+                if monitor is not None:
+                    await monitor.close()
 
 
 def main():

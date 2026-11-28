@@ -43,6 +43,7 @@ on:
       - 'external/nuttx'
       - 'external/nuttx-apps'
       - 'upstream/nuttx-apps/patches/**'
+      - 'upstream/build-patches.json'
       - 'upstream/esp-hal-3rdparty/patches/**'
       - 'tools/apply-nuttx-patches.py'
       - '.github/workflows/std-apps-self-hosted.yml'
@@ -89,6 +90,7 @@ on:
       - 'external/nuttx'
       - 'external/nuttx-apps'
       - 'upstream/nuttx-apps/patches/**'
+      - 'upstream/build-patches.json'
       - 'upstream/esp-hal-3rdparty/patches/**'
       - 'tools/apply-nuttx-patches.py'
       - '.github/workflows/std-apps-self-hosted.yml'
@@ -410,6 +412,73 @@ jobs:
           NXRS_HEAP_REPLAY_EVIDENCE="$replay_output/capture" \
             cargo +1.90.0 test --locked -p nxrs-memory-explorer \
               --test replay_qemu -- --ignored --nocapture
+      - name: Qualify production allocator request and result notes
+        if: matrix.app == 'std-demo'
+        shell: bash
+        run: |
+          set -euo pipefail
+          request_sources="$GITHUB_WORKSPACE/target/memory-timing-sources"
+          request_output="$GITHUB_WORKSPACE/target/firmware/std-demo/mps2-an521-mock/heap-requests"
+          # Earlier witnesses retain their pristine-source images before this
+          # disposable tree receives the exact production allocator-note patch.
+          python3 tools/memory-explorer/tests/build_requests_nuttx.py \
+            --nuttx "$request_sources/nuttx" --apps "$request_sources/apps" \
+            --output "$request_output/build"
+          python3 tools/memory-explorer/tests/qualify_requests_qemu.py \
+            --qemu "$(command -v qemu-system-arm)" \
+            --build "$request_output/build/build.json" \
+            --output "$request_output/capture"
+          NXRS_HEAP_REQUEST_BUILD="$request_output/build" \
+          NXRS_HEAP_REQUEST_EVIDENCE="$request_output/capture" \
+            cargo +1.90.0 test --locked -p nxrs-memory-explorer \
+              --test requests_qemu -- --ignored --nocapture
+      - name: Measure allocator recorder object and record costs
+        if: matrix.app == 'std-demo'
+        shell: bash
+        run: |
+          set -euo pipefail
+          request_sources="$GITHUB_WORKSPACE/target/memory-timing-sources"
+          request_firmware="$GITHUB_WORKSPACE/target/firmware/std-demo/mps2-an521-mock"
+          request_output="$request_firmware/heap-requests"
+          request_baseline=604975b086d0dad5ac3a973190ebcb283b1c875e
+          # The checkout is shallow. Fetch the exact entry-only baseline without
+          # changing the tested checkout or relying on a moving branch.
+          git fetch --no-tags --depth=1 origin "$request_baseline"
+          for optimization in O0 Os; do
+            python3 tools/memory-explorer/tests/measure_request_cost.py \
+              --nuttx-context "$request_firmware/nuttx" \
+              --context-receipt "$request_firmware/nuttx-patches.json" \
+              --config "$request_output/build/resolved.config" \
+              --baseline-ref "$request_baseline" --candidate-ref "$GITHUB_SHA" \
+              --optimization "$optimization" \
+              --output "$request_output/cost-$optimization"
+          done
+          # The allocator builder leaves its known production patch applied.
+          # Restore only that patch after retaining and checking its evidence;
+          # the next builder independently requires tracked-clean sources.
+          request_patch="$GITHUB_WORKSPACE/upstream/nuttx/patches/0148-trace-heap-allocation-requests.patch"
+          git -C "$request_sources/nuttx" apply --reverse --check "$request_patch"
+          git -C "$request_sources/nuttx" apply --reverse "$request_patch"
+      - name: Qualify measured capture windows and normalized event rates
+        if: matrix.app == 'std-demo'
+        shell: bash
+        run: |
+          set -euo pipefail
+          timed_sources="$GITHUB_WORKSPACE/target/memory-timing-sources"
+          timed_output="$GITHUB_WORKSPACE/target/firmware/std-demo/mps2-an521-mock/timed-capture"
+          # Earlier fixtures have retained their images and evidence. Rebuild
+          # the disposable trees with the exact production trace command patch.
+          python3 tools/memory-explorer/tests/build_timed_capture_nuttx.py \
+            --nuttx "$timed_sources/nuttx" --apps "$timed_sources/apps" \
+            --output "$timed_output/build"
+          python3 tools/memory-explorer/tests/qualify_timed_capture_qemu.py \
+            --qemu "$(command -v qemu-system-arm)" \
+            --build "$timed_output/build" \
+            --output "$timed_output/capture" --timeout 60
+          NXRS_TIMED_CAPTURE_BUILD="$timed_output/build" \
+          NXRS_TIMED_CAPTURE_EVIDENCE="$timed_output/capture" \
+            cargo +1.90.0 test --locked -p nxrs-memory-explorer \
+              --test timed_capture_qemu -- --ignored --nocapture
       - name: Retain firmware qualification
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -426,4 +495,6 @@ jobs:
             target/firmware/${{ matrix.app }}/*/memory-explorer/
             target/firmware/${{ matrix.app }}/*/memory-timing/
             target/firmware/${{ matrix.app }}/*/heap-replay/
+            target/firmware/${{ matrix.app }}/*/heap-requests/
+            target/firmware/${{ matrix.app }}/*/timed-capture/
           if-no-files-found: warn

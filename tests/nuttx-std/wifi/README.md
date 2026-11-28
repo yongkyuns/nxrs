@@ -20,6 +20,10 @@ Queues, Crossbeam selection and scan/stop policy stay in this fixture, not a
 Wi-Fi service or the HAL. Its library target contains the event-loop example so
 lifecycle/fairness tests can run on hosts.
 
+The [scan owner concurrency contract](CONCURRENCY.md) records its current
+queues, execution contexts, wait dependencies, deadlines, and shutdown limits.
+It distinguishes the real provider from the synthetic owner qualification.
+
 Terminal faults remain visible after shutdown even if their event could not be
 queued. Native address cleanup is fallible: a failure retains the driver for
 explicit stop retry; after owner Drop the worker retries with capped backoff.

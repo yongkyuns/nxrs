@@ -5,9 +5,15 @@ on:
     paths:
       - 'tools/memory-explorer/**'
       - 'upstream/memory-layouts/**'
+      - 'upstream/nuttx-apps/patches/0007-trace-capture-window.patch'
+      - 'upstream/build-patches.json'
+      - 'tests/nuttx-std/timed-capture/**'
       - 'tools/nuttx-trace-to-perfetto.py'
       - 'tests/host/test_nuttx_trace.py'
       - 'tests/host/test_imu_scheduler_trace.py'
+      - 'tests/host/test_heap_request_outcomes.py'
+      - 'tests/host/fixtures/heap-request-outcomes/**'
+      - 'upstream/nuttx/patches/0148-trace-heap-allocation-requests.patch'
       - 'Cargo.toml'
       - 'Cargo.lock'
       - 'rust-toolchain.toml'
@@ -17,9 +23,15 @@ on:
     paths:
       - 'tools/memory-explorer/**'
       - 'upstream/memory-layouts/**'
+      - 'upstream/nuttx-apps/patches/0007-trace-capture-window.patch'
+      - 'upstream/build-patches.json'
+      - 'tests/nuttx-std/timed-capture/**'
       - 'tools/nuttx-trace-to-perfetto.py'
       - 'tests/host/test_nuttx_trace.py'
       - 'tests/host/test_imu_scheduler_trace.py'
+      - 'tests/host/test_heap_request_outcomes.py'
+      - 'tests/host/fixtures/heap-request-outcomes/**'
+      - 'upstream/nuttx/patches/0148-trace-heap-allocation-requests.patch'
       - 'Cargo.toml'
       - 'Cargo.lock'
       - 'rust-toolchain.toml'
@@ -71,6 +83,7 @@ jobs:
           python -m unittest discover -s tools/memory-explorer/tests -p 'test_*.py' -v
           python -m unittest discover -s tests/host -p 'test_nuttx_trace.py' -v
           python -m unittest discover -s tests/host -p 'test_imu_scheduler_trace.py' -v
+          python -m unittest discover -s tests/host -p 'test_heap_request_outcomes.py' -v
       - name: GUI contracts
         run: cargo test --locked -p nxrs-memory-explorer --features gui --bin nxrs-memory-explorer
       - name: Lint

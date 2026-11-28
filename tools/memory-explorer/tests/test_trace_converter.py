@@ -8,6 +8,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 
 SCRIPT = Path(__file__).resolve().parents[2] / "nuttx-trace-to-perfetto.py"
@@ -33,6 +34,23 @@ def framed(rows, *, lost=0, mode=0, complete=1):
 def intervals(trace, category=None):
     return [event for event in trace["traceEvents"] if event["ph"] == "X"
             and (category is None or category in event["cat"].split(","))]
+
+
+def call_request(call_id, operation="malloc", *, heap="0xa", size=32,
+                 caller="0x101", old="0x0", alignment=0):
+    return (f"heap_request: {operation} heap: {heap} id:{call_id} size:{size} "
+            f"caller: {caller} old: {old} align:{alignment}")
+
+
+def call_result(call_id, operation="malloc", *, heap="0xa", result="0x4000", outcome="success"):
+    return f"heap_result: {operation} heap: {heap} id:{call_id} result: {result} outcome:{outcome}"
+
+
+def call_framed(rows, **options):
+    capture = framed(rows, **options)
+    capture[0] += " recording_id=identified-allocator-test-run"
+    capture[-1] += " recording_id=identified-allocator-test-run"
+    return capture
 
 
 class TraceConversionTests(unittest.TestCase):
@@ -320,6 +338,198 @@ class TraceConversionTests(unittest.TestCase):
             self.assertEqual(capture.read_text(), original)
             invalid = subprocess.run([sys.executable, str(SCRIPT), str(capture), str(capture)], capture_output=True, text=True)
             self.assertNotEqual(invalid.returncode, 0)
+
+
+class HeapCallConversionTests(unittest.TestCase):
+    def test_exact_returned_pointer_failure_and_large_call_identity(self):
+        identity = (1 << 53) + 9
+        trace = CONVERTER.convert(call_framed([
+            row(1_000_000_003, call_request(identity)),
+            row(1_000_000_017, call_result(identity)),
+            row(1_000_000_020, call_request(identity + 1, "realloc", size=4096, old="0x4000")),
+            row(1_000_000_049, call_result(identity + 1, "realloc", result="0x0", outcome="failure")),
+        ]))
+        calls = intervals(json.loads(CONVERTER.encode_trace(trace), parse_float=Decimal), "heap")
+        self.assertEqual([(item["ts"], item["dur"]) for item in calls],
+                         [(Decimal(0), Decimal("0.014")), (Decimal("0.017"), Decimal("0.029"))])
+        success, failure = (item["args"] for item in calls)
+        self.assertEqual(success["request_id"], str(identity))
+        self.assertEqual(success["result_address"], "0x4000")
+        self.assertEqual((success["outcome"], success["failed"]), ("succeeded", False))
+        self.assertEqual((failure["outcome"], failure["failed"]), ("failed", True))
+        self.assertEqual((failure["old_address"], failure["requested_bytes"]), ("0x4000", 4096))
+        self.assertNotIn("failure_reason", failure)  # A null result does not identify the cause.
+        self.assertNotIn("allocation_generation", success)
+        self.assertEqual(trace["otherData"]["nxrs"]["heap_call_counts"],
+                         dict(requests=2, results=2, paired=2, failed=1, incomplete_requests=0, orphan_results=0))
+
+    def test_nested_backing_calls_remain_distinct_and_keep_input_attribution(self):
+        trace = CONVERTER.convert(call_framed([
+            row(10, call_request(8, "memalign", size=17, alignment=64, caller="0x101")),
+            row(20, call_request(9, size=128, caller="0x205")),
+            row(30, call_result(9, result="0x4020")),
+            row(40, call_result(8, "memalign", result="0x4040")),
+        ]))
+        outer, inner = intervals(trace, "heap")
+        self.assertEqual((outer["name"], inner["name"]), ("memalign", "malloc"))
+        self.assertEqual(outer["tid"], inner["tid"])
+        self.assertEqual([event["args"]["requested_bytes"] for event in (outer, inner)], [17, 128])
+        self.assertEqual([event["args"]["caller"] for event in (outer, inner)], ["0x101", "0x205"])
+        self.assertEqual(outer["args"]["alignment"], 64)
+        self.assertEqual(inner["args"]["result_address"], "0x4020")
+        self.assertTrue(all("internal backing" in event["args"]["call_scope"] for event in (outer, inner)))
+
+    def test_crossing_calls_on_preempted_tasks_use_separate_tracks(self):
+        trace = CONVERTER.convert(call_framed([
+            row(10, call_request(11), pid=7),
+            row(20, call_request(12, heap="0xb"), pid=8),
+            row(30, call_result(11), pid=7),
+            row(40, call_result(12, heap="0xb"), pid=8),
+        ]))
+        calls = intervals(trace, "heap")
+        self.assertEqual(len({call["tid"] for call in calls}), 2)
+        self.assertEqual([call["args"]["task_id"] for call in calls], [7, 8])
+        self.assertTrue(all(call["args"]["cpu"] == 0 for call in calls))
+
+    def test_task_migration_and_cross_cpu_append_order_keep_exact_call_endpoints(self):
+        trace = CONVERTER.convert(call_framed([
+            row(20, call_request(12), cpu=1, pid=8),
+            row(10, call_request(11), cpu=0, pid=7),
+            row(30, call_result(11), cpu=1, pid=7),
+            row(40, call_result(12), cpu=0, pid=8),
+        ]))
+        calls = intervals(trace, "heap")
+        self.assertEqual([call["args"]["request_id"] for call in calls], ["11", "12"])
+        self.assertEqual((calls[0]["ts"], calls[0]["dur"]), (0, Decimal("0.020")))
+        self.assertEqual((calls[0]["args"]["cpu"], calls[0]["args"]["result_cpu"]), (0, 1))
+
+    def test_zero_size_uses_explicit_native_outcome_without_inventing_release(self):
+        for operation, old, alignment in [("malloc", "0x0", 0), ("realloc", "0x4000", 0),
+                                          ("memalign", "0x0", 64)]:
+            with self.subTest(operation=operation):
+                trace = CONVERTER.convert(call_framed([
+                    row(10, call_request(1, operation, size=0, old=old, alignment=alignment)),
+                    row(20, call_result(1, operation)),
+                ]))
+                args = intervals(trace, "heap")[0]["args"]
+                self.assertEqual((args["requested_bytes"], args["outcome"], args["failed"]), (0, "succeeded", False))
+                self.assertNotIn("released", args)
+
+    def test_unmatched_endpoints_do_not_fabricate_outcomes_or_request_counts(self):
+        trace = CONVERTER.convert(call_framed([
+            row(10, call_result(7, result="(nil)", outcome="failure")),
+            row(20, call_request(8, "realloc", old="0x4000")),
+        ]))
+        self.assertEqual(intervals(trace, "heap"), [])
+        points = [event for event in trace["traceEvents"] if event["ph"] == "i"]
+        self.assertEqual(len(points), 2)
+        orphan, pending = (point["args"] for point in points)
+        self.assertFalse(orphan["request_observed"])
+        self.assertEqual(orphan["observed_outcome"], "failed")
+        self.assertNotIn("requested_bytes", orphan)
+        self.assertTrue(pending["request_observed"])
+        self.assertEqual(pending["old_address"], "0x4000")
+        for args in (orphan, pending):
+            self.assertTrue(args["duration_unknown"])
+            self.assertNotIn("outcome", args)
+            self.assertNotIn("failed", args)
+            self.assertIn("incomplete_reason", args)
+        self.assertFalse(trace["otherData"]["nxrs"]["complete"])
+
+    def test_located_loss_breaks_pending_pair_and_later_calls_recover(self):
+        trace = CONVERTER.convert(call_framed([
+            row(10, call_request(1)),
+            "LOST_EVENTS count=2",
+            row(20, call_result(1)),
+            row(30, call_request(2)),
+            row(40, call_result(2)),
+        ]))
+        self.assertEqual([event["args"]["request_id"] for event in intervals(trace, "heap")], ["2"])
+        counts = trace["otherData"]["nxrs"]["heap_call_counts"]
+        self.assertEqual((counts["paired"], counts["incomplete_requests"], counts["orphan_results"]), (1, 1, 1))
+
+    def test_unlocated_loss_preserves_only_independent_endpoint_observations(self):
+        trace = CONVERTER.convert(call_framed([
+            row(10, call_request(1)), row(20, call_result(1, result="0x0", outcome="failure")),
+        ], lost=1, mode=2))
+        self.assertEqual(intervals(trace, "heap"), [])
+        observations = [event["args"] for event in trace["traceEvents"] if event["ph"] == "i"]
+        self.assertTrue(all("outcome" not in args and "failed" not in args for args in observations))
+        self.assertEqual(trace["otherData"]["nxrs"]["heap_call_counts"]["failed"], 0)
+
+    def test_bad_identity_reuse_order_and_result_contradictions_are_rejected(self):
+        invalid = [
+            [row(10, call_request(1)), row(20, call_request(1))],
+            [row(10, call_result(1)), row(20, call_result(1))],
+            [row(10, call_result(1)), row(20, call_request(1))],
+            [row(10, call_request(1)), row(20, call_result(1, heap="0xb"))],
+            [row(10, call_request(1)), row(20, call_result(1, "realloc"))],
+            [row(10, call_request(1)), row(20, call_result(1), pid=8)],
+            [row(20, call_request(1)), row(10, call_result(1))],
+            [row(10, call_request(1)), row(20, call_result(1, result="0x0"))],
+            [row(10, call_request(1)), row(20, call_result(1, outcome="failure"))],
+            [row(10, call_request(1)), row(20, call_result(1)), row(30, call_request(1))],
+        ]
+        for rows in invalid:
+            with self.subTest(rows=rows), self.assertRaises(ValueError):
+                CONVERTER.convert(call_framed(rows))
+
+    def test_invalid_width_zero_id_pointer_and_native_arguments_are_rejected(self):
+        invalid = [call_request(0), call_request(1 << 64), call_request(1, size=1 << 64),
+                   call_request(1, heap="0x0"), call_request(1, heap="0x10000000000000000"),
+                   call_request(1, caller="missing"), call_request(1, old="0x4000"),
+                   call_request(1, alignment=64), call_request(1, "memalign", alignment=1 << 64),
+                   call_result(0), call_result(1, result="0x10000000000000000"),
+                   call_result(1, outcome="released")]
+        for payload in invalid:
+            with self.subTest(payload=payload), self.assertRaises(ValueError):
+                CONVERTER.convert(call_framed([row(10, payload)]))
+
+    def test_missing_task_identity_uses_independent_tracks(self):
+        trace = CONVERTER.convert(call_framed([
+            f"[0] 1.000000010: {call_request(1)}", f"[0] 1.000000020: {call_request(2)}",
+            f"[0] 1.000000030: {call_result(1)}", f"[0] 1.000000040: {call_result(2)}",
+        ]))
+        self.assertEqual(len({event["tid"] for event in intervals(trace, "heap")}), 2)
+
+    def test_pending_calls_are_bounded_and_completed_calls_release_pending_capacity(self):
+        with patch.object(CONVERTER._HeapCalls, "MAX_PENDING", 2):
+            with self.assertRaisesRegex(ValueError, "pending allocator-call bound"):
+                CONVERTER.convert(call_framed([row(index * 10, call_request(index)) for index in (1, 2, 3)]))
+            trace = CONVERTER.convert(call_framed([row(10, call_request(1)), row(20, call_request(2)),
+                                                   row(30, call_result(2)), row(40, call_request(3)),
+                                                   row(50, call_result(3)), row(60, call_result(1))]))
+            self.assertEqual(len(intervals(trace, "heap")), 3)
+
+    def test_unidentified_capture_cannot_pair_across_a_reset(self):
+        endpoints = [row(1_000_000_010, call_request(1)), row(2_000_000_040, call_result(1))]
+        for rows in [endpoints, framed(endpoints),
+                     [endpoints[0], "NuttShell (NSH) restarted", endpoints[1]]]:
+            with self.subTest(rows=rows):
+                trace = CONVERTER.convert(rows)
+                self.assertEqual(intervals(trace, "heap"), [])
+                points = [event for event in trace["traceEvents"] if event["ph"] == "i"]
+                self.assertEqual(len(points), 2)
+                self.assertTrue(all("reset continuity" in event["args"]["incomplete_reason"] for event in points))
+                self.assertTrue(all("failed" not in event["args"] for event in points))
+        identified = call_framed(endpoints)
+        identified[-1] = identified[-1].replace("identified-allocator-test-run", "different-boot")
+        with self.assertRaisesRegex(ValueError, "recording_id"):
+            CONVERTER.convert(identified)
+
+    def test_crossing_completed_calls_fail_but_a_missing_inner_result_stays_unknown(self):
+        with self.assertRaisesRegex(ValueError, "Crossing native allocator calls"):
+            CONVERTER.convert(call_framed([
+                row(10, call_request(1)), row(20, call_request(2)),
+                row(30, call_result(1)), row(40, call_result(2)),
+            ]))
+        trace = CONVERTER.convert(call_framed([
+            row(10, call_request(1)), row(20, call_request(2)), row(30, call_result(1)),
+        ]))
+        self.assertEqual([event["args"]["request_id"] for event in intervals(trace, "heap")], ["1"])
+        unknown = [event for event in trace["traceEvents"] if event["ph"] == "i"]
+        self.assertEqual(unknown[0]["args"]["request_id"], "2")
+        self.assertNotIn("outcome", unknown[0]["args"])
 
 
 if __name__ == "__main__":

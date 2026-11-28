@@ -36,6 +36,7 @@ members = [
     "service/stream",
     "shared/acquisition",
     "shared/messaging",
+    "shared/lock-order",
     "shared/simulation",
     "service/navigation",
     "service/logging",

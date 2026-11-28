@@ -1,6 +1,6 @@
 //! Fixed display and communications readers of the latest sensor observations.
 
-use super::{Input, Measurement, Observation, Reading, SensorFault, Snapshot, Source};
+use super::{Input, Measurement, Observation, Reading, SensorFault, Snapshot};
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,
@@ -23,39 +23,47 @@ impl<const IMUS: usize> Faults<IMUS> {
     }
 }
 
-struct Pair<T: Copy + Send>([WriteSlot<Source<T>>; 2], Duration);
+#[derive(Clone, Copy)]
+struct Sample<T> {
+    value: T,
+    received: Instant,
+}
+
+// Keep freshness at the reader and initialize the shared storage with None.
+// Copying the initialized Source into the padded buffers triggered Xtensa
+// stack realignment when the pinned compiler inlined tracker startup.
+// None is Waiting, Some(Err(())) is explicit Stale, and Some(Ok(sample))
+// carries a sample whose freshness is evaluated by each reader.
+type Slot<T> = Option<Result<Sample<T>, ()>>;
+
+struct Pair<T: Copy + Send>([WriteSlot<Slot<T>>; 2]);
 
 impl<T: Copy + Send> Pair<T> {
-    fn new(fresh_for: Duration) -> (Self, [Output<Source<T>>; 2]) {
-        let initial = Source::new(fresh_for);
-        let (left, display) = triple_buffer(&initial);
-        let (right, links) = triple_buffer(&initial);
-        (Self([left, right], fresh_for), [display, links])
+    fn new() -> (Self, [Output<Slot<T>>; 2]) {
+        let (left, display) = triple_buffer(&None);
+        let (right, links) = triple_buffer(&None);
+        (Self([left, right]), [display, links])
     }
 
     fn publish(&mut self, sample: T, received: Instant) {
-        let mut value = Source::new(self.1);
-        value.receive(sample, received);
         for input in &mut self.0 {
-            input.write(value);
+            input.write(Some(Ok(Sample {
+                value: sample,
+                received,
+            })));
         }
     }
 
     fn stale(&mut self) {
-        let mut value = Source::new(self.1);
-        value.stale();
         for input in &mut self.0 {
-            input.write(value);
+            input.write(Some(Err(())));
         }
     }
 }
 
 enum SourceSlots {
     Imu(usize, Pair<imu::ImuSample>),
-    Gnss(
-        Pair<gnss::GnssFix>,
-        WriteSlot<Source<gnss::SatelliteReport>>,
-    ),
+    Gnss(Pair<gnss::GnssFix>, WriteSlot<Slot<gnss::SatelliteReport>>),
 }
 
 /// Owned by the callback of one acquisition session.
@@ -93,11 +101,10 @@ impl<const IMUS: usize> Publisher<IMUS> {
                     return Ok(None);
                 }
                 gnss::Event::Satellites(report) => {
-                    let mut value = Source::new(Duration::from_millis(
-                        2 * u64::from(report.interval_ms.max(3_000)),
-                    ));
-                    value.receive(report, received);
-                    satellites.write(value);
+                    satellites.write(Some(Ok(Sample {
+                        value: report,
+                        received,
+                    })));
                     return Ok(None);
                 }
                 gnss::Event::InvalidFrame => return Ok(None),
@@ -116,9 +123,11 @@ impl<const IMUS: usize> Publisher<IMUS> {
 /// One independent polling reader. Each source is complete; sources may
 /// represent different instants. Only the display subscribes to satellites.
 pub struct FixedReader<const IMUS: usize> {
-    imu: [Output<Source<imu::ImuSample>>; IMUS],
-    gnss: Output<Source<gnss::GnssFix>>,
-    satellites: Option<Output<Source<gnss::SatelliteReport>>>,
+    imu: [Output<Slot<imu::ImuSample>>; IMUS],
+    gnss: Output<Slot<gnss::GnssFix>>,
+    satellites: Option<Output<Slot<gnss::SatelliteReport>>>,
+    imu_fresh_for: Duration,
+    gnss_fresh_for: Duration,
     faults: Arc<Faults<IMUS>>,
 }
 
@@ -126,16 +135,22 @@ impl<const IMUS: usize> FixedReader<IMUS> {
     pub fn snapshot(&mut self, now: Instant) -> Snapshot<IMUS> {
         Snapshot {
             imu: std::array::from_fn(|index| {
-                read(&mut self.imu[index], &self.faults.imu[index], now)
+                read(&mut self.imu[index], &self.faults.imu[index], now, |_| {
+                    self.imu_fresh_for
+                })
             }),
-            gnss: Some(read(&mut self.gnss, &self.faults.gnss, now)),
+            gnss: Some(read(&mut self.gnss, &self.faults.gnss, now, |_| {
+                self.gnss_fresh_for
+            })),
         }
     }
 
     pub fn satellites(&mut self, now: Instant) -> Reading<gnss::SatelliteReport> {
-        self.satellites
-            .as_mut()
-            .map_or(Reading::Waiting, |slot| read(slot, &self.faults.gnss, now))
+        self.satellites.as_mut().map_or(Reading::Waiting, |slot| {
+            read(slot, &self.faults.gnss, now, |report| {
+                Duration::from_millis(2 * u64::from(report.interval_ms.max(3_000)))
+            })
+        })
     }
 
     /// Retain a start or joined failure even if the worker never notified.
@@ -145,15 +160,23 @@ impl<const IMUS: usize> FixedReader<IMUS> {
 }
 
 fn read<T: Copy + Send>(
-    slot: &mut Output<Source<T>>,
+    slot: &mut Output<Slot<T>>,
     fault: &AtomicBool,
     now: Instant,
+    fresh_for: impl FnOnce(&T) -> Duration,
 ) -> Reading<T> {
-    let value = slot.read();
+    let sample = *slot.read();
     if fault.load(Ordering::Acquire) {
-        Reading::Fault
-    } else {
-        value.reading(now)
+        return Reading::Fault;
+    }
+    match sample {
+        None => Reading::Waiting,
+        Some(Ok(Sample { value, received }))
+            if now.saturating_duration_since(received) < fresh_for(&value) =>
+        {
+            Reading::Live(value)
+        }
+        Some(_) => Reading::Stale,
     }
 }
 
@@ -171,12 +194,12 @@ pub fn fixed_readers<const IMUS: usize>(
         imu: std::array::from_fn(|_| AtomicBool::new(false)),
         gnss: AtomicBool::new(false),
     });
-    let (gnss, [display_fix, links_fix]) = Pair::new(gnss_fresh_for);
-    let (satellites, display_satellites) = triple_buffer(&Source::new(Duration::ZERO));
+    let (gnss, [display_fix, links_fix]) = Pair::new();
+    let (satellites, display_satellites) = triple_buffer(&None);
     let mut display = std::array::from_fn(|_| None);
     let mut links = std::array::from_fn(|_| None);
     let imus = std::array::from_fn(|index| {
-        let (pair, [display_slot, links_slot]) = Pair::new(imu_fresh_for);
+        let (pair, [display_slot, links_slot]) = Pair::new();
         display[index] = Some(display_slot);
         links[index] = Some(links_slot);
         Publisher {
@@ -195,12 +218,16 @@ pub fn fixed_readers<const IMUS: usize>(
                 imu: display.map(Option::unwrap),
                 gnss: display_fix,
                 satellites: Some(display_satellites),
+                imu_fresh_for,
+                gnss_fresh_for,
                 faults: faults.clone(),
             },
             FixedReader {
                 imu: links.map(Option::unwrap),
                 gnss: links_fix,
                 satellites: None,
+                imu_fresh_for,
+                gnss_fresh_for,
                 faults,
             },
         ],
