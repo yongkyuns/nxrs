@@ -116,6 +116,19 @@ fn actual_native_calls_match_return_rows_and_imported_outcomes() {
     let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let build = json(&build_dir.join("build.json"));
     let report = json(&capture_dir.join("report.json"));
+    let sources = &report["capture_sources_sha256"];
+    assert_eq!(sources.as_object().unwrap().len(), 3);
+    for source in [
+        "tools/memory-explorer/tests/qualify_requests_qemu.py",
+        "tools/memory-explorer/tests/qemu_console.py",
+        "tools/nuttx-trace-to-perfetto.py",
+    ] {
+        assert_eq!(
+            sources[source],
+            sha256(&repo.join(source)),
+            "capture source differs"
+        );
+    }
     let console = fs::read_to_string(capture_dir.join("console.log")).unwrap();
     assert!(!console.contains("NXRS_HEAP_REQUESTS FAIL"));
     assert_eq!(

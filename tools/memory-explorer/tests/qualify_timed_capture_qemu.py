@@ -24,6 +24,7 @@ import time
 
 from build_timed_capture_nuttx import SYSTICK_PATCH, SYSTICK_SOURCE
 from build_timing_nuttx import APPS_REVISION, NUTTX_REVISION
+from qemu_console import nsh_prompt_ready
 
 
 FREQUENCY = 20_000_000
@@ -250,13 +251,13 @@ def capture(qemu, image, command, output, timeout):
                 raise RuntimeError("Timed capture console exceeded 4 MiB")
             if b"Assertion failed" in console or b"NXRS_TIMED_WITNESS FAIL" in console:
                 raise RuntimeError("Native boot/workload failed; inspect the retained console.log")
-            if not sent and b"nsh>" in console:
+            if not sent and nsh_prompt_ready(console):
                 for byte in (command + "\n").encode("ascii"):
                     process.stdin.write(bytes((byte,)))
                     process.stdin.flush()
                     time.sleep(0.01)
                 sent = True
-            if sent and b"NXRS_TIMED_WITNESS " in console and console.rstrip().endswith(b"nsh>"):
+            if sent and b"NXRS_TIMED_WITNESS " in console and nsh_prompt_ready(console):
                 return bytes(console)
         raise TimeoutError("Native timed capture exceeded its bounded host deadline")
     finally:
@@ -271,7 +272,8 @@ def capture(qemu, image, command, output, timeout):
 
 def capture_sources(repository):
     return {path: sha256(repository / path) for path in (
-        "tools/memory-explorer/tests/qualify_timed_capture_qemu.py", "tools/nuttx-trace-to-perfetto.py")}
+        "tools/memory-explorer/tests/qualify_timed_capture_qemu.py",
+        "tools/memory-explorer/tests/qemu_console.py", "tools/nuttx-trace-to-perfetto.py")}
 
 
 def validate_build_sources(build, repository):

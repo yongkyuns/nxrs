@@ -2,11 +2,15 @@
 
 from copy import deepcopy
 import hashlib
+import io
+import itertools
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
+from unittest.mock import Mock, patch
 
 from build_timed_capture_nuttx import SYSTICK_PATCH, SYSTICK_SOURCE
+import qualify_timed_capture_qemu as timed_capture
 from qualify_timed_capture_qemu import native_evidence, validate_build_sources
 
 
@@ -106,6 +110,67 @@ def synthetic_console(duplicate_operation=False):
         "NXRS_TIMED_WITNESS PASS",
     ])
     return ("\n".join(rows) + "\n").encode("ascii")
+
+
+class TimedConsoleCapture(unittest.TestCase):
+    def capture(self, *chunks):
+        remaining = [b"NuttShell\r\nnsh> \x1b[K", *chunks]
+        consumed = []
+        process = Mock(stdin=io.BytesIO(), stdout=Mock(), pid=1234)
+        clock = itertools.count()
+
+        def read(_descriptor, _size):
+            data = remaining.pop(0)
+            consumed.append(data)
+            return data
+
+        def ready(*_args):
+            return ([process.stdout] if remaining else [], [], [])
+
+        with TemporaryDirectory() as directory:
+            output = Path(directory)
+            with patch.object(timed_capture.subprocess, "Popen", return_value=process), \
+                 patch.object(timed_capture.select, "select", side_effect=ready), \
+                 patch.object(timed_capture.os, "read", side_effect=read), \
+                 patch.object(timed_capture.os, "killpg", create=True), \
+                 patch.object(timed_capture.signal, "SIGKILL", 9, create=True), \
+                 patch.object(timed_capture.time, "monotonic", side_effect=lambda: next(clock)), \
+                 patch.object(timed_capture.time, "sleep"):
+                try:
+                    return timed_capture.capture(Path("qemu"), Path("nuttx"),
+                                                 "timed_capture 2 recorded normal", output, 10)
+                finally:
+                    self.assertEqual((output / "console.log").read_bytes(), b"".join(consumed))
+                    self.assertEqual(process.stdin.getvalue(), b"timed_capture 2 recorded normal\n")
+
+    def test_complete_erase_line_prompt_finishes_without_losing_raw_bytes(self):
+        # The failed native overflow capture ended with this exact suffix.
+        tail = b"NXRS_TIMED_WITNESS PASS\r\nnsh> \x1b[K"
+        self.assertEqual(self.capture(tail), b"NuttShell\r\nnsh> \x1b[K" + tail)
+
+    def test_plain_and_fragmented_prompts_finish_after_the_witness(self):
+        for chunks in (
+            (b"NXRS_TIMED_WITNESS PASS\r\nnsh> ",),
+            (b"NXRS_TIMED_WITNESS PASS\r\nnsh> \x1b", b"[", b"K"),
+            (b"NXRS_TIMED_WITNESS PASS\r\nnsh", b"> "),
+        ):
+            with self.subTest(chunks=chunks):
+                self.assertEqual(self.capture(*chunks), b"NuttShell\r\nnsh> \x1b[K" + b"".join(chunks))
+
+    def test_prompt_alone_or_incomplete_output_keeps_the_existing_deadline(self):
+        for tail in (
+            b"work still running\r\nnsh> \x1b[K",
+            b"NXRS_TIMED_WITNESS PASS\r\nnsh> \x1b[",
+            b"NXRS_TIMED_WITNESS PASS\r\nnsh> \x1b[Kmore output",
+            b"NXRS_TIMED_WITNESS PASS\r\nvalue nsh> ",
+        ):
+            with self.subTest(tail=tail):
+                with self.assertRaisesRegex(TimeoutError, "bounded host deadline"):
+                    self.capture(tail)
+
+    def test_native_failure_is_rejected_even_with_a_complete_prompt(self):
+        with self.assertRaisesRegex(RuntimeError, "Native boot/workload failed"):
+            self.capture(b"NXRS_TIMED_WITNESS FAIL\r\nnsh> \x1b[K")
 
 
 class NativeMarkerAdmission(unittest.TestCase):

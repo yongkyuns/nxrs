@@ -250,17 +250,18 @@ fn validate_build(build: &Value, report: &Value, build_dir: &Path, repo: &Path) 
     for (container, expected) in [
         (
             &build["build_sources_sha256"],
-            [
+            &[
                 "tools/memory-explorer/tests/build_timed_capture_nuttx.py",
                 "tools/memory-explorer/tests/build_timing_nuttx.py",
-            ],
+            ][..],
         ),
         (
             &report["capture_sources_sha256"],
-            [
+            &[
                 "tools/memory-explorer/tests/qualify_timed_capture_qemu.py",
+                "tools/memory-explorer/tests/qemu_console.py",
                 "tools/nuttx-trace-to-perfetto.py",
-            ],
+            ][..],
         ),
     ] {
         assert_eq!(
@@ -270,7 +271,7 @@ fn validate_build(build: &Value, report: &Value, build_dir: &Path, repo: &Path) 
                 .keys()
                 .map(String::as_str)
                 .collect::<BTreeSet<_>>(),
-            BTreeSet::from(expected)
+            expected.iter().copied().collect::<BTreeSet<_>>()
         );
         for (source, hash) in container.as_object().unwrap() {
             assert_eq!(hash, &Value::String(sha256(&repo.join(source))));

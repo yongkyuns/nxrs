@@ -99,6 +99,19 @@ fn imports_real_timing_and_matches_independent_uart_endpoints() {
     let build_dir = elf.parent().unwrap();
     let build = json(&build_dir.join("build.json"));
     let report = json(&evidence.join("report.json"));
+    let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let sources = &report["capture_sources_sha256"];
+    assert_eq!(sources.as_object().unwrap().len(), 2);
+    for source in [
+        "tools/memory-explorer/tests/qualify_timing_qemu.py",
+        "tools/memory-explorer/tests/qemu_console.py",
+    ] {
+        assert_eq!(
+            sources[source],
+            sha256(&repo.join(source)),
+            "capture source differs"
+        );
+    }
     let console = fs::read_to_string(evidence.join("console.log")).unwrap();
     let (raw, begin, end) = notes(&console);
     assert!(
