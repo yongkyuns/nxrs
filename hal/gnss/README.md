@@ -96,16 +96,16 @@ observation, and `Event::AidingReady` does not refresh navigation measurements.
 use gnss::aiding::{Aid, AidingHandle, RequestId, SubmitError, TimeAid};
 
 fn seed_time(
-    session: &mut impl gnss::Session,
+    aiding: &mut AidingHandle,
     sample: TimeAid, // Supplied by a validated source with an honest error bound.
-) -> Result<(AidingHandle, RequestId), SubmitError> {
-    let mut aiding = session.aiding().ok_or(SubmitError::Unsupported)?;
-    let id = aiding.try_submit(Aid::Time(sample))?;
-    Ok((aiding, id))
+) -> Result<RequestId, SubmitError> {
+    aiding.try_submit(Aid::Time(sample))
 }
 
-// Keep the handle. Reconcile it on AidingReady, other wakes, and a bounded
-// caller deadline. Reading a completion frees the slot for the next hint.
+// Take the handle once from session.aiding() and keep it in the coordinator,
+// including when seed_time returns Busy or rejects an input. Reconcile it on
+// AidingReady, other wakes, and a bounded caller deadline. Reading a completion
+// frees the slot for the next hint.
 if let Some(completion) = aiding.try_completion() {
     // Match completion.id and handle completion.result in the aiding owner.
 }
