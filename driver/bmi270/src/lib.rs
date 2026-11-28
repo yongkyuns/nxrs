@@ -173,8 +173,6 @@ pub enum Error {
     Bus,
     InvalidData,
     Timeout,
-    /// The FIFO length and sensor clock could not be read in the same slot.
-    UnstableSnapshot,
     Overflow,
 }
 
@@ -394,7 +392,7 @@ impl<T: Registers, D: DelayNs> Device<T, D> {
                 end_us,
             ));
         }
-        Err(Error::UnstableSnapshot)
+        Err(Error::Timeout)
     }
 
     /// Drain after an IRQ or ODR-derived wake. FIFO contents alone admit samples.

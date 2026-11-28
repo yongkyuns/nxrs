@@ -45,7 +45,7 @@ impl From<peripheral::imu::Error> for DeviceError {
             Error::Unsupported => Self::Unsupported,
             Error::InvalidData => Self::InvalidData,
             Error::Io => Self::Io,
-            Error::Timeout | Error::WouldBlock => Self::Timeout,
+            Error::Timeout => Self::Timeout,
             Error::Overflow => Self::Full,
         }
     }

@@ -8,7 +8,6 @@ impl From<Error> for imu::Error {
             Error::Bus => Self::Io,
             Error::InvalidData => Self::InvalidData,
             Error::Timeout => Self::Timeout,
-            Error::UnstableSnapshot => Self::WouldBlock,
             Error::Overflow => Self::Overflow,
         }
     }
