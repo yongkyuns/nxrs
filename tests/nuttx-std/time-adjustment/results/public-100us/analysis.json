@@ -1,0 +1,1363 @@
+{
+  "schema": 1,
+  "tick_us": 100,
+  "runs": [
+    {
+      "characterization_complete": true,
+      "qualified": true,
+      "begin": {
+        "kind": "begin",
+        "schema": 1,
+        "features": 3,
+        "tick_us": 100
+      },
+      "phases": {
+        "baseline": {
+          "kind": "phase",
+          "name": "baseline",
+          "request_us": 0,
+          "reference_ns": 4500000750,
+          "monotonic_ns": 4500001000,
+          "wall_ns": 4500000000,
+          "uncertainty_ns": 234600,
+          "reads": 179988,
+          "realtime_regressions": 0,
+          "monotonic_regressions": 0,
+          "min_realtime_delta_ns": 0,
+          "max_read_span_ns": 40950,
+          "pending_us": 0,
+          "slew_discontinuities": 0,
+          "max_slew_excess_ns": 0,
+          "max_slew_uncertainty_ns": 258316
+        },
+        "positive": {
+          "kind": "phase",
+          "name": "positive",
+          "request_us": 2000,
+          "reference_ns": 4500019225,
+          "monotonic_ns": 4500020000,
+          "wall_ns": 4502000000,
+          "uncertainty_ns": 235850,
+          "reads": 169559,
+          "realtime_regressions": 0,
+          "monotonic_regressions": 0,
+          "min_realtime_delta_ns": 0,
+          "max_read_span_ns": 43400,
+          "pending_us": 0,
+          "slew_discontinuities": 0,
+          "max_slew_excess_ns": 0,
+          "max_slew_uncertainty_ns": 262017
+        },
+        "negative": {
+          "kind": "phase",
+          "name": "negative",
+          "request_us": -2000,
+          "reference_ns": 4500017825,
+          "monotonic_ns": 4500019000,
+          "wall_ns": 4498000050,
+          "uncertainty_ns": 235950,
+          "reads": 168080,
+          "realtime_regressions": 0,
+          "monotonic_regressions": 0,
+          "min_realtime_delta_ns": 0,
+          "max_read_span_ns": 43750,
+          "pending_us": 0,
+          "slew_discontinuities": 0,
+          "max_slew_excess_ns": 0,
+          "max_slew_uncertainty_ns": 262467
+        },
+        "near_second": {
+          "kind": "phase",
+          "name": "near_second",
+          "request_us": -2000,
+          "reference_ns": 4500028800,
+          "monotonic_ns": 4500041000,
+          "wall_ns": 4498100000,
+          "uncertainty_ns": 259400,
+          "reads": 168080,
+          "realtime_regressions": 0,
+          "monotonic_regressions": 0,
+          "min_realtime_delta_ns": 0,
+          "max_read_span_ns": 43750,
+          "pending_us": 0,
+          "slew_discontinuities": 0,
+          "max_slew_excess_ns": 0,
+          "max_slew_uncertainty_ns": 262467
+        },
+        "replacement": {
+          "kind": "phase",
+          "name": "replacement",
+          "request_us": -2000,
+          "reference_ns": 4500029025,
+          "monotonic_ns": 4500041000,
+          "wall_ns": 4498100000,
+          "uncertainty_ns": 259350,
+          "reads": 168078,
+          "realtime_regressions": 0,
+          "monotonic_regressions": 0,
+          "min_realtime_delta_ns": 0,
+          "max_read_span_ns": 43750,
+          "pending_us": 0,
+          "slew_discontinuities": 0,
+          "max_slew_excess_ns": 0,
+          "max_slew_uncertainty_ns": 262467
+        },
+        "cancelled": {
+          "kind": "phase",
+          "name": "cancelled",
+          "request_us": 0,
+          "reference_ns": 4500000625,
+          "monotonic_ns": 4500001000,
+          "wall_ns": 4500000000,
+          "uncertainty_ns": 234650,
+          "reads": 179988,
+          "realtime_regressions": 0,
+          "monotonic_regressions": 0,
+          "min_realtime_delta_ns": 0,
+          "max_read_span_ns": 40950,
+          "pending_us": 0,
+          "slew_discontinuities": 0,
+          "max_slew_excess_ns": 0,
+          "max_slew_uncertainty_ns": 258316
+        }
+      },
+      "pending": [
+        {
+          "kind": "pending",
+          "phase": "baseline",
+          "index": 0,
+          "elapsed_ns": 1000073375,
+          "remaining_us": 0,
+          "uncertainty_us": 2,
+          "expected_remaining_us": 0
+        },
+        {
+          "kind": "pending",
+          "phase": "baseline",
+          "index": 1,
+          "elapsed_ns": 2000072925,
+          "remaining_us": 0,
+          "uncertainty_us": 2,
+          "expected_remaining_us": 0
+        },
+        {
+          "kind": "pending",
+          "phase": "baseline",
+          "index": 2,
+          "elapsed_ns": 3000072750,
+          "remaining_us": 0,
+          "uncertainty_us": 2,
+          "expected_remaining_us": 0
+        },
+        {
+          "kind": "pending",
+          "phase": "baseline",
+          "index": 3,
+          "elapsed_ns": 4000072150,
+          "remaining_us": 0,
+          "uncertainty_us": 2,
+          "expected_remaining_us": 0
+        },
+        {
+          "kind": "pending",
+          "phase": "positive",
+          "index": 0,
+          "elapsed_ns": 1000080925,
+          "remaining_us": 1500,
+          "uncertainty_us": 2,
+          "expected_remaining_us": 1500
+        },
+        {
+          "kind": "pending",
+          "phase": "positive",
+          "index": 1,
+          "elapsed_ns": 2000072250,
+          "remaining_us": 1000,
+          "uncertainty_us": 2,
+          "expected_remaining_us": 1000
+        },
+        {
+          "kind": "pending",
+          "phase": "positive",
+          "index": 2,
+          "elapsed_ns": 3000080400,
+          "remaining_us": 500,
+          "uncertainty_us": 2,
+          "expected_remaining_us": 500
+        },
+        {
+          "kind": "pending",
+          "phase": "positive",
+          "index": 3,
+          "elapsed_ns": 4000065475,
+          "remaining_us": 0,
+          "uncertainty_us": 2,
+          "expected_remaining_us": 0
+        },
+        {
+          "kind": "pending",
+          "phase": "negative",
+          "index": 0,
+          "elapsed_ns": 1000068025,
+          "remaining_us": -1500,
+          "uncertainty_us": 2,
+          "expected_remaining_us": -1500
+        },
+        {
+          "kind": "pending",
+          "phase": "negative",
+          "index": 1,
+          "elapsed_ns": 2000061725,
+          "remaining_us": -1000,
+          "uncertainty_us": 2,
+          "expected_remaining_us": -1000
+        },
+        {
+          "kind": "pending",
+          "phase": "negative",
+          "index": 2,
+          "elapsed_ns": 3000067825,
+          "remaining_us": -500,
+          "uncertainty_us": 2,
+          "expected_remaining_us": -500
+        },
+        {
+          "kind": "pending",
+          "phase": "negative",
+          "index": 3,
+          "elapsed_ns": 4000068425,
+          "remaining_us": 0,
+          "uncertainty_us": 2,
+          "expected_remaining_us": 0
+        },
+        {
+          "kind": "pending",
+          "phase": "near_second",
+          "index": 0,
+          "elapsed_ns": 1000066500,
+          "remaining_us": -1500,
+          "uncertainty_us": 2,
+          "expected_remaining_us": -1500
+        },
+        {
+          "kind": "pending",
+          "phase": "near_second",
+          "index": 1,
+          "elapsed_ns": 2000072000,
+          "remaining_us": -1000,
+          "uncertainty_us": 2,
+          "expected_remaining_us": -1000
+        },
+        {
+          "kind": "pending",
+          "phase": "near_second",
+          "index": 2,
+          "elapsed_ns": 3000056525,
+          "remaining_us": -500,
+          "uncertainty_us": 2,
+          "expected_remaining_us": -500
+        },
+        {
+          "kind": "pending",
+          "phase": "near_second",
+          "index": 3,
+          "elapsed_ns": 4000056250,
+          "remaining_us": 0,
+          "uncertainty_us": 2,
+          "expected_remaining_us": 0
+        },
+        {
+          "kind": "pending",
+          "phase": "replacement",
+          "index": 0,
+          "elapsed_ns": 1000059900,
+          "remaining_us": -1500,
+          "uncertainty_us": 2,
+          "expected_remaining_us": -1500
+        },
+        {
+          "kind": "pending",
+          "phase": "replacement",
+          "index": 1,
+          "elapsed_ns": 2000059900,
+          "remaining_us": -1000,
+          "uncertainty_us": 2,
+          "expected_remaining_us": -1000
+        },
+        {
+          "kind": "pending",
+          "phase": "replacement",
+          "index": 2,
+          "elapsed_ns": 3000059900,
+          "remaining_us": -500,
+          "uncertainty_us": 2,
+          "expected_remaining_us": -500
+        },
+        {
+          "kind": "pending",
+          "phase": "replacement",
+          "index": 3,
+          "elapsed_ns": 4000053950,
+          "remaining_us": 0,
+          "uncertainty_us": 2,
+          "expected_remaining_us": 0
+        },
+        {
+          "kind": "pending",
+          "phase": "cancelled",
+          "index": 0,
+          "elapsed_ns": 1000063225,
+          "remaining_us": 0,
+          "uncertainty_us": 2,
+          "expected_remaining_us": 0
+        },
+        {
+          "kind": "pending",
+          "phase": "cancelled",
+          "index": 1,
+          "elapsed_ns": 2000063075,
+          "remaining_us": 0,
+          "uncertainty_us": 2,
+          "expected_remaining_us": 0
+        },
+        {
+          "kind": "pending",
+          "phase": "cancelled",
+          "index": 2,
+          "elapsed_ns": 3000063075,
+          "remaining_us": 0,
+          "uncertainty_us": 2,
+          "expected_remaining_us": 0
+        },
+        {
+          "kind": "pending",
+          "phase": "cancelled",
+          "index": 3,
+          "elapsed_ns": 4000062925,
+          "remaining_us": 0,
+          "uncertainty_us": 2,
+          "expected_remaining_us": 0
+        }
+      ],
+      "large": [
+        {
+          "kind": "large",
+          "request_us": 2500123,
+          "pending_us": 2500123,
+          "cancelled_us": 2500123
+        },
+        {
+          "kind": "large",
+          "request_us": -2500123,
+          "pending_us": -2500123,
+          "cancelled_us": -2500123
+        }
+      ],
+      "waits": {
+        "positive": {
+          "kind": "wait",
+          "name": "positive",
+          "step": false,
+          "action": 2000,
+          "requested_ns": 1250000000,
+          "reference_ns": 1250195625,
+          "monotonic_ns": 1250195000,
+          "wall_ns": 1250800000,
+          "uncertainty_ns": 235850,
+          "action_offset_ns": 50185150,
+          "action_completed_offset_ns": 50246750,
+          "request_offset_ns": 50215925,
+          "request_span_ns": 60550,
+          "pending_elapsed_ns": 1200341850,
+          "pending_uncertainty_us": 2,
+          "pending_us": 1400,
+          "expected_applied_ns": 599989
+        },
+        "negative": {
+          "kind": "wait",
+          "name": "negative",
+          "step": false,
+          "action": -2000,
+          "requested_ns": 1250000000,
+          "reference_ns": 1250173050,
+          "monotonic_ns": 1250173000,
+          "wall_ns": 1249600050,
+          "uncertainty_ns": 236000,
+          "action_offset_ns": 50262250,
+          "action_completed_offset_ns": 50324100,
+          "request_offset_ns": 50293125,
+          "request_span_ns": 60750,
+          "pending_elapsed_ns": 1200243250,
+          "pending_uncertainty_us": 2,
+          "pending_us": -1400,
+          "expected_applied_ns": -599939
+        },
+        "forward": {
+          "kind": "wait",
+          "name": "forward",
+          "step": true,
+          "action": 3000000000,
+          "requested_ns": 250000000,
+          "reference_ns": 250182550,
+          "monotonic_ns": 250182000,
+          "wall_ns": 3250200000,
+          "uncertainty_ns": 234700,
+          "action_offset_ns": 50173875,
+          "action_completed_offset_ns": 50204225,
+          "request_offset_ns": 0,
+          "request_span_ns": 29350,
+          "pending_elapsed_ns": 0,
+          "pending_uncertainty_us": 0,
+          "pending_us": 0,
+          "expected_applied_ns": 3000000000
+        },
+        "backward": {
+          "kind": "wait",
+          "name": "backward",
+          "step": true,
+          "action": -3000000000,
+          "requested_ns": 250000000,
+          "reference_ns": 250173425,
+          "monotonic_ns": 250173000,
+          "wall_ns": -2749800000,
+          "uncertainty_ns": 234650,
+          "action_offset_ns": 50264775,
+          "action_completed_offset_ns": 50295075,
+          "request_offset_ns": 0,
+          "request_span_ns": 29300,
+          "pending_elapsed_ns": 0,
+          "pending_uncertainty_us": 0,
+          "pending_us": 0,
+          "expected_applied_ns": -3000000000
+        }
+      },
+      "complete": {
+        "kind": "complete",
+        "schema": 1,
+        "phases": 6,
+        "waits": 4,
+        "large": 2,
+        "reference_elapsed_ns": 32236567100
+      },
+      "limits": [
+        "Instruction-driven QEMU time; no physical RTC or sleep-retention qualification.",
+        "Dense extrema are target aggregates; individual samples are not in the transcript.",
+        "Public-call success, timeval normalization and paired control-call continuity are target assertions.",
+        "Large-query elapsed time is not logged; its precise rate check is a target assertion."
+      ]
+    },
+    {
+      "characterization_complete": true,
+      "qualified": true,
+      "begin": {
+        "kind": "begin",
+        "schema": 1,
+        "features": 3,
+        "tick_us": 100
+      },
+      "phases": {
+        "baseline": {
+          "kind": "phase",
+          "name": "baseline",
+          "request_us": 0,
+          "reference_ns": 4500001350,
+          "monotonic_ns": 4500001000,
+          "wall_ns": 4500000000,
+          "uncertainty_ns": 234600,
+          "reads": 179988,
+          "realtime_regressions": 0,
+          "monotonic_regressions": 0,
+          "min_realtime_delta_ns": 0,
+          "max_read_span_ns": 40950,
+          "pending_us": 0,
+          "slew_discontinuities": 0,
+          "max_slew_excess_ns": 0,
+          "max_slew_uncertainty_ns": 277901
+        },
+        "positive": {
+          "kind": "phase",
+          "name": "positive",
+          "request_us": 2000,
+          "reference_ns": 4500018650,
+          "monotonic_ns": 4500020000,
+          "wall_ns": 4502000000,
+          "uncertainty_ns": 235900,
+          "reads": 169562,
+          "realtime_regressions": 0,
+          "monotonic_regressions": 0,
+          "min_realtime_delta_ns": 0,
+          "max_read_span_ns": 43400,
+          "pending_us": 0,
+          "slew_discontinuities": 0,
+          "max_slew_excess_ns": 0,
+          "max_slew_uncertainty_ns": 262067
+        },
+        "negative": {
+          "kind": "phase",
+          "name": "negative",
+          "request_us": -2000,
+          "reference_ns": 4500018825,
+          "monotonic_ns": 4500020000,
+          "wall_ns": 4498000050,
+          "uncertainty_ns": 235950,
+          "reads": 168173,
+          "realtime_regressions": 0,
+          "monotonic_regressions": 0,
+          "min_realtime_delta_ns": 0,
+          "max_read_span_ns": 43750,
+          "pending_us": 0,
+          "slew_discontinuities": 0,
+          "max_slew_excess_ns": 0,
+          "max_slew_uncertainty_ns": 262467
+        },
+        "near_second": {
+          "kind": "phase",
+          "name": "near_second",
+          "request_us": -2000,
+          "reference_ns": 4500003950,
+          "monotonic_ns": 4500027000,
+          "wall_ns": 4498000050,
+          "uncertainty_ns": 280700,
+          "reads": 168172,
+          "realtime_regressions": 0,
+          "monotonic_regressions": 0,
+          "min_realtime_delta_ns": 0,
+          "max_read_span_ns": 43750,
+          "pending_us": 0,
+          "slew_discontinuities": 0,
+          "max_slew_excess_ns": 0,
+          "max_slew_uncertainty_ns": 262467
+        },
+        "replacement": {
+          "kind": "phase",
+          "name": "replacement",
+          "request_us": -2000,
+          "reference_ns": 4500027900,
+          "monotonic_ns": 4500040000,
+          "wall_ns": 4498100000,
+          "uncertainty_ns": 259300,
+          "reads": 168173,
+          "realtime_regressions": 0,
+          "monotonic_regressions": 0,
+          "min_realtime_delta_ns": 0,
+          "max_read_span_ns": 43750,
+          "pending_us": 0,
+          "slew_discontinuities": 0,
+          "max_slew_excess_ns": 0,
+          "max_slew_uncertainty_ns": 262467
+        },
+        "cancelled": {
+          "kind": "phase",
+          "name": "cancelled",
+          "request_us": 0,
+          "reference_ns": 4500000475,
+          "monotonic_ns": 4500001000,
+          "wall_ns": 4500000000,
+          "uncertainty_ns": 234650,
+          "reads": 179988,
+          "realtime_regressions": 0,
+          "monotonic_regressions": 0,
+          "min_realtime_delta_ns": 0,
+          "max_read_span_ns": 40950,
+          "pending_us": 0,
+          "slew_discontinuities": 0,
+          "max_slew_excess_ns": 0,
+          "max_slew_uncertainty_ns": 258316
+        }
+      },
+      "pending": [
+        {
+          "kind": "pending",
+          "phase": "baseline",
+          "index": 0,
+          "elapsed_ns": 1000071300,
+          "remaining_us": 0,
+          "uncertainty_us": 2,
+          "expected_remaining_us": 0
+        },
+        {
+          "kind": "pending",
+          "phase": "baseline",
+          "index": 1,
+          "elapsed_ns": 2000072250,
+          "remaining_us": 0,
+          "uncertainty_us": 2,
+          "expected_remaining_us": 0
+        },
+        {
+          "kind": "pending",
+          "phase": "baseline",
+          "index": 2,
+          "elapsed_ns": 3000072900,
+          "remaining_us": 0,
+          "uncertainty_us": 2,
+          "expected_remaining_us": 0
+        },
+        {
+          "kind": "pending",
+          "phase": "baseline",
+          "index": 3,
+          "elapsed_ns": 4000070500,
+          "remaining_us": 0,
+          "uncertainty_us": 2,
+          "expected_remaining_us": 0
+        },
+        {
+          "kind": "pending",
+          "phase": "positive",
+          "index": 0,
+          "elapsed_ns": 1000073575,
+          "remaining_us": 1500,
+          "uncertainty_us": 2,
+          "expected_remaining_us": 1500
+        },
+        {
+          "kind": "pending",
+          "phase": "positive",
+          "index": 1,
+          "elapsed_ns": 2000071800,
+          "remaining_us": 1000,
+          "uncertainty_us": 2,
+          "expected_remaining_us": 1000
+        },
+        {
+          "kind": "pending",
+          "phase": "positive",
+          "index": 2,
+          "elapsed_ns": 3000079625,
+          "remaining_us": 500,
+          "uncertainty_us": 2,
+          "expected_remaining_us": 500
+        },
+        {
+          "kind": "pending",
+          "phase": "positive",
+          "index": 3,
+          "elapsed_ns": 4000068000,
+          "remaining_us": 0,
+          "uncertainty_us": 2,
+          "expected_remaining_us": 0
+        },
+        {
+          "kind": "pending",
+          "phase": "negative",
+          "index": 0,
+          "elapsed_ns": 1000064925,
+          "remaining_us": -1500,
+          "uncertainty_us": 2,
+          "expected_remaining_us": -1500
+        },
+        {
+          "kind": "pending",
+          "phase": "negative",
+          "index": 1,
+          "elapsed_ns": 2000055675,
+          "remaining_us": -1000,
+          "uncertainty_us": 2,
+          "expected_remaining_us": -1000
+        },
+        {
+          "kind": "pending",
+          "phase": "negative",
+          "index": 2,
+          "elapsed_ns": 3000057100,
+          "remaining_us": -500,
+          "uncertainty_us": 2,
+          "expected_remaining_us": -500
+        },
+        {
+          "kind": "pending",
+          "phase": "negative",
+          "index": 3,
+          "elapsed_ns": 4000054725,
+          "remaining_us": 0,
+          "uncertainty_us": 2,
+          "expected_remaining_us": 0
+        },
+        {
+          "kind": "pending",
+          "phase": "near_second",
+          "index": 0,
+          "elapsed_ns": 1000057400,
+          "remaining_us": -1500,
+          "uncertainty_us": 2,
+          "expected_remaining_us": -1500
+        },
+        {
+          "kind": "pending",
+          "phase": "near_second",
+          "index": 1,
+          "elapsed_ns": 2000057400,
+          "remaining_us": -1000,
+          "uncertainty_us": 2,
+          "expected_remaining_us": -1000
+        },
+        {
+          "kind": "pending",
+          "phase": "near_second",
+          "index": 2,
+          "elapsed_ns": 3000067350,
+          "remaining_us": -500,
+          "uncertainty_us": 2,
+          "expected_remaining_us": -500
+        },
+        {
+          "kind": "pending",
+          "phase": "near_second",
+          "index": 3,
+          "elapsed_ns": 4000060350,
+          "remaining_us": 0,
+          "uncertainty_us": 2,
+          "expected_remaining_us": 0
+        },
+        {
+          "kind": "pending",
+          "phase": "replacement",
+          "index": 0,
+          "elapsed_ns": 1000068600,
+          "remaining_us": -1500,
+          "uncertainty_us": 2,
+          "expected_remaining_us": -1500
+        },
+        {
+          "kind": "pending",
+          "phase": "replacement",
+          "index": 1,
+          "elapsed_ns": 2000057550,
+          "remaining_us": -1000,
+          "uncertainty_us": 2,
+          "expected_remaining_us": -1000
+        },
+        {
+          "kind": "pending",
+          "phase": "replacement",
+          "index": 2,
+          "elapsed_ns": 3000059900,
+          "remaining_us": -500,
+          "uncertainty_us": 2,
+          "expected_remaining_us": -500
+        },
+        {
+          "kind": "pending",
+          "phase": "replacement",
+          "index": 3,
+          "elapsed_ns": 4000066950,
+          "remaining_us": 0,
+          "uncertainty_us": 2,
+          "expected_remaining_us": 0
+        },
+        {
+          "kind": "pending",
+          "phase": "cancelled",
+          "index": 0,
+          "elapsed_ns": 1000063275,
+          "remaining_us": 0,
+          "uncertainty_us": 2,
+          "expected_remaining_us": 0
+        },
+        {
+          "kind": "pending",
+          "phase": "cancelled",
+          "index": 1,
+          "elapsed_ns": 2000062800,
+          "remaining_us": 0,
+          "uncertainty_us": 2,
+          "expected_remaining_us": 0
+        },
+        {
+          "kind": "pending",
+          "phase": "cancelled",
+          "index": 2,
+          "elapsed_ns": 3000062100,
+          "remaining_us": 0,
+          "uncertainty_us": 2,
+          "expected_remaining_us": 0
+        },
+        {
+          "kind": "pending",
+          "phase": "cancelled",
+          "index": 3,
+          "elapsed_ns": 4000063275,
+          "remaining_us": 0,
+          "uncertainty_us": 2,
+          "expected_remaining_us": 0
+        }
+      ],
+      "large": [
+        {
+          "kind": "large",
+          "request_us": 2500123,
+          "pending_us": 2500123,
+          "cancelled_us": 2500123
+        },
+        {
+          "kind": "large",
+          "request_us": -2500123,
+          "pending_us": -2500123,
+          "cancelled_us": -2500123
+        }
+      ],
+      "waits": {
+        "positive": {
+          "kind": "wait",
+          "name": "positive",
+          "step": false,
+          "action": 2000,
+          "requested_ns": 1250000000,
+          "reference_ns": 1250195775,
+          "monotonic_ns": 1250196000,
+          "wall_ns": 1250800000,
+          "uncertainty_ns": 235850,
+          "action_offset_ns": 50185300,
+          "action_completed_offset_ns": 50246900,
+          "request_offset_ns": 50216075,
+          "request_span_ns": 60550,
+          "pending_elapsed_ns": 1200341850,
+          "pending_uncertainty_us": 2,
+          "pending_us": 1400,
+          "expected_applied_ns": 599989
+        },
+        "negative": {
+          "kind": "wait",
+          "name": "negative",
+          "step": false,
+          "action": -2000,
+          "requested_ns": 1250000000,
+          "reference_ns": 1250173050,
+          "monotonic_ns": 1250173000,
+          "wall_ns": 1249600050,
+          "uncertainty_ns": 236000,
+          "action_offset_ns": 50262250,
+          "action_completed_offset_ns": 50324100,
+          "request_offset_ns": 50293125,
+          "request_span_ns": 60750,
+          "pending_elapsed_ns": 1200243250,
+          "pending_uncertainty_us": 2,
+          "pending_us": -1400,
+          "expected_applied_ns": -599939
+        },
+        "forward": {
+          "kind": "wait",
+          "name": "forward",
+          "step": true,
+          "action": 3000000000,
+          "requested_ns": 250000000,
+          "reference_ns": 250182550,
+          "monotonic_ns": 250182000,
+          "wall_ns": 3250200000,
+          "uncertainty_ns": 234700,
+          "action_offset_ns": 50173875,
+          "action_completed_offset_ns": 50204225,
+          "request_offset_ns": 0,
+          "request_span_ns": 29350,
+          "pending_elapsed_ns": 0,
+          "pending_uncertainty_us": 0,
+          "pending_us": 0,
+          "expected_applied_ns": 3000000000
+        },
+        "backward": {
+          "kind": "wait",
+          "name": "backward",
+          "step": true,
+          "action": -3000000000,
+          "requested_ns": 250000000,
+          "reference_ns": 250173425,
+          "monotonic_ns": 250173000,
+          "wall_ns": -2749800000,
+          "uncertainty_ns": 234650,
+          "action_offset_ns": 50264775,
+          "action_completed_offset_ns": 50295075,
+          "request_offset_ns": 0,
+          "request_span_ns": 29300,
+          "pending_elapsed_ns": 0,
+          "pending_uncertainty_us": 0,
+          "pending_us": 0,
+          "expected_applied_ns": -3000000000
+        }
+      },
+      "complete": {
+        "kind": "complete",
+        "schema": 1,
+        "phases": 6,
+        "waits": 4,
+        "large": 2,
+        "reference_elapsed_ns": 32236567100
+      },
+      "limits": [
+        "Instruction-driven QEMU time; no physical RTC or sleep-retention qualification.",
+        "Dense extrema are target aggregates; individual samples are not in the transcript.",
+        "Public-call success, timeval normalization and paired control-call continuity are target assertions.",
+        "Large-query elapsed time is not logged; its precise rate check is a target assertion."
+      ]
+    },
+    {
+      "characterization_complete": true,
+      "qualified": true,
+      "begin": {
+        "kind": "begin",
+        "schema": 1,
+        "features": 3,
+        "tick_us": 100
+      },
+      "phases": {
+        "baseline": {
+          "kind": "phase",
+          "name": "baseline",
+          "request_us": 0,
+          "reference_ns": 4500000900,
+          "monotonic_ns": 4500001000,
+          "wall_ns": 4500000000,
+          "uncertainty_ns": 234600,
+          "reads": 179988,
+          "realtime_regressions": 0,
+          "monotonic_regressions": 0,
+          "min_realtime_delta_ns": 0,
+          "max_read_span_ns": 40950,
+          "pending_us": 0,
+          "slew_discontinuities": 0,
+          "max_slew_excess_ns": 0,
+          "max_slew_uncertainty_ns": 277951
+        },
+        "positive": {
+          "kind": "phase",
+          "name": "positive",
+          "request_us": 2000,
+          "reference_ns": 4500017450,
+          "monotonic_ns": 4500018000,
+          "wall_ns": 4502000000,
+          "uncertainty_ns": 235800,
+          "reads": 169546,
+          "realtime_regressions": 0,
+          "monotonic_regressions": 0,
+          "min_realtime_delta_ns": 0,
+          "max_read_span_ns": 43400,
+          "pending_us": 0,
+          "slew_discontinuities": 0,
+          "max_slew_excess_ns": 0,
+          "max_slew_uncertainty_ns": 262117
+        },
+        "negative": {
+          "kind": "phase",
+          "name": "negative",
+          "request_us": -2000,
+          "reference_ns": 4500015675,
+          "monotonic_ns": 4500016000,
+          "wall_ns": 4498000050,
+          "uncertainty_ns": 235950,
+          "reads": 168122,
+          "realtime_regressions": 0,
+          "monotonic_regressions": 0,
+          "min_realtime_delta_ns": 0,
+          "max_read_span_ns": 43750,
+          "pending_us": 0,
+          "slew_discontinuities": 0,
+          "max_slew_excess_ns": 0,
+          "max_slew_uncertainty_ns": 283654
+        },
+        "near_second": {
+          "kind": "phase",
+          "name": "near_second",
+          "request_us": -2000,
+          "reference_ns": 4500001425,
+          "monotonic_ns": 4500002000,
+          "wall_ns": 4498000000,
+          "uncertainty_ns": 235950,
+          "reads": 168121,
+          "realtime_regressions": 0,
+          "monotonic_regressions": 0,
+          "min_realtime_delta_ns": 0,
+          "max_read_span_ns": 43750,
+          "pending_us": 0,
+          "slew_discontinuities": 0,
+          "max_slew_excess_ns": 0,
+          "max_slew_uncertainty_ns": 262467
+        },
+        "replacement": {
+          "kind": "phase",
+          "name": "replacement",
+          "request_us": -2000,
+          "reference_ns": 4500028350,
+          "monotonic_ns": 4500039000,
+          "wall_ns": 4498100000,
+          "uncertainty_ns": 255900,
+          "reads": 168124,
+          "realtime_regressions": 0,
+          "monotonic_regressions": 0,
+          "min_realtime_delta_ns": 0,
+          "max_read_span_ns": 43750,
+          "pending_us": 0,
+          "slew_discontinuities": 0,
+          "max_slew_excess_ns": 0,
+          "max_slew_uncertainty_ns": 262467
+        },
+        "cancelled": {
+          "kind": "phase",
+          "name": "cancelled",
+          "request_us": 0,
+          "reference_ns": 4500000375,
+          "monotonic_ns": 4500000000,
+          "wall_ns": 4500000000,
+          "uncertainty_ns": 234650,
+          "reads": 179988,
+          "realtime_regressions": 0,
+          "monotonic_regressions": 0,
+          "min_realtime_delta_ns": 0,
+          "max_read_span_ns": 40950,
+          "pending_us": 0,
+          "slew_discontinuities": 0,
+          "max_slew_excess_ns": 0,
+          "max_slew_uncertainty_ns": 258316
+        }
+      },
+      "pending": [
+        {
+          "kind": "pending",
+          "phase": "baseline",
+          "index": 0,
+          "elapsed_ns": 1000070600,
+          "remaining_us": 0,
+          "uncertainty_us": 2,
+          "expected_remaining_us": 0
+        },
+        {
+          "kind": "pending",
+          "phase": "baseline",
+          "index": 1,
+          "elapsed_ns": 2000071350,
+          "remaining_us": 0,
+          "uncertainty_us": 2,
+          "expected_remaining_us": 0
+        },
+        {
+          "kind": "pending",
+          "phase": "baseline",
+          "index": 2,
+          "elapsed_ns": 3000071825,
+          "remaining_us": 0,
+          "uncertainty_us": 2,
+          "expected_remaining_us": 0
+        },
+        {
+          "kind": "pending",
+          "phase": "baseline",
+          "index": 3,
+          "elapsed_ns": 4000072850,
+          "remaining_us": 0,
+          "uncertainty_us": 2,
+          "expected_remaining_us": 0
+        },
+        {
+          "kind": "pending",
+          "phase": "positive",
+          "index": 0,
+          "elapsed_ns": 1000079750,
+          "remaining_us": 1500,
+          "uncertainty_us": 2,
+          "expected_remaining_us": 1500
+        },
+        {
+          "kind": "pending",
+          "phase": "positive",
+          "index": 1,
+          "elapsed_ns": 2000080750,
+          "remaining_us": 1000,
+          "uncertainty_us": 2,
+          "expected_remaining_us": 1000
+        },
+        {
+          "kind": "pending",
+          "phase": "positive",
+          "index": 2,
+          "elapsed_ns": 3000085250,
+          "remaining_us": 500,
+          "uncertainty_us": 2,
+          "expected_remaining_us": 500
+        },
+        {
+          "kind": "pending",
+          "phase": "positive",
+          "index": 3,
+          "elapsed_ns": 4000070125,
+          "remaining_us": 0,
+          "uncertainty_us": 2,
+          "expected_remaining_us": 0
+        },
+        {
+          "kind": "pending",
+          "phase": "negative",
+          "index": 0,
+          "elapsed_ns": 1000075950,
+          "remaining_us": -1500,
+          "uncertainty_us": 2,
+          "expected_remaining_us": -1500
+        },
+        {
+          "kind": "pending",
+          "phase": "negative",
+          "index": 1,
+          "elapsed_ns": 2000075650,
+          "remaining_us": -1000,
+          "uncertainty_us": 2,
+          "expected_remaining_us": -1000
+        },
+        {
+          "kind": "pending",
+          "phase": "negative",
+          "index": 2,
+          "elapsed_ns": 3000082075,
+          "remaining_us": -500,
+          "uncertainty_us": 2,
+          "expected_remaining_us": -500
+        },
+        {
+          "kind": "pending",
+          "phase": "negative",
+          "index": 3,
+          "elapsed_ns": 4000072325,
+          "remaining_us": 0,
+          "uncertainty_us": 2,
+          "expected_remaining_us": 0
+        },
+        {
+          "kind": "pending",
+          "phase": "near_second",
+          "index": 0,
+          "elapsed_ns": 1000058300,
+          "remaining_us": -1500,
+          "uncertainty_us": 2,
+          "expected_remaining_us": -1500
+        },
+        {
+          "kind": "pending",
+          "phase": "near_second",
+          "index": 1,
+          "elapsed_ns": 2000068500,
+          "remaining_us": -1000,
+          "uncertainty_us": 2,
+          "expected_remaining_us": -1000
+        },
+        {
+          "kind": "pending",
+          "phase": "near_second",
+          "index": 2,
+          "elapsed_ns": 3000074025,
+          "remaining_us": -500,
+          "uncertainty_us": 2,
+          "expected_remaining_us": -500
+        },
+        {
+          "kind": "pending",
+          "phase": "near_second",
+          "index": 3,
+          "elapsed_ns": 4000064575,
+          "remaining_us": 0,
+          "uncertainty_us": 2,
+          "expected_remaining_us": 0
+        },
+        {
+          "kind": "pending",
+          "phase": "replacement",
+          "index": 0,
+          "elapsed_ns": 1000074050,
+          "remaining_us": -1500,
+          "uncertainty_us": 2,
+          "expected_remaining_us": -1500
+        },
+        {
+          "kind": "pending",
+          "phase": "replacement",
+          "index": 1,
+          "elapsed_ns": 2000059900,
+          "remaining_us": -1000,
+          "uncertainty_us": 2,
+          "expected_remaining_us": -1000
+        },
+        {
+          "kind": "pending",
+          "phase": "replacement",
+          "index": 2,
+          "elapsed_ns": 3000059900,
+          "remaining_us": -500,
+          "uncertainty_us": 2,
+          "expected_remaining_us": -500
+        },
+        {
+          "kind": "pending",
+          "phase": "replacement",
+          "index": 3,
+          "elapsed_ns": 4000057425,
+          "remaining_us": 0,
+          "uncertainty_us": 2,
+          "expected_remaining_us": 0
+        },
+        {
+          "kind": "pending",
+          "phase": "cancelled",
+          "index": 0,
+          "elapsed_ns": 1000063250,
+          "remaining_us": 0,
+          "uncertainty_us": 2,
+          "expected_remaining_us": 0
+        },
+        {
+          "kind": "pending",
+          "phase": "cancelled",
+          "index": 1,
+          "elapsed_ns": 2000063500,
+          "remaining_us": 0,
+          "uncertainty_us": 2,
+          "expected_remaining_us": 0
+        },
+        {
+          "kind": "pending",
+          "phase": "cancelled",
+          "index": 2,
+          "elapsed_ns": 3000063700,
+          "remaining_us": 0,
+          "uncertainty_us": 2,
+          "expected_remaining_us": 0
+        },
+        {
+          "kind": "pending",
+          "phase": "cancelled",
+          "index": 3,
+          "elapsed_ns": 4000063650,
+          "remaining_us": 0,
+          "uncertainty_us": 2,
+          "expected_remaining_us": 0
+        }
+      ],
+      "large": [
+        {
+          "kind": "large",
+          "request_us": 2500123,
+          "pending_us": 2500123,
+          "cancelled_us": 2500123
+        },
+        {
+          "kind": "large",
+          "request_us": -2500123,
+          "pending_us": -2500123,
+          "cancelled_us": -2500123
+        }
+      ],
+      "waits": {
+        "positive": {
+          "kind": "wait",
+          "name": "positive",
+          "step": false,
+          "action": 2000,
+          "requested_ns": 1250000000,
+          "reference_ns": 1250195875,
+          "monotonic_ns": 1250196000,
+          "wall_ns": 1250800000,
+          "uncertainty_ns": 235850,
+          "action_offset_ns": 50185400,
+          "action_completed_offset_ns": 50247000,
+          "request_offset_ns": 50216175,
+          "request_span_ns": 60550,
+          "pending_elapsed_ns": 1200341850,
+          "pending_uncertainty_us": 2,
+          "pending_us": 1400,
+          "expected_applied_ns": 599989
+        },
+        "negative": {
+          "kind": "wait",
+          "name": "negative",
+          "step": false,
+          "action": -2000,
+          "requested_ns": 1250000000,
+          "reference_ns": 1250173050,
+          "monotonic_ns": 1250173000,
+          "wall_ns": 1249600050,
+          "uncertainty_ns": 236000,
+          "action_offset_ns": 50262250,
+          "action_completed_offset_ns": 50324100,
+          "request_offset_ns": 50293125,
+          "request_span_ns": 60750,
+          "pending_elapsed_ns": 1200243250,
+          "pending_uncertainty_us": 2,
+          "pending_us": -1400,
+          "expected_applied_ns": -599939
+        },
+        "forward": {
+          "kind": "wait",
+          "name": "forward",
+          "step": true,
+          "action": 3000000000,
+          "requested_ns": 250000000,
+          "reference_ns": 250182550,
+          "monotonic_ns": 250182000,
+          "wall_ns": 3250200000,
+          "uncertainty_ns": 234700,
+          "action_offset_ns": 50173875,
+          "action_completed_offset_ns": 50204225,
+          "request_offset_ns": 0,
+          "request_span_ns": 29350,
+          "pending_elapsed_ns": 0,
+          "pending_uncertainty_us": 0,
+          "pending_us": 0,
+          "expected_applied_ns": 3000000000
+        },
+        "backward": {
+          "kind": "wait",
+          "name": "backward",
+          "step": true,
+          "action": -3000000000,
+          "requested_ns": 250000000,
+          "reference_ns": 250173425,
+          "monotonic_ns": 250173000,
+          "wall_ns": -2749800000,
+          "uncertainty_ns": 234650,
+          "action_offset_ns": 50264775,
+          "action_completed_offset_ns": 50295075,
+          "request_offset_ns": 0,
+          "request_span_ns": 29300,
+          "pending_elapsed_ns": 0,
+          "pending_uncertainty_us": 0,
+          "pending_us": 0,
+          "expected_applied_ns": -3000000000
+        }
+      },
+      "complete": {
+        "kind": "complete",
+        "schema": 1,
+        "phases": 6,
+        "waits": 4,
+        "large": 2,
+        "reference_elapsed_ns": 32236567100
+      },
+      "limits": [
+        "Instruction-driven QEMU time; no physical RTC or sleep-retention qualification.",
+        "Dense extrema are target aggregates; individual samples are not in the transcript.",
+        "Public-call success, timeval normalization and paired control-call continuity are target assertions.",
+        "Large-query elapsed time is not logged; its precise rate check is a target assertion."
+      ]
+    }
+  ],
+  "build_sha256": "12c607ff3a730e165060a126b720149d984d7e9ac9e9d05d8a9a5db2babf6631",
+  "artifacts": {
+    "firmware/nuttx/.config": "1173320db2f0f06557548473c871f7ecb7e13e6d7e112f17b2f8cfb6b6002a14",
+    "firmware/nuttx/nuttx": "ed8b64d4dc8049835edcf1c3382e717b2a13de8ea602d8e2e057c3fb5f1777f8",
+    "firmware/resolved.config": "1173320db2f0f06557548473c871f7ecb7e13e6d7e112f17b2f8cfb6b6002a14",
+    "firmware/abi-report.json": "8e0868c236f310950306f2e0e9e5336f7e96b721f0d1d2f429e48ef06452fc46",
+    "firmware/provenance.txt": "633c833664d5029ed7958c6917cb3879c8c5fd8b0bd4602a3b246873f47fd0c7",
+    "firmware/nuttx-patches.json": "c69fde1194a880c93229e25d39d9f588b4fe9e3ab0007aa16b530e1a9eb7666a",
+    "firmware/nuttx-apps-patches.json": "b7ba86fa4249d39e2ac3862261b16f24cd490dfd265275bc34e99e046f46531c",
+    "firmware/std-patch.json": "1ef7e777cfbf4243404cfa0e8321fc5512ccd1662f858a95308d029f3297b094"
+  },
+  "oracle_sha256": "040dd98a5e1a5e44ca07dd2d5048af000f404f6a0a310a73d1ef476300d098cc",
+  "workflow_sha256": "a5b837d753784dfb64d196a6b8e22c2a6fe3be1517e40fc011edf278f692b45d",
+  "harness_sha256": "1bcb982dcba2b747661c20d278a8d2f96e6bb240fa16f8899d4f30e16655c8eb",
+  "qemu_version": "QEMU emulator version 10.0.13 (Debian 1:10.0.13+ds-0+deb13u1)\nCopyright (c) 2003-2025 Fabrice Bellard and the QEMU Project developers\n",
+  "qemu_sha256": "0dfd6c04c472cf2e6478092caf090a963a6e9ae354ffe39cfc309966430c093e",
+  "qemu_clock_options": [
+    "-icount",
+    "shift=3,sleep=off"
+  ],
+  "virtual_ns_per_instruction": 8,
+  "cycle_accurate": false,
+  "physical_rtc_retention_qualified": false,
+  "characterization_complete": true,
+  "qualified": true
+}

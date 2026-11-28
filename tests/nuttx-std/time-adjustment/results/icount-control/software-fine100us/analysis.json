@@ -1,0 +1,705 @@
+{
+  "schema": 1,
+  "variant": "software-fine100us",
+  "qemu_clock_options": [
+    "-icount",
+    "shift=5,sleep=off"
+  ],
+  "mode": "software",
+  "tick_us": 100,
+  "source_build": "/dev/shm/nxrs-time-sync-phase1/software-fine100us-retry",
+  "build_sha256": "d7870bfd22901675b1a4480172489b203c0e6aa8437bd6bacbee36b730d02cbd",
+  "artifacts": {
+    "firmware/nuttx/.config": "820f9cfda62160048754ad051b1b8107be2dd318f0cd542f124b0f70a8749224",
+    "firmware/abi-report.json": "129bd9ed4bde4f94bb69bd5b97fbabff3039932ff49a49fbde4c22735356dbcb",
+    "firmware/provenance.txt": "fec5ca36a6debfe6f30400bd05e61cb92af6f117c9dd375fabc92306e9be57fa",
+    "firmware/resolved.config": "820f9cfda62160048754ad051b1b8107be2dd318f0cd542f124b0f70a8749224",
+    "firmware/nuttx/nuttx": "0b7e58fbae68ed4d487da9fb0d355fe208ac9d470c19e425c588f8d47a54e096"
+  },
+  "fixture_sources": {
+    "tests/nuttx-std/clock-control/Cargo.toml": "e351e4c4f40f226e8b46747db3a9ea43575ede8816c8578f77163fec446502be",
+    "tests/nuttx-std/clock-control/Cargo.lock": "23a056fc292817eb657f0bde3f3c03c3ab67c4735feda3dfcc808b08c415ee2a",
+    "tests/nuttx-std/clock-control/native.c": "595b62ac4e65a908ce3c3e8d1bf6ca4ddd57c7cff78f4e078c08e8e685f5c4aa",
+    "tests/nuttx-std/clock-control/src/main.rs": "f4260f514a132331fc8dcd36db9b1c317a7dd3c583084acb73ea85a785889bfd",
+    "tests/nuttx-std/memory-timing/qemu_timer_clock.c": "703cb28f21b28b4af4974c129163856aee6f04545d8d72304f25e404c09e606d",
+    "tests/nuttx-std/clock-control/qemu_systick_clock.c": "3e6e49b7d4e47da9713e902218a623f54ef406ea3d8aec279b935a05d4d067b2"
+  },
+  "firmware_identities": {
+    "nxrs": "8f0db0bbe85af7f6239e6568b16b1efce133ad1e",
+    "working_tree": "M docs/nuttx-std.md\n M tests/README.md\n?? tests/nuttx-std/clock-control/",
+    "nuttx": "4268617f28ad0ed7e900a081ea1b33c9347458b3",
+    "nuttx-apps": "3c772ea35b9245972e18999828f7b533e6fc57cc"
+  },
+  "experiment_git_head": "ddeff299dc4dea5ecacddd1f68c4fc16e6bf8e27",
+  "oracle_sha256": "e8976b6a57287a326304bbb4f987bf2ffa056a84d2fab1cca96d01c11ab71ab4",
+  "harness_sha256": "1bcb982dcba2b747661c20d278a8d2f96e6bb240fa16f8899d4f30e16655c8eb",
+  "driver_sha256": "f752379656e374df5d1fd9c6fd5d9757324300bf3d5a7c35ac10279035099bb3",
+  "phase1_analysis_sha256": "1bec5e0834046d7031661a33578bd1eb6a343ffa0a13b473e35d96ffba85dc61",
+  "qemu_version": "QEMU emulator version 10.0.13 (Debian 1:10.0.13+ds-0+deb13u1)\nCopyright (c) 2003-2025 Fabrice Bellard and the QEMU Project developers\n",
+  "qemu_executable": "/workspace/scratch/47a087f14644/tools-followup/debian-prefix/usr/bin/qemu-system-arm",
+  "qemu_sha256": "0dfd6c04c472cf2e6478092caf090a963a6e9ae354ffe39cfc309966430c093e",
+  "installed_manual": "/workspace/scratch/47a087f14644/tools-followup/debian-prefix/usr/share/doc/qemu-system-common/system/invocation.html",
+  "installed_manual_sha256": "c6dec7332569751795649158b8f05437de7bbb71e3b6389985e4e89e6931e8ad",
+  "virtual_ns_per_instruction": 32,
+  "idle_fast_forward_to_timer_deadline": true,
+  "cycle_accurate": false,
+  "physical_clock_qualified": false,
+  "characterization_complete": true,
+  "qualified": false,
+  "runs": [
+    {
+      "characterization_complete": true,
+      "qualified": false,
+      "gates": {
+        "explicit_steps": true,
+        "realtime_baseline_rate_within_one_percent": true,
+        "monotonic_rate_within_one_percent": true,
+        "monotonic_non_decreasing": true,
+        "monotonic_stable_across_clock_controls": false,
+        "no_unrequested_realtime_regression": false,
+        "sleep_reference_within_ten_percent": true,
+        "public_adjustment_api": false,
+        "pending_query": false,
+        "complete_old_delta": false,
+        "adjustment_requests_succeeded": true,
+        "correction_endpoints_within_resolution": true
+      },
+      "failed_gates": [
+        "monotonic_stable_across_clock_controls",
+        "no_unrequested_realtime_regression",
+        "public_adjustment_api",
+        "pending_query",
+        "complete_old_delta"
+      ],
+      "features": {
+        "kind": "begin",
+        "schema": 1,
+        "build_id": "unbound",
+        "timekeeping": true,
+        "adjtime_header": false,
+        "rtc": false,
+        "rtc_hires": false,
+        "direct_implementation_only": true,
+        "tick_us": 100,
+        "reported_realtime_resolution_ns": 100000,
+        "reference_hz": 20000000
+      },
+      "phases": {
+        "baseline": {
+          "reference_elapsed_ns": 500004100,
+          "reads": 2500,
+          "realtime_rate": 0.9999918000672394,
+          "monotonic_rate": 0.99999980000164,
+          "realtime_regressions": 0,
+          "monotonic_regressions": 0,
+          "min_realtime_delta_ns": 200000,
+          "observed_realtime_resolution_ns": 200000,
+          "observed_monotonic_resolution_ns": 199000,
+          "max_read_span_ns": 191650,
+          "wall_minus_monotonic_change_ns": -4000,
+          "endpoint_uncertainty_ns": 347100,
+          "correction_trace": [
+            {
+              "elapsed_ns": 0,
+              "change_ns": 0
+            },
+            {
+              "elapsed_ns": 250004025,
+              "change_ns": -4000
+            },
+            {
+              "elapsed_ns": 500004100,
+              "change_ns": -4000
+            },
+            {
+              "elapsed_ns": 500004100,
+              "change_ns": -4000
+            }
+          ]
+        },
+        "positive": {
+          "reference_elapsed_ns": 5000104400,
+          "reads": 24927,
+          "realtime_rate": 1.0003991116665485,
+          "monotonic_rate": 0.9999987200267259,
+          "realtime_regressions": 0,
+          "monotonic_regressions": 0,
+          "min_realtime_delta_ns": 200000,
+          "observed_realtime_resolution_ns": 200000,
+          "observed_monotonic_resolution_ns": 199000,
+          "max_read_span_ns": 272150,
+          "wall_minus_monotonic_change_ns": 2002000,
+          "endpoint_uncertainty_ns": 495200,
+          "correction_trace": [
+            {
+              "elapsed_ns": 0,
+              "change_ns": 0
+            },
+            {
+              "elapsed_ns": 250004825,
+              "change_ns": 1000
+            },
+            {
+              "elapsed_ns": 500005375,
+              "change_ns": 1000
+            },
+            {
+              "elapsed_ns": 750045750,
+              "change_ns": -6000
+            },
+            {
+              "elapsed_ns": 1000145600,
+              "change_ns": 495000
+            },
+            {
+              "elapsed_ns": 1250240850,
+              "change_ns": 499000
+            },
+            {
+              "elapsed_ns": 1500405500,
+              "change_ns": 501000
+            },
+            {
+              "elapsed_ns": 1750445850,
+              "change_ns": 494000
+            },
+            {
+              "elapsed_ns": 2000545700,
+              "change_ns": 995000
+            },
+            {
+              "elapsed_ns": 2250640700,
+              "change_ns": 1000000
+            },
+            {
+              "elapsed_ns": 2500805625,
+              "change_ns": 1001000
+            },
+            {
+              "elapsed_ns": 2750846000,
+              "change_ns": 994000
+            },
+            {
+              "elapsed_ns": 3000945225,
+              "change_ns": 1495000
+            },
+            {
+              "elapsed_ns": 3251006050,
+              "change_ns": 1500000
+            },
+            {
+              "elapsed_ns": 3501006150,
+              "change_ns": 1500000
+            },
+            {
+              "elapsed_ns": 3751046500,
+              "change_ns": 1494000
+            },
+            {
+              "elapsed_ns": 4001104450,
+              "change_ns": 2002000
+            },
+            {
+              "elapsed_ns": 4251304300,
+              "change_ns": 2002000
+            },
+            {
+              "elapsed_ns": 4501304450,
+              "change_ns": 2002000
+            },
+            {
+              "elapsed_ns": 4751304500,
+              "change_ns": 2002000
+            },
+            {
+              "elapsed_ns": 5000104400,
+              "change_ns": 2002000
+            }
+          ]
+        },
+        "negative": {
+          "reference_elapsed_ns": 5000143025,
+          "reads": 24984,
+          "realtime_rate": 0.9995914066878117,
+          "monotonic_rate": 0.9999931951946515,
+          "realtime_regressions": 4,
+          "monotonic_regressions": 0,
+          "min_realtime_delta_ns": -300000,
+          "observed_realtime_resolution_ns": 200000,
+          "observed_monotonic_resolution_ns": 199000,
+          "max_read_span_ns": 205700,
+          "wall_minus_monotonic_change_ns": -2009000,
+          "endpoint_uncertainty_ns": 414650,
+          "correction_trace": [
+            {
+              "elapsed_ns": 0,
+              "change_ns": 0
+            },
+            {
+              "elapsed_ns": 250143775,
+              "change_ns": -10000
+            },
+            {
+              "elapsed_ns": 500343750,
+              "change_ns": -10000
+            },
+            {
+              "elapsed_ns": 750384125,
+              "change_ns": -16000
+            },
+            {
+              "elapsed_ns": 1000543150,
+              "change_ns": -2009000
+            },
+            {
+              "elapsed_ns": 1250743025,
+              "change_ns": -2009000
+            },
+            {
+              "elapsed_ns": 1500743150,
+              "change_ns": -2009000
+            },
+            {
+              "elapsed_ns": 1750743225,
+              "change_ns": -2009000
+            },
+            {
+              "elapsed_ns": 2000743225,
+              "change_ns": -2009000
+            },
+            {
+              "elapsed_ns": 2250943225,
+              "change_ns": -2009000
+            },
+            {
+              "elapsed_ns": 2500943225,
+              "change_ns": -2009000
+            },
+            {
+              "elapsed_ns": 2751143125,
+              "change_ns": -2009000
+            },
+            {
+              "elapsed_ns": 3001143125,
+              "change_ns": -2009000
+            },
+            {
+              "elapsed_ns": 3251143150,
+              "change_ns": -2009000
+            },
+            {
+              "elapsed_ns": 3501343125,
+              "change_ns": -2009000
+            },
+            {
+              "elapsed_ns": 3751343200,
+              "change_ns": -2009000
+            },
+            {
+              "elapsed_ns": 4001343200,
+              "change_ns": -2009000
+            },
+            {
+              "elapsed_ns": 4251543075,
+              "change_ns": -2009000
+            },
+            {
+              "elapsed_ns": 4501543200,
+              "change_ns": -2009000
+            },
+            {
+              "elapsed_ns": 4751743100,
+              "change_ns": -2009000
+            },
+            {
+              "elapsed_ns": 5000143025,
+              "change_ns": -2009000
+            }
+          ]
+        },
+        "before_replace": {
+          "reference_elapsed_ns": 1200041475,
+          "reads": 5980,
+          "realtime_rate": 1.0003820909606478,
+          "monotonic_rate": 0.9999712718262508,
+          "realtime_regressions": 0,
+          "monotonic_regressions": 0,
+          "min_realtime_delta_ns": 200000,
+          "observed_realtime_resolution_ns": 200000,
+          "observed_monotonic_resolution_ns": 199000,
+          "max_read_span_ns": 204850,
+          "wall_minus_monotonic_change_ns": 493000,
+          "endpoint_uncertainty_ns": 414250,
+          "correction_trace": [
+            {
+              "elapsed_ns": 0,
+              "change_ns": 0
+            },
+            {
+              "elapsed_ns": 250136525,
+              "change_ns": -2000
+            },
+            {
+              "elapsed_ns": 500158650,
+              "change_ns": 8000
+            },
+            {
+              "elapsed_ns": 750237575,
+              "change_ns": -3000
+            },
+            {
+              "elapsed_ns": 1000299975,
+              "change_ns": 500000
+            },
+            {
+              "elapsed_ns": 1200041475,
+              "change_ns": 493000
+            }
+          ]
+        },
+        "replaced": {
+          "reference_elapsed_ns": 5000058000,
+          "reads": 24982,
+          "realtime_rate": 0.9996084045425073,
+          "monotonic_rate": 1.0000067999211208,
+          "realtime_regressions": 4,
+          "monotonic_regressions": 0,
+          "min_realtime_delta_ns": -300000,
+          "observed_realtime_resolution_ns": 200000,
+          "observed_monotonic_resolution_ns": 199000,
+          "max_read_span_ns": 205700,
+          "wall_minus_monotonic_change_ns": -1992000,
+          "endpoint_uncertainty_ns": 414100,
+          "correction_trace": [
+            {
+              "elapsed_ns": 0,
+              "change_ns": 0
+            },
+            {
+              "elapsed_ns": 250116175,
+              "change_ns": 16000
+            },
+            {
+              "elapsed_ns": 500196200,
+              "change_ns": 4000
+            },
+            {
+              "elapsed_ns": 750358325,
+              "change_ns": 8000
+            },
+            {
+              "elapsed_ns": 1000457850,
+              "change_ns": -1992000
+            },
+            {
+              "elapsed_ns": 1250457900,
+              "change_ns": -1992000
+            },
+            {
+              "elapsed_ns": 1500657275,
+              "change_ns": -1991000
+            },
+            {
+              "elapsed_ns": 1750857300,
+              "change_ns": -1991000
+            },
+            {
+              "elapsed_ns": 2001057050,
+              "change_ns": -1991000
+            },
+            {
+              "elapsed_ns": 2251057100,
+              "change_ns": -1991000
+            },
+            {
+              "elapsed_ns": 2501057200,
+              "change_ns": -1991000
+            },
+            {
+              "elapsed_ns": 2751057225,
+              "change_ns": -1991000
+            },
+            {
+              "elapsed_ns": 3001057275,
+              "change_ns": -1991000
+            },
+            {
+              "elapsed_ns": 3251057350,
+              "change_ns": -1991000
+            },
+            {
+              "elapsed_ns": 3501057400,
+              "change_ns": -1991000
+            },
+            {
+              "elapsed_ns": 3751257175,
+              "change_ns": -1991000
+            },
+            {
+              "elapsed_ns": 4001257350,
+              "change_ns": -1991000
+            },
+            {
+              "elapsed_ns": 4251257400,
+              "change_ns": -1991000
+            },
+            {
+              "elapsed_ns": 4501457300,
+              "change_ns": -1991000
+            },
+            {
+              "elapsed_ns": 4751657100,
+              "change_ns": -1991000
+            },
+            {
+              "elapsed_ns": 5000058000,
+              "change_ns": -1992000
+            }
+          ]
+        },
+        "before_cancel": {
+          "reference_elapsed_ns": 1200007125,
+          "reads": 5976,
+          "realtime_rate": 1.0004107267279767,
+          "monotonic_rate": 0.9999940625352537,
+          "realtime_regressions": 0,
+          "monotonic_regressions": 0,
+          "min_realtime_delta_ns": 200000,
+          "observed_realtime_resolution_ns": 200000,
+          "observed_monotonic_resolution_ns": 199000,
+          "max_read_span_ns": 204850,
+          "wall_minus_monotonic_change_ns": 500000,
+          "endpoint_uncertainty_ns": 496450,
+          "correction_trace": [
+            {
+              "elapsed_ns": 0,
+              "change_ns": 0
+            },
+            {
+              "elapsed_ns": 250092500,
+              "change_ns": -18000
+            },
+            {
+              "elapsed_ns": 500187700,
+              "change_ns": -13000
+            },
+            {
+              "elapsed_ns": 750250000,
+              "change_ns": -9000
+            },
+            {
+              "elapsed_ns": 1000392500,
+              "change_ns": 482000
+            },
+            {
+              "elapsed_ns": 1200007125,
+              "change_ns": 500000
+            }
+          ]
+        },
+        "cancelled": {
+          "reference_elapsed_ns": 2000042100,
+          "reads": 10000,
+          "realtime_rate": 0.9999789504430932,
+          "monotonic_rate": 0.999982950358895,
+          "realtime_regressions": 0,
+          "monotonic_regressions": 0,
+          "min_realtime_delta_ns": 200000,
+          "observed_realtime_resolution_ns": 200000,
+          "observed_monotonic_resolution_ns": 199000,
+          "max_read_span_ns": 191650,
+          "wall_minus_monotonic_change_ns": -8000,
+          "endpoint_uncertainty_ns": 414400,
+          "correction_trace": [
+            {
+              "elapsed_ns": 0,
+              "change_ns": 0
+            },
+            {
+              "elapsed_ns": 250042275,
+              "change_ns": -8000
+            },
+            {
+              "elapsed_ns": 500242150,
+              "change_ns": -8000
+            },
+            {
+              "elapsed_ns": 750242275,
+              "change_ns": -8000
+            },
+            {
+              "elapsed_ns": 1000242275,
+              "change_ns": -8000
+            },
+            {
+              "elapsed_ns": 1250442175,
+              "change_ns": -8000
+            },
+            {
+              "elapsed_ns": 1500642075,
+              "change_ns": -8000
+            },
+            {
+              "elapsed_ns": 1750642175,
+              "change_ns": -8000
+            },
+            {
+              "elapsed_ns": 2000042100,
+              "change_ns": -8000
+            }
+          ]
+        }
+      },
+      "steps": {
+        "seed": {
+          "target_error_ns": 200000,
+          "within_read_window": true,
+          "monotonic_elapsed_ns": 308000,
+          "reference_elapsed_ns": 341250
+        },
+        "forward": {
+          "target_error_ns": 200000,
+          "within_read_window": true,
+          "monotonic_elapsed_ns": 307000,
+          "reference_elapsed_ns": 340950
+        },
+        "backward": {
+          "target_error_ns": 200000,
+          "within_read_window": true,
+          "monotonic_elapsed_ns": 307000,
+          "reference_elapsed_ns": 340675
+        },
+        "positive_seed": {
+          "target_error_ns": 200000,
+          "within_read_window": true,
+          "monotonic_elapsed_ns": 307000,
+          "reference_elapsed_ns": 307200
+        },
+        "negative_seed": {
+          "target_error_ns": 200000,
+          "within_read_window": true,
+          "monotonic_elapsed_ns": 307000,
+          "reference_elapsed_ns": 381600
+        },
+        "replace_seed": {
+          "target_error_ns": 300000,
+          "within_read_window": true,
+          "monotonic_elapsed_ns": 388000,
+          "reference_elapsed_ns": 313700
+        },
+        "cancel_seed": {
+          "target_error_ns": 200000,
+          "within_read_window": true,
+          "monotonic_elapsed_ns": 308000,
+          "reference_elapsed_ns": 341375
+        }
+      },
+      "sleeps": {
+        "baseline_sleep": {
+          "requested_ns": 100000000,
+          "reference_elapsed_ns": 100483100,
+          "monotonic_elapsed_ns": 100416000
+        },
+        "positive_sleep": {
+          "requested_ns": 100000000,
+          "reference_elapsed_ns": 100489300,
+          "monotonic_elapsed_ns": 100415000
+        },
+        "negative_sleep": {
+          "requested_ns": 100000000,
+          "reference_elapsed_ns": 100397900,
+          "monotonic_elapsed_ns": 100398000
+        }
+      },
+      "adjustments": {
+        "initial_query": {
+          "has_delta": false,
+          "delta_us": 0,
+          "result": -1,
+          "errno": 22,
+          "old_seconds": 1234567,
+          "old_microseconds": 7654321
+        },
+        "positive": {
+          "has_delta": true,
+          "delta_us": 2000,
+          "result": 0,
+          "errno": 0,
+          "old_seconds": 1234567,
+          "old_microseconds": 0
+        },
+        "positive_query": {
+          "has_delta": false,
+          "delta_us": 0,
+          "result": -1,
+          "errno": 22,
+          "old_seconds": 1234567,
+          "old_microseconds": 7654321
+        },
+        "negative": {
+          "has_delta": true,
+          "delta_us": -2000,
+          "result": 0,
+          "errno": 0,
+          "old_seconds": 1234567,
+          "old_microseconds": 0
+        },
+        "negative_query": {
+          "has_delta": false,
+          "delta_us": 0,
+          "result": -1,
+          "errno": 22,
+          "old_seconds": 1234567,
+          "old_microseconds": 7654321
+        },
+        "replace_initial": {
+          "has_delta": true,
+          "delta_us": 20000,
+          "result": 0,
+          "errno": 0,
+          "old_seconds": 1234567,
+          "old_microseconds": 0
+        },
+        "replacement": {
+          "has_delta": true,
+          "delta_us": -2000,
+          "result": 0,
+          "errno": 0,
+          "old_seconds": 1234567,
+          "old_microseconds": 19500
+        },
+        "cancel_initial": {
+          "has_delta": true,
+          "delta_us": 20000,
+          "result": 0,
+          "errno": 0,
+          "old_seconds": 1234567,
+          "old_microseconds": 0
+        },
+        "cancel": {
+          "has_delta": true,
+          "delta_us": 0,
+          "result": 0,
+          "errno": 0,
+          "old_seconds": 1234567,
+          "old_microseconds": 19500
+        },
+        "final_query": {
+          "has_delta": false,
+          "delta_us": 0,
+          "result": -1,
+          "errno": 22,
+          "old_seconds": 1234567,
+          "old_microseconds": 7654321
+        }
+      },
+      "limits": [
+        "Emulated APB reference; no physical RTC or deep-sleep evidence.",
+        "100 ms sleeps need not overlap an applied adjustment.",
+        "Checkpoints and endpoint resolution do not prove continuous slew rate.",
+        "Firmware hashes, not the optional in-band build_id, bind capture identity."
+      ]
+    }
+  ],
+  "host_elapsed_seconds": 11.3397843620005
+}

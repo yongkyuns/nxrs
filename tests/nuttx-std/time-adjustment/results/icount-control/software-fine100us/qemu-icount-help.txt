@@ -1,0 +1,5 @@
+-icount [shift=N|auto][,align=on|off][,sleep=on|off][,rr=record|replay,rrfile=<filename>[,rrsnapshot=<snapshot>]]
+                enable virtual instruction counter with 2^N clock ticks per
+                instruction, enable aligning the host and virtual clocks
+                or disable real time cpu sleeping, and optionally enable
+                record-and-replay mode

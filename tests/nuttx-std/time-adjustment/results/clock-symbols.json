@@ -1,0 +1,163 @@
+{
+  "schema": 1,
+  "scope": "Selected linked symbols owned by clock_timekeeping.c, not whole-image size or runtime latency. Both images use the same ARM compiler and100us tick; original public adjustment disabled with diagnostic access, repaired public adjustment enabled. Other wrapper changes and linker padding are excluded.",
+  "nm_sha256": "785d3df0631067afa338a4a73bd2cf421e284d6a75e53f50e8b8269917c38c8b",
+  "nm_version": "GNU nm (2.44-3+23+b1) 2.44\nCopyright (C) 2025 Free Software Foundation, Inc.\nThis program is free software; you may redistribute it under the terms of\nthe GNU General Public License version 3 or (at your option) any later version.\nThis program has absolutely no warranty.\n",
+  "text_names": [
+    "clock_get_current_time",
+    "clock_project_time",
+    "clock_accumulate_time",
+    "clock_adjust_delta",
+    "clock_timekeeping_get_wall_time",
+    "clock_timekeeping_set_wall_time",
+    "adjtime",
+    "clock_update_wall_time",
+    "clock_inittimekeeping"
+  ],
+  "data_names": [
+    "g_clock_wall_time",
+    "g_clock_last_counter",
+    "g_clock_mask",
+    "g_clock_adjust",
+    "g_clock_adjust_fraction",
+    "g_clock_lock"
+  ],
+  "images": {
+    "before": {
+      "image_sha256": "0b7e58fbae68ed4d487da9fb0d355fe208ac9d470c19e425c588f8d47a54e096",
+      "config_sha256": "820f9cfda62160048754ad051b1b8107be2dd318f0cd542f124b0f70a8749224",
+      "command": [
+        "/workspace/scratch/47a087f14644/tools-followup/debian-prefix/usr/bin/arm-none-eabi-nm",
+        "-S",
+        "--size-sort",
+        "/dev/shm/nxrs-time-sync-phase1/software-fine100us-retry/firmware/nuttx/nuttx"
+      ],
+      "symbols": {
+        "clock_get_current_time": {
+          "bytes": 400,
+          "kind": "t"
+        },
+        "clock_timekeeping_get_wall_time": {
+          "bytes": 32,
+          "kind": "T"
+        },
+        "clock_timekeeping_set_wall_time": {
+          "bytes": 112,
+          "kind": "T"
+        },
+        "adjtime": {
+          "bytes": 132,
+          "kind": "T"
+        },
+        "clock_update_wall_time": {
+          "bytes": 708,
+          "kind": "T"
+        },
+        "clock_inittimekeeping": {
+          "bytes": 96,
+          "kind": "T"
+        },
+        "g_clock_wall_time": {
+          "bytes": 16,
+          "kind": "b"
+        },
+        "g_clock_last_counter": {
+          "bytes": 8,
+          "kind": "b"
+        },
+        "g_clock_mask": {
+          "bytes": 8,
+          "kind": "b"
+        },
+        "g_clock_adjust": {
+          "bytes": 4,
+          "kind": "b"
+        },
+        "g_clock_lock": {
+          "bytes": 4,
+          "kind": "b"
+        }
+      },
+      "text_bytes": 1480,
+      "static_bytes": 40
+    },
+    "after": {
+      "image_sha256": "ed8b64d4dc8049835edcf1c3382e717b2a13de8ea602d8e2e057c3fb5f1777f8",
+      "config_sha256": "1173320db2f0f06557548473c871f7ecb7e13e6d7e112f17b2f8cfb6b6002a14",
+      "command": [
+        "/workspace/scratch/47a087f14644/tools-followup/debian-prefix/usr/bin/arm-none-eabi-nm",
+        "-S",
+        "--size-sort",
+        "/dev/shm/nxrs-time-sync-followup/time-adjustment-public/firmware/nuttx/nuttx"
+      ],
+      "symbols": {
+        "clock_get_current_time": {
+          "bytes": 88,
+          "kind": "t"
+        },
+        "clock_project_time": {
+          "bytes": 852,
+          "kind": "t"
+        },
+        "clock_accumulate_time": {
+          "bytes": 88,
+          "kind": "t"
+        },
+        "clock_adjust_delta": {
+          "bytes": 568,
+          "kind": "t"
+        },
+        "clock_timekeeping_get_wall_time": {
+          "bytes": 24,
+          "kind": "T"
+        },
+        "clock_timekeeping_set_wall_time": {
+          "bytes": 128,
+          "kind": "T"
+        },
+        "adjtime": {
+          "bytes": 352,
+          "kind": "T"
+        },
+        "clock_update_wall_time": {
+          "bytes": 44,
+          "kind": "T"
+        },
+        "clock_inittimekeeping": {
+          "bytes": 124,
+          "kind": "T"
+        },
+        "g_clock_wall_time": {
+          "bytes": 16,
+          "kind": "b"
+        },
+        "g_clock_last_counter": {
+          "bytes": 8,
+          "kind": "b"
+        },
+        "g_clock_mask": {
+          "bytes": 8,
+          "kind": "b"
+        },
+        "g_clock_adjust": {
+          "bytes": 8,
+          "kind": "b"
+        },
+        "g_clock_adjust_fraction": {
+          "bytes": 4,
+          "kind": "b"
+        },
+        "g_clock_lock": {
+          "bytes": 4,
+          "kind": "b"
+        }
+      },
+      "text_bytes": 2268,
+      "static_bytes": 48
+    }
+  },
+  "difference": {
+    "text_bytes": 788,
+    "static_bytes": 8
+  }
+}

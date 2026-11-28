@@ -1,0 +1,28 @@
+[
+  {
+    "mode": "software",
+    "success": true,
+    "command": [
+      "qemu-system-arm",
+      "-M",
+      "mps2-an521",
+      "-display",
+      "none",
+      "-serial",
+      "stdio",
+      "-monitor",
+      "none",
+      "-nic",
+      "none",
+      "-no-reboot",
+      "-kernel",
+      "/dev/shm/nxrs-time-sync-phase1/software-corrected-retry/firmware/nuttx/nuttx",
+      "-gdb",
+      "tcp:127.0.0.1:36213",
+      "-icount",
+      "shift=5,sleep=off"
+    ],
+    "image_sha256": "f29c1bc0a844743de5cd50d85049228d88c8ebb2764fd1827de2188dc912fe4d",
+    "uname": "uname -a\r\nNuttX 13.1.1 4268617f28ad-nxrs Nov 28 2026 21:31:17 arm mps2-an521\r\nnsh> \u001b[K"
+  }
+]

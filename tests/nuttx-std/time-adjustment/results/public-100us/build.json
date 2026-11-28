@@ -1,0 +1,77 @@
+{
+  "schema": 1,
+  "tick_us": 100,
+  "command": [
+    "cargo",
+    "nxrs",
+    "build",
+    "--manifest-path",
+    "/workspace/scratch/706f9e3bc115/nxrs/tests/nuttx-std/time-adjustment/Cargo.toml",
+    "--profile",
+    "mps2-an521-mock",
+    "--out",
+    "/dev/shm/nxrs-time-sync-followup/time-adjustment-public/firmware",
+    "--kconfig-enable",
+    "CLOCK_TIMEKEEPING",
+    "--kconfig-enable",
+    "CLOCK_ADJTIME",
+    "--kconfig-set",
+    "USEC_PER_TICK=100",
+    "--target-c-source",
+    "/workspace/scratch/706f9e3bc115/nxrs/tests/nuttx-std/clock-control/native.c",
+    "--target-c-source",
+    "/workspace/scratch/706f9e3bc115/nxrs/tests/nuttx-std/clock-control/qemu_systick_clock.c",
+    "--target-c-source",
+    "/workspace/scratch/706f9e3bc115/nxrs/tests/nuttx-std/memory-timing/qemu_timer_clock.c"
+  ],
+  "identities": {
+    "nxrs": "06964ca826bbeb434e6ed63e9da20f9c0cced3cb",
+    "working_tree": "M docs/nuttx-std.md\n M docs/upstream-patchsets.md\n M tests/README.md\n M tests/nuttx-std/clock-control/README.md\n M upstream/build-patches.json\n?? tests/host/clock_timekeeping.c\n?? tests/host/clock_timekeeping.h\n?? tests/host/test_clock_timekeeping.py\n?? tests/nuttx-std/time-adjustment/\n?? upstream/nuttx/patches/0150-clock-timekeeping-adjustment.patch",
+    "nuttx": "4268617f28ad0ed7e900a081ea1b33c9347458b3",
+    "nuttx-apps": "3c772ea35b9245972e18999828f7b533e6fc57cc"
+  },
+  "sources_before": {
+    "tests/nuttx-std/time-adjustment/Cargo.toml": "42c476b85e0ad1cf56a9be8bded3eb310b15bec8c638812c0c39cf37f27df89a",
+    "tests/nuttx-std/time-adjustment/Cargo.lock": "aee9cdcfa931677892e201ff0fd86b63aeff00b46e78bf97057f5e2745b4bfa9",
+    "upstream/nuttx/patches/0150-clock-timekeeping-adjustment.patch": "6e3f98c8ae6cca898c0692533c099b8b460e41c87c9cab04b47f546d416fec52",
+    "upstream/build-patches.json": "e4805c75207f5efa25e977b1b71cc8562323d7c2c2de9040d56b27cf8a2f7402",
+    "tests/nuttx-std/clock-control/native.c": "595b62ac4e65a908ce3c3e8d1bf6ca4ddd57c7cff78f4e078c08e8e685f5c4aa",
+    "tests/nuttx-std/clock-control/qemu_systick_clock.c": "3e6e49b7d4e47da9713e902218a623f54ef406ea3d8aec279b935a05d4d067b2",
+    "tests/nuttx-std/memory-timing/qemu_timer_clock.c": "703cb28f21b28b4af4974c129163856aee6f04545d8d72304f25e404c09e606d",
+    "tests/nuttx-std/time-adjustment/src/main.rs": "f00ac62b313e8b9ffa5057e03f8721b63c390cc2fef0139adaeff36cda160dfb"
+  },
+  "qemu_clock_correction": true,
+  "native_linker_override": "EXTRALINKCMDS=--wrap=systick_initialize",
+  "native_environment_sha256": {
+    "MAKEFLAGS": "f580e034cef49097d069533b51a08083f0178e7c74a01210af4c23f1324f802b"
+  },
+  "workflow_sha256": "a5b837d753784dfb64d196a6b8e22c2a6fe3be1517e40fc011edf278f692b45d",
+  "build_complete": true,
+  "image": "firmware/nuttx/nuttx",
+  "sources_after": {
+    "tests/nuttx-std/time-adjustment/Cargo.toml": "42c476b85e0ad1cf56a9be8bded3eb310b15bec8c638812c0c39cf37f27df89a",
+    "tests/nuttx-std/time-adjustment/Cargo.lock": "aee9cdcfa931677892e201ff0fd86b63aeff00b46e78bf97057f5e2745b4bfa9",
+    "upstream/nuttx/patches/0150-clock-timekeeping-adjustment.patch": "6e3f98c8ae6cca898c0692533c099b8b460e41c87c9cab04b47f546d416fec52",
+    "upstream/build-patches.json": "e4805c75207f5efa25e977b1b71cc8562323d7c2c2de9040d56b27cf8a2f7402",
+    "tests/nuttx-std/clock-control/native.c": "595b62ac4e65a908ce3c3e8d1bf6ca4ddd57c7cff78f4e078c08e8e685f5c4aa",
+    "tests/nuttx-std/clock-control/qemu_systick_clock.c": "3e6e49b7d4e47da9713e902218a623f54ef406ea3d8aec279b935a05d4d067b2",
+    "tests/nuttx-std/memory-timing/qemu_timer_clock.c": "703cb28f21b28b4af4974c129163856aee6f04545d8d72304f25e404c09e606d",
+    "tests/nuttx-std/time-adjustment/src/main.rs": "f00ac62b313e8b9ffa5057e03f8721b63c390cc2fef0139adaeff36cda160dfb"
+  },
+  "identities_after": {
+    "nxrs": "06964ca826bbeb434e6ed63e9da20f9c0cced3cb",
+    "working_tree": "M docs/nuttx-std.md\n M docs/upstream-patchsets.md\n M tests/README.md\n M tests/nuttx-std/clock-control/README.md\n M upstream/build-patches.json\n?? tests/host/clock_timekeeping.c\n?? tests/host/clock_timekeeping.h\n?? tests/host/test_clock_timekeeping.py\n?? tests/nuttx-std/time-adjustment/\n?? upstream/nuttx/patches/0150-clock-timekeeping-adjustment.patch",
+    "nuttx": "4268617f28ad0ed7e900a081ea1b33c9347458b3",
+    "nuttx-apps": "3c772ea35b9245972e18999828f7b533e6fc57cc"
+  },
+  "artifacts": {
+    "firmware/nuttx/.config": "1173320db2f0f06557548473c871f7ecb7e13e6d7e112f17b2f8cfb6b6002a14",
+    "firmware/nuttx/nuttx": "ed8b64d4dc8049835edcf1c3382e717b2a13de8ea602d8e2e057c3fb5f1777f8",
+    "firmware/resolved.config": "1173320db2f0f06557548473c871f7ecb7e13e6d7e112f17b2f8cfb6b6002a14",
+    "firmware/abi-report.json": "8e0868c236f310950306f2e0e9e5336f7e96b721f0d1d2f429e48ef06452fc46",
+    "firmware/provenance.txt": "633c833664d5029ed7958c6917cb3879c8c5fd8b0bd4602a3b246873f47fd0c7",
+    "firmware/nuttx-patches.json": "c69fde1194a880c93229e25d39d9f588b4fe9e3ab0007aa16b530e1a9eb7666a",
+    "firmware/nuttx-apps-patches.json": "b7ba86fa4249d39e2ac3862261b16f24cd490dfd265275bc34e99e046f46531c",
+    "firmware/std-patch.json": "1ef7e777cfbf4243404cfa0e8321fc5512ccd1662f858a95308d029f3297b094"
+  }
+}

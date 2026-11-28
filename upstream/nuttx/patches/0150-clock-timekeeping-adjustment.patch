@@ -1,0 +1,682 @@
+Subject: [PATCH] clock: derive software adjtime progress from elapsed time
+
+Requirement: reliable bounded wall-clock slew with coherent reads, progress
+queries, replacement and cancellation, without adjusting monotonic time.
+
+Project reads and commits from the same raw elapsed counter at 500 ppm, retaining
+fractional nanosecond budget. Validate adjustment conversion and clock arithmetic,
+return normalized signed timeval fields, and commit prior progress before query
+or replacement. Return software clock failures through the public get/set APIs;
+a failed software set must not update the RTC. Admit the software backend through
+CLOCK_ADJTIME while retaining its default-disabled configuration and symbol gate.
+
+Upstream status: local fix for the pinned NuttX 13.1.1 revision
+4268617f28ad0ed7e900a081ea1b33c9347458b3; not submitted upstream.
+Removal condition: select an upstream revision with equivalent behavior and pass
+the retained native and target regressions without this patch.
+
+The deterministic regression compiles the actual old/new clock sources with
+mechanical host timer stubs and UBSan. Target/emulator execution and physical
+RTC/suspend behavior are separate qualification gates.
+
+--- a/sched/Kconfig
++++ b/sched/Kconfig
+@@ -174,10 +174,13 @@
+ config CLOCK_ADJTIME
+ 	bool "Support adjtime function"
+ 	default n
+-	depends on ARCH_HAVE_ADJTIME || RTC_ADJTIME || PTP_CLOCK
++	depends on ARCH_HAVE_ADJTIME || RTC_ADJTIME || PTP_CLOCK || CLOCK_TIMEKEEPING
+ 	---help---
+ 		Enables usage of adjtime() interface used to correct the system time
+-		clock. This requires specific architecture support.
++		clock. CLOCK_TIMEKEEPING provides software adjustment at a fixed
++		500 ppm without changing the underlying monotonic clock. The slew
++		limit and period options below apply to the hardware adjustment
++		backend, which requires specific architecture support.
+ 
+ 		Adjustment can affect system timer period and/or high-resolution RTC.
+ 		These are implemented by interfaces up_adjtime() and up_rtc_adjtime().
+--- a/sched/clock/clock_timekeeping.c
++++ b/sched/clock/clock_timekeeping.c
+@@ -45,15 +45,17 @@
+  ****************************************************************************/
+ 
+ #define NTP_MAX_ADJUST 500
++#define NTP_ADJUST_DIVISOR (USEC_PER_SEC / NTP_MAX_ADJUST)
+ 
+ /****************************************************************************
+  * Private Data
+  ****************************************************************************/
+ 
+ static struct timespec g_clock_wall_time;
+-static uint64_t        g_clock_last_counter;
+-static uint64_t        g_clock_mask;
+-static long            g_clock_adjust;
++static clock_t         g_clock_last_counter;
++static clock_t         g_clock_mask;
++static int64_t         g_clock_adjust;
++static uint32_t        g_clock_adjust_fraction;
+ static spinlock_t      g_clock_lock = SP_UNLOCKED;
+ 
+ /****************************************************************************
+@@ -61,196 +63,49 @@
+  ****************************************************************************/
+ 
+ /****************************************************************************
+- * Name: clock_get_current_time
+- ****************************************************************************/
+-
+-static int clock_get_current_time(FAR struct timespec *ts,
+-                                  FAR struct timespec *base)
+-{
+-  irqstate_t flags;
+-  uint64_t counter;
++ * Name: clock_project_time
++ *
++ * Description:
++ *   Project wall time from the raw elapsed counter.  Readers and committed
++ *   updates must include exactly the same adjustment.  The caller holds
++ *   g_clock_lock; this function changes no state until projection succeeds.
++ *
++ *   g_clock_adjust is the remaining correction in nanoseconds.  At 500 ppm,
++ *   one correction nanosecond is earned per 2000 elapsed nanoseconds.  Keep
++ *   the fractional budget across updates so their frequency cannot change
++ *   the rate.  No adjustment depends on a wall-clock second boundary.
++ ****************************************************************************/
++
++static int clock_project_time(clock_t counter, FAR struct timespec *ts,
++                              FAR int64_t *remaining,
++                              FAR uint32_t *fraction)
++{
+   uint64_t offset;
+-  uint64_t nsec;
+-  time_t sec;
+-  int ret;
+-
+-  flags = spin_lock_irqsave(&g_clock_lock);
+-
+-  ret = up_timer_gettick(&counter);
+-  if (ret < 0)
+-    {
+-      goto errout_in_critical_section;
+-    }
+-
+-  offset = (counter - g_clock_last_counter) & g_clock_mask;
+-  nsec   = offset * NSEC_PER_TICK;
+-  sec    = nsec   / NSEC_PER_SEC;
+-  nsec  -= sec    * NSEC_PER_SEC;
+-
+-  nsec  += base->tv_nsec;
+-  if (nsec >= NSEC_PER_SEC)
+-    {
+-      nsec -= NSEC_PER_SEC;
+-      sec  += 1;
+-    }
+-
+-  ts->tv_nsec = nsec;
+-  ts->tv_sec = base->tv_sec + sec;
+-
+-errout_in_critical_section:
+-  spin_unlock_irqrestore(&g_clock_lock, flags);
+-  return ret;
+-}
+-
+-/****************************************************************************
+- * Public Functions
+- ****************************************************************************/
+-
+-/****************************************************************************
+- * Name: clock_timekeeping_get_wall_time
+- ****************************************************************************/
+-
+-int clock_timekeeping_get_wall_time(FAR struct timespec *ts)
+-{
+-  return clock_get_current_time(ts, &g_clock_wall_time);
+-}
+-
+-/****************************************************************************
+- * Name: clock_timekeeping_set_wall_time
+- ****************************************************************************/
+-
+-int clock_timekeeping_set_wall_time(FAR const struct timespec *ts)
+-{
+-  irqstate_t flags;
+-  uint64_t counter;
+-  int ret;
+-
+-  flags = spin_lock_irqsave(&g_clock_lock);
+-
+-  ret = up_timer_gettick(&counter);
+-  if (ret < 0)
+-    {
+-      goto errout_in_critical_section;
+-    }
+-
+-  memcpy(&g_clock_wall_time, ts, sizeof(struct timespec));
+-  clock_notifier_call_chain(CLOCK_REALTIME, ts);
+-
+-  g_clock_adjust       = 0;
+-  g_clock_last_counter = counter;
+-
+-errout_in_critical_section:
+-  spin_unlock_irqrestore(&g_clock_lock, flags);
+-  return ret;
+-}
+-
+-/****************************************************************************
+- * Name: adjtime
+- *
+- * Description:
+- *   The adjtime() function gradually adjusts the system clock (as returned
+- *   by gettimeofday(2)).  The amount of time by which the clock is to be
+- *   adjusted is specified in the structure pointed to by delta.
+- *
+- *   This structure has the following form:
+- *
+- *     struct timeval
+- *       {
+- *         time_t      tv_sec;     (seconds)
+- *         suseconds_t tv_usec;    (microseconds)
+- *       };
+- *
+- *   If the adjustment in delta is positive, then the system clock is
+- *   speeded up by some small percentage (i.e., by adding a small amount of
+- *   time to the clock value in each second) until the adjustment has been
+- *   completed.  If the adjustment in delta is negative, then the clock is
+- *   slowed down in a similar fashion.
+- *
+- *   If a clock adjustment from an earlier adjtime() call is already in
+- *   progress at the time of a later adjtime() call, and delta is not NULL
+- *   for the later call, then the earlier adjustment is stopped, but any
+- *   already completed part of that adjustment is not undone.
+- *
+- *   If olddelta is not NULL, then the buffer that it points to is used to
+- *   return the amount of time remaining from any previous adjustment that
+- *   has not yet been completed.
+- *
+- *   NOTE: This is not a POSIX interface but derives from 4.3BSD, System V.
+- *   It is also supported for Linux compatibility.
+- *
+- ****************************************************************************/
+-
+-int adjtime(FAR const struct timeval *delta, FAR struct timeval *olddelta)
+-{
+-  irqstate_t flags;
+-  long adjust_usec;
+-
+-  if (!delta)
+-    {
+-      set_errno(EINVAL);
+-      return -1;
+-    }
+-
+-  flags = spin_lock_irqsave(&g_clock_lock);
+-
+-  adjust_usec = delta->tv_sec * USEC_PER_SEC + delta->tv_usec;
+-
+-  if (olddelta)
+-    {
+-      olddelta->tv_usec = g_clock_adjust;
+-    }
+-
+-  g_clock_adjust = adjust_usec;
+-
+-  spin_unlock_irqrestore(&g_clock_lock, flags);
+-
+-  return OK;
+-}
+-
+-/****************************************************************************
+- * Name: clock_update_wall_time
+- ****************************************************************************/
+-
+-void clock_update_wall_time(void)
+-{
+-  irqstate_t flags;
+-  uint64_t counter;
+-  uint64_t offset;
++  uint64_t elapsed;
++  uint32_t remainder;
++  int64_t adjust;
++  int64_t pending;
++  int64_t limit;
+   int64_t nsec;
+-  time_t sec;
+-  int ret;
+-
+-  flags = spin_lock_irqsave(&g_clock_lock);
+-
+-  ret = up_timer_gettick(&counter);
+-  if (ret < 0)
+-    {
+-      goto errout_in_critical_section;
+-    }
+-
+-  offset = (counter - g_clock_last_counter) & g_clock_mask;
+-  if (offset == 0)
+-    {
+-      goto errout_in_critical_section;
+-    }
+-
+-  nsec  = offset * NSEC_PER_TICK;
+-  sec   = nsec / NSEC_PER_SEC;
+-  nsec -= sec * NSEC_PER_SEC;
+-
+-  nsec += g_clock_wall_time.tv_nsec;
+-  if (nsec >= NSEC_PER_SEC)
+-    {
+-      nsec -= NSEC_PER_SEC;
+-      sec  += 1;
+-    }
+-
+-  if (g_clock_adjust != 0 && sec > 0)
+-    {
+-      long limit = NTP_MAX_ADJUST * (long)sec;
+-      long adjust = g_clock_adjust;
+-
+-      /* Limit the adjustment while preserving its direction. */
++  int64_t sec;
++
++  offset = ((uint64_t)counter - (uint64_t)g_clock_last_counter) &
++           (uint64_t)g_clock_mask;
++  if (offset > UINT64_MAX / NSEC_PER_TICK)
++    {
++      return -EOVERFLOW;
++    }
++
++  elapsed = offset * NSEC_PER_TICK;
++  adjust = g_clock_adjust;
++  remainder = 0;
++  if (adjust != 0)
++    {
++      remainder = elapsed % NTP_ADJUST_DIVISOR + g_clock_adjust_fraction;
++      limit = elapsed / NTP_ADJUST_DIVISOR + remainder / NTP_ADJUST_DIVISOR;
++      remainder %= NTP_ADJUST_DIVISOR;
++
++      /* limit fits int64_t even for UINT64_MAX elapsed nanoseconds. */
+ 
+       if (adjust > limit)
+         {
+@@ -260,30 +115,295 @@
+         {
+           adjust = -limit;
+         }
+-
+-      nsec += adjust * NSEC_PER_USEC;
+-      g_clock_adjust -= adjust;
+-
+-      while (nsec < 0)
+-        {
+-          nsec += NSEC_PER_SEC;
+-          sec  -= 1;
+-        }
+-
+-      while (nsec >= NSEC_PER_SEC)
+-        {
+-          nsec -= NSEC_PER_SEC;
+-          sec  += 1;
+-        }
+-    }
+-
+-  g_clock_wall_time.tv_sec += sec;
+-  g_clock_wall_time.tv_nsec = (long)nsec;
+-
+-  g_clock_last_counter = counter;
++    }
++
++  pending = g_clock_adjust - adjust;
++  sec = (int64_t)(elapsed / NSEC_PER_SEC) + adjust / NSEC_PER_SEC;
++  nsec = (int64_t)(elapsed % NSEC_PER_SEC) + g_clock_wall_time.tv_nsec;
++  nsec += adjust % NSEC_PER_SEC;
++  sec += nsec / NSEC_PER_SEC;
++  nsec %= NSEC_PER_SEC;
++  if (nsec < 0)
++    {
++      nsec += NSEC_PER_SEC;
++      sec--;
++    }
++
++  /* The negative correction cannot exceed elapsed time, including the
++   * sub-nanosecond budget carried from the preceding update.
++   */
++
++  DEBUGASSERT(sec >= 0);
++  if (g_clock_wall_time.tv_sec > INT64_MAX - sec)
++    {
++      return -EOVERFLOW;
++    }
++
++  ts->tv_sec = g_clock_wall_time.tv_sec + sec;
++  ts->tv_nsec = (long)nsec;
++  *remaining = pending;
++  *fraction = pending == 0 ? 0 : remainder;
++  return OK;
++}
++
++/****************************************************************************
++ * Name: clock_accumulate_time
++ *
++ * Description:
++ *   Commit elapsed time and adjustment before changing the adjustment or
++ *   its epoch.  The caller holds g_clock_lock.
++ ****************************************************************************/
++
++static int clock_accumulate_time(void)
++{
++  clock_t counter;
++  int ret;
++
++  ret = up_timer_gettick(&counter);
++  if (ret < 0)
++    {
++      return ret;
++    }
++
++  ret = clock_project_time(counter, &g_clock_wall_time, &g_clock_adjust,
++                           &g_clock_adjust_fraction);
++  if (ret >= 0)
++    {
++      g_clock_last_counter = counter;
++    }
++
++  return ret;
++}
++
++/****************************************************************************
++ * Name: clock_adjust_delta
++ *
++ * Description:
++ *   Convert an adjustment to signed nanoseconds without overflowing either
++ *   multiplication or addition.  The accepted range is limited to int64_t
++ *   nanoseconds; invalid requests leave the current adjustment unchanged.
++ ****************************************************************************/
++
++#ifdef CONFIG_CLOCK_ADJTIME
++static int clock_adjust_delta(FAR const struct timeval *delta,
++                              FAR int64_t *adjust)
++{
++  int64_t usec;
++
++  if (delta->tv_usec <= -USEC_PER_SEC || delta->tv_usec >= USEC_PER_SEC)
++    {
++      return -EINVAL;
++    }
++
++  if (delta->tv_sec > INT64_MAX / USEC_PER_SEC ||
++      delta->tv_sec < INT64_MIN / USEC_PER_SEC)
++    {
++      return -EOVERFLOW;
++    }
++
++  usec = delta->tv_sec * (int64_t)USEC_PER_SEC;
++  if ((delta->tv_usec > 0 && usec > INT64_MAX - delta->tv_usec) ||
++      (delta->tv_usec < 0 && usec < INT64_MIN - delta->tv_usec))
++    {
++      return -EOVERFLOW;
++    }
++
++  usec += delta->tv_usec;
++  if (usec > INT64_MAX / NSEC_PER_USEC ||
++      usec < INT64_MIN / NSEC_PER_USEC)
++    {
++      return -EOVERFLOW;
++    }
++
++  *adjust = usec * NSEC_PER_USEC;
++  return OK;
++}
++#endif
++
++/****************************************************************************
++ * Name: clock_get_current_time
++ ****************************************************************************/
++
++static int clock_get_current_time(FAR struct timespec *ts)
++{
++  irqstate_t flags;
++  clock_t counter;
++  int64_t remaining;
++  uint32_t fraction;
++  int ret;
++
++  flags = spin_lock_irqsave(&g_clock_lock);
++
++  ret = up_timer_gettick(&counter);
++  if (ret >= 0)
++    {
++      ret = clock_project_time(counter, ts, &remaining, &fraction);
++    }
++
++  spin_unlock_irqrestore(&g_clock_lock, flags);
++  return ret;
++}
++
++/****************************************************************************
++ * Public Functions
++ ****************************************************************************/
++
++/****************************************************************************
++ * Name: clock_timekeeping_get_wall_time
++ ****************************************************************************/
++
++int clock_timekeeping_get_wall_time(FAR struct timespec *ts)
++{
++  return clock_get_current_time(ts);
++}
++
++/****************************************************************************
++ * Name: clock_timekeeping_set_wall_time
++ ****************************************************************************/
++
++int clock_timekeeping_set_wall_time(FAR const struct timespec *ts)
++{
++  irqstate_t flags;
++  clock_t counter;
++  int ret;
++
++  flags = spin_lock_irqsave(&g_clock_lock);
++
++  ret = up_timer_gettick(&counter);
++  if (ret < 0)
++    {
++      goto errout_in_critical_section;
++    }
++
++  memcpy(&g_clock_wall_time, ts, sizeof(struct timespec));
++  clock_notifier_call_chain(CLOCK_REALTIME, ts);
++
++  g_clock_adjust          = 0;
++  g_clock_adjust_fraction = 0;
++  g_clock_last_counter    = counter;
+ 
+ errout_in_critical_section:
+   spin_unlock_irqrestore(&g_clock_lock, flags);
++  return ret;
++}
++
++/****************************************************************************
++ * Name: adjtime
++ *
++ * Description:
++ *   The adjtime() function gradually adjusts the system clock (as returned
++ *   by gettimeofday(2)).  The amount of time by which the clock is to be
++ *   adjusted is specified in the structure pointed to by delta.
++ *
++ *   This structure has the following form:
++ *
++ *     struct timeval
++ *       {
++ *         time_t      tv_sec;     (seconds)
++ *         suseconds_t tv_usec;    (microseconds)
++ *       };
++ *
++ *   If the adjustment in delta is positive, then the system clock is
++ *   speeded up by some small percentage (i.e., by adding a small amount of
++ *   time to the clock value in each second) until the adjustment has been
++ *   completed.  If the adjustment in delta is negative, then the clock is
++ *   slowed down in a similar fashion.
++ *
++ *   If a clock adjustment from an earlier adjtime() call is already in
++ *   progress at the time of a later adjtime() call, and delta is not NULL
++ *   for the later call, then the earlier adjustment is stopped, but any
++ *   already completed part of that adjustment is not undone.
++ *
++ *   If olddelta is not NULL, then the buffer that it points to is used to
++ *   return the amount of time remaining from any previous adjustment that
++ *   has not yet been completed.
++ *
++ *   A NULL delta queries progress without replacing the pending correction.
++ *   A zero delta cancels it after committing the progress already made.
++ *   Returned timeval fields have the same sign and |tv_usec| < 1000000.
++ *   A sub-microsecond remainder is rounded away from zero.
++ *
++ *   The software backend slews at 500 ppm.  Input tv_usec must have a
++ *   magnitude below 1000000 and the combined adjustment must fit int64_t
++ *   nanoseconds.
++ *   Invalid or overflowing requests do not replace the current correction.
++ *
++ *   NOTE: This is not a POSIX interface but derives from 4.3BSD, System V.
++ *   It is also supported for Linux compatibility.
++ *
++ ****************************************************************************/
++
++#ifdef CONFIG_CLOCK_ADJTIME
++int adjtime(FAR const struct timeval *delta, FAR struct timeval *olddelta)
++{
++  irqstate_t flags;
++  int64_t adjust = 0;
++  int64_t usec;
++  int ret;
++
++  if (delta)
++    {
++      ret = clock_adjust_delta(delta, &adjust);
++      if (ret < 0)
++        {
++          set_errno(-ret);
++          return -1;
++        }
++    }
++
++  flags = spin_lock_irqsave(&g_clock_lock);
++
++  ret = clock_accumulate_time();
++  if (ret < 0)
++    {
++      goto errout_in_critical_section;
++    }
++
++  if (olddelta)
++    {
++      /* Round a fractional microsecond away from zero, so a query cannot
++       * report completion while a correction is still pending.
++       */
++
++      usec = g_clock_adjust / NSEC_PER_USEC;
++      if (g_clock_adjust % NSEC_PER_USEC != 0)
++        {
++          usec += g_clock_adjust > 0 ? 1 : -1;
++        }
++
++      olddelta->tv_sec = usec / USEC_PER_SEC;
++      olddelta->tv_usec = usec % USEC_PER_SEC;
++    }
++
++  if (delta)
++    {
++      g_clock_adjust = adjust;
++      g_clock_adjust_fraction = 0;
++    }
++
++errout_in_critical_section:
++  spin_unlock_irqrestore(&g_clock_lock, flags);
++  if (ret < 0)
++    {
++      set_errno(-ret);
++      return -1;
++    }
++
++  return ret;
++}
++#endif
++
++/****************************************************************************
++ * Name: clock_update_wall_time
++ ****************************************************************************/
++
++void clock_update_wall_time(void)
++{
++  irqstate_t flags;
++
++  flags = spin_lock_irqsave(&g_clock_lock);
++  clock_accumulate_time();
++  spin_unlock_irqrestore(&g_clock_lock, flags);
+ }
+ 
+ /****************************************************************************
+@@ -307,6 +427,8 @@
+     }
+ 
+   clock_notifier_call_chain(CLOCK_REALTIME, &g_clock_wall_time);
++  g_clock_adjust = 0;
++  g_clock_adjust_fraction = 0;
+   up_timer_gettick(&g_clock_last_counter);
+   spin_unlock_irqrestore(&g_clock_lock, flags);
+ }
+--- a/sched/clock/clock_gettime.c
++++ b/sched/clock/clock_gettime.c
+@@ -123,7 +123,7 @@
+       clock_timespec_add(&g_basetime, &ts, tp);
+       spin_unlock_irqrestore(&g_basetime_lock, flags);
+ #else
+-      clock_timekeeping_get_wall_time(tp);
++      ret = clock_timekeeping_get_wall_time(tp);
+ #endif
+     }
+ #ifdef CONFIG_PTP_CLOCK
+--- a/sched/clock/clock_settime.c
++++ b/sched/clock/clock_settime.c
+@@ -60,7 +60,7 @@
+ }
+ #endif
+ 
+-static void nxclock_set_realtime(FAR const struct timespec *tp)
++static int nxclock_set_realtime(FAR const struct timespec *tp)
+ {
+ #ifndef CONFIG_CLOCK_TIMEKEEPING
+   struct timespec bias;
+@@ -90,7 +90,13 @@
+   spin_unlock_irqrestore(&g_basetime_lock, flags);
+ 
+ #else
+-  clock_timekeeping_set_wall_time(tp);
++  int ret;
++
++  ret = clock_timekeeping_set_wall_time(tp);
++  if (ret < 0)
++    {
++      return ret;
++    }
+ #endif
+ 
+   /* Setup the RTC (lo- or high-res) */
+@@ -124,6 +130,8 @@
+ 
+   adjtime(&zerodelta, NULL);
+ #endif
++
++  return OK;
+ }
+ 
+ /****************************************************************************
+@@ -149,8 +157,7 @@
+     {
+       if (clock_id == CLOCK_REALTIME)
+         {
+-          nxclock_set_realtime(tp);
+-          ret = 0;
++          ret = nxclock_set_realtime(tp);
+         }
+ #ifdef CONFIG_PTP_CLOCK
+       else if ((clock_id & CLOCK_MASK) == CLOCK_FD)
