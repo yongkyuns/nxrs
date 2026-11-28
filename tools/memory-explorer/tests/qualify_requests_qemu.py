@@ -45,6 +45,8 @@ REQUEST = re.compile(r"(malloc|memalign|realloc) heap:\s*" + PTR +
                      r" old:\s*" + PTR + r" align:(\d+)")
 RESULT = re.compile(r"(malloc|memalign|realloc) heap:\s*" + PTR +
                     r" id:(\d+) result:\s*" + PTR + r" outcome:(success|failure)")
+# NSH may append an erase-line sequence after its otherwise complete prompt.
+NSH_PROMPT = re.compile(rb"(?:^|\n)nsh>[ \t]*(?:\x1b\[K)?[ \t\r\n]*\Z")
 
 
 def require(condition, message):
@@ -286,7 +288,7 @@ def run(args):
                     process.stdin.flush()
                     time.sleep(0.01)
                 sent = True
-            if sent and b"NXRS_HEAP_REQUESTS " in console and console.rstrip().endswith(b"nsh>"):
+            if sent and b"NXRS_HEAP_REQUESTS " in console and NSH_PROMPT.search(console):
                 break
         else:
             raise TimeoutError("Native allocator witness exceeded its deadline")

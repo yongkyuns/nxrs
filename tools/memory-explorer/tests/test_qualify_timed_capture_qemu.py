@@ -6,7 +6,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
 
-from qualify_timed_capture_qemu import native_evidence, validate_build_sources
+from qualify_timed_capture_qemu import NSH_PROMPT, native_evidence, validate_build_sources
 
 
 RECORDING_ID = "1234567890abcdef1234567890abcdef"
@@ -108,6 +108,15 @@ def synthetic_console(duplicate_operation=False):
 
 
 class NativeMarkerAdmission(unittest.TestCase):
+    def test_completion_requires_a_full_prompt_with_optional_erase_line(self):
+        prefix = b"NXRS_TIMED_WITNESS PASS\r\n"
+        for prompt in (b"nsh>", b"nsh> \x1b[K", b"nsh> \x1b[K\r\n"):
+            with self.subTest(prompt=prompt):
+                self.assertIsNotNone(NSH_PROMPT.search(prefix + prompt))
+        for prompt in (b"", b"nsh", b"nsh> \x1b[", b"nsh> \x1b[2K", b"not-nsh>"):
+            with self.subTest(prompt=prompt):
+                self.assertIsNone(NSH_PROMPT.search(prefix + prompt))
+
     def test_synthetic_control_covers_each_independent_operation(self):
         evidence = native_evidence(synthetic_console(), 2, False, RECORDING_ID)
         self.assertEqual(evidence["independent_operations"], 6)
