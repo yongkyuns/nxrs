@@ -31,9 +31,9 @@ struct Fake {
     fail_reference: bool,
     irq_asserted: bool,
     irq_wake: bool,
-    snapshot_crossings: usize,
     periodic_wake: bool,
     repeat_periodic: bool,
+    ambiguous_lengths: u8,
     registrations: usize,
     unregisters: usize,
     transfers: usize,
@@ -60,9 +60,9 @@ impl Fake {
             fail_reference: false,
             irq_asserted: true,
             irq_wake: false,
-            snapshot_crossings: 0,
             periodic_wake: false,
             repeat_periodic: false,
+            ambiguous_lengths: 0,
             registrations: 0,
             unregisters: 0,
             transfers: 0,
@@ -125,10 +125,13 @@ pub(super) mod ffi {
                 0x1d => r.fill(f.regs[0x1d]),
                 0x24 => {
                     r.copy_from_slice(&(f.fifo.len() as u16).to_le_bytes());
-                    if f.snapshot_crossings > 0 {
-                        f.snapshot_crossings -= 1;
-                        // Move the sensor clock to the next 100 Hz slot.
-                        f.regs[0x19] = f.regs[0x19].wrapping_add(1);
+                    if f.ambiguous_lengths != 0 {
+                        f.ambiguous_lengths -= 1;
+                        let ticks =
+                            u32::from_le_bytes([f.regs[0x18], f.regs[0x19], f.regs[0x1a], 0]);
+                        f.regs[0x18..=0x1a]
+                            .copy_from_slice(&ticks.wrapping_add(256).to_le_bytes()[..3]);
+                        f.fifo.extend_from_slice(&[0; 12]);
                     }
                 }
                 0x25 => r.fill(0),
@@ -695,6 +698,72 @@ fn hal_adds_stream_metadata_and_preserves_device_overflow() {
 }
 
 #[test]
+fn ambiguous_bmi_snapshots_retry_at_the_delivery_cadence_and_remain_cancellable() {
+    let _serial = SERIAL.lock().unwrap();
+    let file = DeviceFile::new();
+    for (edges, timer, expected) in [
+        (3, true, Ok(())),
+        (12, true, Err(DeviceError::Timeout)),
+        (3, false, Ok(())),
+    ] {
+        for irq in [None, Some(file.path())] {
+            // With no IRQ the first timer wait must be permitted before
+            // cancellation is injected at the deferred retry.
+            reset();
+            let device = acquire_bmi270(binding(file.path(), irq), default_config()).unwrap();
+            std::thread::sleep(std::time::Duration::from_millis(35));
+            {
+                let mut fake = FAKE.lock().unwrap();
+                fake.fifo.extend_from_slice(&[0; 12]);
+                fake.ambiguous_lengths = edges;
+                // The GPIO starts low and provides one edge. Further drains
+                // must work while the acknowledged watermark remains high.
+                fake.irq_asserted = false;
+                fake.irq_wake = irq.is_some();
+                fake.periodic_wake = irq.is_none();
+                fake.repeat_periodic = timer;
+            }
+            let mut samples = Vec::new();
+            let result = run(
+                device,
+                &AtomicBool::new(false),
+                &File::open(file.path()).unwrap(),
+                &mut |event| {
+                    let crate::Event::Sample(sample) = event else {
+                        panic!("unexpected event")
+                    };
+                    samples.push(sample);
+                    samples.len() < 4
+                },
+            );
+            assert_eq!(result, expected);
+            let fake = FAKE.lock().unwrap();
+            if edges == 3 && timer {
+                assert_eq!(samples.len(), 4);
+                assert_eq!(
+                    samples.iter().map(|s| s.sequence).collect::<Vec<_>>(),
+                    [1, 2, 3, 4]
+                );
+                assert!(fake.fifo.is_empty());
+            } else {
+                assert!(samples.is_empty());
+                assert_eq!(fake.fifo.len(), (usize::from(edges) + 1) * 12);
+            }
+            assert!(!fake.irq_wake);
+            assert_eq!(fake.ambiguous_lengths, 0);
+            assert_eq!(
+                fake.ops,
+                if irq.is_some() {
+                    vec![Op::Stop, Op::Detach]
+                } else {
+                    vec![Op::Stop]
+                }
+            );
+        }
+    }
+}
+
+#[test]
 fn failed_stop_or_detach_marks_faulted_without_repeating_release() {
     let _serial = SERIAL.lock().unwrap();
     let file = DeviceFile::new();
@@ -940,57 +1009,6 @@ fn spi_factories_share_device_state_and_cleanup() {
     );
     assert_eq!(result.err(), Some(crate::DeviceError::InvalidData));
     assert_state(State::Faulted);
-}
-
-#[test]
-fn ambiguous_fifo_snapshot_retries_without_losing_the_sample_or_waiting_for_another_irq() {
-    let _serial = SERIAL.lock().unwrap();
-    let file = DeviceFile::new();
-    for (irq, retry) in [(false, true), (true, true), (true, false)] {
-        reset();
-        {
-            let mut fake = FAKE.lock().unwrap();
-            // Start with the watermark low, then deliver exactly one edge.
-            fake.irq_asserted = false;
-            fake.irq_wake = irq;
-            fake.snapshot_crossings = 3;
-            fake.fifo.extend_from_slice(&[0; 12]);
-            // A false tick simulates cancellation during the deferred IRQ retry.
-            fake.repeat_periodic = retry;
-        }
-        let device = acquire_bmi270(
-            binding(file.path(), irq.then_some(file.path())),
-            default_config(),
-        )
-        .unwrap();
-        let mut sample = None;
-        run(
-            device,
-            &AtomicBool::new(false),
-            &File::open(file.path()).unwrap(),
-            &mut |event| {
-                let crate::Event::Sample(value) = event else {
-                    panic!("deferred snapshot cannot report a terminal fault");
-                };
-                assert!(sample.replace(value).is_none());
-                false
-            },
-        )
-        .unwrap();
-        let fake = FAKE.lock().unwrap();
-        assert!(!fake.irq_wake);
-        assert_eq!(fake.snapshot_crossings, 0);
-        assert_eq!(fake.fifo.len(), if retry { 0 } else { 12 });
-        assert_eq!(fake.unregisters, usize::from(irq));
-        assert_state(State::Available);
-        if retry {
-            let sample = sample.unwrap();
-            assert_eq!(sample.sequence, 1);
-            assert!(sample.is_capture_time);
-        } else {
-            assert!(sample.is_none());
-        }
-    }
 }
 
 #[test]

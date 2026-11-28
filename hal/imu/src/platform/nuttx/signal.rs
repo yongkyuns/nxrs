@@ -62,19 +62,16 @@ impl Signal {
                 period,
                 next_deadline,
             } => {
-                if !wait_until(cancel, *next_deadline)? {
+                let Some(now) = wait_until(cancel, *next_deadline)? else {
                     return Ok(None);
-                }
+                };
                 Ok(Some(Wake {
-                    periodic_deadline: advance_periodic_deadline(
-                        next_deadline,
-                        *period,
-                        Instant::now(),
-                    ),
+                    periodic_deadline: advance_periodic_deadline(next_deadline, *period, now),
                 }))
             }
         }
     }
+
     pub(super) fn retry(&mut self, cancel: &File, interval: Duration) -> Result<bool, DeviceError> {
         let Self::Interrupt { ready, .. } = self else {
             // Periodic acquisition already waits for the next scheduled drain.
@@ -82,7 +79,7 @@ impl Signal {
         };
         // The FIFO may keep the watermark asserted after the edge was acknowledged.
         // Retry at the normal delivery cadence even if another edge never arrives.
-        if !wait_until(cancel, Instant::now() + interval)? {
+        if wait_until(cancel, Instant::now() + interval)?.is_none() {
             return Ok(false);
         }
         *ready = Some(true);
@@ -99,6 +96,7 @@ impl Signal {
         }
         Ok(())
     }
+
     pub(super) fn close(&mut self) -> Result<(), DeviceError> {
         match self {
             Self::Interrupt { irq, .. } => irq.unregister().map_err(gpio_error),
@@ -108,7 +106,7 @@ impl Signal {
 }
 
 /// Ignore early wakes and interruptions while retaining the absolute deadline.
-fn wait_until(cancel: &File, deadline: Instant) -> Result<bool, DeviceError> {
+fn wait_until(cancel: &File, deadline: Instant) -> Result<Option<Instant>, DeviceError> {
     loop {
         let remaining = deadline.saturating_duration_since(Instant::now());
         let timeout = remaining
@@ -116,9 +114,13 @@ fn wait_until(cancel: &File, deadline: Instant) -> Result<bool, DeviceError> {
             .div_ceil(1_000_000)
             .min(i32::MAX as u128) as i32;
         match events::tick(cancel.as_raw_fd(), timeout) {
-            Ok(false) => return Ok(false),
-            Ok(true) if Instant::now() >= deadline => return Ok(true),
-            Ok(true) => {}
+            Ok(false) => return Ok(None),
+            Ok(true) => {
+                let now = Instant::now();
+                if now >= deadline {
+                    return Ok(Some(now));
+                }
+            }
             Err(error) if error.kind() == ErrorKind::Interrupted => {}
             Err(_) => return Err(DeviceError::Io),
         }
