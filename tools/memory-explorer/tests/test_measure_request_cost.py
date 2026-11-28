@@ -243,7 +243,7 @@ class CostTests(unittest.TestCase):
         native = self.file("overlay/unit.c", original)
         patch = self.file("recorder.patch", b"diff --git a/unit.c b/unit.c\n"
                           b"--- a/unit.c\n+++ b/unit.c\n@@ -1,2 +1,3 @@\n"
-                          b" context\n+added\n trailing\n")
+                          b"  context\n+added\n  trailing\n")
         commands = cost.Commands(self.root)
         with self.assertRaises(RuntimeError):
             commands.apply_patch(native.parent, patch)
