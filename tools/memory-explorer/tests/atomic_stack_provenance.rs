@@ -90,7 +90,14 @@ fn missing_changed_or_unrestored_patch_receipts_are_rejected() {
         })
         .is_err());
     };
-    for key in ["path", "sha256", "source", "before", "after", "source_restored"] {
+    for key in [
+        "path",
+        "sha256",
+        "source",
+        "before",
+        "after",
+        "source_restored",
+    ] {
         let mut build = valid.clone();
         build["atomic_stack_patch"][key] = if key == "source_restored" {
             json!(false)
