@@ -222,6 +222,42 @@ class CostTests(unittest.TestCase):
         self.assertEqual((self.root / "commands/000.stdout").read_bytes(), b"partial")
         self.assertTrue(json.loads((self.root / "commands.json").read_text())[0]["timed_out"])
 
+    def test_scratch_patch_applies_inside_an_enclosing_checkout(self):
+        subprocess.run(["git", "init", "--quiet", self.root], check=True)
+        (self.root / "commands").mkdir()
+        native = self.file("target/overlay/unit.c", b"candidate\n")
+        patch = self.file("recorder.patch", b"diff --git a/unit.c b/unit.c\n"
+                          b"--- a/unit.c\n+++ b/unit.c\n@@ -1 +1 @@\n"
+                          b"-original\n+candidate\n")
+        commands = cost.Commands(self.root)
+        commands.environment.update({"GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "core.autocrlf",
+                                     "GIT_CONFIG_VALUE_0": "true"})
+        commands.apply_patch(native.parent, patch, reverse=True)
+        self.assertEqual(native.read_bytes(), b"original\n")
+        commands.apply_patch(native.parent, patch)
+        self.assertEqual(native.read_bytes(), b"candidate\n")
+
+    def test_legacy_patch_preserves_context_whitespace_and_rejects_source_changes(self):
+        (self.root / "commands").mkdir()
+        original = b"  context\n  trailing\n"
+        native = self.file("overlay/unit.c", original)
+        patch = self.file("recorder.patch", b"diff --git a/unit.c b/unit.c\n"
+                          b"--- a/unit.c\n+++ b/unit.c\n@@ -1,2 +1,3 @@\n"
+                          b" context\n+added\n trailing\n")
+        commands = cost.Commands(self.root)
+        with self.assertRaises(RuntimeError):
+            commands.apply_patch(native.parent, patch)
+        self.assertEqual(native.read_bytes(), original)
+        commands.apply_patch(native.parent, patch, ignore_space_change=True)
+        self.assertEqual(native.read_bytes(), b"  context\nadded\n  trailing\n")
+        commands.apply_patch(native.parent, patch, reverse=True, ignore_space_change=True)
+        self.assertEqual(native.read_bytes(), original)
+        changed = b"  changed\n  trailing\n"
+        native.write_bytes(changed)
+        with self.assertRaises(RuntimeError):
+            commands.apply_patch(native.parent, patch, ignore_space_change=True)
+        self.assertEqual(native.read_bytes(), changed)
+
     def test_existing_output_or_output_inside_context_is_rejected_before_commands(self):
         args = argparse.Namespace(output=self.root, nuttx_context=self.root / "context")
         with mock.patch.object(cost, "measure") as measure:
