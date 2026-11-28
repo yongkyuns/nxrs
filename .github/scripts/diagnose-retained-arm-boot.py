@@ -28,10 +28,10 @@ def digest(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def boot(command, directory):
+def boot(command, directory, experiment_deadline):
     console = bytearray()
     started = time.monotonic()
-    deadline = started + 10
+    deadline = min(started + 10, experiment_deadline)
     assertion_at = None
     status = "host_timeout"
     process = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
@@ -108,20 +108,24 @@ def main():
               "elf_sha256": ELF_SHA256, "config_sha256": CONFIG_SHA256,
               "qemu_version": qemu_version, "qemu_sha256": digest(Path(qemu)),
               "os_release": Path("/etc/os-release").read_text(),
-              "command": command, "maximum_boots": 50,
+              "command": command, "maximum_boots": 1000,
+              "experiment_host_deadline_seconds": 180,
               "host_deadline_seconds_per_boot": 10, "assertion_tail_seconds": 2,
               "boots": []}
-    for index in range(1, 51):
+    experiment_deadline = time.monotonic() + 180
+    for index in range(1, 1001):
+        if time.monotonic() >= experiment_deadline:
+            raise RuntimeError("Diagnostic observation window exhausted; original failure remains unresolved")
         directory = args.output / f"boot-{index:03d}"
         directory.mkdir()
-        result = boot(command, directory)
+        result = boot(command, directory, experiment_deadline)
         report["boots"].append(result)
         (args.output / "report.json").write_text(json.dumps(report, indent=2) + "\n")
         print(f"boot {index}: {result['status']} ({result['console_bytes']} bytes)", flush=True)
         if result["status"] != "prompt_observed":
             print((directory / "console.log").read_text(errors="replace"), flush=True)
             raise SystemExit(1)
-    print("No assertion in this 50-boot diagnostic window; original failure remains unresolved.")
+    print("No assertion in this 1000-boot diagnostic window; original failure remains unresolved.")
 
 
 if __name__ == "__main__":
