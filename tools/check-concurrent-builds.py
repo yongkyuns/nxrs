@@ -436,9 +436,12 @@ def _finished(case: str, ctx: Context, revision: str) -> tuple[dict[str, str], d
                             and row["target"]["kind"] == ["lib"]
                             and row["target"]["src_path"] == str(ctx.original_source / selected_libraries[package] / "src/lib.rs"),
                             "wrong selected target library artifact")
-                    archives = [ctx.output(name, f"cargo/{TARGET}/release/deps")
+                    archives = [ctx.output(name, f"cargo/{TARGET}/release")
                                 for name in row["filenames"] if name.endswith(".rlib")]
                     require(len(archives) == 1, "missing selected target rlib")
+                    release = ctx.out / "cargo" / TARGET / "release"
+                    require(_device_checker.cargo_target_output(archives[0], release, package),
+                            "selected target rlib belongs to another Cargo output")
                     ctx.evidence(archives[0], hashes)
                     with archives[0].open("rb") as archive:
                         require(archive.read(8) == b"!<arch>\n", "invalid selected target rlib")

@@ -196,8 +196,12 @@ class Witness:
                            "nxrs-imu": "hal/imu", "nxrs-gnss": "hal/gnss", "nxrs-ubx-driver": "driver/ubx"}
         for package in packages:
             main = package == "nxrs-event-demo"
-            artifact = cargo_binary if main else write(cargo_binary.parent / "deps" / (package + ".rlib"),
-                                                       b"!<arch>\nfixture target library\n")
+            artifact = cargo_binary
+            if not main:
+                archive = (Path("deps") / (package + ".rlib") if case == "lsm6dso" else
+                           Path("build") / package / "0123456789abcdef/out" /
+                           ("lib" + package.replace("-", "_") + "-0123456789abcdef.rlib"))
+                artifact = write(cargo_binary.parent / archive, b"!<arch>\nfixture target library\n")
             messages.append({"reason": "compiler-artifact", "package_id": f"path+{source.as_uri()}#{package}@0.1.0",
                 "filenames": [str(artifact)],
                 "fresh": False, "executable": str(cargo_binary) if main else None,
@@ -388,7 +392,7 @@ class ConcurrentCheckerTests(unittest.TestCase):
     def test_cargo_driver_and_completion_negative_controls(self):
         path = self.out / "cargo-messages.jsonl"
         original = [json.loads(line) for line in path.read_text().splitlines()]
-        for mutation in ("missing-driver", "wrong-driver", "host-only-driver", "failed-build", "fresh-app", "foreign-output", "missing-configuration", "wrong-native-link"):
+        for mutation in ("missing-driver", "wrong-driver", "host-only-driver", "failed-build", "fresh-app", "foreign-output", "wrong-package-output", "missing-configuration", "wrong-native-link"):
             with self.subTest(mutation=mutation):
                 rows = copy.deepcopy(original)
                 if mutation == "missing-driver":
@@ -403,6 +407,11 @@ class ConcurrentCheckerTests(unittest.TestCase):
                     next(row for row in rows if row.get("executable"))["fresh"] = True
                 elif mutation == "foreign-output":
                     rows[0]["filenames"] = [str(self.fixture.parent / "lsm6dso/cargo" / TARGET / "release/driver.rlib")]
+                elif mutation == "wrong-package-output":
+                    previous = Path(rows[0]["filenames"][0])
+                    misplaced = Path(str(previous).replace("/build/nxrs-bmi270/", "/build/nxrs-imu/"))
+                    write(misplaced, previous.read_bytes())
+                    rows[0]["filenames"] = [str(misplaced)]
                 elif mutation == "missing-configuration":
                     rows = [row for row in rows if not (row["reason"] == "build-script-executed" and "nxrs-composition@" in row["package_id"])]
                 else:

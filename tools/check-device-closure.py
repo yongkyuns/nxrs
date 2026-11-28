@@ -214,6 +214,16 @@ def artifact_scopes(records, names, recorded_out, out):
         raise ValueError(f"invalid host/target Cargo evidence: {error}") from error
 
 
+def cargo_target_output(path, release, package):
+    """Recognize legacy deps and Cargo 1.100's package-owned intermediate output."""
+    if ".." in path.parts or not path.is_relative_to(release):
+        return False
+    parts = path.relative_to(release).parts
+    return (len(parts) == 2 and parts[0] == "deps"
+            or len(parts) == 5 and parts[:2] == ("build", package)
+            and re.fullmatch(r"[0-9a-f]{16}", parts[2]) is not None and parts[3] == "out")
+
+
 class Evidence:
     def __init__(self, out, root, case="bmi270"):
         self.out, self.root = Path(out).resolve(), Path(root).resolve()
@@ -352,8 +362,9 @@ def validate_selection(evidence, case, revision):
     for name in ("provider-selection.json", "resolved.config", TARGET + ".json"):
         e.verified(e.recorded_out / name)
     spec = e.read_json(TARGET + ".json")
+    width = spec["target-pointer-width"]
     require(spec["arch"] == "xtensa" and spec["os"] == "nuttx"
-            and spec["target-pointer-width"] == "32", "wrong compiled target specification")
+            and (width == "32" or type(width) is int and width == 32), "wrong compiled target specification")
     provenance = e.read("provenance.txt")
     fields = {}
     for line in provenance.splitlines():
@@ -470,8 +481,8 @@ def inspection_tools(e, run=command):
     require("-r" in link["effective"] and "--gc-sections" in link["effective"],
             "missing relocatable Rust link invocation")
     outputs = [link["effective"][i + 1] for i, a in enumerate(link["effective"][:-1]) if a == "-o"]
-    require(len(outputs) == 1 and Path(outputs[0]).parent
-            == e.recorded_out / "cargo" / TARGET / "release/deps",
+    release = e.recorded_out / "cargo" / TARGET / "release"
+    require(len(outputs) == 1 and cargo_target_output(Path(outputs[0]), release, e.expected["app"]["package"]),
             "Rust link invocation belongs to another target output")
     downloads = hash_list(e.read("downloads.sha256"))
     installer = e.root / "tools/install-qemu-tools.sh"
